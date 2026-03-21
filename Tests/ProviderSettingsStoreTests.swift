@@ -3,6 +3,8 @@ import XCTest
 
 @MainActor
 final class ProviderSettingsStoreTests: XCTestCase {
+    private let rebindFlagKey = "providers.keychain.rebind.required"
+
     func testDefaultConfigurationUsesQwenForASRAndDeepSeekForText() {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
@@ -79,6 +81,49 @@ final class ProviderSettingsStoreTests: XCTestCase {
         XCTAssertEqual(decoded.hint, "请检查额度")
     }
 
+    func testCredentialStateUsesNeedsRebindWhenFlagIsSet() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        defaults.set(true, forKey: rebindFlagKey)
+
+        let credentials = MemoryCredentialStoreForSettingsTests()
+        let store = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
+
+        XCTAssertEqual(store.asrCredentialState, .needsRebind)
+        XCTAssertEqual(store.textCredentialState, .needsRebind)
+    }
+
+    func testCredentialStateUsesNeedsRebindWhenPassiveProbeNeedsInteraction() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let credentials = MemoryCredentialStoreForSettingsTests()
+        credentials.containsBehavior = .error(.interactionRequired)
+
+        let store = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
+
+        XCTAssertEqual(store.asrCredentialState, .needsRebind)
+        XCTAssertEqual(store.textCredentialState, .needsRebind)
+        XCTAssertTrue(store.asrFeedbackMessage?.contains("需要交互") == true)
+    }
+
+    func testSavingBothCredentialsClearsRebindFlag() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        defaults.set(true, forKey: rebindFlagKey)
+
+        let credentials = MemoryCredentialStoreForSettingsTests()
+        let store = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
+        store.asrAPIKeyDraft = "sk-asr-demo-1234"
+        store.textAPIKeyDraft = "sk-text-demo-5678"
+
+        XCTAssertTrue(store.saveASRAPIKeyDraft())
+        XCTAssertTrue(defaults.bool(forKey: rebindFlagKey))
+
+        XCTAssertTrue(store.saveTextAPIKeyDraft())
+        XCTAssertFalse(defaults.bool(forKey: rebindFlagKey))
+    }
+
     private var defaultsSuiteName: String {
         "ProviderSettingsStoreTests.\(name)"
     }
@@ -93,7 +138,14 @@ final class ProviderSettingsStoreTests: XCTestCase {
 }
 
 private final class MemoryCredentialStoreForSettingsTests: ProviderCredentialStore {
+    enum ContainsBehavior {
+        case storage
+        case fixed(Bool)
+        case error(ProviderCredentialStoreError)
+    }
+
     private var storage: [String: String] = [:]
+    var containsBehavior: ContainsBehavior = .storage
 
     func loadAPIKey(for profileID: String) throws -> String? {
         storage[profileID]
@@ -108,6 +160,13 @@ private final class MemoryCredentialStoreForSettingsTests: ProviderCredentialSto
     }
 
     func containsAPIKey(for profileID: String, allowUserInteraction: Bool) throws -> Bool {
-        storage[profileID]?.isEmpty == false
+        switch containsBehavior {
+        case .storage:
+            return storage[profileID]?.isEmpty == false
+        case let .fixed(value):
+            return value
+        case let .error(error):
+            throw error
+        }
     }
 }
