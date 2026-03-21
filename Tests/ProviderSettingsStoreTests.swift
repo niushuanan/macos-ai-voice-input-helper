@@ -3,6 +3,35 @@ import XCTest
 
 @MainActor
 final class ProviderSettingsStoreTests: XCTestCase {
+    func testDefaultConfigurationUsesQwenForASRAndDeepSeekForText() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let credentials = MemoryCredentialStoreForSettingsTests()
+        let store = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
+
+        XCTAssertEqual(store.asrConfig.providerType, .dashScopeQwenASR)
+        XCTAssertEqual(store.asrConfig.baseURLString, "https://dashscope.aliyuncs.com")
+        XCTAssertEqual(store.asrConfig.modelName, "qwen3-asr-flash")
+
+        XCTAssertEqual(store.textConfig.providerType, .openAICompatible)
+        XCTAssertEqual(store.textConfig.baseURLString, "https://api.deepseek.com")
+        XCTAssertEqual(store.textConfig.modelName, "deepseek-chat")
+    }
+
+    func testSwitchToLocalSenseVoiceAutoFillsModelPath() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let credentials = MemoryCredentialStoreForSettingsTests()
+        let store = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
+
+        store.updateASRProviderType(.localSenseVoice)
+
+        XCTAssertEqual(store.asrConfig.providerType, .localSenseVoice)
+        XCTAssertEqual(store.asrConfig.localModelPath, defaultSenseVoiceModelPath)
+    }
+
     func testRecordedModelTestResultsPersistAcrossStoreReload() {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }

@@ -36,6 +36,23 @@ final class SkillRuleStoreTests: XCTestCase {
         XCTAssertTrue(output.appliedSkills.isEmpty)
     }
 
+    func testApplyDictationReturnsHitSkillTags() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let store = SkillRuleStore(defaults: defaults, storageKey: "skill.rules.tests")
+        store.setEnabled(true, for: .spokenFilter)
+        store.setParameter("嗯", for: .spokenFilter)
+        store.setEnabled(true, for: .autoPolish)
+        store.setEnabled(false, for: .autoStructure)
+        store.setEnabled(false, for: .appPreferenceBoost)
+
+        let output = store.applyDictation("嗯 你好  。", outputBias: .neutral)
+
+        XCTAssertEqual(output.text, "你好。")
+        XCTAssertEqual(output.appliedSkills, [.spokenFilter, .autoPolish])
+    }
+
     private var defaultsSuiteName: String {
         "SkillRuleStoreTests.\(name)"
     }
