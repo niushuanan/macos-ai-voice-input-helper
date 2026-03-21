@@ -81,7 +81,8 @@ final class AppModel: ObservableObject {
         let speechProviderRegistry = SpeechProviderRegistry(
             providers: [
                 OpenAITranscriptionProvider(),
-                DashScopeQwenASRProvider()
+                DashScopeQwenASRProvider(),
+                LocalSenseVoiceProvider()
             ]
         )
         let rewriteProviderRegistry = RewriteProviderRegistry(

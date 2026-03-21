@@ -189,11 +189,17 @@ final class InteractionCoordinator {
                     throw SpeechTranscriptionError.providerFailure(description: "当前构建不含所选 provider。")
                 }
 
-                guard
-                    let apiKey = try providerSettingsStore.loadAPIKeyForTranscriptionProvider(),
-                    !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                else {
-                    throw SpeechTranscriptionError.missingAPIKey(providerName: configuration.providerName)
+                let apiKey: String
+                if configuration.providerType.requiresAPIKey {
+                    guard
+                        let loaded = try providerSettingsStore.loadAPIKeyForTranscriptionProvider(),
+                        !loaded.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    else {
+                        throw SpeechTranscriptionError.missingAPIKey(providerName: configuration.providerName)
+                    }
+                    apiKey = loaded
+                } else {
+                    apiKey = ""
                 }
 
                 let request = SpeechTranscriptionRequest(

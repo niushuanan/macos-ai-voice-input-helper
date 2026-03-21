@@ -4,11 +4,14 @@ import Security
 
 private let defaultASRCredentialKeyRef = "asr.primary"
 private let defaultTextCredentialKeyRef = "text.primary"
+let defaultSenseVoiceModelPath =
+    "~/Library/Application Support/Shandianshuo/models/sensevoice-small"
 
 enum ProviderType: String, CaseIterable, Codable, Identifiable {
     case openAI
     case openAICompatible
     case dashScopeQwenASR
+    case localSenseVoice
 
     var id: String { rawValue }
 
@@ -20,6 +23,8 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
             return "OpenAI 兼容"
         case .dashScopeQwenASR:
             return "阿里云 Qwen ASR"
+        case .localSenseVoice:
+            return "本地 SenseVoice（实验）"
         }
     }
 
@@ -31,6 +36,8 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
             return "兼容"
         case .dashScopeQwenASR:
             return "Qwen"
+        case .localSenseVoice:
+            return "本地"
         }
     }
 
@@ -38,6 +45,8 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .dashScopeQwenASR:
             return "qwen3-asr-flash"
+        case .localSenseVoice:
+            return "sensevoice-small"
         case .openAI, .openAICompatible:
             return "whisper-1"
         }
@@ -51,12 +60,14 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
             return "deepseek-chat"
         case .dashScopeQwenASR:
             return "deepseek-chat"
+        case .localSenseVoice:
+            return "deepseek-chat"
         }
     }
 
     var supportsTranscription: Bool {
         switch self {
-        case .openAI, .openAICompatible, .dashScopeQwenASR:
+        case .openAI, .openAICompatible, .dashScopeQwenASR, .localSenseVoice:
             return true
         }
     }
@@ -65,7 +76,7 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .openAI, .openAICompatible:
             return true
-        case .dashScopeQwenASR:
+        case .dashScopeQwenASR, .localSenseVoice:
             return false
         }
     }
@@ -74,6 +85,8 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .openAI, .openAICompatible, .dashScopeQwenASR:
             return true
+        case .localSenseVoice:
+            return false
         }
     }
 
@@ -89,6 +102,8 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
             return nil
         case .dashScopeQwenASR:
             return URL(string: "https://dashscope.aliyuncs.com")
+        case .localSenseVoice:
+            return URL(string: "https://local.sensevoice")
         }
     }
 }
@@ -98,17 +113,20 @@ struct ASRConfig: Codable, Equatable {
     var baseURLString: String
     var modelName: String
     var keyRef: String
+    var localModelPath: String?
 
     init(
         providerType: ProviderType = .openAI,
         baseURLString: String? = nil,
         modelName: String? = nil,
-        keyRef: String = defaultASRCredentialKeyRef
+        keyRef: String = defaultASRCredentialKeyRef,
+        localModelPath: String? = nil
     ) {
         self.providerType = providerType
         self.baseURLString = baseURLString ?? providerType.fixedBaseURL?.absoluteString ?? ""
         self.modelName = modelName ?? providerType.defaultTranscriptionModelName
         self.keyRef = keyRef
+        self.localModelPath = localModelPath
     }
 }
 
@@ -137,6 +155,23 @@ struct SpeechProviderConfiguration: Equatable {
     let providerName: String
     let modelName: String
     let baseURL: URL
+    let localModelPath: String?
+
+    init(
+        profileID: String,
+        providerType: ProviderType,
+        providerName: String,
+        modelName: String,
+        baseURL: URL,
+        localModelPath: String? = nil
+    ) {
+        self.profileID = profileID
+        self.providerType = providerType
+        self.providerName = providerName
+        self.modelName = modelName
+        self.baseURL = baseURL
+        self.localModelPath = localModelPath
+    }
 }
 
 struct TextGenerationProviderConfiguration: Equatable {
@@ -504,23 +539,29 @@ final class ProviderSettingsStore: ObservableObject {
     }
 
     func updateASRProviderType(_ type: ProviderType) {
+        guard type.supportsTranscription else {
+            return
+        }
         asrConfig.providerType = type
         if !type.allowsCustomBaseURL {
             asrConfig.baseURLString = type.fixedBaseURL?.absoluteString ?? ""
         }
-        if asrConfig.modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            asrConfig.modelName = type.defaultTranscriptionModelName
+        asrConfig.modelName = type.defaultTranscriptionModelName
+        if type == .localSenseVoice {
+            let currentPath = asrConfig.localModelPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+            asrConfig.localModelPath = (currentPath?.isEmpty == false) ? currentPath : defaultSenseVoiceModelPath
         }
     }
 
     func updateTextProviderType(_ type: ProviderType) {
+        guard type.supportsRewrite else {
+            return
+        }
         textConfig.providerType = type
         if !type.allowsCustomBaseURL {
             textConfig.baseURLString = type.fixedBaseURL?.absoluteString ?? ""
         }
-        if textConfig.modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            textConfig.modelName = type.defaultRewriteModelName
-        }
+        textConfig.modelName = type.defaultRewriteModelName
     }
 
     func updateASRBaseURL(_ value: String) {
@@ -533,6 +574,11 @@ final class ProviderSettingsStore: ObservableObject {
 
     func updateASRModel(_ value: String) {
         asrConfig.modelName = value
+    }
+
+    func updateASRLocalModelPath(_ value: String) {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        asrConfig.localModelPath = normalized.isEmpty ? nil : normalized
     }
 
     func updateTextModel(_ value: String) {
@@ -580,7 +626,8 @@ final class ProviderSettingsStore: ObservableObject {
             providerType: asrConfig.providerType,
             providerName: asrConfig.providerType.displayName,
             modelName: modelName,
-            baseURL: baseURL
+            baseURL: baseURL,
+            localModelPath: asrConfig.localModelPath
         )
     }
 
@@ -611,7 +658,8 @@ final class ProviderSettingsStore: ObservableObject {
             providerType: asrConfig.providerType,
             providerName: asrConfig.providerType.displayName,
             modelName: asrConfig.providerType.defaultTranscriptionModelName,
-            baseURL: asrConfig.providerType.fixedBaseURL ?? URL(string: "https://api.openai.com")!
+            baseURL: asrConfig.providerType.fixedBaseURL ?? URL(string: "https://api.openai.com")!,
+            localModelPath: asrConfig.localModelPath
         )
     }
 
@@ -746,6 +794,17 @@ final class ProviderSettingsStore: ObservableObject {
         }
         if sanitized.keyRef.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             sanitized.keyRef = defaultASRCredentialKeyRef
+        }
+        let normalizedModelPath = sanitized.localModelPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if sanitized.providerType == .localSenseVoice {
+            sanitized.localModelPath = (normalizedModelPath?.isEmpty == false)
+                ? normalizedModelPath
+                : defaultSenseVoiceModelPath
+        } else if normalizedModelPath?.isEmpty == true {
+            sanitized.localModelPath = nil
+        } else {
+            sanitized.localModelPath = normalizedModelPath
         }
         return sanitized
     }
@@ -968,21 +1027,25 @@ struct ASRConnectionTester {
         }
 
         let apiKey: String
-        do {
-            let loaded = (try credentialStore.loadAPIKey(for: config.keyRef) ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !loaded.isEmpty else {
+        if config.providerType.requiresAPIKey {
+            do {
+                let loaded = (try credentialStore.loadAPIKey(for: config.keyRef) ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !loaded.isEmpty else {
+                    return .failure(
+                        message: "语音识别 API 密钥为空。",
+                        hint: "请先填写并保存 API 密钥，再点测试。"
+                    )
+                }
+                apiKey = loaded
+            } catch {
                 return .failure(
-                    message: "语音识别 API 密钥为空。",
-                    hint: "请先填写并保存 API 密钥，再点测试。"
+                    message: "无法读取语音识别 API 密钥：\(error.localizedDescription)",
+                    hint: "请重新保存密钥后重试。"
                 )
             }
-            apiKey = loaded
-        } catch {
-            return .failure(
-                message: "无法读取语音识别 API 密钥：\(error.localizedDescription)",
-                hint: "请重新保存密钥后重试。"
-            )
+        } else {
+            apiKey = ""
         }
 
         guard
@@ -1006,6 +1069,8 @@ struct ASRConnectionTester {
                 apiKey: apiKey,
                 audioData: audioData
             )
+        case .localSenseVoice:
+            return LocalSenseVoiceHealthChecker.check(config: config)
         case .openAI, .openAICompatible:
             return await testOpenAICompatible(
                 config: config,

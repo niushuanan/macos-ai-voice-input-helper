@@ -238,6 +238,11 @@ struct SettingsView: View {
                     providerType: asrProviderTypeBinding,
                     baseURL: asrBaseURLBinding,
                     modelName: asrModelBinding,
+                    localModelPath: providerSettingsStore.asrConfig.providerType == .localSenseVoice
+                        ? asrLocalModelPathBinding
+                        : nil,
+                    showsBaseURL: providerSettingsStore.asrConfig.providerType != .localSenseVoice,
+                    showsAPIKey: providerSettingsStore.asrConfig.providerType.requiresAPIKey,
                     allowsCustomBaseURL: providerSettingsStore.asrConfig.providerType.allowsCustomBaseURL,
                     baseURLPlaceholder: baseURLPlaceholder(for: providerSettingsStore.asrConfig.providerType),
                     modelPlaceholder: providerSettingsStore.asrConfig.providerType.defaultTranscriptionModelName,
@@ -253,7 +258,8 @@ struct SettingsView: View {
                     activeConfigLine: effectiveConfigLine(
                         providerType: providerSettingsStore.asrConfig.providerType,
                         baseURLString: providerSettingsStore.asrConfig.baseURLString,
-                        modelName: providerSettingsStore.asrConfig.modelName
+                        modelName: providerSettingsStore.asrConfig.modelName,
+                        localModelPath: providerSettingsStore.asrConfig.localModelPath
                     ),
                     onTest: runASRTest
                 )
@@ -265,6 +271,9 @@ struct SettingsView: View {
                     providerType: textProviderTypeBinding,
                     baseURL: textBaseURLBinding,
                     modelName: textModelBinding,
+                    localModelPath: nil,
+                    showsBaseURL: true,
+                    showsAPIKey: true,
                     allowsCustomBaseURL: providerSettingsStore.textConfig.providerType.allowsCustomBaseURL,
                     baseURLPlaceholder: baseURLPlaceholder(for: providerSettingsStore.textConfig.providerType),
                     modelPlaceholder: providerSettingsStore.textConfig.providerType.defaultRewriteModelName,
@@ -301,6 +310,9 @@ struct SettingsView: View {
         providerType: Binding<ProviderType>,
         baseURL: Binding<String>,
         modelName: Binding<String>,
+        localModelPath: Binding<String>?,
+        showsBaseURL: Bool,
+        showsAPIKey: Bool,
         allowsCustomBaseURL: Bool,
         baseURLPlaceholder: String,
         modelPlaceholder: String,
@@ -326,6 +338,9 @@ struct SettingsView: View {
                 providerType: providerType,
                 baseURL: baseURL,
                 modelName: modelName,
+                localModelPath: localModelPath,
+                showsBaseURL: showsBaseURL,
+                showsAPIKey: showsAPIKey,
                 allowsCustomBaseURL: allowsCustomBaseURL,
                 baseURLPlaceholder: baseURLPlaceholder,
                 modelPlaceholder: modelPlaceholder,
@@ -649,6 +664,11 @@ struct SettingsView: View {
                 providerType: asrProviderTypeBinding,
                 baseURL: asrBaseURLBinding,
                 modelName: asrModelBinding,
+                localModelPath: providerSettingsStore.asrConfig.providerType == .localSenseVoice
+                    ? asrLocalModelPathBinding
+                    : nil,
+                showsBaseURL: providerSettingsStore.asrConfig.providerType != .localSenseVoice,
+                showsAPIKey: providerSettingsStore.asrConfig.providerType.requiresAPIKey,
                 allowsCustomBaseURL: providerSettingsStore.asrConfig.providerType.allowsCustomBaseURL,
                 baseURLPlaceholder: baseURLPlaceholder(for: providerSettingsStore.asrConfig.providerType),
                 modelPlaceholder: providerSettingsStore.asrConfig.providerType.defaultTranscriptionModelName,
@@ -666,6 +686,9 @@ struct SettingsView: View {
                 providerType: textProviderTypeBinding,
                 baseURL: textBaseURLBinding,
                 modelName: textModelBinding,
+                localModelPath: nil,
+                showsBaseURL: true,
+                showsAPIKey: true,
                 allowsCustomBaseURL: providerSettingsStore.textConfig.providerType.allowsCustomBaseURL,
                 baseURLPlaceholder: baseURLPlaceholder(for: providerSettingsStore.textConfig.providerType),
                 modelPlaceholder: providerSettingsStore.textConfig.providerType.defaultRewriteModelName,
@@ -792,6 +815,13 @@ struct SettingsView: View {
         )
     }
 
+    private var asrLocalModelPathBinding: Binding<String> {
+        Binding(
+            get: { providerSettingsStore.asrConfig.localModelPath ?? defaultSenseVoiceModelPath },
+            set: { providerSettingsStore.updateASRLocalModelPath($0) }
+        )
+    }
+
     private var textModelBinding: Binding<String> {
         Binding(
             get: { providerSettingsStore.textConfig.modelName },
@@ -808,6 +838,9 @@ struct SettingsView: View {
     }
 
     private func baseURLPlaceholder(for type: ProviderType) -> String {
+        if type == .localSenseVoice {
+            return "本地模式无需接口地址"
+        }
         if type.allowsCustomBaseURL {
             return type == .openAICompatible
                 ? "https://api.deepseek.com"
@@ -879,8 +912,19 @@ struct SettingsView: View {
     private func effectiveConfigLine(
         providerType: ProviderType,
         baseURLString: String,
-        modelName: String
+        modelName: String,
+        localModelPath: String? = nil
     ) -> String {
+        if providerType == .localSenseVoice {
+            let normalizedModel = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let finalModel = normalizedModel.isEmpty ? "模型未填写" : normalizedModel
+            let normalizedPath = localModelPath?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let finalPath = (normalizedPath?.isEmpty == false)
+                ? normalizedPath!
+                : defaultSenseVoiceModelPath
+            return "\(providerType.shortLabel) · 本地模型 · \(finalModel) · \(finalPath)"
+        }
         let resolvedBaseURL = ProviderConfigurationValidator.resolvedBaseURL(
             providerType: providerType,
             baseURLString: baseURLString
@@ -1234,6 +1278,9 @@ private struct ModelConfigCard: View {
     let providerType: Binding<ProviderType>
     let baseURL: Binding<String>
     let modelName: Binding<String>
+    let localModelPath: Binding<String>?
+    let showsBaseURL: Bool
+    let showsAPIKey: Bool
     let allowsCustomBaseURL: Bool
     let baseURLPlaceholder: String
     let modelPlaceholder: String
@@ -1257,13 +1304,19 @@ private struct ModelConfigCard: View {
             }
             .pickerStyle(.menu)
 
-            Text("API 地址")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            TextField(baseURLPlaceholder, text: baseURL)
-                .textFieldStyle(.roundedBorder)
-                .autocorrectionDisabled()
-                .disabled(!allowsCustomBaseURL)
+            if showsBaseURL {
+                Text("API 地址")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField(baseURLPlaceholder, text: baseURL)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    .disabled(!allowsCustomBaseURL)
+            } else {
+                Label("本地模式不需要接口地址。", systemImage: "internaldrive")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             Text("模型名")
                 .font(.caption)
@@ -1272,31 +1325,46 @@ private struct ModelConfigCard: View {
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled()
 
-            Text("API 密钥")
+            if let localModelPath {
+                Text("本地模型目录")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField(defaultSenseVoiceModelPath, text: localModelPath)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+            }
+
+            if showsAPIKey {
+                Text("API 密钥")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    SecureField("请输入 API 密钥", text: $apiKeyDraft)
+                        .textFieldStyle(.roundedBorder)
+
+                    Button("保存") {
+                        _ = onSaveKey()
+                    }
+                    .disabled(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    Button("删除", role: .destructive) {
+                        _ = onDeleteKey()
+                    }
+                    .disabled(credentialState == .missing)
+                }
+                .buttonStyle(.bordered)
+
+                Label(
+                    credentialState == .saved ? "密钥已保存（钥匙串）" : "密钥未保存",
+                    systemImage: credentialState == .saved ? "lock.shield.fill" : "exclamationmark.shield.fill"
+                )
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            HStack {
-                SecureField("请输入 API 密钥", text: $apiKeyDraft)
-                    .textFieldStyle(.roundedBorder)
-
-                Button("保存") {
-                    _ = onSaveKey()
-                }
-                .disabled(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                Button("删除", role: .destructive) {
-                    _ = onDeleteKey()
-                }
-                .disabled(credentialState == .missing)
+            } else {
+                Label("本地模型模式不需要 API 密钥。", systemImage: "lock.open.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(.bordered)
-
-            Label(
-                credentialState == .saved ? "密钥已保存（钥匙串）" : "密钥未保存",
-                systemImage: credentialState == .saved ? "lock.shield.fill" : "exclamationmark.shield.fill"
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
 
             if let validationMessage {
                 Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
