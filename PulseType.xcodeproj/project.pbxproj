@@ -10,6 +10,7 @@
 		02080CA78961B65946CBF53F /* MenuBarMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D48BFEC8EABFB9C0E92E685 /* MenuBarMenuView.swift */; };
 		06ED5EEBD9C709D7B20DFF2C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615736F7FBCACF8AF8B17CCF /* SettingsView.swift */; };
 		08AEBC14B14DCFC8330558BA /* OpenAITextGenerationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BFB5724578D68E1E94182AB /* OpenAITextGenerationProvider.swift */; };
+		1ADFDFBF9916296767B39DDA /* OpenAIProviderAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA9B804F228D15F5BB803E11 /* OpenAIProviderAdapterTests.swift */; };
 		1B54052D55540BDFF9C094A7 /* StatusPulseHUDController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5312CC574CB71C92172686C /* StatusPulseHUDController.swift */; };
 		1C28B9067E503981B8802BCD /* PulseTypeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B31135DA88F140538F690BA /* PulseTypeApp.swift */; };
 		2DC70FB9C90A5ADE8D4B7B3A /* RewriteProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0353B0863F44CC93650023 /* RewriteProvider.swift */; };
@@ -32,13 +33,26 @@
 		C406240E5F631778241BFC19 /* InteractionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76C33145AB5557B714895617 /* InteractionCoordinator.swift */; };
 		C5B85760CE9451FE36B4B278 /* OpenAITranscriptionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 241181D9FA17D66D2CB559E2 /* OpenAITranscriptionProvider.swift */; };
 		CCC3EBB173C21789DCF37B08 /* GlobalHotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C63ABC16650228A74B81F7FA /* GlobalHotkeyService.swift */; };
+		CCFC70782D453121CD3D621A /* OpenAIEndpointResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B14B5D28128E0B4304B0E398 /* OpenAIEndpointResolverTests.swift */; };
 		D7565185FDA605CB6CEBFB93 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6A00315A23BF62DC01AEC6 /* AudioCaptureService.swift */; };
+		E1DBC788787F324D6B2178FD /* SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71EDE485545C13E98B2E5B72 /* SessionStoreTests.swift */; };
 		E4AAEBBCFE13544B1223300E /* KeychainProviderCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 157337AD796A00BA0C88EF3E /* KeychainProviderCredentialStore.swift */; };
+		E62C2CC0F4637764DAD1A9BC /* RewriteIntentParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 683BF0A6C95E52BEA3D2B8C8 /* RewriteIntentParserTests.swift */; };
 		E9B4D93689282E00BED565F5 /* InputLane.swift in Sources */ = {isa = PBXBuildFile; fileRef = E80D1E1D6D632A257088DD03 /* InputLane.swift */; };
 		FD46E29D44B77B9A97D545B8 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D8F2B65D755716CA52CB285 /* AppModel.swift */; };
 		FDBF32C0FEB203F01750712D /* DiagnosticsCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 787C4C62D2B8C938D225018A /* DiagnosticsCenter.swift */; };
 		FED627529C528E95B85937EC /* TextOutputCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4D00737C3345BDE9F747AC /* TextOutputCoordinator.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		4153EC2331DBA4E4CFBE4590 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3951A6511FE7000EA5EECA75 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D57BFD4278B612FC0A7308C5;
+			remoteInfo = PulseType;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		0FD3BEE22B923D79D9B8964B /* AppScenePolicyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppScenePolicyStore.swift; sourceTree = "<group>"; };
@@ -51,6 +65,9 @@
 		615736F7FBCACF8AF8B17CCF /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		61E5EB79A499501B92D5C649 /* MenuBarStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusView.swift; sourceTree = "<group>"; };
 		651B002BCD715F07DBF78CE4 /* OpenAIEndpointResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIEndpointResolver.swift; sourceTree = "<group>"; };
+		683BF0A6C95E52BEA3D2B8C8 /* RewriteIntentParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewriteIntentParserTests.swift; sourceTree = "<group>"; };
+		6C101F89344CAC447FF263FA /* PulseTypeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PulseTypeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		71EDE485545C13E98B2E5B72 /* SessionStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStoreTests.swift; sourceTree = "<group>"; };
 		76C33145AB5557B714895617 /* InteractionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractionCoordinator.swift; sourceTree = "<group>"; };
 		787C4C62D2B8C938D225018A /* DiagnosticsCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsCenter.swift; sourceTree = "<group>"; };
 		7D48BFEC8EABFB9C0E92E685 /* MenuBarMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarMenuView.swift; sourceTree = "<group>"; };
@@ -59,7 +76,9 @@
 		8E4D00737C3345BDE9F747AC /* TextOutputCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextOutputCoordinator.swift; sourceTree = "<group>"; };
 		9459C6CBE5C6757CBFB2D250 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
 		9B31135DA88F140538F690BA /* PulseTypeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseTypeApp.swift; sourceTree = "<group>"; };
+		AA9B804F228D15F5BB803E11 /* OpenAIProviderAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIProviderAdapterTests.swift; sourceTree = "<group>"; };
 		AAF8BE09956AA31E1C87954D /* PulseType.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PulseType.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B14B5D28128E0B4304B0E398 /* OpenAIEndpointResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIEndpointResolverTests.swift; sourceTree = "<group>"; };
 		B76EE0E496B0199F87463E36 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		BE6A00315A23BF62DC01AEC6 /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
 		BF85AEA4B8AD0C5A4BF090B1 /* MenuBarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPanelView.swift; sourceTree = "<group>"; };
@@ -92,6 +111,7 @@
 			isa = PBXGroup;
 			children = (
 				AAF8BE09956AA31E1C87954D /* PulseType.app */,
+				6C101F89344CAC447FF263FA /* PulseTypeTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -241,8 +261,20 @@
 			children = (
 				DA0FCF2914E9DC8218BF9926 /* Config */,
 				3C2C6588B9901B0967872C42 /* Sources */,
+				CDAD0CF8C6D15165ED23F27C /* Tests */,
 				0D882EB372D43D8A981F6F3E /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		CDAD0CF8C6D15165ED23F27C /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				B14B5D28128E0B4304B0E398 /* OpenAIEndpointResolverTests.swift */,
+				AA9B804F228D15F5BB803E11 /* OpenAIProviderAdapterTests.swift */,
+				683BF0A6C95E52BEA3D2B8C8 /* RewriteIntentParserTests.swift */,
+				71EDE485545C13E98B2E5B72 /* SessionStoreTests.swift */,
+			);
+			path = Tests;
 			sourceTree = "<group>";
 		};
 		D77E6762D4BE854DD0B305EB /* Audio */ = {
@@ -301,6 +333,24 @@
 			productReference = AAF8BE09956AA31E1C87954D /* PulseType.app */;
 			productType = "com.apple.product-type.application";
 		};
+		DC70151991E7CAD141E17AA5 /* PulseTypeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E493D7BA9D4E621A6E6831AD /* Build configuration list for PBXNativeTarget "PulseTypeTests" */;
+			buildPhases = (
+				D7F761EECA3AB42914E6AD06 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B870AD7C366AB7FFBB05A505 /* PBXTargetDependency */,
+			);
+			name = PulseTypeTests;
+			packageProductDependencies = (
+			);
+			productName = PulseTypeTests;
+			productReference = 6C101F89344CAC447FF263FA /* PulseTypeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -311,6 +361,9 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					D57BFD4278B612FC0A7308C5 = {
+						ProvisioningStyle = Automatic;
+					};
+					DC70151991E7CAD141E17AA5 = {
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -333,6 +386,7 @@
 			projectRoot = "";
 			targets = (
 				D57BFD4278B612FC0A7308C5 /* PulseType */,
+				DC70151991E7CAD141E17AA5 /* PulseTypeTests */,
 			);
 		};
 /* End PBXProject section */
@@ -375,7 +429,26 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D7F761EECA3AB42914E6AD06 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CCFC70782D453121CD3D621A /* OpenAIEndpointResolverTests.swift in Sources */,
+				1ADFDFBF9916296767B39DDA /* OpenAIProviderAdapterTests.swift in Sources */,
+				E62C2CC0F4637764DAD1A9BC /* RewriteIntentParserTests.swift in Sources */,
+				E1DBC788787F324D6B2178FD /* SessionStoreTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		B870AD7C366AB7FFBB05A505 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D57BFD4278B612FC0A7308C5 /* PulseType */;
+			targetProxy = 4153EC2331DBA4E4CFBE4590 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		178CBE56178A99C996ECEBBC /* Release */ = {
@@ -459,6 +532,22 @@
 			};
 			name = Release;
 		};
+		7A5F14EDCD81C2E4B52FE951 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PulseType.app/Contents/MacOS/PulseType";
+			};
+			name = Release;
+		};
 		BF7E7A13911B5C9161C161A7 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -524,6 +613,22 @@
 			};
 			name = Debug;
 		};
+		DD134A39DAC9DDFD74B818DD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PulseType.app/Contents/MacOS/PulseType";
+			};
+			name = Debug;
+		};
 		EBECC5BCBDDF6AD86EE1784E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = B76EE0E496B0199F87463E36 /* Debug.xcconfig */;
@@ -564,6 +669,15 @@
 			buildConfigurations = (
 				EBECC5BCBDDF6AD86EE1784E /* Debug */,
 				178CBE56178A99C996ECEBBC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		E493D7BA9D4E621A6E6831AD /* Build configuration list for PBXNativeTarget "PulseTypeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DD134A39DAC9DDFD74B818DD /* Debug */,
+				7A5F14EDCD81C2E4B52FE951 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

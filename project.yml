@@ -34,3 +34,12 @@ targets:
         INFOPLIST_KEY_NSMicrophoneUsageDescription: PulseType records audio only when you start a voice session.
         INFOPLIST_KEY_NSAppleEventsUsageDescription: PulseType needs automation access when you enable text insertion into other apps.
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+
+  PulseTypeTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Tests
+    dependencies:
+      - target: PulseType
