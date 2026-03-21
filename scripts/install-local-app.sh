@@ -6,6 +6,7 @@ PROJECT_PATH="$ROOT_DIR/PulseType.xcodeproj"
 SCHEME="PulseType"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 DEST_APP="/Applications/PulseType.app"
+APP_ID="com.niushuanan.PulseType"
 DEVELOPER_DIR_VALUE="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
 if [[ ! -d "$DEVELOPER_DIR_VALUE" ]]; then
@@ -79,6 +80,13 @@ rsync -a --delete "$SOURCE_APP/" "$DEST_APP/"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
 if [[ -x "$LSREGISTER" ]]; then
   "$LSREGISTER" -f -R "$DEST_APP" >/dev/null 2>&1 || true
+  while IFS= read -r path; do
+    [[ -z "$path" ]] && continue
+    if [[ "$path" != "$DEST_APP" ]]; then
+      "$LSREGISTER" -u "$path" >/dev/null 2>&1 || true
+    fi
+  done < <(mdfind "kMDItemCFBundleIdentifier == '$APP_ID'" 2>/dev/null || true)
+  "$LSREGISTER" -gc >/dev/null 2>&1 || true
 fi
 
 echo
