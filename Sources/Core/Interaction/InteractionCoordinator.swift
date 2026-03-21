@@ -21,6 +21,7 @@ final class InteractionCoordinator {
     private let rewriteProviderRegistry: RewriteProviderRegistry
     private let textOutputCoordinator: TextOutputCoordinator
     private let contextDetector: ContextDetector
+    private let appScenePolicyStore: AppScenePolicyStore
     private let localHistoryStore: LocalHistoryStore
     private var cancellables = Set<AnyCancellable>()
     private var transcriptionTask: Task<Void, Never>?
@@ -34,6 +35,7 @@ final class InteractionCoordinator {
         rewriteProviderRegistry: RewriteProviderRegistry,
         textOutputCoordinator: TextOutputCoordinator,
         contextDetector: ContextDetector,
+        appScenePolicyStore: AppScenePolicyStore,
         localHistoryStore: LocalHistoryStore
     ) {
         self.sessionStore = sessionStore
@@ -44,6 +46,7 @@ final class InteractionCoordinator {
         self.rewriteProviderRegistry = rewriteProviderRegistry
         self.textOutputCoordinator = textOutputCoordinator
         self.contextDetector = contextDetector
+        self.appScenePolicyStore = appScenePolicyStore
         self.localHistoryStore = localHistoryStore
         bindListeningLevel()
     }
@@ -341,6 +344,7 @@ final class InteractionCoordinator {
     ) async {
         let spokenInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialFocusContext = contextDetector.focusedAppContext()
+        let scenePolicy = appScenePolicyStore.policy(for: initialFocusContext)
         guard !spokenInstruction.isEmpty else {
             let message = "Rewrite instruction is empty. Please try again with a clear command."
             localHistoryStore.append(
@@ -361,7 +365,10 @@ final class InteractionCoordinator {
             return
         }
 
-        let quickActionLabel = (try? RewriteIntentParser().parse(instruction: spokenInstruction).action.label)
+        let quickActionLabel = (try? RewriteIntentParser().parse(
+            instruction: spokenInstruction,
+            defaultOutputBias: scenePolicy.outputBias
+        ).action.label)
 
         guard let snapshot = textOutputCoordinator.currentSelectionSnapshot() else {
             let message = "No selected text detected. Select text first, then trigger rewrite."
@@ -475,7 +482,8 @@ final class InteractionCoordinator {
                 request: SelectionRewriteRequest(
                     selectedText: snapshot.selectedText,
                     spokenInstruction: spokenInstruction,
-                    focusContext: snapshot.focusContext
+                    focusContext: snapshot.focusContext,
+                    outputBias: scenePolicy.outputBias
                 ),
                 configuration: rewriteConfiguration,
                 apiKey: normalizedKey
@@ -646,11 +654,14 @@ final class InteractionCoordinator {
     }
 
     private func resolvedLane(context: WakeInvocationContext) -> InputLane {
+        let focusContext = contextDetector.focusedAppContext()
+        let scenePolicy = appScenePolicyStore.policy(for: focusContext)
+
         if context.rewriteModifierHeld && context.selectionAvailable {
             return .selectionRewrite
         }
 
-        if textOutputCoordinator.currentSelectionSnapshot() != nil {
+        if scenePolicy.preferSelectionRewrite && textOutputCoordinator.currentSelectionSnapshot() != nil {
             return .selectionRewrite
         }
 

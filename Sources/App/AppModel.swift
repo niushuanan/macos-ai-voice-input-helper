@@ -14,6 +14,7 @@ final class AppModel: ObservableObject {
     let rewriteProviderRegistry: RewriteProviderRegistry
     let textOutputCoordinator: TextOutputCoordinator
     let contextDetector: ContextDetector
+    let appScenePolicyStore: AppScenePolicyStore
     let permissionsCenter: PermissionsCenter
     let localStore: LocalStore
     let localHistoryStore: LocalHistoryStore
@@ -32,6 +33,7 @@ final class AppModel: ObservableObject {
         rewriteProviderRegistry: RewriteProviderRegistry,
         textOutputCoordinator: TextOutputCoordinator,
         contextDetector: ContextDetector,
+        appScenePolicyStore: AppScenePolicyStore,
         permissionsCenter: PermissionsCenter,
         localStore: LocalStore,
         localHistoryStore: LocalHistoryStore,
@@ -48,6 +50,7 @@ final class AppModel: ObservableObject {
         self.rewriteProviderRegistry = rewriteProviderRegistry
         self.textOutputCoordinator = textOutputCoordinator
         self.contextDetector = contextDetector
+        self.appScenePolicyStore = appScenePolicyStore
         self.permissionsCenter = permissionsCenter
         self.localStore = localStore
         self.localHistoryStore = localHistoryStore
@@ -75,6 +78,7 @@ final class AppModel: ObservableObject {
             providers: [OpenAIRewriteProvider()]
         )
         let contextDetector = AccessibilityContextDetector()
+        let appScenePolicyStore = AppScenePolicyStore()
         let textOutputCoordinator = AccessibilityTextOutputCoordinator(
             logger: TextOutputLogger(diagnosticsDirectory: store.diagnosticsDirectory)
         )
@@ -88,6 +92,7 @@ final class AppModel: ObservableObject {
             rewriteProviderRegistry: rewriteProviderRegistry,
             textOutputCoordinator: textOutputCoordinator,
             contextDetector: contextDetector,
+            appScenePolicyStore: appScenePolicyStore,
             localHistoryStore: localHistoryStore
         )
         return AppModel(
@@ -101,6 +106,7 @@ final class AppModel: ObservableObject {
             rewriteProviderRegistry: rewriteProviderRegistry,
             textOutputCoordinator: textOutputCoordinator,
             contextDetector: contextDetector,
+            appScenePolicyStore: appScenePolicyStore,
             permissionsCenter: permissionsCenter,
             localStore: store,
             localHistoryStore: localHistoryStore,

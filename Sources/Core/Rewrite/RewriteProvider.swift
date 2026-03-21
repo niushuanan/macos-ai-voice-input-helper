@@ -38,6 +38,7 @@ struct SelectionRewriteRequest {
     let selectedText: String
     let spokenInstruction: String
     let focusContext: FocusedAppContext
+    let outputBias: AppOutputBias
 }
 
 struct SelectionRewriteResult: Equatable {
@@ -118,7 +119,10 @@ struct RewriteProviderRegistry {
 }
 
 struct RewriteIntentParser {
-    func parse(instruction: String) throws -> RewriteIntent {
+    func parse(
+        instruction: String,
+        defaultOutputBias: AppOutputBias = .neutral
+    ) throws -> RewriteIntent {
         let normalized = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
             throw RewriteProviderError.emptyInstruction
@@ -134,16 +138,16 @@ struct RewriteIntentParser {
             )
         }
 
-        if lowercased.contains("正式") || lowercased.contains("formal") || lowercased.contains("润色") || lowercased.contains("polish") {
+        if lowercased.contains("口语") || lowercased.contains("casual") || lowercased.contains("自然一点") {
             return RewriteIntent(
-                action: .polish(style: .formal),
+                action: .polish(style: .casual),
                 sourceInstruction: normalized
             )
         }
 
-        if lowercased.contains("口语") || lowercased.contains("casual") || lowercased.contains("自然一点") {
+        if lowercased.contains("正式") || lowercased.contains("formal") {
             return RewriteIntent(
-                action: .polish(style: .casual),
+                action: .polish(style: .formal),
                 sourceInstruction: normalized
             )
         }
@@ -170,6 +174,24 @@ struct RewriteIntentParser {
         {
             return RewriteIntent(
                 action: .structure,
+                sourceInstruction: normalized
+            )
+        }
+
+        if
+            lowercased.contains("润色") ||
+            lowercased.contains("polish") ||
+            lowercased.contains("优化") ||
+            lowercased.contains("improve")
+        {
+            if defaultOutputBias == .structured {
+                return RewriteIntent(
+                    action: .structure,
+                    sourceInstruction: normalized
+                )
+            }
+            return RewriteIntent(
+                action: .polish(style: defaultOutputBias.rewritePolishStyle),
                 sourceInstruction: normalized
             )
         }
@@ -294,7 +316,10 @@ struct OpenAIRewriteProvider: RewriteProvider {
             throw RewriteProviderError.noSelectedText
         }
 
-        let intent = try intentParser.parse(instruction: request.spokenInstruction)
+        let intent = try intentParser.parse(
+            instruction: request.spokenInstruction,
+            defaultOutputBias: request.outputBias
+        )
         let template = promptBuilder.build(
             intent: intent,
             request: request
