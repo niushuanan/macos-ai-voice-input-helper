@@ -211,3 +211,163 @@ private extension Data {
         append(Data(string.utf8))
     }
 }
+
+struct DashScopeQwenASRProvider: SpeechTranscriptionProvider {
+    let supportedProviderTypes: [ProviderType] = [.dashScopeQwenASR]
+
+    private let session: URLSession
+
+    init(session: URLSession = .shared) {
+        self.session = session
+    }
+
+    func transcribe(
+        request: SpeechTranscriptionRequest,
+        configuration: SpeechProviderConfiguration,
+        apiKey: String
+    ) async throws -> SpeechTranscriptionResult {
+        let normalizedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedKey.isEmpty else {
+            throw SpeechTranscriptionError.missingAPIKey(providerName: configuration.providerName)
+        }
+
+        let fileURL = request.clip.fileURL
+        guard let format = DashScopeAudioFormat(fileURL: fileURL) else {
+            throw SpeechTranscriptionError.audioFormatUnsupported(fileExtension: fileURL.pathExtension.lowercased())
+        }
+
+        let audioData: Data
+        do {
+            audioData = try Data(contentsOf: fileURL)
+        } catch {
+            throw SpeechTranscriptionError.providerFailure(description: "无法读取录音文件。")
+        }
+
+        let endpoint = DashScopeEndpointResolver.generationURL(baseURL: configuration.baseURL)
+        var urlRequest = URLRequest(url: endpoint)
+        urlRequest.httpMethod = "POST"
+        urlRequest.timeoutInterval = 70
+        urlRequest.setValue("Bearer \(normalizedKey)", forHTTPHeaderField: "Authorization")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let payload = DashScopeASRPayload(
+            model: configuration.modelName,
+            input: .init(
+                messages: [
+                    .init(role: "system", content: [.text("")]),
+                    .init(
+                        role: "user",
+                        content: [
+                            .audio(
+                                "data:\(format.mimeType);base64,\(audioData.base64EncodedString())"
+                            )
+                        ]
+                    )
+                ]
+            ),
+            parameters: .init(asrOptions: .init(enableITN: false))
+        )
+
+        do {
+            urlRequest.httpBody = try JSONEncoder().encode(payload)
+        } catch {
+            throw SpeechTranscriptionError.providerFailure(description: "请求编码失败。")
+        }
+
+        let responseData: Data
+        let response: URLResponse
+        do {
+            (responseData, response) = try await session.data(for: urlRequest)
+        } catch is CancellationError {
+            throw SpeechTranscriptionError.cancelled
+        } catch let urlError as URLError {
+            throw SpeechTranscriptionError.networkFailure(description: urlError.localizedDescription)
+        } catch {
+            throw SpeechTranscriptionError.networkFailure(description: error.localizedDescription)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SpeechTranscriptionError.invalidResponse
+        }
+
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            let detail = ASRConnectionTester.parseProviderError(from: responseData)
+            throw SpeechTranscriptionError.providerFailure(
+                description: "HTTP \(httpResponse.statusCode): \(detail)"
+            )
+        }
+
+        let transcript = parseTranscript(from: responseData)
+        guard !transcript.isEmpty else {
+            throw SpeechTranscriptionError.invalidResponse
+        }
+
+        return SpeechTranscriptionResult(
+            providerType: configuration.providerType,
+            providerName: configuration.providerName,
+            modelName: configuration.modelName,
+            transcript: transcript
+        )
+    }
+
+    private func parseTranscript(from data: Data) -> String {
+        if
+            let payload = try? JSONDecoder().decode(DashScopeASRResponse.self, from: data),
+            let firstChoice = payload.output.choices.first
+        {
+            let parts = firstChoice.message.content
+                .compactMap { $0.text?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            if !parts.isEmpty {
+                return parts.joined(separator: "\n")
+            }
+        }
+        return ""
+    }
+}
+
+private enum DashScopeAudioFormat {
+    case m4a
+    case wav
+    case mp3
+    case mp4
+    case mpeg
+    case mpga
+    case webm
+
+    init?(fileURL: URL) {
+        switch fileURL.pathExtension.lowercased() {
+        case "m4a":
+            self = .m4a
+        case "wav":
+            self = .wav
+        case "mp3":
+            self = .mp3
+        case "mp4":
+            self = .mp4
+        case "mpeg":
+            self = .mpeg
+        case "mpga":
+            self = .mpga
+        case "webm":
+            self = .webm
+        default:
+            return nil
+        }
+    }
+
+    var mimeType: String {
+        switch self {
+        case .m4a:
+            return "audio/m4a"
+        case .wav:
+            return "audio/wav"
+        case .mp3, .mpeg, .mpga:
+            return "audio/mpeg"
+        case .mp4:
+            return "audio/mp4"
+        case .webm:
+            return "audio/webm"
+        }
+    }
+}

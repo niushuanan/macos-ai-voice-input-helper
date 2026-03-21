@@ -8,6 +8,7 @@ private let defaultTextCredentialKeyRef = "text.primary"
 enum ProviderType: String, CaseIterable, Codable, Identifiable {
     case openAI
     case openAICompatible
+    case dashScopeQwenASR
 
     var id: String { rawValue }
 
@@ -17,6 +18,8 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
             return "OpenAI（官方）"
         case .openAICompatible:
             return "OpenAI 兼容"
+        case .dashScopeQwenASR:
+            return "阿里云 Qwen ASR"
         }
     }
 
@@ -26,11 +29,18 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
             return "OpenAI"
         case .openAICompatible:
             return "兼容"
+        case .dashScopeQwenASR:
+            return "Qwen"
         }
     }
 
     var defaultTranscriptionModelName: String {
-        "whisper-1"
+        switch self {
+        case .dashScopeQwenASR:
+            return "qwen3-asr-flash"
+        case .openAI, .openAICompatible:
+            return "whisper-1"
+        }
     }
 
     var defaultRewriteModelName: String {
@@ -47,6 +57,8 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
             return URL(string: "https://api.openai.com")
         case .openAICompatible:
             return nil
+        case .dashScopeQwenASR:
+            return URL(string: "https://dashscope.aliyuncs.com")
         }
     }
 }
@@ -956,6 +968,30 @@ struct ASRConnectionTester {
         }
 
         let audioData = DiagnosticAudioSample.makeWaveData()
+        switch config.providerType {
+        case .dashScopeQwenASR:
+            return await testDashScope(
+                config: config,
+                baseURL: baseURL,
+                apiKey: apiKey,
+                audioData: audioData
+            )
+        case .openAI, .openAICompatible:
+            return await testOpenAICompatible(
+                config: config,
+                baseURL: baseURL,
+                apiKey: apiKey,
+                audioData: audioData
+            )
+        }
+    }
+
+    private func testOpenAICompatible(
+        config: ASRConfig,
+        baseURL: URL,
+        apiKey: String,
+        audioData: Data
+    ) async -> ConnectionTestResult {
         let endpoint = OpenAIEndpointResolver.transcriptionURL(baseURL: baseURL)
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
@@ -985,6 +1021,88 @@ struct ASRConnectionTester {
                     return .failure(
                         message: "语音识别接口可达，但返回内容无法解析。",
                         hint: "请核对接口是否兼容 OpenAI `/v1/audio/transcriptions`。",
+                        httpStatus: http.statusCode
+                    )
+                }
+                return .success(
+                    message: "语音识别测试成功：\(transcript)",
+                    hint: "接口、模型与密钥均可用。",
+                    httpStatus: http.statusCode
+                )
+            }
+
+            let detail = Self.parseProviderError(from: data)
+            return .failure(
+                message: "语音识别测试失败：HTTP \(http.statusCode) \(detail)",
+                hint: ConnectionTestHintResolver.hint(for: http.statusCode),
+                httpStatus: http.statusCode
+            )
+        } catch let urlError as URLError {
+            return .failure(
+                message: "语音识别测试失败：网络异常 \(urlError.localizedDescription)",
+                hint: "请检查网络、代理或接口地址是否可访问。"
+            )
+        } catch {
+            return .failure(
+                message: "语音识别测试失败：\(error.localizedDescription)",
+                hint: "请稍后重试，如反复失败请检查地址与密钥。"
+            )
+        }
+    }
+
+    private func testDashScope(
+        config: ASRConfig,
+        baseURL: URL,
+        apiKey: String,
+        audioData: Data
+    ) async -> ConnectionTestResult {
+        let endpoint = DashScopeEndpointResolver.generationURL(baseURL: baseURL)
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        do {
+            request.httpBody = try JSONEncoder().encode(
+                DashScopeASRPayload(
+                    model: config.modelName.trimmingCharacters(in: .whitespacesAndNewlines),
+                    input: .init(
+                        messages: [
+                            .init(role: "system", content: [.text("")]),
+                            .init(
+                                role: "user",
+                                content: [
+                                    .audio("data:audio/wav;base64,\(audioData.base64EncodedString())")
+                                ]
+                            )
+                        ]
+                    ),
+                    parameters: .init(asrOptions: .init(enableITN: false))
+                )
+            )
+        } catch {
+            return .failure(
+                message: "语音识别测试失败：请求编码异常。",
+                hint: "请检查模型名后重试。"
+            )
+        }
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                return .failure(
+                    message: "语音识别测试失败：无效 HTTP 响应。",
+                    hint: "请检查接口地址是否正确。"
+                )
+            }
+
+            if (200..<300).contains(http.statusCode) {
+                let transcript = Self.parseDashScopeTranscript(from: data)
+                if transcript.isEmpty {
+                    return .failure(
+                        message: "语音识别接口可达，但返回内容无法解析。",
+                        hint: "请确认模型支持 DashScope ASR 协议。",
                         httpStatus: http.statusCode
                     )
                 }
@@ -1047,10 +1165,34 @@ struct ASRConnectionTester {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
+    private static func parseDashScopeTranscript(from data: Data) -> String {
+        if
+            let payload = try? JSONDecoder().decode(DashScopeASRResponse.self, from: data),
+            let choice = payload.output.choices.first
+        {
+            let text = choice.message.content
+                .compactMap { $0.text?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+            if !text.isEmpty {
+                return text
+            }
+        }
+        return ""
+    }
+
     static func parseProviderError(from data: Data) -> String {
         if
             let payload = try? JSONDecoder().decode(ConnectionTestErrorEnvelope.self, from: data),
             let message = payload.error.message?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !message.isEmpty
+        {
+            return message
+        }
+
+        if
+            let payload = try? JSONDecoder().decode(DashScopeSimpleErrorEnvelope.self, from: data),
+            let message = payload.message?.trimmingCharacters(in: .whitespacesAndNewlines),
             !message.isEmpty
         {
             return message
@@ -1288,6 +1430,101 @@ private struct ConnectionTestErrorEnvelope: Decodable {
     }
 
     let error: Payload
+}
+
+private struct DashScopeSimpleErrorEnvelope: Decodable {
+    let message: String?
+}
+
+struct DashScopeASRPayload: Encodable {
+    struct Input: Encodable {
+        let messages: [Message]
+    }
+
+    struct Message: Encodable {
+        let role: String
+        let content: [Content]
+    }
+
+    struct Content: Encodable {
+        let text: String?
+        let audio: String?
+
+        static func text(_ value: String) -> Content {
+            Content(text: value, audio: nil)
+        }
+
+        static func audio(_ value: String) -> Content {
+            Content(text: nil, audio: value)
+        }
+    }
+
+    struct Parameters: Encodable {
+        struct ASROptions: Encodable {
+            let enableITN: Bool
+
+            enum CodingKeys: String, CodingKey {
+                case enableITN = "enable_itn"
+            }
+        }
+
+        let asrOptions: ASROptions
+
+        enum CodingKeys: String, CodingKey {
+            case asrOptions = "asr_options"
+        }
+    }
+
+    let model: String
+    let input: Input
+    let parameters: Parameters
+}
+
+struct DashScopeASRResponse: Decodable {
+    struct Output: Decodable {
+        struct Choice: Decodable {
+            struct Message: Decodable {
+                struct Content: Decodable {
+                    let text: String?
+                }
+
+                let content: [Content]
+            }
+
+            let message: Message
+        }
+
+        let choices: [Choice]
+    }
+
+    let output: Output
+}
+
+enum DashScopeEndpointResolver {
+    static func generationURL(baseURL: URL) -> URL {
+        let normalized = baseURL.absoluteURL
+        let rawPath = normalized.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if rawPath.hasSuffix("api/v1/services/aigc/multimodal-generation/generation") {
+            return normalized
+        }
+
+        var url = normalized
+        if rawPath.hasSuffix("api/v1") {
+            url.appendPathComponent("services")
+            url.appendPathComponent("aigc")
+            url.appendPathComponent("multimodal-generation")
+            url.appendPathComponent("generation")
+            return url
+        }
+
+        url.appendPathComponent("api")
+        url.appendPathComponent("v1")
+        url.appendPathComponent("services")
+        url.appendPathComponent("aigc")
+        url.appendPathComponent("multimodal-generation")
+        url.appendPathComponent("generation")
+        return url
+    }
 }
 
 private extension Data {

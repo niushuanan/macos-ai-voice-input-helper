@@ -79,7 +79,10 @@ final class AppModel: ObservableObject {
             credentialStore: KeychainProviderCredentialStore()
         )
         let speechProviderRegistry = SpeechProviderRegistry(
-            providers: [OpenAITranscriptionProvider()]
+            providers: [
+                OpenAITranscriptionProvider(),
+                DashScopeQwenASRProvider()
+            ]
         )
         let rewriteProviderRegistry = RewriteProviderRegistry(
             providers: [OpenAIRewriteProvider()]
