@@ -25,6 +25,8 @@ Core product loop:
 - Selection rewrite (`translate`, `polish`, `condense`, `structure`)
 - Dual-role model config (`ASR` + `Text`) with one-click connectivity test
 - API key input in settings, stored in Keychain
+- Default cloud model pair: `Qwen3-ASR-Flash` (ASR) + `deepseek-chat` (text)
+- Experimental local ASR option: `SenseVoice Small`
 - Local history with delete operations and app/mode/status filters
 - App-aware policy (`output bias` + rewrite-lane preference)
 - Permission center for microphone and accessibility
@@ -57,7 +59,7 @@ These tracks are documented in
 
 - Compatibility is validated on a limited app set; broad editor coverage is not complete yet.
 - AX direct insertion can still vary across target apps and app versions.
-- No offline ASR or local LLM path in this stage.
+- Local SenseVoice path is experimental and depends on local runtime/model files.
 - No signed/notarized distributable package in this stage.
 
 See [docs/compatibility-matrix-v1.md](docs/compatibility-matrix-v1.md) for tested targets and known unstable scenarios.
@@ -68,6 +70,18 @@ Generate project:
 
 ```bash
 xcodegen generate
+```
+
+Initialize local API keys (saved to macOS Keychain, not repo files):
+
+```bash
+./scripts/setup-local-keys.sh
+```
+
+Install local secret pre-check (optional but recommended):
+
+```bash
+./scripts/install-pre-commit-hook.sh
 ```
 
 Build:
@@ -96,7 +110,9 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 
 ## Trial checklist
 
-1. Open `模型` and configure `ASR` + `文本处理` cards.
+1. Open `模型` and verify defaults:
+   - ASR: DashScope + `qwen3-asr-flash`
+   - 文本: OpenAI-compatible + `https://api.deepseek.com` + `deepseek-chat`
 2. Run both connectivity tests and confirm both succeed.
 3. Open `设置` and grant microphone + accessibility permissions.
 4. Go to `首页`, press wake key to start dictation, press again to stop.

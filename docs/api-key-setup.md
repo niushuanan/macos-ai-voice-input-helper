@@ -1,49 +1,85 @@
-# API 密钥配置说明
+# API 密钥与模型配置说明
 
-## 安全基线
+## 安全基线（长期可用）
 
-- API 密钥只写入 macOS 钥匙串（Keychain）。
-- 配置文件只保存非敏感字段（地址、模型、provider 类型）。
-- 本地历史只记录 provider 名称与模型，不记录密钥明文。
+- API 密钥只写入 macOS 钥匙串（Keychain），不会写入仓库文件。
+- `UserDefaults` 仅保存非敏感配置（Provider、地址、模型、测试结果）。
+- 本地历史记录不会保存密钥明文。
+- 仓库内提供密钥扫描脚本与 pre-commit 检查，降低误提交风险。
 
-## 前端配置入口
+## 默认模型配置（新安装）
 
-设置页的“模型配置”包含两张固定卡片：
+首次运行且没有旧配置时，默认会给出以下组合：
 
-1. 语音识别（ASR）
+1. ASR（语音识别）
+   - Provider：`DashScope Qwen ASR`
+   - 地址：`https://dashscope.aliyuncs.com`
+   - 模型：`qwen3-asr-flash`
 2. 文本处理
+   - Provider：`OpenAI 兼容`
+   - 地址：`https://api.deepseek.com`
+   - 模型：`deepseek-chat`
 
-每张卡片都需要配置：
+如果你已经有旧配置，系统不会强制覆盖。
 
-- Provider 类型：`OpenAI（官方）` 或 `OpenAI 兼容`
-- API 地址（官方模式为固定地址）
-- 模型名
-- API 密钥（保存到钥匙串）
+## 本地初始化密钥（推荐）
 
-## 推荐起步配置
+在项目根目录执行：
 
-- ASR：
-  - 类型：`OpenAI（官方）`
-  - 地址：`https://api.openai.com`
-  - 模型：`whisper-1`
-- 文本：
-  - 类型：`OpenAI（官方）`
-  - 地址：`https://api.openai.com`
-  - 模型：`gpt-4o-mini`
+```bash
+./scripts/setup-local-keys.sh
+```
+
+脚本会交互录入两把密钥，并写入 Keychain：
+
+- ASR key：`asr.primary`
+- 文本 key：`text.primary`
+
+可选：安装提交前密钥扫描钩子：
+
+```bash
+./scripts/install-pre-commit-hook.sh
+```
+
+## 前端模型页怎么填
+
+模型页固定两张卡片：`ASR` 与 `文本处理`。
+
+- ASR 支持：
+  - DashScope Qwen ASR（云端）
+  - OpenAI / OpenAI 兼容（云端）
+  - 本地 SenseVoice（实验）
+- 文本处理支持：
+  - OpenAI / OpenAI 兼容（DeepSeek 默认走这条）
+
+每张卡片都可查看“当前生效配置”与“最近测试结果”。
+
+## SenseVoice（实验）配置
+
+如果切换到本地 SenseVoice：
+
+- 默认模型目录：
+  `~/Library/Application Support/Shandianshuo/models/sensevoice-small`
+- 可在模型页改成本机自定义路径
+- 模型页会显示可用性检测结果：
+  - 模型文件缺失
+  - Python 依赖缺失
+  - 执行异常
+
+依赖或模型不完整时，只影响该本地选项，不影响云端 ASR 主路径。
 
 ## 自测步骤
 
-1. ASR 卡片点“测试”。
-2. 文本卡片点“测试”。
-3. 观察“诊断与测试”里的最近结果：
+1. 在 ASR 卡片点“测试 ASR”。
+2. 在文本卡片点“测试文本模型”。
+3. 查看最近结果中的：
    - 成功/失败
    - HTTP 状态
-   - 建议动作
+   - 可执行建议（地址/模型/密钥/额度/网络）
 
-## 常见错误
+## 常见问题
 
-- 密钥为空或格式错误（常见 401）
-- 地址不对或路径拼接异常（常见 404）
-- 模型名写错
-- 额度不足或限流（常见 429）
-- 网络不可达
+- 401：密钥错误、未保存或额度策略不允许。
+- 404：地址或路径不对。
+- 429：额度不足或触发限流。
+- 本地 SenseVoice 失败：模型目录不完整，或本机 Python 依赖缺失。

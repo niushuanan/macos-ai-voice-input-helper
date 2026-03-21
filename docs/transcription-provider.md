@@ -14,15 +14,28 @@
 - `ASRConfig { providerType, baseURL, model, keyRef }`
 - `TextConfig { providerType, baseURL, model, keyRef }`
 
-两套配置都支持：
+ASR 支持：
+
+- `DashScope Qwen ASR`
+- `OpenAI（官方）`
+- `OpenAI 兼容`
+- `本地 SenseVoice（实验）`
+
+文本处理支持：
 
 - `OpenAI（官方）`
 - `OpenAI 兼容`
 
-## OpenAI 兼容接口约定
+## 云端接口约定
 
 - ASR：`POST {baseURL}/v1/audio/transcriptions`
 - 文本：`POST {baseURL}/v1/chat/completions`
+
+DashScope Qwen ASR（官方）：
+
+- `POST {baseURL}/api/v1/services/aigc/multimodal-generation/generation`
+- 输入音频按 `data:audio/wav;base64,...` 传入
+- 返回解析 `output.choices[0].message.content[*].text`
 
 地址统一通过 `OpenAIEndpointResolver` 规范化，避免 `/v1/v1` 重复路径。
 
@@ -44,6 +57,10 @@
   - HTTP 状态码
   - 可读消息
   - 建议动作（密钥/地址/模型/额度）
+- 本地 SenseVoice 走可用性检测：
+  - 模型目录是否存在
+  - 必需文件是否齐全
+  - Python 依赖是否可用
 
 ### 测试文本模型
 
@@ -56,6 +73,7 @@
 
 ## 当前限制
 
-- 只走 OpenAI 兼容协议主线，不做多厂商原生协议深度适配。
+- DashScope Qwen ASR 已支持官方协议；其它厂商仍以 OpenAI 兼容为主线。
+- 本地 SenseVoice 处于实验阶段，依赖与模型准备由本机环境决定。
 - 暂未开放温度、top_p 等高级参数。
 - 测试按钮验证的是“接口可用性”，不代表业务结果质量上限。
