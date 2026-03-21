@@ -16,6 +16,7 @@ final class AppModel: ObservableObject {
     let contextDetector: ContextDetector
     let permissionsCenter: PermissionsCenter
     let localStore: LocalStore
+    let localHistoryStore: LocalHistoryStore
     let diagnosticsCenter: DiagnosticsCenter
     let statusPulseHUDController: StatusPulseHUDController
     private var cancellables = Set<AnyCancellable>()
@@ -33,6 +34,7 @@ final class AppModel: ObservableObject {
         contextDetector: ContextDetector,
         permissionsCenter: PermissionsCenter,
         localStore: LocalStore,
+        localHistoryStore: LocalHistoryStore,
         diagnosticsCenter: DiagnosticsCenter,
         statusPulseHUDController: StatusPulseHUDController
     ) {
@@ -48,6 +50,7 @@ final class AppModel: ObservableObject {
         self.contextDetector = contextDetector
         self.permissionsCenter = permissionsCenter
         self.localStore = localStore
+        self.localHistoryStore = localHistoryStore
         self.diagnosticsCenter = diagnosticsCenter
         self.statusPulseHUDController = statusPulseHUDController
 
@@ -75,6 +78,7 @@ final class AppModel: ObservableObject {
         let textOutputCoordinator = AccessibilityTextOutputCoordinator(
             logger: TextOutputLogger(diagnosticsDirectory: store.diagnosticsDirectory)
         )
+        let localHistoryStore = LocalHistoryStore(historyDirectory: store.historyDirectory)
         let interactionCoordinator = InteractionCoordinator(
             sessionStore: sessionStore,
             permissionsCenter: permissionsCenter,
@@ -83,7 +87,8 @@ final class AppModel: ObservableObject {
             providerRegistry: speechProviderRegistry,
             rewriteProviderRegistry: rewriteProviderRegistry,
             textOutputCoordinator: textOutputCoordinator,
-            contextDetector: contextDetector
+            contextDetector: contextDetector,
+            localHistoryStore: localHistoryStore
         )
         return AppModel(
             sessionStore: sessionStore,
@@ -98,6 +103,7 @@ final class AppModel: ObservableObject {
             contextDetector: contextDetector,
             permissionsCenter: permissionsCenter,
             localStore: store,
+            localHistoryStore: localHistoryStore,
             diagnosticsCenter: DiagnosticsCenter(),
             statusPulseHUDController: StatusPulseHUDController()
         )

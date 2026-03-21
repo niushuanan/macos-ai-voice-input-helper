@@ -21,6 +21,7 @@ final class InteractionCoordinator {
     private let rewriteProviderRegistry: RewriteProviderRegistry
     private let textOutputCoordinator: TextOutputCoordinator
     private let contextDetector: ContextDetector
+    private let localHistoryStore: LocalHistoryStore
     private var cancellables = Set<AnyCancellable>()
     private var transcriptionTask: Task<Void, Never>?
 
@@ -32,7 +33,8 @@ final class InteractionCoordinator {
         providerRegistry: SpeechProviderRegistry,
         rewriteProviderRegistry: RewriteProviderRegistry,
         textOutputCoordinator: TextOutputCoordinator,
-        contextDetector: ContextDetector
+        contextDetector: ContextDetector,
+        localHistoryStore: LocalHistoryStore
     ) {
         self.sessionStore = sessionStore
         self.permissionsCenter = permissionsCenter
@@ -42,6 +44,7 @@ final class InteractionCoordinator {
         self.rewriteProviderRegistry = rewriteProviderRegistry
         self.textOutputCoordinator = textOutputCoordinator
         self.contextDetector = contextDetector
+        self.localHistoryStore = localHistoryStore
         bindListeningLevel()
     }
 
@@ -95,6 +98,11 @@ final class InteractionCoordinator {
         guard sessionStore.phase != .idle else {
             return
         }
+
+        let focusContext = contextDetector.focusedAppContext()
+        let mode = historyMode(for: sessionStore.activeLane)
+        let latestInput = sessionStore.latestTranscription?.transcript ?? ""
+
         transcriptionTask?.cancel()
         transcriptionTask = nil
 
@@ -103,6 +111,18 @@ final class InteractionCoordinator {
         }
         discardPendingClipIfNeeded()
         sessionStore.cancel()
+
+        localHistoryStore.append(
+            SessionHistoryEntry(
+                mode: mode,
+                appName: focusContext.appName,
+                bundleID: focusContext.bundleID,
+                inputText: latestInput,
+                outputText: nil,
+                status: .cancelled,
+                errorMessage: "User cancelled the current session."
+            )
+        )
     }
 
     func handleCompleteInput() {
@@ -146,6 +166,8 @@ final class InteractionCoordinator {
                 return
             }
 
+            var resolvedConfiguration: SpeechProviderConfiguration?
+
             do {
                 guard providerSettingsStore.isConfigurationValid else {
                     throw SpeechTranscriptionError.providerFailure(
@@ -154,6 +176,7 @@ final class InteractionCoordinator {
                 }
 
                 let configuration = providerSettingsStore.configuration
+                resolvedConfiguration = configuration
                 guard let provider = providerRegistry.provider(for: configuration.providerType) else {
                     throw SpeechTranscriptionError.providerFailure(description: "Selected provider is not available in this build.")
                 }
@@ -191,6 +214,20 @@ final class InteractionCoordinator {
                 }
                 audioCaptureService.removeClip(at: clip.fileURL)
                 sessionStore.clearPendingClipReference()
+                let focusContext = contextDetector.focusedAppContext()
+                localHistoryStore.append(
+                    SessionHistoryEntry(
+                        mode: historyMode(for: sessionStore.activeLane),
+                        appName: focusContext.appName,
+                        bundleID: focusContext.bundleID,
+                        inputText: "",
+                        outputText: nil,
+                        transcriptionProvider: resolvedConfiguration?.providerName,
+                        transcriptionModel: resolvedConfiguration?.modelName,
+                        status: .failed,
+                        errorMessage: actionableMessage(for: speechError)
+                    )
+                )
                 sessionStore.fail(message: actionableMessage(for: speechError))
             } catch {
                 guard !Task.isCancelled else {
@@ -198,7 +235,22 @@ final class InteractionCoordinator {
                 }
                 audioCaptureService.removeClip(at: clip.fileURL)
                 sessionStore.clearPendingClipReference()
-                sessionStore.fail(message: actionableMessage(for: .providerFailure(description: error.localizedDescription)))
+                let message = actionableMessage(for: .providerFailure(description: error.localizedDescription))
+                let focusContext = contextDetector.focusedAppContext()
+                localHistoryStore.append(
+                    SessionHistoryEntry(
+                        mode: historyMode(for: sessionStore.activeLane),
+                        appName: focusContext.appName,
+                        bundleID: focusContext.bundleID,
+                        inputText: "",
+                        outputText: nil,
+                        transcriptionProvider: resolvedConfiguration?.providerName,
+                        transcriptionModel: resolvedConfiguration?.modelName,
+                        status: .failed,
+                        errorMessage: message
+                    )
+                )
+                sessionStore.fail(message: message)
             }
         }
     }
@@ -234,13 +286,53 @@ final class InteractionCoordinator {
         do {
             let outputResult = try await textOutputCoordinator.write(request: request)
             sessionStore.completeInsertion(outputResult: outputResult)
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .dictation,
+                    appName: focusContext.appName,
+                    bundleID: focusContext.bundleID,
+                    inputText: transcription.transcript,
+                    outputText: transcription.transcript,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .success
+                )
+            )
         } catch let outputError as TextOutputError {
-            sessionStore.fail(message: actionableOutputMessage(for: outputError, focusContext: focusContext))
+            let message = actionableOutputMessage(for: outputError, focusContext: focusContext)
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .dictation,
+                    appName: focusContext.appName,
+                    bundleID: focusContext.bundleID,
+                    inputText: transcription.transcript,
+                    outputText: nil,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: message
+                )
+            )
+            sessionStore.fail(message: message)
         } catch {
-            sessionStore.fail(message: actionableOutputMessage(
+            let message = actionableOutputMessage(
                 for: .accessibilityPathFailed(reason: error.localizedDescription),
                 focusContext: focusContext
-            ))
+            )
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .dictation,
+                    appName: focusContext.appName,
+                    bundleID: focusContext.bundleID,
+                    inputText: transcription.transcript,
+                    outputText: nil,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: message
+                )
+            )
+            sessionStore.fail(message: message)
         }
     }
 
@@ -248,40 +340,131 @@ final class InteractionCoordinator {
         _ transcription: SpeechTranscriptionResult
     ) async {
         let spokenInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let initialFocusContext = contextDetector.focusedAppContext()
         guard !spokenInstruction.isEmpty else {
-            sessionStore.fail(message: "Rewrite instruction is empty. Please try again with a clear command.")
+            let message = "Rewrite instruction is empty. Please try again with a clear command."
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: initialFocusContext.appName,
+                    bundleID: initialFocusContext.bundleID,
+                    inputText: "",
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: message
+                )
+            )
+            sessionStore.fail(message: message)
             return
         }
 
         let quickActionLabel = (try? RewriteIntentParser().parse(instruction: spokenInstruction).action.label)
 
         guard let snapshot = textOutputCoordinator.currentSelectionSnapshot() else {
-            sessionStore.fail(message: "No selected text detected. Select text first, then trigger rewrite.")
+            let message = "No selected text detected. Select text first, then trigger rewrite."
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: initialFocusContext.appName,
+                    bundleID: initialFocusContext.bundleID,
+                    inputText: "",
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: message
+                )
+            )
+            sessionStore.fail(message: message)
             return
         }
 
         guard providerSettingsStore.isRewriteConfigurationValid else {
+            let message = providerSettingsStore.rewriteConfigurationValidationMessage
+                ?? "Rewrite model configuration is invalid."
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: snapshot.focusContext.appName,
+                    bundleID: snapshot.focusContext.bundleID,
+                    inputText: snapshot.selectedText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: message
+                )
+            )
             sessionStore.fail(
-                message: providerSettingsStore.rewriteConfigurationValidationMessage
-                    ?? "Rewrite model configuration is invalid."
+                message: message
             )
             return
         }
 
         guard let loadedKey = try? providerSettingsStore.loadAPIKeyForRewriteProvider() else {
-            sessionStore.fail(message: "Provider API key is missing. Open Settings to add it.")
+            let message = "Provider API key is missing. Open Settings to add it."
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: snapshot.focusContext.appName,
+                    bundleID: snapshot.focusContext.bundleID,
+                    inputText: snapshot.selectedText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: message
+                )
+            )
+            sessionStore.fail(message: message)
             return
         }
 
         let normalizedKey = loadedKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedKey.isEmpty else {
-            sessionStore.fail(message: "Provider API key is missing. Open Settings to add it.")
+            let message = "Provider API key is missing. Open Settings to add it."
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: snapshot.focusContext.appName,
+                    bundleID: snapshot.focusContext.bundleID,
+                    inputText: snapshot.selectedText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: message
+                )
+            )
+            sessionStore.fail(message: message)
             return
         }
 
         let rewriteConfiguration = providerSettingsStore.rewriteConfiguration
         guard let rewriteProvider = rewriteProviderRegistry.provider(for: rewriteConfiguration.providerType) else {
-            sessionStore.fail(message: "Selected rewrite provider is not available in this build.")
+            let message = "Selected rewrite provider is not available in this build."
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: snapshot.focusContext.appName,
+                    bundleID: snapshot.focusContext.bundleID,
+                    inputText: snapshot.selectedText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: message
+                )
+            )
+            sessionStore.fail(message: message)
             return
         }
 
@@ -311,12 +494,78 @@ final class InteractionCoordinator {
 
             let outputResult = try await textOutputCoordinator.write(request: outputRequest)
             sessionStore.completeInsertion(outputResult: outputResult)
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: snapshot.focusContext.appName,
+                    bundleID: snapshot.focusContext.bundleID,
+                    inputText: snapshot.selectedText,
+                    outputText: rewriteResult.rewrittenText,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    rewriteProvider: rewriteResult.providerName,
+                    rewriteModel: rewriteResult.modelName,
+                    status: .success
+                )
+            )
         } catch let rewriteError as RewriteProviderError {
-            sessionStore.fail(message: actionableRewriteMessage(for: rewriteError))
+            let message = actionableRewriteMessage(for: rewriteError)
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: snapshot.focusContext.appName,
+                    bundleID: snapshot.focusContext.bundleID,
+                    inputText: snapshot.selectedText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    rewriteProvider: rewriteConfiguration.providerName,
+                    rewriteModel: rewriteConfiguration.modelName,
+                    status: .failed,
+                    errorMessage: message
+                )
+            )
+            sessionStore.fail(message: message)
         } catch let outputError as TextOutputError {
-            sessionStore.fail(message: actionableOutputMessage(for: outputError, focusContext: snapshot.focusContext))
+            let message = actionableOutputMessage(for: outputError, focusContext: snapshot.focusContext)
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: snapshot.focusContext.appName,
+                    bundleID: snapshot.focusContext.bundleID,
+                    inputText: snapshot.selectedText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    rewriteProvider: rewriteConfiguration.providerName,
+                    rewriteModel: rewriteConfiguration.modelName,
+                    status: .failed,
+                    errorMessage: message
+                )
+            )
+            sessionStore.fail(message: message)
         } catch {
-            sessionStore.fail(message: "Rewrite failed: \(error.localizedDescription)")
+            let message = "Rewrite failed: \(error.localizedDescription)"
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: snapshot.focusContext.appName,
+                    bundleID: snapshot.focusContext.bundleID,
+                    inputText: snapshot.selectedText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    rewriteProvider: rewriteConfiguration.providerName,
+                    rewriteModel: rewriteConfiguration.modelName,
+                    status: .failed,
+                    errorMessage: message
+                )
+            )
+            sessionStore.fail(message: message)
         }
     }
 
@@ -406,5 +655,14 @@ final class InteractionCoordinator {
         }
 
         return .directDictation
+    }
+
+    private func historyMode(for lane: InputLane) -> SessionHistoryMode {
+        switch lane {
+        case .directDictation:
+            return .dictation
+        case .selectionRewrite:
+            return .selectionRewrite
+        }
     }
 }
