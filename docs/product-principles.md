@@ -213,6 +213,32 @@ Selected in this round:
 - `Structure`: reorganize into bullet-point form.
 - `Custom`: when no known quick-action matches, apply user command directly.
 
+## Prompt 8 provider-platform candidates
+
+| Candidate | User value | Implementation cost | Main risk | Decision |
+| --- | --- | --- | --- | --- |
+| Role-split provider routing | Let users bind one provider for transcription and another for rewrite so they can optimize speed and quality per stage. | Medium | Misconfiguration can break one role while the other still works. | Selected |
+| Multi-model auto policy | Auto-pick models by task size and context for lower cost. | Medium to high | Hard to explain and debug in v1. | Parked |
+| Endpoint template packs | One-click presets for third-party compatible vendors. | Medium | Needs ongoing template maintenance. | Parked |
+
+Selected implementation in this round:
+
+- role-split provider routing with profile-based config center
+- each profile has:
+  - provider type
+  - enable/disable
+  - optional base URL
+  - transcription model
+  - rewrite model
+  - Keychain-backed API key
+- OpenAI official + OpenAI-compatible are both available in v1
+
+Why this was selected:
+
+- immediate value for advanced users
+- strong extensibility baseline without high UI complexity
+- aligns with "innovation but still shippable" rule
+
 ## Non-negotiable interaction principles
 
 - Summon and cancel actions must be easy to memorize.

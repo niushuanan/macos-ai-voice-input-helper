@@ -27,7 +27,9 @@ This repository now includes:
 - native local audio recording into temporary `.m4a` clips with session-level cleanup
 - live listening-level feedback in the menu bar and command deck
 - OpenAI cloud transcription path from recorded audio to text result
-- provider/model/API-key settings with Keychain-backed key storage
+- multi-provider profile center with Keychain-backed per-profile API keys
+- split routing: one provider for transcription, another for rewrite
+- OpenAI official and OpenAI-compatible endpoint support
 - selection-aware rewrite lane with action parsing (`translate`, `polish`, `condense`, `structure`)
 - focus-aware text writeback engine with explicit fallback labeling
 - a session-state spine covering `idle`, `listening`, `transcribing`,

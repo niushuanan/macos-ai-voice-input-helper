@@ -194,10 +194,14 @@ Dependency rule:
 Current implementation:
 
 - `SpeechTranscriptionProvider` defines the provider contract.
-- `SpeechProviderRegistry` resolves the selected provider.
-- `OpenAITranscriptionProvider` uploads `.m4a` audio with multipart requests.
-- `ProviderSettingsStore` manages selected provider and model.
-- API keys are loaded from Keychain through `ProviderCredentialStore`.
+- `SpeechProviderRegistry` resolves provider implementation by `ProviderType`.
+- `OpenAITranscriptionProvider` supports both:
+  - `OpenAI Official`
+  - `OpenAI-Compatible`
+- `ProviderSettingsStore` is profile-based:
+  - role binding for transcription vs rewrite
+  - profile metadata (name/type/base URL/model/enable state)
+- API keys are loaded from Keychain per profile ID via `ProviderCredentialStore`.
 
 ### RewriteProvider / TextGenerationProvider
 
@@ -211,9 +215,9 @@ Current implementation:
 
 - `RewriteProvider` protocol for selection rewrite contracts
 - `TextGenerationProvider` protocol for model text generation contracts
-- `OpenAITextGenerationProvider` for `/v1/chat/completions`
-- `OpenAIRewriteProvider` for intent parsing + prompt templating + generation call
-- `RewriteProviderRegistry` for provider lookup and future multi-provider expansion
+- `OpenAITextGenerationProvider` supports OpenAI and compatible endpoints for `/v1/chat/completions`
+- `OpenAIRewriteProvider` handles intent parsing + prompt templating + generation call
+- `RewriteProviderRegistry` resolves rewrite provider by `ProviderType`
 
 ### TextOutput
 
@@ -294,9 +298,16 @@ Responsibility:
 
 Current implementation:
 
-- provider picker
-- model text input with validation
-- API key save/delete using Keychain-backed store
+- role binding pickers:
+  - transcription provider profile
+  - rewrite provider profile
+- profile editor:
+  - provider type
+  - name
+  - enable/disable
+  - base URL (optional for compatible type)
+  - transcription model and rewrite model
+- API key save/delete using profile-scoped Keychain entries
 
 ### Diagnostics
 
@@ -338,6 +349,8 @@ These are known missing pieces, not accidents:
 
 - rewrite command parser is rule-based and still limited in language coverage
 - no dedicated rewrite action palette UI yet (voice command only)
+- no per-profile provider connection test button yet
+- no vendor-specific advanced params (temperature/top_p/etc.) in settings yet
 - no full first-launch permission walkthrough yet
 - no waveform-grade visualizer; current listening feedback is a minimal level meter
 - AX replacement compatibility still needs broader validation across third-party editors
