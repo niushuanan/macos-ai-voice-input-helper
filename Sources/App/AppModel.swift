@@ -55,6 +55,7 @@ final class AppModel: ObservableObject {
         let store = LocalStore.bootstrap()
         let sessionStore = SessionStore()
         let permissionsCenter = PermissionsCenter()
+        let audioCaptureService = AVAudioRecorderCaptureService(temporaryDirectory: store.temporaryAudioDirectory)
         let interactionCoordinator = InteractionCoordinator(
             sessionStore: sessionStore,
             permissionsCenter: permissionsCenter
@@ -64,7 +65,7 @@ final class AppModel: ObservableObject {
             hotkeyCoordinator: HotkeyCoordinator.defaultConfiguration,
             globalHotkeyService: GlobalHotkeyService(interactionCoordinator: interactionCoordinator),
             interactionCoordinator: interactionCoordinator,
-            audioCaptureService: StubAudioCaptureService(),
+            audioCaptureService: audioCaptureService,
             speechProvider: PlaceholderSpeechProvider(),
             textOutputCoordinator: StubTextOutputCoordinator(),
             contextDetector: StubContextDetector(),
