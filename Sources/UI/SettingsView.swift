@@ -1,4 +1,5 @@
 import KeyboardShortcuts
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -8,11 +9,13 @@ struct SettingsView: View {
     @ObservedObject private var sessionStore: SessionStore
     @ObservedObject private var permissionsCenter: PermissionsCenter
     @ObservedObject private var providerSettingsStore: ProviderSettingsStore
+    @ObservedObject private var localHistoryStore: LocalHistoryStore
 
     @State private var asrTesting = false
     @State private var textTesting = false
     @State private var asrTestResult: ConnectionTestResult?
     @State private var textTestResult: ConnectionTestResult?
+    @State private var memoryFeedback: String?
 
     init(model: AppModel) {
         self.model = model
@@ -20,6 +23,7 @@ struct SettingsView: View {
         _sessionStore = ObservedObject(wrappedValue: model.sessionStore)
         _permissionsCenter = ObservedObject(wrappedValue: model.permissionsCenter)
         _providerSettingsStore = ObservedObject(wrappedValue: model.providerSettingsStore)
+        _localHistoryStore = ObservedObject(wrappedValue: model.localHistoryStore)
     }
 
     var body: some View {
@@ -35,10 +39,7 @@ struct SettingsView: View {
                 case .home:
                     homePage
                 case .memory:
-                    PlaceholderPageView(
-                        title: "记忆",
-                        subtitle: "下一步会在这里展示可筛选的时间线与管理操作。"
-                    )
+                    memoryPage
                 case .skills:
                     PlaceholderPageView(
                         title: "技能",
@@ -139,6 +140,58 @@ struct SettingsView: View {
         .onAppear {
             permissionsCenter.refreshStatuses()
         }
+    }
+
+    private var memoryPage: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Picker("过滤", selection: $controlCenterState.memoryFilter) {
+                    ForEach(LocalHistoryFilter.allCases) { filter in
+                        Text(filter.title).tag(filter)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Spacer()
+
+                Button("清空记录", role: .destructive) {
+                    localHistoryStore.clearAll()
+                    memoryFeedback = "本地历史已清空。"
+                }
+                .buttonStyle(.bordered)
+                .disabled(localHistoryStore.entries.isEmpty)
+            }
+
+            if let memoryFeedback {
+                Text(memoryFeedback)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if filteredHistoryEntries.isEmpty {
+                Spacer()
+                Text("当前筛选下还没有记录。")
+                    .foregroundStyle(.secondary)
+                Spacer()
+            } else {
+                List {
+                    ForEach(filteredHistoryEntries) { entry in
+                        MemoryRowView(
+                            entry: entry,
+                            onCopy: { copyHistoryEntry(entry) },
+                            onDelete: {
+                                localHistoryStore.delete(entryID: entry.id)
+                                memoryFeedback = "已删除一条记录。"
+                            }
+                        )
+                        .padding(.vertical, 4)
+                    }
+                }
+                .listStyle(.inset)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var legacyConsolePage: some View {
@@ -449,6 +502,10 @@ struct SettingsView: View {
         }
     }
 
+    private var filteredHistoryEntries: [SessionHistoryEntry] {
+        localHistoryStore.entries(matching: controlCenterState.memoryFilter)
+    }
+
     private var wakeShortcutText: String {
         KeyboardShortcuts.getShortcut(for: .wakeSession)?
             .description
@@ -466,6 +523,19 @@ struct SettingsView: View {
     private func speedText(_ value: Double) -> String {
         let safe = max(0, Int(value.rounded()))
         return "\(safe)"
+    }
+
+    private func copyHistoryEntry(_ entry: SessionHistoryEntry) {
+        let text = (entry.outputText ?? entry.inputText)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            memoryFeedback = "这条记录没有可复制的文本。"
+            return
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        memoryFeedback = "已复制文本。"
     }
 
     private func runASRTest() {
@@ -512,6 +582,115 @@ private struct PlaceholderPageView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct MemoryRowView: View {
+    let entry: SessionHistoryEntry
+    let onCopy: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Label(modeTitle, systemImage: modeSymbol)
+                    .font(.caption)
+                Label(statusTitle, systemImage: statusSymbol)
+                    .font(.caption)
+                    .foregroundStyle(statusColor)
+            }
+
+            Text(textPreview)
+                .font(.callout)
+                .lineLimit(3)
+                .textSelection(.enabled)
+
+            HStack {
+                Text(entry.appName)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("复制") {
+                    onCopy()
+                }
+                .buttonStyle(.bordered)
+
+                Button("删除", role: .destructive) {
+                    onDelete()
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+    }
+
+    private var modeTitle: String {
+        switch entry.mode {
+        case .dictation:
+            return "普通听写"
+        case .selectionRewrite:
+            return "选区改写"
+        }
+    }
+
+    private var modeSymbol: String {
+        switch entry.mode {
+        case .dictation:
+            return "mic"
+        case .selectionRewrite:
+            return "wand.and.stars"
+        }
+    }
+
+    private var statusTitle: String {
+        switch entry.status {
+        case .success:
+            return "成功"
+        case .failed:
+            return "失败"
+        case .cancelled:
+            return "已取消"
+        }
+    }
+
+    private var statusSymbol: String {
+        switch entry.status {
+        case .success:
+            return "checkmark.circle.fill"
+        case .failed:
+            return "xmark.octagon.fill"
+        case .cancelled:
+            return "slash.circle.fill"
+        }
+    }
+
+    private var statusColor: Color {
+        switch entry.status {
+        case .success:
+            return .green
+        case .failed:
+            return .red
+        case .cancelled:
+            return .orange
+        }
+    }
+
+    private var textPreview: String {
+        let output = (entry.outputText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !output.isEmpty {
+            return output
+        }
+        let input = entry.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !input.isEmpty {
+            return input
+        }
+        if let error = entry.errorMessage, !error.isEmpty {
+            return error
+        }
+        return "无文本内容"
     }
 }
 

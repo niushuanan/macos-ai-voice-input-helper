@@ -11,6 +11,28 @@ enum SessionHistoryStatus: String, Codable, Equatable {
     case cancelled
 }
 
+enum LocalHistoryFilter: String, CaseIterable, Identifiable {
+    case all
+    case dictation
+    case selectionRewrite
+    case failed
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all:
+            return "全部"
+        case .dictation:
+            return "普通听写"
+        case .selectionRewrite:
+            return "选区改写"
+        case .failed:
+            return "失败"
+        }
+    }
+}
+
 struct SessionHistoryEntry: Identifiable, Codable, Equatable {
     let id: UUID
     let timestamp: Date
@@ -118,6 +140,19 @@ final class LocalHistoryStore: ObservableObject {
         entries = []
         if fileManager.fileExists(atPath: fileURL.path) {
             try? fileManager.removeItem(at: fileURL)
+        }
+    }
+
+    func entries(matching filter: LocalHistoryFilter) -> [SessionHistoryEntry] {
+        switch filter {
+        case .all:
+            return entries
+        case .dictation:
+            return entries.filter { $0.mode == .dictation }
+        case .selectionRewrite:
+            return entries.filter { $0.mode == .selectionRewrite }
+        case .failed:
+            return entries.filter { $0.status == .failed }
         }
     }
 

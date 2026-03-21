@@ -41,32 +41,10 @@ enum DesktopSection: String, CaseIterable, Identifiable {
     }
 }
 
-enum MemoryFilterOption: String, CaseIterable, Identifiable {
-    case all
-    case dictation
-    case selectionRewrite
-    case failed
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .all:
-            return "全部"
-        case .dictation:
-            return "普通听写"
-        case .selectionRewrite:
-            return "选区改写"
-        case .failed:
-            return "失败"
-        }
-    }
-}
-
 @MainActor
 final class ControlCenterState: ObservableObject {
     @Published var selectedSection: DesktopSection = .home
-    @Published var memoryFilter: MemoryFilterOption = .all
+    @Published var memoryFilter: LocalHistoryFilter = .all
     @Published private(set) var homeStatsSnapshot: HistoryStatisticsSnapshot = .zero
 
     private var cancellables = Set<AnyCancellable>()
