@@ -239,6 +239,35 @@ Why this was selected:
 - strong extensibility baseline without high UI complexity
 - aligns with "innovation but still shippable" rule
 
+## Prompt 9 scene-and-history candidates
+
+Goal in this phase:
+
+- make local-first history real and user-manageable
+- make scene awareness visible at app level
+- let behavior differ by app in a controllable way
+
+| Candidate | User understanding cost | Development complexity | Product premium feel | V1 fit | Decision |
+| --- | --- | --- | --- | --- | --- |
+| Static app style map | Very low. Users only see hardcoded app categories. | Low | Medium | Good | Parked |
+| Per-app dual strategy | Low to medium. Users edit one style bias and one lane preference for each app. | Medium | High | Best | Selected |
+| Outcome-adaptive auto policy | Medium to high. Behavior changes based on recent success history. | Medium to high | High | Weak | Parked |
+
+### Selected in this round: per-app dual strategy
+
+What users can feel:
+
+- each app can have a default output bias: `neutral`, `formal`, `casual`, `structured`
+- each app can choose whether selected text should prefer rewrite lane by default
+- the command deck surfaces current scene style and lane hint
+- the settings page provides direct app-policy editing plus delete controls
+
+Why this was selected:
+
+- visible product differentiation without heavy ML logic
+- fully explainable and reversible behavior for users
+- fits v1 engineering budget while creating a strong base for future scene intelligence
+
 ## Non-negotiable interaction principles
 
 - Summon and cancel actions must be easy to memorize.

@@ -13,9 +13,10 @@ The repository already contains these concrete building blocks:
   - `Hotkey`: current shortcut plan
   - `Audio`: native `AVAudioRecorder` capture service with live level metering
   - `Speech`: provider protocol, provider registry, OpenAI transcription client, provider settings
+  - `History`: local session history persistence with delete controls
   - `Security`: Keychain-backed API key credential store
   - `TextOutput`: insertion abstraction placeholder
-  - `Context`: frontmost-app and style context placeholder
+  - `Context`: frontmost-app detection plus per-app scene policy store
   - `Permissions`: permission snapshot placeholder
   - `Storage`: local data root model
   - `Diagnostics`: local diagnostics summary
@@ -268,6 +269,51 @@ Current implementation:
 - source:
   - `NSWorkspace` + AX focused element query
 
+### AppScenePolicy
+
+Responsibility:
+
+- store user-editable per-app behavior policy
+- expose deterministic defaults when no custom policy is stored
+- drive lane preference and rewrite style bias from app context
+
+Current implementation:
+
+- policy fields:
+  - `outputBias` (`neutral`, `formal`, `casual`, `structured`)
+  - `preferSelectionRewrite` (`Bool`)
+- runtime usage:
+  - lane resolver can prefer rewrite lane when selection exists
+  - rewrite parser can map generic polish commands using the app policy bias
+- settings surface:
+  - edit focused-app policy
+  - list and edit saved custom app policies
+  - remove custom policies
+
+### History
+
+Responsibility:
+
+- persist local session records for dictation and rewrite lanes
+- provide user-manageable delete operations
+- retain provider and result metadata for diagnostics transparency
+
+Current implementation:
+
+- file path:
+  - `History/session-history-v1.json`
+- fields include:
+  - time
+  - lane mode
+  - frontmost app info
+  - input/output text
+  - provider metadata
+  - success/failed/cancelled state
+- settings surface:
+  - latest 20 entries preview
+  - per-entry delete
+  - full clear action
+
 ### Permissions
 
 Responsibility:
@@ -324,6 +370,9 @@ Persist locally by default:
 - rewrite history
 - settings and preferences
 - diagnostics metadata
+
+See [local-history-and-scene-policy.md](local-history-and-scene-policy.md)
+for concrete storage keys and policy schema details.
 
 Do not persist in plain text unless there is a clear product reason:
 

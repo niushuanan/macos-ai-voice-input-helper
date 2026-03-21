@@ -32,6 +32,8 @@ This repository now includes:
 - OpenAI official and OpenAI-compatible endpoint support
 - selection-aware rewrite lane with action parsing (`translate`, `polish`, `condense`, `structure`)
 - focus-aware text writeback engine with explicit fallback labeling
+- local session history logging with in-app view and delete controls
+- per-app scene policy (`output bias` + `rewrite lane preference`) with settings UI
 - a session-state spine covering `idle`, `listening`, `transcribing`,
   `rewriting`, `inserting`, `cancelled`, and `error`
 - architecture and engineering docs that define the path from phase 0 to beta
@@ -88,5 +90,6 @@ If your shell already points to the full Xcode developer directory, the
 - [docs/transcription-provider.md](docs/transcription-provider.md)
 - [docs/text-output.md](docs/text-output.md)
 - [docs/compatibility-matrix-v1.md](docs/compatibility-matrix-v1.md)
+- [docs/local-history-and-scene-policy.md](docs/local-history-and-scene-policy.md)
 - [docs/milestones.md](docs/milestones.md)
 - [docs/adr/0001-helper-app-direction.md](docs/adr/0001-helper-app-direction.md)
