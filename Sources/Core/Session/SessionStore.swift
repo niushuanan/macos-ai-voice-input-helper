@@ -7,6 +7,8 @@ final class SessionStore: ObservableObject {
     @Published private(set) var activeLane: InputLane = .directDictation
     @Published private(set) var statusMessage: String = "Ready for a keyboard-first voice session."
     @Published private(set) var errorMessage: String?
+    @Published private(set) var listeningLevel: Double = 0
+    @Published private(set) var pendingClip: RecordedAudioClip?
 
     private let allowedTransitions: [SessionPhase: Set<SessionPhase>] = [
         .idle: [.listening],
@@ -19,17 +21,25 @@ final class SessionStore: ObservableObject {
     ]
 
     func startDictation() {
+        pendingClip = nil
+        listeningLevel = 0
         activeLane = .directDictation
         transition(to: .listening, statusMessage: "Listening for direct dictation.")
     }
 
     func startRewrite() {
+        pendingClip = nil
+        listeningLevel = 0
         activeLane = .selectionRewrite
         transition(to: .listening, statusMessage: "Listening for rewrite intent on the current selection.")
     }
 
-    func markTranscribing() {
-        transition(to: .transcribing, statusMessage: "Turning speech into a structured text request.")
+    func markTranscribing(audioSummary: String? = nil) {
+        if let audioSummary {
+            transition(to: .transcribing, statusMessage: "Audio ready: \(audioSummary)")
+        } else {
+            transition(to: .transcribing, statusMessage: "Turning speech into a structured text request.")
+        }
     }
 
     func markRewriting() {
@@ -42,25 +52,41 @@ final class SessionStore: ObservableObject {
     }
 
     func completeInsertion() {
+        pendingClip = nil
+        listeningLevel = 0
         transition(to: .idle, statusMessage: "Ready for the next voice session.")
     }
 
     func cancel() {
+        pendingClip = nil
+        listeningLevel = 0
         errorMessage = nil
         phase = .cancelled
         statusMessage = "Session cancelled without changing the target app."
     }
 
     func fail(message: String) {
+        listeningLevel = 0
         errorMessage = message
         phase = .error
         statusMessage = message
     }
 
     func reset() {
+        pendingClip = nil
+        listeningLevel = 0
         errorMessage = nil
         phase = .idle
         statusMessage = "Ready for a keyboard-first voice session."
+    }
+
+    func updateListeningLevel(_ level: Double) {
+        let clamped = max(0, min(1, level))
+        listeningLevel = clamped
+    }
+
+    func attachPendingClip(_ clip: RecordedAudioClip) {
+        pendingClip = clip
     }
 
     private func transition(to nextPhase: SessionPhase, statusMessage: String) {

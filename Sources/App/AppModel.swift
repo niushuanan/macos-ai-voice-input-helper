@@ -58,7 +58,8 @@ final class AppModel: ObservableObject {
         let audioCaptureService = AVAudioRecorderCaptureService(temporaryDirectory: store.temporaryAudioDirectory)
         let interactionCoordinator = InteractionCoordinator(
             sessionStore: sessionStore,
-            permissionsCenter: permissionsCenter
+            permissionsCenter: permissionsCenter,
+            audioCaptureService: audioCaptureService
         )
         return AppModel(
             sessionStore: sessionStore,
@@ -89,6 +90,7 @@ final class AppModel: ObservableObject {
 
     private func activateGlobalHotkeys() {
         globalHotkeyService.activate()
+        _ = audioCaptureService.purgeStaleTemporaryFiles(olderThan: 24 * 60 * 60)
     }
 
     private func bindAppLifecycle() {
