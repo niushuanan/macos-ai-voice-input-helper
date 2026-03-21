@@ -18,6 +18,11 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Secret scan
+        run: |
+          chmod +x scripts/secret-scan.sh
+          ./scripts/secret-scan.sh
+
       - name: Generate Xcode project
         run: xcodegen generate
 
