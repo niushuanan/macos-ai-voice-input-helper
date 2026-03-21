@@ -28,6 +28,7 @@ This repository now includes:
 - live listening-level feedback in the menu bar and command deck
 - OpenAI cloud transcription path from recorded audio to text result
 - provider/model/API-key settings with Keychain-backed key storage
+- selection-aware rewrite lane with action parsing (`translate`, `polish`, `condense`, `structure`)
 - focus-aware text writeback engine with explicit fallback labeling
 - a session-state spine covering `idle`, `listening`, `transcribing`,
   `rewriting`, `inserting`, `cancelled`, and `error`

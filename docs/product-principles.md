@@ -80,7 +80,7 @@ Why it matters:
 - Cancel: tap `Control + Option + Escape`
 - Lane split:
   - wake tap by default -> direct dictation
-  - wake tap while `Option` is held and selection exists -> selection rewrite
+  - wake tap with active text selection -> selection rewrite
 - HUD: yes, short pulse status overlay (about 1 second)
 - Learning cost: low to medium
 - System conflict risk: low to medium
@@ -150,6 +150,68 @@ Selected implementation:
 
 - App-aware writeback transparency in command deck status card.
 - Clear fallback labeling; fallback is never presented as main path.
+
+## Prompt 7 rewrite interaction candidates
+
+Goal in this phase:
+
+- selected text -> wake shortcut -> speak command -> AI rewrite -> overwrite selection
+
+### Candidate 1: Free command only
+
+- How it works:
+  - User says any natural-language command, such as "translate this to Japanese" or "make it concise."
+  - System relies on intent parsing from raw speech every time.
+- User understanding cost: low
+- Development complexity: medium
+- Product premium feel: medium
+- V1 fit: good
+- Main tradeoff:
+  - Highest flexibility, but intent ambiguity can create unstable output.
+
+### Candidate 2: Mode-first command vocabulary
+
+- How it works:
+  - User first says or taps a predefined action category (`translate`, `polish`, `condense`, `structure`), then optional detail.
+  - System strongly constrains prompt templates.
+- User understanding cost: medium
+- Development complexity: low to medium
+- Product premium feel: medium
+- V1 fit: good
+- Main tradeoff:
+  - Predictable and robust, but feels rigid for advanced users.
+
+### Candidate 3: Hybrid quick-actions + free command fallback (Selected)
+
+- How it works:
+  - System first maps spoken text into known actions when possible:
+    - `translate`
+    - `polish`
+    - `condense`
+    - `structure`
+  - If mapping is unclear, system falls back to a custom rewrite instruction.
+- User understanding cost: low to medium
+- Development complexity: medium
+- Product premium feel: high
+- V1 fit: best
+- Main tradeoff:
+  - Requires clean parser + template boundaries, but keeps both power and reliability.
+
+Selected in this round:
+
+- Candidate 3 (`hybrid quick-actions + free command fallback`)
+- Why:
+  - It keeps a clear "product behavior" for frequent actions.
+  - It still supports natural language for long-tail edits.
+  - It can be implemented with deterministic templates in v1 without heavy prompt engineering.
+
+### Supported selection actions in v1
+
+- `Translate`: supports common target-language detection from command phrases.
+- `Polish`: formal or casual tone shifts.
+- `Condense`: shorten while preserving key meaning.
+- `Structure`: reorganize into bullet-point form.
+- `Custom`: when no known quick-action matches, apply user command directly.
 
 ## Non-negotiable interaction principles
 

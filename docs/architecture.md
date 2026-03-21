@@ -63,7 +63,7 @@ Selected model: `tap-tap dual-lane session`
   - this transitions to `cancelled`
 - Lane split:
   - default wake -> `directDictation`
-  - wake with rewrite modifier plus valid selection -> `selectionRewrite`
+  - wake with valid text selection -> `selectionRewrite`
 - Status cue:
   - menu bar icon reflects phase in real time
   - a short non-blocking HUD pulse appears on phase change
@@ -120,9 +120,27 @@ Lane 1: direct dictation
 Lane 2: selection rewrite
 
 - detect selection context
-- capture speech as rewrite intent
-- transform selected text
+- capture speech as rewrite command
+- map command to action template (`translate`, `polish`, `condense`, `structure`, or fallback custom)
+- generate rewritten text with selected rewrite provider/model
 - replace the original selection safely
+
+### Selection rewrite runtime chain (Prompt 7)
+
+The current rewrite lane is selection-aware and action-aware:
+
+1. Wake hotkey is pressed.
+2. If selected text exists in the focused app, lane resolves to `selectionRewrite`; otherwise lane resolves to `directDictation`.
+3. User speech is transcribed.
+4. Transcribed command is parsed into `RewriteIntent`.
+5. Prompt template is assembled from:
+   - app context (`appName`, `bundleID`)
+   - spoken command
+   - selected text
+   - normalized action instruction
+6. Rewrite provider generates replacement text.
+7. Text output layer overwrites selected text (`replaceSelectedText` operation).
+8. If overwrite fails, failure is surfaced with explicit error messaging.
 
 ## Service boundaries
 
@@ -181,6 +199,22 @@ Current implementation:
 - `ProviderSettingsStore` manages selected provider and model.
 - API keys are loaded from Keychain through `ProviderCredentialStore`.
 
+### RewriteProvider / TextGenerationProvider
+
+Responsibility:
+
+- map spoken rewrite commands into maintainable action intents
+- build structured prompts for selection-based rewriting
+- call text-generation backend and normalize result
+
+Current implementation:
+
+- `RewriteProvider` protocol for selection rewrite contracts
+- `TextGenerationProvider` protocol for model text generation contracts
+- `OpenAITextGenerationProvider` for `/v1/chat/completions`
+- `OpenAIRewriteProvider` for intent parsing + prompt templating + generation call
+- `RewriteProviderRegistry` for provider lookup and future multi-provider expansion
+
 ### TextOutput
 
 Responsibility:
@@ -204,6 +238,7 @@ Current implementation:
   - explicit pasteboard + `Command + V`
 - both paths are logged in diagnostics:
   - `Diagnostics/text-output.log`
+- rewrite lane uses `replaceSelectedText` explicitly; it is not aliased to insert flow
 
 ### ContextDetection
 
@@ -301,14 +336,11 @@ Rules:
 
 These are known missing pieces, not accidents:
 
-- no insertion bridge yet
+- rewrite command parser is rule-based and still limited in language coverage
+- no dedicated rewrite action palette UI yet (voice command only)
 - no full first-launch permission walkthrough yet
 - no waveform-grade visualizer; current listening feedback is a minimal level meter
-
-Revision after Prompt 6:
-
-- insertion bridge now exists with AX primary path plus paste fallback
-- direct AX compatibility still needs broader validation across third-party editors
+- AX replacement compatibility still needs broader validation across third-party editors
 
 ## Known system limits
 
