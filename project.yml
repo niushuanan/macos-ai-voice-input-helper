@@ -1,0 +1,30 @@
+name: PulseType
+options:
+  createIntermediateGroups: true
+  developmentLanguage: en
+settings:
+  base:
+    SWIFT_VERSION: 5.10
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+    CODE_SIGN_STYLE: Automatic
+targets:
+  PulseType:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Sources
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.niushuanan.PulseType
+        PRODUCT_NAME: PulseType
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: PulseType
+        INFOPLIST_KEY_LSUIElement: "YES"
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: PulseType records audio only when you start a voice session.
+        INFOPLIST_KEY_NSAppleEventsUsageDescription: PulseType needs automation access when you enable text insertion into other apps.
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
