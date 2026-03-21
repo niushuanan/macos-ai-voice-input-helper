@@ -31,7 +31,7 @@ struct MenuBarPanelView: View {
                 .font(.caption)
             Text("Cancel: Control + Option + Escape")
                 .font(.caption)
-            Text("Rewrite lane: hold Option on wake with active selection")
+            Text("Rewrite lane: wake while text is selected")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -127,7 +127,8 @@ struct MenuBarPanelView: View {
                 .font(.headline)
 
             InfoRow(title: "Speech provider", value: model.providerSettingsStore.selectedProviderName)
-            InfoRow(title: "Model", value: model.providerSettingsStore.modelName)
+            InfoRow(title: "Transcription model", value: model.providerSettingsStore.modelName)
+            InfoRow(title: "Rewrite model", value: model.providerSettingsStore.rewriteModelName)
             InfoRow(title: "Insertion path", value: model.textOutputCoordinator.insertionStrategy)
             InfoRow(title: "History root", value: model.localStore.rootDirectory.path)
 

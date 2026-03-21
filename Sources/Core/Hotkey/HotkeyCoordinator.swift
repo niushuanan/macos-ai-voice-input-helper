@@ -31,7 +31,7 @@ struct HotkeyCoordinator {
         rewriteModifierHint: HotkeyDescriptor(
             id: "rewrite-lane",
             name: "Selection rewrite lane",
-            trigger: "Hold Option when invoking with a selection"
+            trigger: "Wake while text is selected"
         )
     )
 }

@@ -33,7 +33,7 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                GroupBox("Transcription provider") {
+                GroupBox("Provider and models") {
                     VStack(alignment: .leading, spacing: 12) {
                         Picker("Provider", selection: $providerSettingsStore.selectedProviderID) {
                             ForEach(SpeechProviderID.allCases) { providerID in
@@ -43,7 +43,7 @@ struct SettingsView: View {
                         .pickerStyle(.menu)
 
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Model")
+                            Text("Transcription model")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
 
@@ -54,6 +54,22 @@ struct SettingsView: View {
 
                         if let validationMessage = providerSettingsStore.configurationValidationMessage {
                             Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Rewrite model")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            TextField("Rewrite model name", text: $providerSettingsStore.rewriteModelName)
+                                .textFieldStyle(.roundedBorder)
+                                .autocorrectionDisabled()
+                        }
+
+                        if let rewriteValidation = providerSettingsStore.rewriteConfigurationValidationMessage {
+                            Label(rewriteValidation, systemImage: "exclamationmark.triangle.fill")
                                 .font(.caption)
                                 .foregroundStyle(.red)
                         }
