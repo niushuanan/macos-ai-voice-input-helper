@@ -1,45 +1,49 @@
-# API Key Setup
+# API 密钥配置说明
 
-## Security baseline
+## 安全基线
 
-- API keys are stored in macOS Keychain.
-- Keys are not written into plain-text project config files.
-- Session history stores provider names/models, not secret values.
+- API 密钥只写入 macOS 钥匙串（Keychain）。
+- 配置文件只保存非敏感字段（地址、模型、provider 类型）。
+- 本地历史只记录 provider 名称与模型，不记录密钥明文。
 
-## Configure provider profiles
+## 前端配置入口
 
-In settings > Provider center:
+设置页的“模型配置”包含两张固定卡片：
 
-1. Pick or create a profile.
-2. Set provider type:
-   - `OpenAI (Official)`
-   - `OpenAI-Compatible`
-3. Set model names:
-   - transcription model (example: `whisper-1`)
-   - rewrite model (example: `gpt-4o-mini`)
-4. For compatible providers, set `Base URL`.
-5. Paste API key and click `Save`.
+1. 语音识别（ASR）
+2. 文本处理
 
-## Role split
+每张卡片都需要配置：
 
-You can assign different profiles per role:
+- Provider 类型：`OpenAI（官方）` 或 `OpenAI 兼容`
+- API 地址（官方模式为固定地址）
+- 模型名
+- API 密钥（保存到钥匙串）
 
-- Transcription provider
-- Rewrite provider
+## 推荐起步配置
 
-This allows speed/quality/cost tuning by stage.
+- ASR：
+  - 类型：`OpenAI（官方）`
+  - 地址：`https://api.openai.com`
+  - 模型：`whisper-1`
+- 文本：
+  - 类型：`OpenAI（官方）`
+  - 地址：`https://api.openai.com`
+  - 模型：`gpt-4o-mini`
 
-## Common setup mistakes
+## 自测步骤
 
-- Empty or short API key
-- Wrong provider type for current endpoint
-- Base URL includes unsupported scheme
-- Invalid model name (whitespace or empty)
-- Profile disabled while selected for a role
+1. ASR 卡片点“测试”。
+2. 文本卡片点“测试”。
+3. 观察“诊断与测试”里的最近结果：
+   - 成功/失败
+   - HTTP 状态
+   - 建议动作
 
-## Recommended first profile
+## 常见错误
 
-- Provider type: `OpenAI (Official)`
-- Base URL: fixed (`https://api.openai.com`)
-- Transcription model: `whisper-1`
-- Rewrite model: `gpt-4o-mini`
+- 密钥为空或格式错误（常见 401）
+- 地址不对或路径拼接异常（常见 404）
+- 模型名写错
+- 额度不足或限流（常见 429）
+- 网络不可达

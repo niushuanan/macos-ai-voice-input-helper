@@ -77,7 +77,7 @@ Why it matters:
 
 - Wake: tap `Control + Option + Space`
 - Stop: tap the same combo again
-- Cancel: tap `Control + Option + Escape`
+- Cancel: tap `Escape`
 - Lane split:
   - wake tap by default -> direct dictation
   - wake tap with active text selection -> selection rewrite
@@ -223,14 +223,13 @@ Selected in this round:
 
 Selected implementation in this round:
 
-- role-split provider routing with profile-based config center
-- each profile has:
+- role-split provider routing with dual fixed config cards
+- ASR card and Text card both include:
   - provider type
-  - enable/disable
   - optional base URL
-  - transcription model
-  - rewrite model
+  - model
   - Keychain-backed API key
+  - one-click connectivity test
 - OpenAI official + OpenAI-compatible are both available in v1
 
 Why this was selected:
