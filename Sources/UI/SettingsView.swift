@@ -104,6 +104,7 @@ struct SettingsView: View {
                         Text(model.localStore.rootDirectory.path)
                         Text(model.localStore.historyDirectory.path)
                         Text(model.localStore.diagnosticsDirectory.path)
+                        Text(model.localStore.temporaryAudioDirectory.path)
                     }
                     .font(.caption.monospaced())
                     .textSelection(.enabled)
