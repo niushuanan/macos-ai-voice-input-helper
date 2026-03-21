@@ -14,8 +14,6 @@ struct SettingsView: View {
 
     @State private var asrTesting = false
     @State private var textTesting = false
-    @State private var asrTestResult: ConnectionTestResult?
-    @State private var textTestResult: ConnectionTestResult?
     @State private var memoryFeedback: String?
 
     init(model: AppModel) {
@@ -45,10 +43,7 @@ struct SettingsView: View {
                 case .skills:
                     skillsPage
                 case .model:
-                    PlaceholderPageView(
-                        title: "模型",
-                        subtitle: "下一步会在这里固定展示 ASR 与文本处理两张模型卡片。"
-                    )
+                    modelPage
                 case .settings:
                     PlaceholderPageView(
                         title: "设置",
@@ -221,6 +216,155 @@ struct SettingsView: View {
             .padding(20)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var modelPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("模型")
+                    .font(.title3.weight(.semibold))
+
+                Text("先配置语音识别和文本处理两个模型，再点测试，结果会常驻显示。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                modelRoleSection(
+                    roleTitle: "ASR（语音识别）",
+                    cardTitle: "语音识别（ASR）",
+                    providerType: asrProviderTypeBinding,
+                    baseURL: asrBaseURLBinding,
+                    modelName: asrModelBinding,
+                    allowsCustomBaseURL: providerSettingsStore.asrConfig.providerType.allowsCustomBaseURL,
+                    baseURLPlaceholder: providerSettingsStore.asrConfig.providerType.allowsCustomBaseURL
+                        ? "https://your-openai-compatible.com"
+                        : "https://api.openai.com（固定）",
+                    modelPlaceholder: "whisper-1",
+                    apiKeyDraft: $providerSettingsStore.asrAPIKeyDraft,
+                    credentialState: providerSettingsStore.asrCredentialState,
+                    validationMessage: providerSettingsStore.asrConfigurationValidationMessage,
+                    feedbackMessage: providerSettingsStore.asrFeedbackMessage,
+                    onSaveKey: { providerSettingsStore.saveASRAPIKeyDraft() },
+                    onDeleteKey: { providerSettingsStore.clearASRAPIKey() },
+                    isTesting: asrTesting,
+                    testButtonTitle: "测试 ASR",
+                    latestResult: providerSettingsStore.latestASRTestResult,
+                    activeConfigLine: effectiveConfigLine(
+                        providerType: providerSettingsStore.asrConfig.providerType,
+                        baseURLString: providerSettingsStore.asrConfig.baseURLString,
+                        modelName: providerSettingsStore.asrConfig.modelName
+                    ),
+                    onTest: runASRTest
+                )
+
+                modelRoleSection(
+                    roleTitle: "文本处理",
+                    cardTitle: "文本处理",
+                    providerType: textProviderTypeBinding,
+                    baseURL: textBaseURLBinding,
+                    modelName: textModelBinding,
+                    allowsCustomBaseURL: providerSettingsStore.textConfig.providerType.allowsCustomBaseURL,
+                    baseURLPlaceholder: providerSettingsStore.textConfig.providerType.allowsCustomBaseURL
+                        ? "https://your-openai-compatible.com"
+                        : "https://api.openai.com（固定）",
+                    modelPlaceholder: "gpt-4o-mini",
+                    apiKeyDraft: $providerSettingsStore.textAPIKeyDraft,
+                    credentialState: providerSettingsStore.textCredentialState,
+                    validationMessage: providerSettingsStore.textConfigurationValidationMessage,
+                    feedbackMessage: providerSettingsStore.textFeedbackMessage,
+                    onSaveKey: { providerSettingsStore.saveTextAPIKeyDraft() },
+                    onDeleteKey: { providerSettingsStore.clearTextAPIKey() },
+                    isTesting: textTesting,
+                    testButtonTitle: "测试文本模型",
+                    latestResult: providerSettingsStore.latestTextTestResult,
+                    activeConfigLine: effectiveConfigLine(
+                        providerType: providerSettingsStore.textConfig.providerType,
+                        baseURLString: providerSettingsStore.textConfig.baseURLString,
+                        modelName: providerSettingsStore.textConfig.modelName
+                    ),
+                    onTest: runTextTest
+                )
+            }
+            .padding(20)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear {
+            providerSettingsStore.refreshCredentialState()
+        }
+    }
+
+    @ViewBuilder
+    private func modelRoleSection(
+        roleTitle: String,
+        cardTitle: String,
+        providerType: Binding<ProviderType>,
+        baseURL: Binding<String>,
+        modelName: Binding<String>,
+        allowsCustomBaseURL: Bool,
+        baseURLPlaceholder: String,
+        modelPlaceholder: String,
+        apiKeyDraft: Binding<String>,
+        credentialState: ProviderSettingsStore.CredentialState,
+        validationMessage: String?,
+        feedbackMessage: String?,
+        onSaveKey: @escaping () -> Bool,
+        onDeleteKey: @escaping () -> Bool,
+        isTesting: Bool,
+        testButtonTitle: String,
+        latestResult: ConnectionTestResult?,
+        activeConfigLine: String,
+        onTest: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(roleTitle)
+                .font(.headline)
+
+            ModelConfigCard(
+                title: cardTitle,
+                providerType: providerType,
+                baseURL: baseURL,
+                modelName: modelName,
+                allowsCustomBaseURL: allowsCustomBaseURL,
+                baseURLPlaceholder: baseURLPlaceholder,
+                modelPlaceholder: modelPlaceholder,
+                apiKeyDraft: apiKeyDraft,
+                credentialState: credentialState,
+                validationMessage: validationMessage,
+                feedbackMessage: feedbackMessage,
+                onSaveKey: onSaveKey,
+                onDeleteKey: onDeleteKey
+            )
+
+            LabeledContent("当前生效配置", value: activeConfigLine)
+                .font(.caption)
+
+            HStack {
+                Button(isTesting ? "\(testButtonTitle)中..." : testButtonTitle) {
+                    onTest()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isTesting)
+                Spacer()
+            }
+
+            if let latestResult {
+                ConnectionTestSummaryView(title: "最近一次测试", result: latestResult)
+                Label(
+                    "建议：\(actionSuggestion(for: latestResult))",
+                    systemImage: latestResult.status == .success
+                        ? "checkmark.seal.fill"
+                        : "lightbulb.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(latestResult.status == .success ? .green : .secondary)
+            } else {
+                Text("还没有测试记录。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var legacyConsolePage: some View {
@@ -442,11 +586,11 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let asrTestResult {
+            if let asrTestResult = providerSettingsStore.latestASRTestResult {
                 ConnectionTestSummaryView(title: "ASR 最近结果", result: asrTestResult)
             }
 
-            if let textTestResult {
+            if let textTestResult = providerSettingsStore.latestTextTestResult {
                 ConnectionTestSummaryView(title: "文本模型最近结果", result: textTestResult)
             }
         }
@@ -519,7 +663,7 @@ struct SettingsView: View {
     }
 
     private var latestResult: ConnectionTestResult? {
-        switch (asrTestResult, textTestResult) {
+        switch (providerSettingsStore.latestASRTestResult, providerSettingsStore.latestTextTestResult) {
         case let (.some(asr), .some(text)):
             return asr.timestamp >= text.timestamp ? asr : text
         case let (.some(asr), .none):
@@ -554,6 +698,59 @@ struct SettingsView: View {
         return "\(safe)"
     }
 
+    private func effectiveConfigLine(
+        providerType: ProviderType,
+        baseURLString: String,
+        modelName: String
+    ) -> String {
+        let resolvedBaseURL = ProviderConfigurationValidator.resolvedBaseURL(
+            providerType: providerType,
+            baseURLString: baseURLString
+        )?.absoluteString ?? "地址无效"
+        let normalizedModel = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalModel = normalizedModel.isEmpty ? "模型未填写" : normalizedModel
+        return "\(providerType.shortLabel) · \(resolvedBaseURL) · \(finalModel)"
+    }
+
+    private func actionSuggestion(for result: ConnectionTestResult) -> String {
+        if result.status == .success {
+            return "配置可用，回到首页就可以开始语音输入。"
+        }
+
+        if let status = result.httpStatus {
+            switch status {
+            case 401, 403:
+                return "请核对 API Key 是否正确、是否过期，并确认模型权限。"
+            case 404:
+                return "请核对 API 地址和模型名，确认接口兼容 OpenAI 路径。"
+            case 429:
+                return "请检查额度或限频策略，稍后再试。"
+            case 500...599:
+                return "服务端临时异常，稍后重试并查看服务状态页。"
+            default:
+                break
+            }
+        }
+
+        if result.message.contains("密钥") || result.hint.contains("密钥") {
+            return "先保存有效 API Key，再重新测试。"
+        }
+
+        if result.message.contains("接口地址") || result.hint.contains("接口地址") {
+            return "请确认 Base URL 以 http/https 开头，且指向可用网关。"
+        }
+
+        if result.message.contains("模型") || result.hint.contains("模型") {
+            return "请确认模型名与服务端可用模型一致。"
+        }
+
+        if result.message.contains("网络") || result.hint.contains("网络") {
+            return "请检查网络、代理或防火墙，再重试。"
+        }
+
+        return "建议依次检查地址、模型名、密钥、额度和网络。"
+    }
+
     private func copyHistoryEntry(_ entry: SessionHistoryEntry) {
         let text = (entry.outputText ?? entry.inputText)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -573,9 +770,8 @@ struct SettingsView: View {
         }
         asrTesting = true
         Task {
-            let result = await providerSettingsStore.testASRConnection()
+            _ = await providerSettingsStore.testASRConnection()
             await MainActor.run {
-                asrTestResult = result
                 asrTesting = false
             }
         }
@@ -587,9 +783,8 @@ struct SettingsView: View {
         }
         textTesting = true
         Task {
-            let result = await providerSettingsStore.testTextConnection()
+            _ = await providerSettingsStore.testTextConnection()
             await MainActor.run {
-                textTestResult = result
                 textTesting = false
             }
         }

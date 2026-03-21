@@ -250,6 +250,8 @@ final class ProviderSettingsStore: ObservableObject {
     @Published private(set) var textCredentialState: CredentialState = .missing
     @Published private(set) var asrFeedbackMessage: String?
     @Published private(set) var textFeedbackMessage: String?
+    @Published private(set) var latestASRTestResult: ConnectionTestResult?
+    @Published private(set) var latestTextTestResult: ConnectionTestResult?
 
     var feedbackMessage: String? {
         textFeedbackMessage ?? asrFeedbackMessage
@@ -327,6 +329,8 @@ final class ProviderSettingsStore: ObservableObject {
     private let credentialStore: ProviderCredentialStore
     private let defaultsASRConfigKey = "providers.asr.config.v2"
     private let defaultsTextConfigKey = "providers.text.config.v2"
+    private let defaultsLatestASRTestResultKey = "providers.asr.test.result.v1"
+    private let defaultsLatestTextTestResultKey = "providers.text.test.result.v1"
 
     init(
         defaults: UserDefaults = .standard,
@@ -349,6 +353,12 @@ final class ProviderSettingsStore: ObservableObject {
         )
         self.textConfig = Self.sanitizeTextConfig(
             decodedTextConfig ?? legacyMigration.textConfig
+        )
+        self.latestASRTestResult = Self.decodeConnectionTestResult(
+            from: defaults.data(forKey: defaultsLatestASRTestResultKey)
+        )
+        self.latestTextTestResult = Self.decodeConnectionTestResult(
+            from: defaults.data(forKey: defaultsLatestTextTestResultKey)
         )
 
         persistASRConfig()
@@ -489,12 +499,18 @@ final class ProviderSettingsStore: ObservableObject {
 
     func testASRConnection() async -> ConnectionTestResult {
         let tester = ASRConnectionTester(credentialStore: credentialStore)
-        return await tester.test(config: asrConfig)
+        let result = await tester.test(config: asrConfig)
+        latestASRTestResult = result
+        persistLatestASRTestResult()
+        return result
     }
 
     func testTextConnection() async -> ConnectionTestResult {
         let tester = TextConnectionTester(credentialStore: credentialStore)
-        return await tester.test(config: textConfig)
+        let result = await tester.test(config: textConfig)
+        latestTextTestResult = result
+        persistLatestTextTestResult()
+        return result
     }
 
     private func resolvedTranscriptionConfiguration() -> SpeechProviderConfiguration? {
@@ -568,6 +584,28 @@ final class ProviderSettingsStore: ObservableObject {
     private func persistTextConfig() {
         if let data = try? JSONEncoder().encode(textConfig) {
             defaults.set(data, forKey: defaultsTextConfigKey)
+        }
+    }
+
+    private func persistLatestASRTestResult() {
+        guard let latestASRTestResult else {
+            defaults.removeObject(forKey: defaultsLatestASRTestResultKey)
+            return
+        }
+
+        if let data = try? JSONEncoder().encode(latestASRTestResult) {
+            defaults.set(data, forKey: defaultsLatestASRTestResultKey)
+        }
+    }
+
+    private func persistLatestTextTestResult() {
+        guard let latestTextTestResult else {
+            defaults.removeObject(forKey: defaultsLatestTextTestResultKey)
+            return
+        }
+
+        if let data = try? JSONEncoder().encode(latestTextTestResult) {
+            defaults.set(data, forKey: defaultsLatestTextTestResultKey)
         }
     }
 
@@ -696,6 +734,16 @@ final class ProviderSettingsStore: ObservableObject {
         return decoded
     }
 
+    private static func decodeConnectionTestResult(from data: Data?) -> ConnectionTestResult? {
+        guard
+            let data,
+            let decoded = try? JSONDecoder().decode(ConnectionTestResult.self, from: data)
+        else {
+            return nil
+        }
+        return decoded
+    }
+
     private static func defaultASRConfig() -> ASRConfig {
         ASRConfig(
             providerType: .openAI,
@@ -804,12 +852,12 @@ struct PlaceholderSpeechProvider: SpeechProvider {
     let providerName: String = "用户自填云端服务商 Key"
 }
 
-enum ConnectionTestStatus: String, Equatable {
+enum ConnectionTestStatus: String, Equatable, Codable {
     case success
     case failure
 }
 
-struct ConnectionTestResult: Equatable {
+struct ConnectionTestResult: Equatable, Codable {
     let status: ConnectionTestStatus
     let message: String
     let hint: String
