@@ -2,41 +2,94 @@ import Combine
 import Foundation
 import Security
 
-enum SpeechProviderID: String, CaseIterable, Identifiable {
+enum ProviderType: String, CaseIterable, Codable, Identifiable {
     case openAI
+    case openAICompatible
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
         case .openAI:
-            return "OpenAI"
+            return "OpenAI (Official)"
+        case .openAICompatible:
+            return "OpenAI-Compatible"
         }
     }
 
-    var defaultModelName: String {
+    var shortLabel: String {
         switch self {
         case .openAI:
-            return "whisper-1"
+            return "OpenAI"
+        case .openAICompatible:
+            return "Compatible"
         }
+    }
+
+    var defaultTranscriptionModelName: String {
+        "whisper-1"
     }
 
     var defaultRewriteModelName: String {
+        "gpt-4o-mini"
+    }
+
+    var allowsCustomBaseURL: Bool {
+        self == .openAICompatible
+    }
+
+    var fixedBaseURL: URL? {
         switch self {
         case .openAI:
-            return "gpt-4o-mini"
+            return URL(string: "https://api.openai.com")
+        case .openAICompatible:
+            return nil
         }
+    }
+}
+
+struct ProviderProfile: Codable, Identifiable, Equatable {
+    let id: String
+    var name: String
+    var type: ProviderType
+    var isEnabled: Bool
+    var baseURLString: String
+    var transcriptionModelName: String
+    var rewriteModelName: String
+
+    init(
+        id: String = UUID().uuidString,
+        name: String,
+        type: ProviderType,
+        isEnabled: Bool = true,
+        baseURLString: String? = nil,
+        transcriptionModelName: String? = nil,
+        rewriteModelName: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.type = type
+        self.isEnabled = isEnabled
+        self.baseURLString = baseURLString ?? ""
+        self.transcriptionModelName = transcriptionModelName ?? type.defaultTranscriptionModelName
+        self.rewriteModelName = rewriteModelName ?? type.defaultRewriteModelName
     }
 }
 
 struct SpeechProviderConfiguration: Equatable {
-    let providerID: SpeechProviderID
+    let profileID: String
+    let providerType: ProviderType
+    let providerName: String
     let modelName: String
+    let baseURL: URL
 }
 
 struct TextGenerationProviderConfiguration: Equatable {
-    let providerID: SpeechProviderID
+    let profileID: String
+    let providerType: ProviderType
+    let providerName: String
     let modelName: String
+    let baseURL: URL
 }
 
 struct SpeechTranscriptionRequest {
@@ -46,7 +99,7 @@ struct SpeechTranscriptionRequest {
 }
 
 struct SpeechTranscriptionResult: Equatable {
-    let providerID: SpeechProviderID
+    let providerType: ProviderType
     let providerName: String
     let modelName: String
     let transcript: String
@@ -79,8 +132,7 @@ enum SpeechTranscriptionError: LocalizedError {
 }
 
 protocol SpeechTranscriptionProvider {
-    var id: SpeechProviderID { get }
-    var displayName: String { get }
+    var supportedProviderTypes: [ProviderType] { get }
     func transcribe(
         request: SpeechTranscriptionRequest,
         configuration: SpeechProviderConfiguration,
@@ -103,9 +155,9 @@ enum ProviderCredentialStoreError: LocalizedError {
 }
 
 protocol ProviderCredentialStore {
-    func loadAPIKey(for providerID: SpeechProviderID) throws -> String?
-    func saveAPIKey(_ value: String, for providerID: SpeechProviderID) throws
-    func deleteAPIKey(for providerID: SpeechProviderID) throws
+    func loadAPIKey(for profileID: String) throws -> String?
+    func saveAPIKey(_ value: String, for profileID: String) throws
+    func deleteAPIKey(for profileID: String) throws
 }
 
 @MainActor
@@ -115,28 +167,24 @@ final class ProviderSettingsStore: ObservableObject {
         case saved
     }
 
-    @Published var selectedProviderID: SpeechProviderID {
+    @Published private(set) var profiles: [ProviderProfile]
+
+    @Published var selectedTranscriptionProfileID: String {
         didSet {
-            defaults.set(selectedProviderID.rawValue, forKey: defaultsProviderKey)
-            if modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                modelName = selectedProviderID.defaultModelName
-            }
-            if rewriteModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                rewriteModelName = selectedProviderID.defaultRewriteModelName
-            }
+            defaults.set(selectedTranscriptionProfileID, forKey: defaultsTranscriptionProfileKey)
+        }
+    }
+
+    @Published var selectedRewriteProfileID: String {
+        didSet {
+            defaults.set(selectedRewriteProfileID, forKey: defaultsRewriteProfileKey)
+        }
+    }
+
+    @Published var selectedProfileIDForEditing: String {
+        didSet {
+            defaults.set(selectedProfileIDForEditing, forKey: defaultsEditingProfileKey)
             refreshCredentialState()
-        }
-    }
-
-    @Published var modelName: String {
-        didSet {
-            defaults.set(modelName, forKey: defaultsModelKey)
-        }
-    }
-
-    @Published var rewriteModelName: String {
-        didSet {
-            defaults.set(rewriteModelName, forKey: defaultsRewriteModelKey)
         }
     }
 
@@ -146,9 +194,10 @@ final class ProviderSettingsStore: ObservableObject {
 
     private let defaults: UserDefaults
     private let credentialStore: ProviderCredentialStore
-    private let defaultsProviderKey = "speech.provider.id"
-    private let defaultsModelKey = "speech.provider.model"
-    private let defaultsRewriteModelKey = "rewrite.provider.model"
+    private let defaultsProfilesKey = "providers.profiles.v1"
+    private let defaultsTranscriptionProfileKey = "providers.transcription.profile.id"
+    private let defaultsRewriteProfileKey = "providers.rewrite.profile.id"
+    private let defaultsEditingProfileKey = "providers.editing.profile.id"
 
     init(
         defaults: UserDefaults = .standard,
@@ -157,51 +206,76 @@ final class ProviderSettingsStore: ObservableObject {
         self.defaults = defaults
         self.credentialStore = credentialStore
 
-        let initialProviderID: SpeechProviderID
-        if
-            let rawProvider = defaults.string(forKey: defaultsProviderKey),
-            let providerID = SpeechProviderID(rawValue: rawProvider)
-        {
-            initialProviderID = providerID
-        } else {
-            initialProviderID = .openAI
-        }
-        selectedProviderID = initialProviderID
+        let loadedProfiles = ProviderSettingsStore.decodeProfiles(
+            from: defaults.data(forKey: defaultsProfilesKey)
+        )
+        let migratedProfiles = ProviderSettingsStore.applyLegacyModelMigration(
+            loadedProfiles: loadedProfiles,
+            defaults: defaults
+        )
+        let initialProfiles = ProviderSettingsStore.sanitizeProfiles(migratedProfiles)
+        self.profiles = initialProfiles
 
-        let storedModel = defaults.string(forKey: defaultsModelKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let storedModel, !storedModel.isEmpty {
-            modelName = storedModel
-        } else {
-            modelName = initialProviderID.defaultModelName
-        }
+        let enabledIDs = Set(initialProfiles.filter(\.isEnabled).map(\.id))
+        let fallbackID = initialProfiles.first?.id ?? ""
 
-        let storedRewriteModel = defaults.string(forKey: defaultsRewriteModelKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let storedRewriteModel, !storedRewriteModel.isEmpty {
-            rewriteModelName = storedRewriteModel
-        } else {
-            rewriteModelName = initialProviderID.defaultRewriteModelName
-        }
+        let transcriptionID = defaults.string(forKey: defaultsTranscriptionProfileKey)
+        let resolvedTranscriptionID = enabledIDs.contains(transcriptionID ?? "")
+            ? transcriptionID!
+            : (initialProfiles.first(where: \.isEnabled)?.id ?? fallbackID)
 
+        let rewriteID = defaults.string(forKey: defaultsRewriteProfileKey)
+        let resolvedRewriteID = enabledIDs.contains(rewriteID ?? "")
+            ? rewriteID!
+            : resolvedTranscriptionID
+
+        let editingID = defaults.string(forKey: defaultsEditingProfileKey)
+        let resolvedEditingID = initialProfiles.contains(where: { $0.id == editingID })
+            ? (editingID ?? resolvedTranscriptionID)
+            : resolvedTranscriptionID
+
+        self.selectedTranscriptionProfileID = resolvedTranscriptionID
+        self.selectedRewriteProfileID = resolvedRewriteID
+        self.selectedProfileIDForEditing = resolvedEditingID
+
+        persistProfiles()
         refreshCredentialState()
     }
 
-    var configuration: SpeechProviderConfiguration {
-        SpeechProviderConfiguration(
-            providerID: selectedProviderID,
-            modelName: normalizedModelName
-        )
+    var enabledProfiles: [ProviderProfile] {
+        profiles.filter(\.isEnabled)
     }
 
-    var rewriteConfiguration: TextGenerationProviderConfiguration {
-        TextGenerationProviderConfiguration(
-            providerID: selectedProviderID,
-            modelName: normalizedRewriteModelName
-        )
+    var editingProfile: ProviderProfile? {
+        profiles.first(where: { $0.id == selectedProfileIDForEditing })
+    }
+
+    var selectedTranscriptionProviderName: String {
+        profile(with: selectedTranscriptionProfileID)?.name ?? "Unavailable Provider"
+    }
+
+    var selectedRewriteProviderName: String {
+        profile(with: selectedRewriteProfileID)?.name ?? "Unavailable Provider"
     }
 
     var selectedProviderName: String {
-        selectedProviderID.displayName
+        selectedTranscriptionProviderName
+    }
+
+    var modelName: String {
+        profile(with: selectedTranscriptionProfileID)?.transcriptionModelName ?? ""
+    }
+
+    var rewriteModelName: String {
+        profile(with: selectedRewriteProfileID)?.rewriteModelName ?? ""
+    }
+
+    var configurationValidationMessage: String? {
+        validationMessageForTranscriptionProfile()
+    }
+
+    var rewriteConfigurationValidationMessage: String? {
+        validationMessageForRewriteProfile()
     }
 
     var isConfigurationValid: Bool {
@@ -212,17 +286,21 @@ final class ProviderSettingsStore: ObservableObject {
         rewriteConfigurationValidationMessage == nil
     }
 
-    var configurationValidationMessage: String? {
-        modelValidationMessage(for: normalizedModelName)
+    var configuration: SpeechProviderConfiguration {
+        transcriptionConfiguration ?? fallbackTranscriptionConfiguration()
     }
 
-    var rewriteConfigurationValidationMessage: String? {
-        modelValidationMessage(for: normalizedRewriteModelName)
+    var rewriteConfiguration: TextGenerationProviderConfiguration {
+        resolvedRewriteConfiguration() ?? fallbackRewriteConfiguration()
+    }
+
+    var transcriptionConfiguration: SpeechProviderConfiguration? {
+        resolvedTranscriptionConfiguration()
     }
 
     func refreshCredentialState() {
         do {
-            let key = try credentialStore.loadAPIKey(for: selectedProviderID)
+            let key = try credentialStore.loadAPIKey(for: selectedProfileIDForEditing)
             credentialState = (key?.isEmpty == false) ? .saved : .missing
         } catch {
             credentialState = .missing
@@ -244,7 +322,7 @@ final class ProviderSettingsStore: ObservableObject {
         }
 
         do {
-            try credentialStore.saveAPIKey(normalized, for: selectedProviderID)
+            try credentialStore.saveAPIKey(normalized, for: selectedProfileIDForEditing)
             apiKeyDraft = ""
             credentialState = .saved
             feedbackMessage = "API key saved in Keychain."
@@ -258,7 +336,7 @@ final class ProviderSettingsStore: ObservableObject {
     @discardableResult
     func clearSavedAPIKey() -> Bool {
         do {
-            try credentialStore.deleteAPIKey(for: selectedProviderID)
+            try credentialStore.deleteAPIKey(for: selectedProfileIDForEditing)
             credentialState = .missing
             feedbackMessage = "Saved API key was deleted."
             return true
@@ -268,16 +346,252 @@ final class ProviderSettingsStore: ObservableObject {
         }
     }
 
+    func loadAPIKeyForTranscriptionProvider() throws -> String? {
+        try credentialStore.loadAPIKey(for: selectedTranscriptionProfileID)
+    }
+
+    func loadAPIKeyForRewriteProvider() throws -> String? {
+        try credentialStore.loadAPIKey(for: selectedRewriteProfileID)
+    }
+
     func loadAPIKeyForActiveProvider() throws -> String? {
-        try credentialStore.loadAPIKey(for: selectedProviderID)
+        try credentialStore.loadAPIKey(for: selectedProfileIDForEditing)
     }
 
-    private var normalizedModelName: String {
-        modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+    func addProfile() {
+        let profile = ProviderProfile(
+            name: "Compatible Profile \(profiles.count + 1)",
+            type: .openAICompatible,
+            isEnabled: true
+        )
+        profiles.append(profile)
+        selectedProfileIDForEditing = profile.id
+        if enabledProfiles.count == 1 {
+            selectedTranscriptionProfileID = profile.id
+            selectedRewriteProfileID = profile.id
+        }
+        persistProfiles()
+        ensureSelectionConsistency()
     }
 
-    private var normalizedRewriteModelName: String {
-        rewriteModelName.trimmingCharacters(in: .whitespacesAndNewlines)
+    @discardableResult
+    func deleteEditingProfile() -> Bool {
+        guard profiles.count > 1 else {
+            feedbackMessage = "At least one provider profile must remain."
+            return false
+        }
+        let deletingID = selectedProfileIDForEditing
+        profiles.removeAll(where: { $0.id == deletingID })
+        if let fallback = profiles.first {
+            selectedProfileIDForEditing = fallback.id
+        }
+        try? credentialStore.deleteAPIKey(for: deletingID)
+        persistProfiles()
+        ensureSelectionConsistency()
+        feedbackMessage = "Provider profile deleted."
+        return true
+    }
+
+    func updateEditingProfileName(_ value: String) {
+        updateEditingProfile { profile in
+            profile.name = value
+        }
+    }
+
+    func updateEditingProfileType(_ type: ProviderType) {
+        updateEditingProfile { profile in
+            profile.type = type
+            if !type.allowsCustomBaseURL {
+                profile.baseURLString = type.fixedBaseURL?.absoluteString ?? ""
+            }
+            if profile.transcriptionModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                profile.transcriptionModelName = type.defaultTranscriptionModelName
+            }
+            if profile.rewriteModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                profile.rewriteModelName = type.defaultRewriteModelName
+            }
+        }
+    }
+
+    func updateEditingProfileEnabled(_ isEnabled: Bool) {
+        updateEditingProfile { profile in
+            profile.isEnabled = isEnabled
+        }
+        ensureSelectionConsistency()
+    }
+
+    func updateEditingBaseURL(_ value: String) {
+        updateEditingProfile { profile in
+            profile.baseURLString = value
+        }
+    }
+
+    func updateEditingTranscriptionModel(_ value: String) {
+        updateEditingProfile { profile in
+            profile.transcriptionModelName = value
+        }
+    }
+
+    func updateEditingRewriteModel(_ value: String) {
+        updateEditingProfile { profile in
+            profile.rewriteModelName = value
+        }
+    }
+
+    private func updateEditingProfile(_ mutation: (inout ProviderProfile) -> Void) {
+        guard let index = profiles.firstIndex(where: { $0.id == selectedProfileIDForEditing }) else {
+            return
+        }
+        var edited = profiles[index]
+        mutation(&edited)
+        profiles[index] = edited
+        persistProfiles()
+        ensureSelectionConsistency()
+    }
+
+    private func ensureSelectionConsistency() {
+        let enabled = enabledProfiles
+        if enabled.isEmpty {
+            if let first = profiles.first, let index = profiles.firstIndex(where: { $0.id == first.id }) {
+                profiles[index].isEnabled = true
+                persistProfiles()
+            }
+        }
+
+        let enabledIDs = Set(enabledProfiles.map(\.id))
+        if !enabledIDs.contains(selectedTranscriptionProfileID), let fallback = enabledProfiles.first {
+            selectedTranscriptionProfileID = fallback.id
+        }
+
+        if !enabledIDs.contains(selectedRewriteProfileID), let fallback = enabledProfiles.first {
+            selectedRewriteProfileID = fallback.id
+        }
+
+        if !profiles.contains(where: { $0.id == selectedProfileIDForEditing }), let fallback = profiles.first {
+            selectedProfileIDForEditing = fallback.id
+        }
+    }
+
+    private func profile(with id: String) -> ProviderProfile? {
+        profiles.first(where: { $0.id == id })
+    }
+
+    private func fallbackTranscriptionConfiguration() -> SpeechProviderConfiguration {
+        let profile = profile(with: selectedTranscriptionProfileID) ?? profiles.first!
+        return SpeechProviderConfiguration(
+            profileID: profile.id,
+            providerType: profile.type,
+            providerName: profile.name,
+            modelName: profile.type.defaultTranscriptionModelName,
+            baseURL: profile.type.fixedBaseURL ?? URL(string: "https://api.openai.com")!
+        )
+    }
+
+    private func fallbackRewriteConfiguration() -> TextGenerationProviderConfiguration {
+        let profile = profile(with: selectedRewriteProfileID) ?? profiles.first!
+        return TextGenerationProviderConfiguration(
+            profileID: profile.id,
+            providerType: profile.type,
+            providerName: profile.name,
+            modelName: profile.type.defaultRewriteModelName,
+            baseURL: profile.type.fixedBaseURL ?? URL(string: "https://api.openai.com")!
+        )
+    }
+
+    private func resolvedTranscriptionConfiguration() -> SpeechProviderConfiguration? {
+        guard let profile = profile(with: selectedTranscriptionProfileID) else {
+            return nil
+        }
+        guard profile.isEnabled else {
+            return nil
+        }
+
+        let normalizedModel = profile.transcriptionModelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard modelValidationMessage(for: normalizedModel) == nil else {
+            return nil
+        }
+
+        guard let baseURL = resolvedBaseURL(for: profile) else {
+            return nil
+        }
+
+        return SpeechProviderConfiguration(
+            profileID: profile.id,
+            providerType: profile.type,
+            providerName: profile.name,
+            modelName: normalizedModel,
+            baseURL: baseURL
+        )
+    }
+
+    private func resolvedRewriteConfiguration() -> TextGenerationProviderConfiguration? {
+        guard let profile = profile(with: selectedRewriteProfileID) else {
+            return nil
+        }
+        guard profile.isEnabled else {
+            return nil
+        }
+
+        let normalizedModel = profile.rewriteModelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard modelValidationMessage(for: normalizedModel) == nil else {
+            return nil
+        }
+
+        guard let baseURL = resolvedBaseURL(for: profile) else {
+            return nil
+        }
+
+        return TextGenerationProviderConfiguration(
+            profileID: profile.id,
+            providerType: profile.type,
+            providerName: profile.name,
+            modelName: normalizedModel,
+            baseURL: baseURL
+        )
+    }
+
+    private func validationMessageForTranscriptionProfile() -> String? {
+        guard let profile = profile(with: selectedTranscriptionProfileID) else {
+            return "Transcription provider profile is missing."
+        }
+        return validationMessage(for: profile, lane: .transcription)
+    }
+
+    private func validationMessageForRewriteProfile() -> String? {
+        guard let profile = profile(with: selectedRewriteProfileID) else {
+            return "Rewrite provider profile is missing."
+        }
+        return validationMessage(for: profile, lane: .rewrite)
+    }
+
+    private enum LaneKind {
+        case transcription
+        case rewrite
+    }
+
+    private func validationMessage(for profile: ProviderProfile, lane: LaneKind) -> String? {
+        if !profile.isEnabled {
+            return "Selected provider profile is disabled."
+        }
+
+        let modelName: String
+        switch lane {
+        case .transcription:
+            modelName = profile.transcriptionModelName
+        case .rewrite:
+            modelName = profile.rewriteModelName
+        }
+
+        let normalizedModel = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let modelIssue = modelValidationMessage(for: normalizedModel) {
+            return modelIssue
+        }
+
+        if resolvedBaseURL(for: profile) == nil {
+            return "Base URL is invalid."
+        }
+
+        return nil
     }
 
     private func modelValidationMessage(for model: String) -> String? {
@@ -294,6 +608,125 @@ final class ProviderSettingsStore: ObservableObject {
         }
 
         return nil
+    }
+
+    private func resolvedBaseURL(for profile: ProviderProfile) -> URL? {
+        if let fixed = profile.type.fixedBaseURL {
+            return fixed
+        }
+
+        let normalized = profile.baseURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return nil
+        }
+
+        guard
+            let url = URL(string: normalized),
+            let scheme = url.scheme?.lowercased(),
+            scheme == "https" || scheme == "http"
+        else {
+            return nil
+        }
+
+        return url
+    }
+
+    private func persistProfiles() {
+        if let data = try? JSONEncoder().encode(profiles) {
+            defaults.set(data, forKey: defaultsProfilesKey)
+        }
+    }
+
+    private static func decodeProfiles(from data: Data?) -> [ProviderProfile] {
+        guard
+            let data,
+            let decoded = try? JSONDecoder().decode([ProviderProfile].self, from: data)
+        else {
+            return seedProfiles()
+        }
+        return decoded
+    }
+
+    private static func sanitizeProfiles(_ loadedProfiles: [ProviderProfile]) -> [ProviderProfile] {
+        var deduped: [ProviderProfile] = []
+        var seen = Set<String>()
+
+        for var profile in loadedProfiles {
+            if seen.contains(profile.id) {
+                continue
+            }
+            seen.insert(profile.id)
+
+            if !profile.type.allowsCustomBaseURL {
+                profile.baseURLString = profile.type.fixedBaseURL?.absoluteString ?? ""
+            }
+
+            if profile.transcriptionModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                profile.transcriptionModelName = profile.type.defaultTranscriptionModelName
+            }
+
+            if profile.rewriteModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                profile.rewriteModelName = profile.type.defaultRewriteModelName
+            }
+
+            if profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                profile.name = profile.type.displayName
+            }
+
+            deduped.append(profile)
+        }
+
+        if deduped.isEmpty {
+            deduped = seedProfiles()
+        }
+
+        if !deduped.contains(where: \.isEnabled), !deduped.isEmpty {
+            deduped[0].isEnabled = true
+        }
+
+        return deduped
+    }
+
+    private static func seedProfiles() -> [ProviderProfile] {
+        [
+            ProviderProfile(
+                name: "OpenAI Official",
+                type: .openAI,
+                isEnabled: true,
+                baseURLString: "https://api.openai.com"
+            ),
+            ProviderProfile(
+                name: "Compatible Endpoint",
+                type: .openAICompatible,
+                isEnabled: false,
+                baseURLString: ""
+            )
+        ]
+    }
+
+    private static func applyLegacyModelMigration(
+        loadedProfiles: [ProviderProfile],
+        defaults: UserDefaults
+    ) -> [ProviderProfile] {
+        guard !loadedProfiles.isEmpty else {
+            var seeded = seedProfiles()
+            if
+                let legacyModel = defaults.string(forKey: "speech.provider.model")?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                !legacyModel.isEmpty
+            {
+                seeded[0].transcriptionModelName = legacyModel
+            }
+            if
+                let legacyRewrite = defaults.string(forKey: "rewrite.provider.model")?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                !legacyRewrite.isEmpty
+            {
+                seeded[0].rewriteModelName = legacyRewrite
+            }
+            return seeded
+        }
+        return loadedProfiles
     }
 }
 

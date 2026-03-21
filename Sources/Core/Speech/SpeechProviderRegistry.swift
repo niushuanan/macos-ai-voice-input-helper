@@ -1,13 +1,19 @@
 import Foundation
 
 struct SpeechProviderRegistry {
-    private let providersByID: [SpeechProviderID: any SpeechTranscriptionProvider]
+    private let providersByType: [ProviderType: any SpeechTranscriptionProvider]
 
     init(providers: [any SpeechTranscriptionProvider]) {
-        providersByID = Dictionary(uniqueKeysWithValues: providers.map { ($0.id, $0) })
+        var map: [ProviderType: any SpeechTranscriptionProvider] = [:]
+        for provider in providers {
+            for type in provider.supportedProviderTypes {
+                map[type] = provider
+            }
+        }
+        providersByType = map
     }
 
-    func provider(for providerID: SpeechProviderID) -> (any SpeechTranscriptionProvider)? {
-        providersByID[providerID]
+    func provider(for providerType: ProviderType) -> (any SpeechTranscriptionProvider)? {
+        providersByType[providerType]
     }
 }

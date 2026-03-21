@@ -4,12 +4,12 @@ import Security
 final class KeychainProviderCredentialStore: ProviderCredentialStore {
     private let service: String
 
-    init(service: String = "com.niushuanan.PulseType.transcription") {
+    init(service: String = "com.niushuanan.PulseType.provider-profile") {
         self.service = service
     }
 
-    func loadAPIKey(for providerID: SpeechProviderID) throws -> String? {
-        var query = baseQuery(providerID: providerID)
+    func loadAPIKey(for profileID: String) throws -> String? {
+        var query = baseQuery(profileID: profileID)
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         query[kSecReturnData as String] = true
 
@@ -31,15 +31,15 @@ final class KeychainProviderCredentialStore: ProviderCredentialStore {
         }
     }
 
-    func saveAPIKey(_ value: String, for providerID: SpeechProviderID) throws {
+    func saveAPIKey(_ value: String, for profileID: String) throws {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
-            try deleteAPIKey(for: providerID)
+            try deleteAPIKey(for: profileID)
             return
         }
 
         let data = Data(normalized.utf8)
-        let query = baseQuery(providerID: providerID)
+        let query = baseQuery(profileID: profileID)
         let attributes: [String: Any] = [kSecValueData as String: data]
         let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
 
@@ -58,8 +58,8 @@ final class KeychainProviderCredentialStore: ProviderCredentialStore {
         }
     }
 
-    func deleteAPIKey(for providerID: SpeechProviderID) throws {
-        let query = baseQuery(providerID: providerID)
+    func deleteAPIKey(for profileID: String) throws {
+        let query = baseQuery(profileID: profileID)
         let status = SecItemDelete(query as CFDictionary)
 
         guard status == errSecSuccess || status == errSecItemNotFound else {
@@ -67,11 +67,11 @@ final class KeychainProviderCredentialStore: ProviderCredentialStore {
         }
     }
 
-    private func baseQuery(providerID: SpeechProviderID) -> [String: Any] {
+    private func baseQuery(profileID: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: providerID.rawValue
+            kSecAttrAccount as String: profileID
         ]
     }
 }

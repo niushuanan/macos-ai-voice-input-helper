@@ -75,15 +75,14 @@ struct TextGenerationRequest {
 }
 
 struct TextGenerationResult: Equatable {
-    let providerID: SpeechProviderID
+    let providerType: ProviderType
     let providerName: String
     let modelName: String
     let outputText: String
 }
 
 protocol TextGenerationProvider {
-    var providerID: SpeechProviderID { get }
-    var providerName: String { get }
+    var supportedProviderTypes: [ProviderType] { get }
     func generateText(
         request: TextGenerationRequest,
         configuration: TextGenerationProviderConfiguration,
@@ -92,8 +91,7 @@ protocol TextGenerationProvider {
 }
 
 protocol RewriteProvider {
-    var providerID: SpeechProviderID { get }
-    var providerName: String { get }
+    var supportedProviderTypes: [ProviderType] { get }
     func rewrite(
         request: SelectionRewriteRequest,
         configuration: TextGenerationProviderConfiguration,
@@ -102,14 +100,20 @@ protocol RewriteProvider {
 }
 
 struct RewriteProviderRegistry {
-    private let providersByID: [SpeechProviderID: any RewriteProvider]
+    private let providersByType: [ProviderType: any RewriteProvider]
 
     init(providers: [any RewriteProvider]) {
-        providersByID = Dictionary(uniqueKeysWithValues: providers.map { ($0.providerID, $0) })
+        var map: [ProviderType: any RewriteProvider] = [:]
+        for provider in providers {
+            for type in provider.supportedProviderTypes {
+                map[type] = provider
+            }
+        }
+        providersByType = map
     }
 
-    func provider(for providerID: SpeechProviderID) -> (any RewriteProvider)? {
-        providersByID[providerID]
+    func provider(for providerType: ProviderType) -> (any RewriteProvider)? {
+        providersByType[providerType]
     }
 }
 
@@ -264,15 +268,14 @@ struct RewritePromptBuilder {
 }
 
 struct OpenAIRewriteProvider: RewriteProvider {
-    let providerID: SpeechProviderID = .openAI
-    let providerName: String = SpeechProviderID.openAI.displayName
+    let supportedProviderTypes: [ProviderType] = [.openAI, .openAICompatible]
 
-    private let generationProvider: TextGenerationProvider
+    private let generationProvider: any TextGenerationProvider
     private let intentParser: RewriteIntentParser
     private let promptBuilder: RewritePromptBuilder
 
     init(
-        generationProvider: TextGenerationProvider = OpenAITextGenerationProvider(),
+        generationProvider: any TextGenerationProvider = OpenAITextGenerationProvider(),
         intentParser: RewriteIntentParser = RewriteIntentParser(),
         promptBuilder: RewritePromptBuilder = RewritePromptBuilder()
     ) {

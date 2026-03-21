@@ -82,7 +82,7 @@ final class InteractionCoordinator {
             let configuration = providerSettingsStore.configuration
             sessionStore.markTranscribing(
                 audioSummary: clip.displaySummary,
-                providerName: configuration.providerID.displayName,
+                providerName: configuration.providerName,
                 modelName: configuration.modelName
             )
             startTranscription(for: clip)
@@ -154,15 +154,15 @@ final class InteractionCoordinator {
                 }
 
                 let configuration = providerSettingsStore.configuration
-                guard let provider = providerRegistry.provider(for: configuration.providerID) else {
+                guard let provider = providerRegistry.provider(for: configuration.providerType) else {
                     throw SpeechTranscriptionError.providerFailure(description: "Selected provider is not available in this build.")
                 }
 
                 guard
-                    let apiKey = try providerSettingsStore.loadAPIKeyForActiveProvider(),
+                    let apiKey = try providerSettingsStore.loadAPIKeyForTranscriptionProvider(),
                     !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 else {
-                    throw SpeechTranscriptionError.missingAPIKey(providerName: configuration.providerID.displayName)
+                    throw SpeechTranscriptionError.missingAPIKey(providerName: configuration.providerName)
                 }
 
                 let request = SpeechTranscriptionRequest(
@@ -268,7 +268,7 @@ final class InteractionCoordinator {
             return
         }
 
-        guard let loadedKey = try? providerSettingsStore.loadAPIKeyForActiveProvider() else {
+        guard let loadedKey = try? providerSettingsStore.loadAPIKeyForRewriteProvider() else {
             sessionStore.fail(message: "Provider API key is missing. Open Settings to add it.")
             return
         }
@@ -280,7 +280,7 @@ final class InteractionCoordinator {
         }
 
         let rewriteConfiguration = providerSettingsStore.rewriteConfiguration
-        guard let rewriteProvider = rewriteProviderRegistry.provider(for: rewriteConfiguration.providerID) else {
+        guard let rewriteProvider = rewriteProviderRegistry.provider(for: rewriteConfiguration.providerType) else {
             sessionStore.fail(message: "Selected rewrite provider is not available in this build.")
             return
         }

@@ -1,18 +1,12 @@
 import Foundation
 
 struct OpenAITranscriptionProvider: SpeechTranscriptionProvider {
-    let id: SpeechProviderID = .openAI
-    let displayName: String = SpeechProviderID.openAI.displayName
+    let supportedProviderTypes: [ProviderType] = [.openAI, .openAICompatible]
 
     private let session: URLSession
-    private let apiBaseURL: URL
 
-    init(
-        session: URLSession = .shared,
-        apiBaseURL: URL = URL(string: "https://api.openai.com")!
-    ) {
+    init(session: URLSession = .shared) {
         self.session = session
-        self.apiBaseURL = apiBaseURL
     }
 
     func transcribe(
@@ -22,7 +16,7 @@ struct OpenAITranscriptionProvider: SpeechTranscriptionProvider {
     ) async throws -> SpeechTranscriptionResult {
         let normalizedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedKey.isEmpty else {
-            throw SpeechTranscriptionError.missingAPIKey(providerName: displayName)
+            throw SpeechTranscriptionError.missingAPIKey(providerName: configuration.providerName)
         }
 
         let fileURL = request.clip.fileURL
@@ -37,7 +31,7 @@ struct OpenAITranscriptionProvider: SpeechTranscriptionProvider {
             throw SpeechTranscriptionError.providerFailure(description: "Could not read recorded audio file.")
         }
 
-        var urlRequest = URLRequest(url: apiBaseURL.appendingPathComponent("/v1/audio/transcriptions"))
+        var urlRequest = URLRequest(url: configuration.baseURL.appendingPathComponent("/v1/audio/transcriptions"))
         urlRequest.httpMethod = "POST"
         urlRequest.timeoutInterval = 60
         urlRequest.setValue("Bearer \(normalizedKey)", forHTTPHeaderField: "Authorization")
@@ -79,8 +73,8 @@ struct OpenAITranscriptionProvider: SpeechTranscriptionProvider {
             }
 
             return SpeechTranscriptionResult(
-                providerID: id,
-                providerName: displayName,
+                providerType: configuration.providerType,
+                providerName: configuration.providerName,
                 modelName: configuration.modelName,
                 transcript: transcript
             )
@@ -92,8 +86,8 @@ struct OpenAITranscriptionProvider: SpeechTranscriptionProvider {
             !rawText.isEmpty
         {
             return SpeechTranscriptionResult(
-                providerID: id,
-                providerName: displayName,
+                providerType: configuration.providerType,
+                providerName: configuration.providerName,
                 modelName: configuration.modelName,
                 transcript: rawText
             )

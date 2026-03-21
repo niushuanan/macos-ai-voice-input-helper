@@ -1,18 +1,12 @@
 import Foundation
 
 struct OpenAITextGenerationProvider: TextGenerationProvider {
-    let providerID: SpeechProviderID = .openAI
-    let providerName: String = SpeechProviderID.openAI.displayName
+    let supportedProviderTypes: [ProviderType] = [.openAI, .openAICompatible]
 
     private let session: URLSession
-    private let apiBaseURL: URL
 
-    init(
-        session: URLSession = .shared,
-        apiBaseURL: URL = URL(string: "https://api.openai.com")!
-    ) {
+    init(session: URLSession = .shared) {
         self.session = session
-        self.apiBaseURL = apiBaseURL
     }
 
     func generateText(
@@ -35,7 +29,7 @@ struct OpenAITextGenerationProvider: TextGenerationProvider {
             ]
         )
 
-        var urlRequest = URLRequest(url: apiBaseURL.appendingPathComponent("/v1/chat/completions"))
+        var urlRequest = URLRequest(url: configuration.baseURL.appendingPathComponent("/v1/chat/completions"))
         urlRequest.httpMethod = "POST"
         urlRequest.timeoutInterval = 70
         urlRequest.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
@@ -79,8 +73,8 @@ struct OpenAITextGenerationProvider: TextGenerationProvider {
         }
 
         return TextGenerationResult(
-            providerID: providerID,
-            providerName: providerName,
+            providerType: configuration.providerType,
+            providerName: configuration.providerName,
             modelName: configuration.modelName,
             outputText: first.message.content
         )
