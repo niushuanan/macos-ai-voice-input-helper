@@ -19,7 +19,7 @@ keyboard replacement. PulseType takes a different path:
 
 Core product loop:
 
-- Global shortcuts: wake/stop toggle + cancel
+- Global shortcuts: wake toggle + cancel
 - Local audio recording + cloud transcription
 - Dictation writeback into focused app
 - Selection rewrite (`translate`, `polish`, `condense`, `structure`)
@@ -28,7 +28,15 @@ Core product loop:
 - Local history with delete operations and app/mode/status filters
 - App-aware policy (`output bias` + rewrite-lane preference)
 - Permission center for microphone and accessibility
-- Status feedback in menu bar, single-page control center, and HUD pulse
+- Status feedback in menu bar, desktop control center, and HUD pulse
+
+Desktop information architecture:
+
+- `首页`：会话控制、阶段状态、最近结果、今日统计
+- `记忆`：时间线、筛选（全部/普通听写/选区改写/失败）、复制/删除/清空
+- `技能`：四个可开关技能（自动润色、口语过滤、自动结构化、按应用偏好增强）
+- `模型`：固定两卡（ASR/文本处理），含地址/模型/密钥/测试/最近测试结果
+- `设置`：两键热键、权限中心、场景策略、关于
 
 Engineering baseline:
 
@@ -88,12 +96,12 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 
 ## Trial checklist
 
-1. Configure `ASR` and `Text` model cards in settings.
-2. Grant microphone permission.
-3. Grant accessibility permission.
-4. Run both connectivity tests from settings.
-5. Try direct dictation in TextEdit.
-6. Try selection rewrite with highlighted text.
+1. Open `模型` and configure `ASR` + `文本处理` cards.
+2. Run both connectivity tests and confirm both succeed.
+3. Open `设置` and grant microphone + accessibility permissions.
+4. Go to `首页`, press wake key to start dictation, press again to stop.
+5. Verify output text appears in target app.
+6. Open `记忆` and verify history is visible and manageable.
 
 ## Key documents
 
