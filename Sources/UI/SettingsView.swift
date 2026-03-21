@@ -10,11 +10,17 @@ struct SettingsView: View {
     @ObservedObject private var permissionsCenter: PermissionsCenter
     @ObservedObject private var providerSettingsStore: ProviderSettingsStore
     @ObservedObject private var skillRuleStore: SkillRuleStore
+    @ObservedObject private var appScenePolicyStore: AppScenePolicyStore
     @ObservedObject private var localHistoryStore: LocalHistoryStore
 
     @State private var asrTesting = false
     @State private var textTesting = false
     @State private var memoryFeedback: String?
+    @State private var settingsFeedback: String?
+    @State private var sceneAppNameDraft = ""
+    @State private var sceneBundleIDDraft = ""
+    @State private var sceneOutputBiasDraft: AppOutputBias = .neutral
+    @State private var scenePreferRewriteDraft = true
 
     init(model: AppModel) {
         self.model = model
@@ -23,6 +29,7 @@ struct SettingsView: View {
         _permissionsCenter = ObservedObject(wrappedValue: model.permissionsCenter)
         _providerSettingsStore = ObservedObject(wrappedValue: model.providerSettingsStore)
         _skillRuleStore = ObservedObject(wrappedValue: model.skillRuleStore)
+        _appScenePolicyStore = ObservedObject(wrappedValue: model.appScenePolicyStore)
         _localHistoryStore = ObservedObject(wrappedValue: model.localHistoryStore)
     }
 
@@ -45,10 +52,7 @@ struct SettingsView: View {
                 case .model:
                     modelPage
                 case .settings:
-                    PlaceholderPageView(
-                        title: "设置",
-                        subtitle: "下一步会在这里展示热键、权限、场景策略与关于信息。"
-                    )
+                    settingsPage
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -367,6 +371,171 @@ struct SettingsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
+    private var settingsPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("设置")
+                    .font(.title3.weight(.semibold))
+
+                hotkeySettingsCard
+                permissionSettingsCard
+                scenePolicySettingsCard
+                aboutSettingsCard
+            }
+            .padding(20)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear {
+            permissionsCenter.refreshStatuses()
+            providerSettingsStore.refreshCredentialState()
+        }
+    }
+
+    private var hotkeySettingsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("热键设置")
+                .font(.headline)
+
+            KeyboardShortcuts.Recorder("主键（开始/停止）", name: .wakeSession)
+            KeyboardShortcuts.Recorder("取消键", name: .cancelSession)
+
+            if let conflict = shortcutConflictWarning {
+                Label(conflict, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else {
+                Label("两个热键没有冲突。", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            }
+
+            HStack {
+                Button("恢复默认") {
+                    KeyboardShortcuts.reset(.wakeSession, .cancelSession)
+                }
+                .buttonStyle(.bordered)
+                Spacer()
+            }
+
+            Text("交互规则：空闲时按主键开始语音；聆听中再按一次主键会停止并进入处理。取消键随时可中断。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var permissionSettingsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("权限中心")
+                .font(.headline)
+
+            ForEach(permissionsCenter.presentationItems()) { item in
+                PermissionRowView(
+                    item: item,
+                    onRequest: { permissionsCenter.requestAccess(for: item.id) },
+                    onOpenSettings: { permissionsCenter.openSystemSettings(for: item.id) }
+                )
+            }
+
+            HStack {
+                Button("重新检测权限") {
+                    permissionsCenter.refreshStatuses()
+                }
+                .buttonStyle(.bordered)
+                Spacer()
+            }
+        }
+        .padding(14)
+        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var scenePolicySettingsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("场景策略")
+                .font(.headline)
+
+            Text("按应用设置文风偏好与改写偏好。留空不影响主流程。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            TextField("应用名（例如：Notion）", text: $sceneAppNameDraft)
+                .textFieldStyle(.roundedBorder)
+            TextField("Bundle ID（例如：notion.id）", text: $sceneBundleIDDraft)
+                .textFieldStyle(.roundedBorder)
+                .autocorrectionDisabled()
+
+            Picker("文风偏好", selection: $sceneOutputBiasDraft) {
+                ForEach(AppOutputBias.allCases) { bias in
+                    Text(bias.displayName).tag(bias)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Toggle("优先选区改写", isOn: $scenePreferRewriteDraft)
+
+            HStack {
+                Button("保存策略") {
+                    saveScenePolicy()
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("清空输入") {
+                    clearSceneDraft()
+                }
+                .buttonStyle(.bordered)
+
+                Spacer()
+            }
+
+            if let settingsFeedback {
+                Text(settingsFeedback)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if appScenePolicyStore.policies.isEmpty {
+                Text("还没有手动策略，系统会按应用类型使用默认偏好。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(appScenePolicyStore.policies.sorted { lhs, rhs in
+                    lhs.appName.localizedCompare(rhs.appName) == .orderedAscending
+                }) { policy in
+                    ScenePolicyRowView(
+                        policy: policy,
+                        onLoad: { loadSceneDraft(policy) },
+                        onDelete: {
+                            appScenePolicyStore.removePolicy(bundleID: policy.bundleID)
+                            settingsFeedback = "已删除 \(policy.appName) 的策略。"
+                        }
+                    )
+                }
+            }
+        }
+        .padding(14)
+        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var aboutSettingsCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("关于")
+                .font(.headline)
+
+            LabeledContent("应用名", value: "PulseType")
+            LabeledContent("版本", value: appVersionLine)
+            LabeledContent("产品定位", value: "macOS 桌面语音输入助手")
+            LabeledContent("数据策略", value: "历史、配置、诊断默认保存在本地")
+            LabeledContent("密钥策略", value: "API Key 仅存 macOS 钥匙串")
+        }
+        .padding(14)
+        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
     private var legacyConsolePage: some View {
         VStack(alignment: .leading, spacing: 14) {
             headerSection
@@ -467,7 +636,7 @@ struct SettingsView: View {
                 Spacer()
 
                 Button("恢复默认快捷键") {
-                    KeyboardShortcuts.reset(.wakeSession, .stopSession, .cancelSession)
+                    KeyboardShortcuts.reset(.wakeSession, .cancelSession)
                 }
             }
             .buttonStyle(.bordered)
@@ -751,6 +920,44 @@ struct SettingsView: View {
         return "建议依次检查地址、模型名、密钥、额度和网络。"
     }
 
+    private var appVersionLine: String {
+        let shortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "-"
+        let build = Bundle.main.object(forInfoDictionaryKey: kCFBundleVersionKey as String) as? String ?? "-"
+        return "\(shortVersion) (\(build))"
+    }
+
+    private func saveScenePolicy() {
+        let appName = sceneAppNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bundleID = sceneBundleIDDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !appName.isEmpty, !bundleID.isEmpty else {
+            settingsFeedback = "请先填写应用名和 Bundle ID。"
+            return
+        }
+
+        appScenePolicyStore.upsertPolicy(
+            appName: appName,
+            bundleID: bundleID,
+            outputBias: sceneOutputBiasDraft,
+            preferSelectionRewrite: scenePreferRewriteDraft
+        )
+        settingsFeedback = "已保存 \(appName) 的策略。"
+    }
+
+    private func clearSceneDraft() {
+        sceneAppNameDraft = ""
+        sceneBundleIDDraft = ""
+        sceneOutputBiasDraft = .neutral
+        scenePreferRewriteDraft = true
+    }
+
+    private func loadSceneDraft(_ policy: AppScenePolicy) {
+        sceneAppNameDraft = policy.appName
+        sceneBundleIDDraft = policy.bundleID
+        sceneOutputBiasDraft = policy.outputBias
+        scenePreferRewriteDraft = policy.preferSelectionRewrite
+        settingsFeedback = "已载入 \(policy.appName) 策略，可直接修改后保存。"
+    }
+
     private func copyHistoryEntry(_ entry: SessionHistoryEntry) {
         let text = (entry.outputText ?? entry.inputText)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -945,6 +1152,48 @@ private struct SkillRuleCardView: View {
         }
         .padding(12)
         .background(Color(nsColor: .underPageBackgroundColor).opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+private struct ScenePolicyRowView: View {
+    let policy: AppScenePolicy
+    let onLoad: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(policy.appName)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Button("载入") {
+                    onLoad()
+                }
+                .buttonStyle(.bordered)
+                Button("删除", role: .destructive) {
+                    onDelete()
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Text(policy.bundleID)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                Label(policy.outputBias.displayName, systemImage: "textformat")
+                    .font(.caption)
+                Label(
+                    policy.preferSelectionRewrite ? "优先改写" : "默认听写",
+                    systemImage: policy.preferSelectionRewrite ? "wand.and.stars" : "mic"
+                )
+                .font(.caption)
+            }
+            .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.6))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }

@@ -20,10 +20,6 @@ final class GlobalHotkeyService {
             self?.interactionCoordinator.handleWakeInput(context: .dictation)
         }
 
-        KeyboardShortcuts.onKeyUp(for: .stopSession) { [weak self] in
-            self?.interactionCoordinator.handleStopInput()
-        }
-
         KeyboardShortcuts.onKeyUp(for: .cancelSession) { [weak self] in
             self?.interactionCoordinator.handleCancelInput()
         }

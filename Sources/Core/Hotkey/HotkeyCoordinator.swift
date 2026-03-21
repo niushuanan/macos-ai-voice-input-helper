@@ -8,7 +8,6 @@ struct HotkeyDescriptor: Identifiable {
 
 struct HotkeyCoordinator {
     let wakeShortcut: HotkeyDescriptor
-    let stopShortcut: HotkeyDescriptor
     let cancelShortcut: HotkeyDescriptor
     let rewriteModifierHint: HotkeyDescriptor
 
@@ -17,11 +16,6 @@ struct HotkeyCoordinator {
             id: "wake",
             name: "开始 / 停止会话",
             trigger: "Control + Option + Space（再次按下停止）"
-        ),
-        stopShortcut: HotkeyDescriptor(
-            id: "stop",
-            name: "兼容停止键（可选）",
-            trigger: "Control + Option + Return"
         ),
         cancelShortcut: HotkeyDescriptor(
             id: "cancel",
