@@ -43,3 +43,6 @@ targets:
       - path: Tests
     dependencies:
       - target: PulseType
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
