@@ -8,6 +8,8 @@ struct MenuBarPanelView: View {
         VStack(alignment: .leading, spacing: 16) {
             StatusCard(sessionStore: model.sessionStore)
 
+            interactionSkeletonSection
+
             laneSection
 
             quickFlowSection
@@ -16,6 +18,23 @@ struct MenuBarPanelView: View {
         }
         .padding(18)
         .frame(width: 360)
+    }
+
+    private var interactionSkeletonSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Tap-Tap Skeleton")
+                .font(.headline)
+
+            Text("Wake: Control + Option + Space")
+                .font(.caption)
+            Text("Stop: tap the same combo while listening")
+                .font(.caption)
+            Text("Cancel: Control + Option + Escape")
+                .font(.caption)
+            Text("Rewrite lane: hold Option on wake with active selection")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var laneSection: some View {
@@ -41,41 +60,53 @@ struct MenuBarPanelView: View {
 
     private var quickFlowSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Session Flow Preview")
+            Text("Session Flow Drill")
                 .font(.headline)
 
             HStack {
-                Button("Dictate") {
-                    model.sessionStore.startDictation()
+                Button("Wake Dictate") {
+                    model.interactionCoordinator.handleWakeInput(context: .dictation)
                 }
+                .disabled(!canStartSession)
 
-                Button("Rewrite") {
-                    model.sessionStore.startRewrite()
+                Button("Wake Rewrite") {
+                    model.interactionCoordinator.handleWakeInput(
+                        context: WakeInvocationContext(
+                            rewriteModifierHeld: true,
+                            selectionAvailable: true
+                        )
+                    )
                 }
+                .disabled(!canStartSession)
 
-                Button("Text") {
-                    model.sessionStore.markTranscribing()
+                Button("Stop") {
+                    model.interactionCoordinator.handleStopInput()
                 }
+                .disabled(model.sessionStore.phase != .listening)
             }
 
             HStack {
-                Button("Apply") {
+                Button("Rewrite") {
                     model.sessionStore.markRewriting()
                 }
+                .disabled(model.sessionStore.phase != .transcribing)
 
                 Button("Insert") {
                     model.sessionStore.markInserting()
                 }
+                .disabled(!canInsert)
 
-                Button("Idle") {
+                Button("Finish") {
                     model.sessionStore.completeInsertion()
                 }
+                .disabled(model.sessionStore.phase != .inserting)
             }
 
             HStack {
                 Button("Cancel", role: .destructive) {
-                    model.sessionStore.cancel()
+                    model.interactionCoordinator.handleCancelInput()
                 }
+                .disabled(model.sessionStore.phase == .idle)
 
                 Button("Simulate Error") {
                     model.sessionStore.fail(message: "A provider or permissions issue blocked the session.")
@@ -101,7 +132,7 @@ struct MenuBarPanelView: View {
 
             HStack {
                 SettingsLink {
-                    Label("Settings", systemImage: "gearshape")
+                    Label("Settings...", systemImage: "gearshape")
                 }
 
                 Spacer()
@@ -112,6 +143,19 @@ struct MenuBarPanelView: View {
             }
             .padding(.top, 4)
         }
+    }
+
+    private var canStartSession: Bool {
+        switch model.sessionStore.phase {
+        case .idle, .cancelled, .error:
+            return true
+        case .listening, .transcribing, .rewriting, .inserting:
+            return false
+        }
+    }
+
+    private var canInsert: Bool {
+        model.sessionStore.phase == .rewriting || model.sessionStore.phase == .transcribing
     }
 }
 

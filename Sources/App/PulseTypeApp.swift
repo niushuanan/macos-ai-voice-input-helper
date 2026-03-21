@@ -7,11 +7,16 @@ struct PulseTypeApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarPanelView(model: model)
+            MenuBarMenuView(model: model)
         } label: {
             MenuBarStatusView(sessionStore: model.sessionStore)
         }
-        .menuBarExtraStyle(.window)
+
+        Window("Command Deck", id: "command-deck") {
+            MenuBarPanelView(model: model)
+                .frame(minWidth: 360, minHeight: 500)
+        }
+        .windowResizability(.contentSize)
 
         Settings {
             SettingsView(model: model)

@@ -8,14 +8,20 @@ struct HotkeyDescriptor: Identifiable {
 
 struct HotkeyCoordinator {
     let wakeShortcut: HotkeyDescriptor
+    let stopShortcut: HotkeyDescriptor
     let cancelShortcut: HotkeyDescriptor
     let rewriteModifierHint: HotkeyDescriptor
 
     static let defaultConfiguration = HotkeyCoordinator(
         wakeShortcut: HotkeyDescriptor(
             id: "wake",
-            name: "Start or finish session",
+            name: "Wake session",
             trigger: "Control + Option + Space"
+        ),
+        stopShortcut: HotkeyDescriptor(
+            id: "stop",
+            name: "Stop listening and move to text stage",
+            trigger: "Control + Option + Space (tap again)"
         ),
         cancelShortcut: HotkeyDescriptor(
             id: "cancel",

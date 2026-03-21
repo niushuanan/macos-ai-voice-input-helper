@@ -7,7 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		02080CA78961B65946CBF53F /* MenuBarMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D48BFEC8EABFB9C0E92E685 /* MenuBarMenuView.swift */; };
 		06ED5EEBD9C709D7B20DFF2C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615736F7FBCACF8AF8B17CCF /* SettingsView.swift */; };
+		1B54052D55540BDFF9C094A7 /* StatusPulseHUDController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5312CC574CB71C92172686C /* StatusPulseHUDController.swift */; };
 		1C28B9067E503981B8802BCD /* PulseTypeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B31135DA88F140538F690BA /* PulseTypeApp.swift */; };
 		733ABF320B1595A80BEB6533 /* HotkeyCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAAF330EF4380DDF60E63868 /* HotkeyCoordinator.swift */; };
 		79FB17D471512BFA5C11586C /* MenuBarStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61E5EB79A499501B92D5C649 /* MenuBarStatusView.swift */; };
@@ -19,6 +21,7 @@
 		B8EC9B12B63BC6895430A731 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9459C6CBE5C6757CBFB2D250 /* SessionStore.swift */; };
 		BDEB0BB760F09FFDA3943FF8 /* SpeechProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA0007EF478F376F9F4AA27C /* SpeechProvider.swift */; };
 		BE93095D0E4E794184EE3371 /* MenuBarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF85AEA4B8AD0C5A4BF090B1 /* MenuBarPanelView.swift */; };
+		C406240E5F631778241BFC19 /* InteractionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76C33145AB5557B714895617 /* InteractionCoordinator.swift */; };
 		D7565185FDA605CB6CEBFB93 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6A00315A23BF62DC01AEC6 /* AudioCaptureService.swift */; };
 		E9B4D93689282E00BED565F5 /* InputLane.swift in Sources */ = {isa = PBXBuildFile; fileRef = E80D1E1D6D632A257088DD03 /* InputLane.swift */; };
 		FD46E29D44B77B9A97D545B8 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D8F2B65D755716CA52CB285 /* AppModel.swift */; };
@@ -33,7 +36,9 @@
 		555DDAEA56E00B69BBD68976 /* SessionPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPhase.swift; sourceTree = "<group>"; };
 		615736F7FBCACF8AF8B17CCF /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		61E5EB79A499501B92D5C649 /* MenuBarStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusView.swift; sourceTree = "<group>"; };
+		76C33145AB5557B714895617 /* InteractionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractionCoordinator.swift; sourceTree = "<group>"; };
 		787C4C62D2B8C938D225018A /* DiagnosticsCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsCenter.swift; sourceTree = "<group>"; };
+		7D48BFEC8EABFB9C0E92E685 /* MenuBarMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarMenuView.swift; sourceTree = "<group>"; };
 		7D8F2B65D755716CA52CB285 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		8E4D00737C3345BDE9F747AC /* TextOutputCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextOutputCoordinator.swift; sourceTree = "<group>"; };
 		9459C6CBE5C6757CBFB2D250 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
@@ -42,6 +47,7 @@
 		B76EE0E496B0199F87463E36 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		BE6A00315A23BF62DC01AEC6 /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
 		BF85AEA4B8AD0C5A4BF090B1 /* MenuBarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPanelView.swift; sourceTree = "<group>"; };
+		C5312CC574CB71C92172686C /* StatusPulseHUDController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusPulseHUDController.swift; sourceTree = "<group>"; };
 		CA0007EF478F376F9F4AA27C /* SpeechProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechProvider.swift; sourceTree = "<group>"; };
 		D9D6113DB9FD87EB75D2DC65 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		DAAF330EF4380DDF60E63868 /* HotkeyCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyCoordinator.swift; sourceTree = "<group>"; };
@@ -56,6 +62,14 @@
 				AAF8BE09956AA31E1C87954D /* PulseType.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		1A48D1F0CF5842B1EE06A304 /* Interaction */ = {
+			isa = PBXGroup;
+			children = (
+				76C33145AB5557B714895617 /* InteractionCoordinator.swift */,
+			);
+			path = Interaction;
 			sourceTree = "<group>";
 		};
 		2D7F5CD3E1788FEB92B567B0 /* Session */ = {
@@ -97,9 +111,11 @@
 		7F2914AE884BB268C18F27DF /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				7D48BFEC8EABFB9C0E92E685 /* MenuBarMenuView.swift */,
 				BF85AEA4B8AD0C5A4BF090B1 /* MenuBarPanelView.swift */,
 				61E5EB79A499501B92D5C649 /* MenuBarStatusView.swift */,
 				615736F7FBCACF8AF8B17CCF /* SettingsView.swift */,
+				C5312CC574CB71C92172686C /* StatusPulseHUDController.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -127,6 +143,7 @@
 				F9E8A261F7EED0E04F6E680F /* Context */,
 				ED48F905002E6AE0DBDE7853 /* Diagnostics */,
 				804DDC643883FAFE3B460959 /* Hotkey */,
+				1A48D1F0CF5842B1EE06A304 /* Interaction */,
 				801BCF08C3270472DEDD0897 /* Permissions */,
 				2D7F5CD3E1788FEB92B567B0 /* Session */,
 				32806C4B6E2E19B8D408C4C5 /* Speech */,
@@ -261,7 +278,9 @@
 				FDBF32C0FEB203F01750712D /* DiagnosticsCenter.swift in Sources */,
 				733ABF320B1595A80BEB6533 /* HotkeyCoordinator.swift in Sources */,
 				E9B4D93689282E00BED565F5 /* InputLane.swift in Sources */,
+				C406240E5F631778241BFC19 /* InteractionCoordinator.swift in Sources */,
 				8B8BBF2A06B443EA95BEA159 /* LocalStore.swift in Sources */,
+				02080CA78961B65946CBF53F /* MenuBarMenuView.swift in Sources */,
 				BE93095D0E4E794184EE3371 /* MenuBarPanelView.swift in Sources */,
 				79FB17D471512BFA5C11586C /* MenuBarStatusView.swift in Sources */,
 				B1D1C0EF683563F25230AB0A /* PermissionsCenter.swift in Sources */,
@@ -270,6 +289,7 @@
 				B8EC9B12B63BC6895430A731 /* SessionStore.swift in Sources */,
 				06ED5EEBD9C709D7B20DFF2C /* SettingsView.swift in Sources */,
 				BDEB0BB760F09FFDA3943FF8 /* SpeechProvider.swift in Sources */,
+				1B54052D55540BDFF9C094A7 /* StatusPulseHUDController.swift in Sources */,
 				FED627529C528E95B85937EC /* TextOutputCoordinator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
