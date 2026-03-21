@@ -6,6 +6,7 @@ APP_NAME="PulseType"
 APP_INSTALL_PATH="/Applications/PulseType.app"
 KEYCHAIN_SERVICE_V1="com.niushuanan.PulseType.provider-profile"
 KEYCHAIN_SERVICE_V2="com.niushuanan.PulseType.provider-profile.v2"
+KEYCHAIN_SERVICE_V3="com.niushuanan.PulseType.provider-profile.v3"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
 
 print_header() {
@@ -66,7 +67,7 @@ defaults read "$APP_ID" 2>/dev/null \
   | rg "permissions\.|providers\.asr\.config|providers\.text\.config|KeyboardShortcuts_" || echo "未发现偏好数据。"
 
 print_header "钥匙串条目摘要"
-for svc in "$KEYCHAIN_SERVICE_V1" "$KEYCHAIN_SERVICE_V2"; do
+for svc in "$KEYCHAIN_SERVICE_V1" "$KEYCHAIN_SERVICE_V2" "$KEYCHAIN_SERVICE_V3"; do
   echo "-- service: $svc"
   for acc in asr.primary text.primary; do
     if security find-generic-password -s "$svc" -a "$acc" >/dev/null 2>&1; then

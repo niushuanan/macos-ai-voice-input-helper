@@ -33,9 +33,9 @@
 ./scripts/setup-local-keys.sh
 ```
 
-脚本会交互录入两把密钥，并写入 Keychain v2 服务：
+脚本会交互录入两把密钥，并写入 Keychain v3 服务：
 
-- 服务名：`com.niushuanan.PulseType.provider-profile.v2`
+- 服务名：`com.niushuanan.PulseType.provider-profile.v3`
 - ASR key：`asr.primary`
 - 文本 key：`text.primary`
 

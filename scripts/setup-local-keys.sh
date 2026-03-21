@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KEYCHAIN_SERVICE="com.niushuanan.PulseType.provider-profile.v2"
+KEYCHAIN_SERVICE="com.niushuanan.PulseType.provider-profile.v3"
 ASR_ACCOUNT="asr.primary"
 TEXT_ACCOUNT="text.primary"
 TRUSTED_APP="/Applications/PulseType.app"

@@ -3,40 +3,21 @@ import Security
 
 final class KeychainProviderCredentialStore: ProviderCredentialStore {
     private let service: String
-    private let legacyServices: [String]
+    private let cleanupServices: [String]
 
     init(
-        service: String = "com.niushuanan.PulseType.provider-profile.v2",
-        legacyServices: [String] = ["com.niushuanan.PulseType.provider-profile"]
+        service: String = "com.niushuanan.PulseType.provider-profile.v3",
+        cleanupServices: [String] = [
+            "com.niushuanan.PulseType.provider-profile.v2",
+            "com.niushuanan.PulseType.provider-profile"
+        ]
     ) {
         self.service = service
-        self.legacyServices = legacyServices.filter { $0 != service }
+        self.cleanupServices = cleanupServices.filter { $0 != service }
     }
 
     func loadAPIKey(for profileID: String) throws -> String? {
-        if let value = try loadAPIKey(for: profileID, in: service, allowUserInteraction: true) {
-            return value
-        }
-
-        for legacyService in legacyServices {
-            guard let legacyValue = try loadAPIKey(
-                for: profileID,
-                in: legacyService,
-                allowUserInteraction: true
-            ) else {
-                continue
-            }
-
-            do {
-                try saveAPIKey(legacyValue, for: profileID)
-                try deleteAPIKey(for: profileID, in: legacyService)
-            } catch {
-                // Best-effort migration; keep returning legacy value even if migration fails.
-            }
-            return legacyValue
-        }
-
-        return nil
+        try loadAPIKey(for: profileID, in: service, allowUserInteraction: true)
     }
 
     func saveAPIKey(_ value: String, for profileID: String) throws {
@@ -51,38 +32,33 @@ final class KeychainProviderCredentialStore: ProviderCredentialStore {
         try deleteAPIKey(for: profileID, in: service)
         var addQuery = baseQuery(profileID: profileID, service: service)
         addQuery[kSecValueData as String] = data
+        if let access = makeTrustedAccess(profileID: profileID) {
+            addQuery[kSecAttrAccess as String] = access
+        }
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
             throw ProviderCredentialStoreError.unexpectedStatus(addStatus)
         }
 
-        for legacyService in legacyServices {
-            try deleteAPIKey(for: profileID, in: legacyService)
+        for cleanupService in cleanupServices {
+            try deleteAPIKey(for: profileID, in: cleanupService)
         }
     }
 
     func deleteAPIKey(for profileID: String) throws {
         try deleteAPIKey(for: profileID, in: service)
-        for legacyService in legacyServices {
-            try deleteAPIKey(for: profileID, in: legacyService)
+        for cleanupService in cleanupServices {
+            try deleteAPIKey(for: profileID, in: cleanupService)
         }
     }
 
     func containsAPIKey(for profileID: String, allowUserInteraction: Bool) throws -> Bool {
         do {
-            if try containsAPIKey(for: profileID, in: service, allowUserInteraction: allowUserInteraction) {
-                return true
-            }
-            for legacyService in legacyServices {
-                if try containsAPIKey(
-                    for: profileID,
-                    in: legacyService,
-                    allowUserInteraction: allowUserInteraction
-                ) {
-                    return true
-                }
-            }
-            return false
+            return try containsAPIKey(
+                for: profileID,
+                in: service,
+                allowUserInteraction: allowUserInteraction
+            )
         } catch let error as ProviderCredentialStoreError {
             throw error
         } catch {
@@ -96,6 +72,50 @@ final class KeychainProviderCredentialStore: ProviderCredentialStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: profileID
         ]
+    }
+
+    private func makeTrustedAccess(profileID: String) -> SecAccess? {
+        var trustedApplications: [SecTrustedApplication] = []
+        var seenPaths = Set<String>()
+
+        for path in trustedApplicationPaths {
+            guard seenPaths.insert(path).inserted else {
+                continue
+            }
+
+            var trustedApp: SecTrustedApplication?
+            let status = SecTrustedApplicationCreateFromPath(path, &trustedApp)
+            if status == errSecSuccess, let trustedApp {
+                trustedApplications.append(trustedApp)
+            }
+        }
+
+        var currentApp: SecTrustedApplication?
+        let currentStatus = SecTrustedApplicationCreateFromPath(nil, &currentApp)
+        if currentStatus == errSecSuccess, let currentApp {
+            trustedApplications.append(currentApp)
+        }
+
+        guard !trustedApplications.isEmpty else {
+            return nil
+        }
+
+        let label = "\(service).\(profileID)" as CFString
+        var access: SecAccess?
+        let accessStatus = SecAccessCreate(label, trustedApplications as CFArray, &access)
+        guard accessStatus == errSecSuccess else {
+            return nil
+        }
+        return access
+    }
+
+    private var trustedApplicationPaths: [String] {
+        var paths: [String] = ["/Applications/PulseType.app"]
+        let mainPath = Bundle.main.bundlePath
+        if !mainPath.isEmpty {
+            paths.append(mainPath)
+        }
+        return paths
     }
 
     private func loadAPIKey(

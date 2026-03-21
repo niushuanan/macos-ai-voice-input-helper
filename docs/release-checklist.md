@@ -32,7 +32,7 @@
 - [ ] History entry deletion works
 - [ ] "Delete all history" works
 - [ ] API keys remain in Keychain only
-- [ ] Keychain service is v2 (`com.niushuanan.PulseType.provider-profile.v2`)
+- [ ] Keychain service is v3 (`com.niushuanan.PulseType.provider-profile.v3`)
 - [ ] Temporary audio files are cleaned by lifecycle and stale purge
 
 ## UX readiness
