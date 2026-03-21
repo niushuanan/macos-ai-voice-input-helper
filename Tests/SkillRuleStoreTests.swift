@@ -32,7 +32,8 @@ final class SkillRuleStoreTests: XCTestCase {
 
         let output = store.applyDictation("hello", outputBias: .neutral)
 
-        XCTAssertEqual(output, "hello")
+        XCTAssertEqual(output.text, "hello")
+        XCTAssertTrue(output.appliedSkills.isEmpty)
     }
 
     private var defaultsSuiteName: String {

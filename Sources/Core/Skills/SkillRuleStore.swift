@@ -77,6 +77,13 @@ struct SkillRule: Identifiable, Codable, Equatable {
     }
 }
 
+struct SkillApplyResult: Equatable {
+    let text: String
+    let appliedSkills: [SkillRuleID]
+
+    static let empty = SkillApplyResult(text: "", appliedSkills: [])
+}
+
 @MainActor
 final class SkillRuleStore: ObservableObject {
     @Published private(set) var rules: [SkillRule]
@@ -118,7 +125,7 @@ final class SkillRuleStore: ObservableObject {
         }
     }
 
-    func applyDictation(_ text: String, outputBias: AppOutputBias) -> String {
+    func applyDictation(_ text: String, outputBias: AppOutputBias) -> SkillApplyResult {
         applyPipeline(
             text,
             outputBias: outputBias,
@@ -127,7 +134,7 @@ final class SkillRuleStore: ObservableObject {
         )
     }
 
-    func applyRewriteInstruction(_ instruction: String) -> String {
+    func applyRewriteInstruction(_ instruction: String) -> SkillApplyResult {
         applyPipeline(
             instruction,
             outputBias: .neutral,
@@ -136,7 +143,7 @@ final class SkillRuleStore: ObservableObject {
         )
     }
 
-    func applyRewriteOutput(_ text: String, outputBias: AppOutputBias) -> String {
+    func applyRewriteOutput(_ text: String, outputBias: AppOutputBias) -> SkillApplyResult {
         applyPipeline(
             text,
             outputBias: outputBias,
@@ -150,32 +157,55 @@ final class SkillRuleStore: ObservableObject {
         outputBias: AppOutputBias,
         allowSpokenFilter: Bool,
         allowStructure: Bool
-    ) -> String {
+    ) -> SkillApplyResult {
         let base = original.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !base.isEmpty else {
-            return original
+            return SkillApplyResult(text: original, appliedSkills: [])
         }
 
         var value = base
+        var appliedSkills: [SkillRuleID] = []
 
         if allowSpokenFilter, rule(for: .spokenFilter).isEnabled {
-            value = applySpokenFilter(value, parameter: rule(for: .spokenFilter).parameter)
+            let transformed = applySpokenFilter(value, parameter: rule(for: .spokenFilter).parameter)
+            if transformed != value {
+                appliedSkills.append(.spokenFilter)
+            }
+            value = transformed
         }
 
         if rule(for: .autoPolish).isEnabled {
-            value = applyAutoPolish(value)
+            let transformed = applyAutoPolish(value)
+            if transformed != value {
+                appliedSkills.append(.autoPolish)
+            }
+            value = transformed
         }
 
         if allowStructure, rule(for: .autoStructure).isEnabled {
-            value = applyStructureIfNeeded(value)
+            let transformed = applyStructureIfNeeded(value)
+            if transformed != value {
+                appliedSkills.append(.autoStructure)
+            }
+            value = transformed
         }
 
         if rule(for: .appPreferenceBoost).isEnabled {
-            value = applyAppBias(value, outputBias: outputBias)
+            let transformed = applyAppBias(value, outputBias: outputBias)
+            if transformed != value {
+                appliedSkills.append(.appPreferenceBoost)
+            }
+            value = transformed
         }
 
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isEmpty ? original : normalized
+        if normalized.isEmpty {
+            return SkillApplyResult(text: original, appliedSkills: [])
+        }
+        return SkillApplyResult(
+            text: normalized,
+            appliedSkills: appliedSkills
+        )
     }
 
     private func applySpokenFilter(_ text: String, parameter: String) -> String {

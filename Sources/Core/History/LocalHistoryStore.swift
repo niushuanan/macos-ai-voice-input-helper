@@ -49,6 +49,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
     let status: SessionHistoryStatus
     let errorMessage: String?
     let audioDurationSeconds: Double?
+    let appliedSkills: [SkillRuleID]
 
     init(
         id: UUID = UUID(),
@@ -65,7 +66,8 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         rewriteModel: String? = nil,
         status: SessionHistoryStatus,
         errorMessage: String? = nil,
-        audioDurationSeconds: Double? = nil
+        audioDurationSeconds: Double? = nil,
+        appliedSkills: [SkillRuleID] = []
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -82,6 +84,66 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         self.status = status
         self.errorMessage = errorMessage
         self.audioDurationSeconds = audioDurationSeconds
+        self.appliedSkills = appliedSkills
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case timestamp
+        case mode
+        case appName
+        case bundleID
+        case inputText
+        case outputText
+        case instructionText
+        case transcriptionProvider
+        case transcriptionModel
+        case rewriteProvider
+        case rewriteModel
+        case status
+        case errorMessage
+        case audioDurationSeconds
+        case appliedSkills
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        mode = try container.decode(SessionHistoryMode.self, forKey: .mode)
+        appName = try container.decode(String.self, forKey: .appName)
+        bundleID = try container.decode(String.self, forKey: .bundleID)
+        inputText = try container.decode(String.self, forKey: .inputText)
+        outputText = try container.decodeIfPresent(String.self, forKey: .outputText)
+        instructionText = try container.decodeIfPresent(String.self, forKey: .instructionText)
+        transcriptionProvider = try container.decodeIfPresent(String.self, forKey: .transcriptionProvider)
+        transcriptionModel = try container.decodeIfPresent(String.self, forKey: .transcriptionModel)
+        rewriteProvider = try container.decodeIfPresent(String.self, forKey: .rewriteProvider)
+        rewriteModel = try container.decodeIfPresent(String.self, forKey: .rewriteModel)
+        status = try container.decode(SessionHistoryStatus.self, forKey: .status)
+        errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
+        audioDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .audioDurationSeconds)
+        appliedSkills = try container.decodeIfPresent([SkillRuleID].self, forKey: .appliedSkills) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(timestamp, forKey: .timestamp)
+        try container.encode(mode, forKey: .mode)
+        try container.encode(appName, forKey: .appName)
+        try container.encode(bundleID, forKey: .bundleID)
+        try container.encode(inputText, forKey: .inputText)
+        try container.encodeIfPresent(outputText, forKey: .outputText)
+        try container.encodeIfPresent(instructionText, forKey: .instructionText)
+        try container.encodeIfPresent(transcriptionProvider, forKey: .transcriptionProvider)
+        try container.encodeIfPresent(transcriptionModel, forKey: .transcriptionModel)
+        try container.encodeIfPresent(rewriteProvider, forKey: .rewriteProvider)
+        try container.encodeIfPresent(rewriteModel, forKey: .rewriteModel)
+        try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(errorMessage, forKey: .errorMessage)
+        try container.encodeIfPresent(audioDurationSeconds, forKey: .audioDurationSeconds)
+        try container.encode(appliedSkills, forKey: .appliedSkills)
     }
 }
 

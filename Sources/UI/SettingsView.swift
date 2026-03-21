@@ -1093,6 +1093,21 @@ private struct MemoryRowView: View {
                 .lineLimit(3)
                 .textSelection(.enabled)
 
+            if !entry.appliedSkills.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(entry.appliedSkills, id: \.rawValue) { skill in
+                            Text(skill.title)
+                                .font(.caption2)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.accentColor.opacity(0.14))
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
+            }
+
             HStack {
                 Text(entry.appName)
                     .font(.caption2)

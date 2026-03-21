@@ -300,7 +300,7 @@ final class InteractionCoordinator {
     ) async {
         let focusContext = contextDetector.focusedAppContext()
         let scenePolicy = appScenePolicyStore.policy(for: focusContext)
-        let transformedTranscript = skillRuleStore.applyDictation(
+        let skillApplyResult = skillRuleStore.applyDictation(
             transcription.transcript,
             outputBias: scenePolicy.outputBias
         )
@@ -308,7 +308,7 @@ final class InteractionCoordinator {
             providerType: transcription.providerType,
             providerName: transcription.providerName,
             modelName: transcription.modelName,
-            transcript: transformedTranscript
+            transcript: skillApplyResult.text
         )
 
         let request = TextOutputRequest(
@@ -335,7 +335,8 @@ final class InteractionCoordinator {
                     transcriptionProvider: finalTranscription.providerName,
                     transcriptionModel: finalTranscription.modelName,
                     status: .success,
-                    audioDurationSeconds: audioDurationSeconds
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: skillApplyResult.appliedSkills
                 )
             )
         } catch let outputError as TextOutputError {
@@ -351,7 +352,8 @@ final class InteractionCoordinator {
                     transcriptionModel: finalTranscription.modelName,
                     status: .failed,
                     errorMessage: message,
-                    audioDurationSeconds: audioDurationSeconds
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: skillApplyResult.appliedSkills
                 )
             )
             sessionStore.fail(message: message)
@@ -371,7 +373,8 @@ final class InteractionCoordinator {
                     transcriptionModel: finalTranscription.modelName,
                     status: .failed,
                     errorMessage: message,
-                    audioDurationSeconds: audioDurationSeconds
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: skillApplyResult.appliedSkills
                 )
             )
             sessionStore.fail(message: message)
@@ -383,7 +386,8 @@ final class InteractionCoordinator {
         audioDurationSeconds: TimeInterval
     ) async {
         let rawInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let processedInstruction = skillRuleStore.applyRewriteInstruction(rawInstruction)
+        let instructionApplyResult = skillRuleStore.applyRewriteInstruction(rawInstruction)
+        let processedInstruction = instructionApplyResult.text
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let spokenInstruction = processedInstruction.isEmpty ? rawInstruction : processedInstruction
         let initialFocusContext = contextDetector.focusedAppContext()
@@ -402,7 +406,8 @@ final class InteractionCoordinator {
                     transcriptionModel: transcription.modelName,
                     status: .failed,
                     errorMessage: message,
-                    audioDurationSeconds: audioDurationSeconds
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
             sessionStore.fail(message: message)
@@ -428,7 +433,8 @@ final class InteractionCoordinator {
                     transcriptionModel: transcription.modelName,
                     status: .failed,
                     errorMessage: message,
-                    audioDurationSeconds: audioDurationSeconds
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
             sessionStore.fail(message: message)
@@ -450,7 +456,8 @@ final class InteractionCoordinator {
                     transcriptionModel: transcription.modelName,
                     status: .failed,
                     errorMessage: message,
-                    audioDurationSeconds: audioDurationSeconds
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
             sessionStore.fail(
@@ -473,7 +480,8 @@ final class InteractionCoordinator {
                     transcriptionModel: transcription.modelName,
                     status: .failed,
                     errorMessage: message,
-                    audioDurationSeconds: audioDurationSeconds
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
             sessionStore.fail(message: message)
@@ -495,7 +503,8 @@ final class InteractionCoordinator {
                     transcriptionModel: transcription.modelName,
                     status: .failed,
                     errorMessage: message,
-                    audioDurationSeconds: audioDurationSeconds
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
             sessionStore.fail(message: message)
@@ -516,7 +525,9 @@ final class InteractionCoordinator {
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     status: .failed,
-                    errorMessage: message
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
             sessionStore.fail(message: message)
@@ -536,12 +547,16 @@ final class InteractionCoordinator {
                 configuration: rewriteConfiguration,
                 apiKey: normalizedKey
             )
-            let transformedOutput = skillRuleStore.applyRewriteOutput(
+            let outputApplyResult = skillRuleStore.applyRewriteOutput(
                 rewriteResult.rewrittenText,
                 outputBias: scenePolicy.outputBias
             )
+            let combinedSkills = mergedSkills(
+                lhs: instructionApplyResult.appliedSkills,
+                rhs: outputApplyResult.appliedSkills
+            )
             let finalRewriteText: String = {
-                let normalized = transformedOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+                let normalized = outputApplyResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 return normalized.isEmpty ? rewriteResult.rewrittenText : normalized
             }()
 
@@ -571,7 +586,8 @@ final class InteractionCoordinator {
                     rewriteProvider: rewriteResult.providerName,
                     rewriteModel: rewriteResult.modelName,
                     status: .success,
-                    audioDurationSeconds: audioDurationSeconds
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: combinedSkills
                 )
             )
         } catch let rewriteError as RewriteProviderError {
@@ -590,7 +606,8 @@ final class InteractionCoordinator {
                     rewriteModel: rewriteConfiguration.modelName,
                     status: .failed,
                     errorMessage: message,
-                    audioDurationSeconds: audioDurationSeconds
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
             sessionStore.fail(message: message)
@@ -610,7 +627,8 @@ final class InteractionCoordinator {
                     rewriteModel: rewriteConfiguration.modelName,
                     status: .failed,
                     errorMessage: message,
-                    audioDurationSeconds: audioDurationSeconds
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
             sessionStore.fail(message: message)
@@ -630,11 +648,26 @@ final class InteractionCoordinator {
                     rewriteModel: rewriteConfiguration.modelName,
                     status: .failed,
                     errorMessage: message,
-                    audioDurationSeconds: audioDurationSeconds
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
             sessionStore.fail(message: message)
         }
+    }
+
+    private func mergedSkills(
+        lhs: [SkillRuleID],
+        rhs: [SkillRuleID]
+    ) -> [SkillRuleID] {
+        var merged: [SkillRuleID] = []
+        for skill in lhs where !merged.contains(where: { $0 == skill }) {
+            merged.append(skill)
+        }
+        for skill in rhs where !merged.contains(where: { $0 == skill }) {
+            merged.append(skill)
+        }
+        return merged
     }
 
     private func bindListeningLevel() {
