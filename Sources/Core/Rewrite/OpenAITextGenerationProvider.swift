@@ -29,7 +29,9 @@ struct OpenAITextGenerationProvider: TextGenerationProvider {
             ]
         )
 
-        var urlRequest = URLRequest(url: configuration.baseURL.appendingPathComponent("/v1/chat/completions"))
+        var urlRequest = URLRequest(
+            url: OpenAIEndpointResolver.chatCompletionsURL(baseURL: configuration.baseURL)
+        )
         urlRequest.httpMethod = "POST"
         urlRequest.timeoutInterval = 70
         urlRequest.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")

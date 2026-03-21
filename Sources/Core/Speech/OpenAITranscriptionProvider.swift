@@ -31,7 +31,9 @@ struct OpenAITranscriptionProvider: SpeechTranscriptionProvider {
             throw SpeechTranscriptionError.providerFailure(description: "Could not read recorded audio file.")
         }
 
-        var urlRequest = URLRequest(url: configuration.baseURL.appendingPathComponent("/v1/audio/transcriptions"))
+        var urlRequest = URLRequest(
+            url: OpenAIEndpointResolver.transcriptionURL(baseURL: configuration.baseURL)
+        )
         urlRequest.httpMethod = "POST"
         urlRequest.timeoutInterval = 60
         urlRequest.setValue("Bearer \(normalizedKey)", forHTTPHeaderField: "Authorization")

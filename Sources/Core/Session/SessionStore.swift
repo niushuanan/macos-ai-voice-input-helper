@@ -24,15 +24,13 @@ final class SessionStore: ObservableObject {
     ]
 
     func startDictation() {
-        pendingClip = nil
-        listeningLevel = 0
+        clearRuntimeArtifactsForNewSession()
         activeLane = .directDictation
         transition(to: .listening, statusMessage: "Listening for direct dictation.")
     }
 
     func startRewrite() {
-        pendingClip = nil
-        listeningLevel = 0
+        clearRuntimeArtifactsForNewSession()
         activeLane = .selectionRewrite
         transition(to: .listening, statusMessage: "Listening for rewrite intent on the current selection.")
     }
@@ -106,24 +104,23 @@ final class SessionStore: ObservableObject {
     }
 
     func cancel() {
-        pendingClip = nil
-        listeningLevel = 0
-        errorMessage = nil
+        clearRuntimeArtifactsForNewSession()
         phase = .cancelled
         statusMessage = "Session cancelled without changing the target app."
     }
 
     func fail(message: String) {
         listeningLevel = 0
+        pendingClip = nil
+        latestOutputResult = nil
         errorMessage = message
         phase = .error
         statusMessage = message
     }
 
     func reset() {
-        pendingClip = nil
-        listeningLevel = 0
-        errorMessage = nil
+        clearRuntimeArtifactsForNewSession()
+        activeLane = .directDictation
         phase = .idle
         statusMessage = "Ready for a keyboard-first voice session."
     }
@@ -139,6 +136,15 @@ final class SessionStore: ObservableObject {
 
     func clearPendingClipReference() {
         pendingClip = nil
+    }
+
+    private func clearRuntimeArtifactsForNewSession() {
+        pendingClip = nil
+        listeningLevel = 0
+        errorMessage = nil
+        latestTranscription = nil
+        latestFocusContext = nil
+        latestOutputResult = nil
     }
 
     private func transition(to nextPhase: SessionPhase, statusMessage: String) {

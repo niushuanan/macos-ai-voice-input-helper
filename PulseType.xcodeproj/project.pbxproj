@@ -13,6 +13,7 @@
 		1B54052D55540BDFF9C094A7 /* StatusPulseHUDController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5312CC574CB71C92172686C /* StatusPulseHUDController.swift */; };
 		1C28B9067E503981B8802BCD /* PulseTypeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B31135DA88F140538F690BA /* PulseTypeApp.swift */; };
 		2DC70FB9C90A5ADE8D4B7B3A /* RewriteProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0353B0863F44CC93650023 /* RewriteProvider.swift */; };
+		2EC32C636372DEE9E912CB05 /* OpenAIEndpointResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 651B002BCD715F07DBF78CE4 /* OpenAIEndpointResolver.swift */; };
 		382AEFF6E0F7F9BCFCAF3691 /* AppScenePolicyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD3BEE22B923D79D9B8964B /* AppScenePolicyStore.swift */; };
 		5BEF4C142B837D5D710A4ABA /* LocalHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AACAD05F67BBE70749EFCB /* LocalHistoryStore.swift */; };
 		69B3732554C8EB1236F0F1CE /* SpeechProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD4B5487FB8F3196B11F7169 /* SpeechProviderRegistry.swift */; };
@@ -49,6 +50,7 @@
 		555DDAEA56E00B69BBD68976 /* SessionPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPhase.swift; sourceTree = "<group>"; };
 		615736F7FBCACF8AF8B17CCF /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		61E5EB79A499501B92D5C649 /* MenuBarStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusView.swift; sourceTree = "<group>"; };
+		651B002BCD715F07DBF78CE4 /* OpenAIEndpointResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIEndpointResolver.swift; sourceTree = "<group>"; };
 		76C33145AB5557B714895617 /* InteractionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractionCoordinator.swift; sourceTree = "<group>"; };
 		787C4C62D2B8C938D225018A /* DiagnosticsCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsCenter.swift; sourceTree = "<group>"; };
 		7D48BFEC8EABFB9C0E92E685 /* MenuBarMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarMenuView.swift; sourceTree = "<group>"; };
@@ -131,6 +133,7 @@
 		32806C4B6E2E19B8D408C4C5 /* Speech */ = {
 			isa = PBXGroup;
 			children = (
+				651B002BCD715F07DBF78CE4 /* OpenAIEndpointResolver.swift */,
 				241181D9FA17D66D2CB559E2 /* OpenAITranscriptionProvider.swift */,
 				CA0007EF478F376F9F4AA27C /* SpeechProvider.swift */,
 				DD4B5487FB8F3196B11F7169 /* SpeechProviderRegistry.swift */,
@@ -356,6 +359,7 @@
 				02080CA78961B65946CBF53F /* MenuBarMenuView.swift in Sources */,
 				BE93095D0E4E794184EE3371 /* MenuBarPanelView.swift in Sources */,
 				79FB17D471512BFA5C11586C /* MenuBarStatusView.swift in Sources */,
+				2EC32C636372DEE9E912CB05 /* OpenAIEndpointResolver.swift in Sources */,
 				08AEBC14B14DCFC8330558BA /* OpenAITextGenerationProvider.swift in Sources */,
 				C5B85760CE9451FE36B4B278 /* OpenAITranscriptionProvider.swift in Sources */,
 				B1D1C0EF683563F25230AB0A /* PermissionsCenter.swift in Sources */,

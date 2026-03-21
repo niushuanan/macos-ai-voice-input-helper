@@ -64,6 +64,7 @@ enum TextOutputError: LocalizedError {
     }
 }
 
+@MainActor
 protocol TextOutputCoordinator {
     var insertionStrategy: String { get }
     func currentSelectionSnapshot() -> FocusedSelectionSnapshot?
@@ -395,7 +396,7 @@ final class TextOutputLogger {
             return
         }
         defer { try? handle.close() }
-        try? handle.seekToEnd()
+        _ = try? handle.seekToEnd()
         try? handle.write(contentsOf: data)
     }
 }
