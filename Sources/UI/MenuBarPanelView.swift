@@ -234,7 +234,7 @@ private struct StatusCard: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
 
-                    Text("Bundle：\(focusContext.bundleID)")
+                    Text("应用标识：\(focusContext.bundleID)")
                         .font(.caption2.monospaced())
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
