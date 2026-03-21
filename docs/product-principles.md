@@ -139,6 +139,18 @@ Selected implementation in this round:
 - In-flight transcription status visibility.
 - Latest transcript preview tied to provider and model metadata.
 
+## Prompt 6 writeback innovation candidates
+
+| Candidate | User value | Implementation cost | Main risk | Decision |
+| --- | --- | --- | --- | --- |
+| App-aware writeback transparency | Show target app, editable-target detection, strategy hint, and final path (direct vs fallback) so users know what the tool actually did. | Low to medium | Adds detail to panel; needs compact UI wording. | Selected |
+| Short pre-insert preview gate | Pause 1-2 seconds for user confirmation before writing text. | Medium | Adds friction and can hurt fast dictation rhythm. | Parked |
+
+Selected implementation:
+
+- App-aware writeback transparency in command deck status card.
+- Clear fallback labeling; fallback is never presented as main path.
+
 ## Non-negotiable interaction principles
 
 - Summon and cancel actions must be easy to memorize.

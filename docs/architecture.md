@@ -193,6 +193,18 @@ Dependency rule:
 - may depend on Accessibility and pasteboard bridges
 - must respect cancel state before mutating the target app
 
+Current implementation:
+
+- output operation split:
+  - `insertText`
+  - `replaceSelectedText`
+- main path:
+  - AX focused-element direct replacement
+- fallback path:
+  - explicit pasteboard + `Command + V`
+- both paths are logged in diagnostics:
+  - `Diagnostics/text-output.log`
+
 ### ContextDetection
 
 Responsibility:
@@ -205,6 +217,17 @@ Dependency rule:
 
 - may inspect frontmost-app metadata
 - must remain heuristic and explainable in v1
+
+Current implementation:
+
+- captures:
+  - app name
+  - bundle id
+  - focused role (if available)
+  - editable-target boolean
+  - write strategy hint
+- source:
+  - `NSWorkspace` + AX focused element query
 
 ### Permissions
 
@@ -281,6 +304,11 @@ These are known missing pieces, not accidents:
 - no insertion bridge yet
 - no full first-launch permission walkthrough yet
 - no waveform-grade visualizer; current listening feedback is a minimal level meter
+
+Revision after Prompt 6:
+
+- insertion bridge now exists with AX primary path plus paste fallback
+- direct AX compatibility still needs broader validation across third-party editors
 
 ## Known system limits
 
