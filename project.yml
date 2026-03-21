@@ -8,6 +8,10 @@ settings:
     CURRENT_PROJECT_VERSION: 1
     MARKETING_VERSION: 0.1.0
     CODE_SIGN_STYLE: Automatic
+packages:
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts.git
+    from: 2.3.0
 targets:
   PulseType:
     type: application
@@ -18,6 +22,8 @@ targets:
     configFiles:
       Debug: Config/Debug.xcconfig
       Release: Config/Release.xcconfig
+    dependencies:
+      - package: KeyboardShortcuts
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.niushuanan.PulseType

@@ -5,6 +5,7 @@ import Foundation
 final class AppModel: ObservableObject {
     let sessionStore: SessionStore
     let hotkeyCoordinator: HotkeyCoordinator
+    let globalHotkeyService: GlobalHotkeyService
     let interactionCoordinator: InteractionCoordinator
     let audioCaptureService: AudioCaptureService
     let speechProvider: SpeechProvider
@@ -19,6 +20,7 @@ final class AppModel: ObservableObject {
     init(
         sessionStore: SessionStore,
         hotkeyCoordinator: HotkeyCoordinator,
+        globalHotkeyService: GlobalHotkeyService,
         interactionCoordinator: InteractionCoordinator,
         audioCaptureService: AudioCaptureService,
         speechProvider: SpeechProvider,
@@ -31,6 +33,7 @@ final class AppModel: ObservableObject {
     ) {
         self.sessionStore = sessionStore
         self.hotkeyCoordinator = hotkeyCoordinator
+        self.globalHotkeyService = globalHotkeyService
         self.interactionCoordinator = interactionCoordinator
         self.audioCaptureService = audioCaptureService
         self.speechProvider = speechProvider
@@ -42,15 +45,18 @@ final class AppModel: ObservableObject {
         self.statusPulseHUDController = statusPulseHUDController
 
         bindStatusPulse()
+        activateGlobalHotkeys()
     }
 
     static func bootstrap() -> AppModel {
         let store = LocalStore.bootstrap()
         let sessionStore = SessionStore()
+        let interactionCoordinator = InteractionCoordinator(sessionStore: sessionStore)
         return AppModel(
             sessionStore: sessionStore,
             hotkeyCoordinator: HotkeyCoordinator.defaultConfiguration,
-            interactionCoordinator: InteractionCoordinator(sessionStore: sessionStore),
+            globalHotkeyService: GlobalHotkeyService(interactionCoordinator: interactionCoordinator),
+            interactionCoordinator: interactionCoordinator,
             audioCaptureService: StubAudioCaptureService(),
             speechProvider: PlaceholderSpeechProvider(),
             textOutputCoordinator: StubTextOutputCoordinator(),
@@ -71,5 +77,9 @@ final class AppModel: ObservableObject {
                 self?.statusPulseHUDController.show(phase: phase, lane: lane, message: message)
             }
             .store(in: &cancellables)
+    }
+
+    private func activateGlobalHotkeys() {
+        globalHotkeyService.activate()
     }
 }

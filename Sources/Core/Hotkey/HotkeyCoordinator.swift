@@ -21,7 +21,7 @@ struct HotkeyCoordinator {
         stopShortcut: HotkeyDescriptor(
             id: "stop",
             name: "Stop listening and move to text stage",
-            trigger: "Control + Option + Space (tap again)"
+            trigger: "Control + Option + Return"
         ),
         cancelShortcut: HotkeyDescriptor(
             id: "cancel",
