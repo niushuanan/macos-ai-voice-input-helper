@@ -136,6 +136,9 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             throw TextOutputError.emptyText
         }
 
+        // Keep the final text in clipboard so user can reuse it after writeback.
+        _ = persistToClipboard(trimmedText)
+
         let startLine = "[write] app=\(request.focusContext.appName) bundle=\(request.focusContext.bundleID) op=\(request.operation)"
         logger.log(startLine)
 
@@ -236,22 +239,19 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
     }
 
     private func performPasteFallback(text: String) async throws {
-        let pasteboard = NSPasteboard.general
-        let snapshot = PasteboardSnapshot.capture(from: pasteboard)
-
-        pasteboard.clearContents()
-        guard pasteboard.setString(text, forType: .string) else {
+        guard persistToClipboard(text) else {
             throw TextOutputError.pasteboardUnavailable
         }
 
-        do {
-            try triggerCommandV()
-            try await Task.sleep(nanoseconds: 220_000_000)
-            snapshot.restore(to: pasteboard)
-        } catch {
-            snapshot.restore(to: pasteboard)
-            throw error
-        }
+        try triggerCommandV()
+        try await Task.sleep(nanoseconds: 220_000_000)
+    }
+
+    @discardableResult
+    private func persistToClipboard(_ text: String) -> Bool {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        return pasteboard.setString(text, forType: .string)
     }
 
     private func triggerCommandV() throws {
@@ -435,36 +435,5 @@ final class TextOutputLogger {
         defer { try? handle.close() }
         _ = try? handle.seekToEnd()
         try? handle.write(contentsOf: data)
-    }
-}
-
-private struct PasteboardSnapshot {
-    let items: [[NSPasteboard.PasteboardType: Data]]
-
-    static func capture(from pasteboard: NSPasteboard) -> PasteboardSnapshot {
-        let itemData: [[NSPasteboard.PasteboardType: Data]] = (pasteboard.pasteboardItems ?? []).map { item in
-            var map: [NSPasteboard.PasteboardType: Data] = [:]
-            for type in item.types {
-                if let data = item.data(forType: type) {
-                    map[type] = data
-                }
-            }
-            return map
-        }
-        return PasteboardSnapshot(items: itemData)
-    }
-
-    func restore(to pasteboard: NSPasteboard) {
-        pasteboard.clearContents()
-        let restoreItems: [NSPasteboardItem] = items.compactMap { itemData in
-            let item = NSPasteboardItem()
-            for (type, data) in itemData {
-                item.setData(data, forType: type)
-            }
-            return item
-        }
-        if !restoreItems.isEmpty {
-            pasteboard.writeObjects(restoreItems)
-        }
     }
 }
