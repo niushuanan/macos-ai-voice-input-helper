@@ -78,6 +78,8 @@ Initialize local API keys (saved to macOS Keychain, not repo files):
 ./scripts/setup-local-keys.sh
 ```
 
+Note: this script is a compatibility helper. For fewer keychain prompts, the recommended path is entering keys inside `模型` page.
+
 Install local secret pre-check (optional but recommended):
 
 ```bash
@@ -92,7 +94,6 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   -project PulseType.xcodeproj \
   -scheme PulseType \
   -configuration Debug \
-  CODE_SIGNING_ALLOWED=NO \
   build
 ```
 
@@ -104,8 +105,25 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   -project PulseType.xcodeproj \
   -scheme PulseType \
   -configuration Debug \
-  CODE_SIGNING_ALLOWED=NO \
   test
+```
+
+Install single local runtime (recommended for stable permissions/keychain):
+
+```bash
+./scripts/install-local-app.sh
+```
+
+Runtime doctor:
+
+```bash
+./scripts/doctor-runtime.sh
+```
+
+One-time local cleanup when permission state is stale:
+
+```bash
+./scripts/repair-local-runtime.sh
 ```
 
 ## Trial checklist
@@ -118,6 +136,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 4. Go to `首页`, press wake key to start dictation, press again to stop.
 5. Verify output text appears in target app.
 6. Open `记忆` and verify history is visible and manageable.
+7. Ensure app runtime path is `/Applications/PulseType.app` (single-version policy).
 
 ## Key documents
 

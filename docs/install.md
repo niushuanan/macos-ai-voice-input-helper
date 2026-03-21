@@ -17,7 +17,7 @@ Install XcodeGen:
 brew install xcodegen
 ```
 
-## Build and launch
+## Build and install
 
 Generate project:
 
@@ -33,17 +33,32 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   -project PulseType.xcodeproj \
   -scheme PulseType \
   -configuration Debug \
-  CODE_SIGNING_ALLOWED=NO \
   build
 ```
 
-Run from Xcode:
+Install to single runtime path (`/Applications/PulseType.app`):
 
-1. Open `PulseType.xcodeproj`
-2. Select scheme `PulseType`
-3. Run (`Cmd + R`)
+```bash
+./scripts/install-local-app.sh
+```
 
-After launch, PulseType appears in the macOS menu bar.
+This project now uses a single-version local policy:
+
+- Daily use should launch from `/Applications/PulseType.app`
+- New local updates should always overwrite that same path
+- Avoid running from DerivedData for day-to-day usage
+
+Runtime health check:
+
+```bash
+./scripts/doctor-runtime.sh
+```
+
+If permission or keychain state is stale due old app paths:
+
+```bash
+./scripts/repair-local-runtime.sh
+```
 
 ## Run tests
 
@@ -53,6 +68,5 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   -project PulseType.xcodeproj \
   -scheme PulseType \
   -configuration Debug \
-  CODE_SIGNING_ALLOWED=NO \
   test
 ```

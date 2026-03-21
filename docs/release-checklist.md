@@ -4,9 +4,11 @@
 
 - [ ] `xcodegen generate` completed
 - [ ] Debug build passes
-- [ ] Release build passes (`CODE_SIGNING_ALLOWED=NO` for local verification)
+- [ ] Release build passes
 - [ ] Unit tests pass
 - [ ] GitHub CI passes on latest commit
+- [ ] `/Applications/PulseType.app` single-version install verified (`./scripts/install-local-app.sh`)
+- [ ] Runtime doctor output checked (`./scripts/doctor-runtime.sh`)
 
 ## Functional smoke checks
 
@@ -30,6 +32,7 @@
 - [ ] History entry deletion works
 - [ ] "Delete all history" works
 - [ ] API keys remain in Keychain only
+- [ ] Keychain service is v2 (`com.niushuanan.PulseType.provider-profile.v2`)
 - [ ] Temporary audio files are cleaned by lifecycle and stale purge
 
 ## UX readiness
@@ -43,6 +46,7 @@
 
 - [ ] README reflects current capabilities and limits
 - [ ] Installation steps validated on a clean machine
+- [ ] Single-version local update steps validated
 - [ ] Usage guide validated
 - [ ] API key setup guide validated
 - [ ] Known compatibility limits are documented

@@ -22,7 +22,10 @@
 
 如果你已经有旧配置，系统不会强制覆盖。
 
-## 本地初始化密钥（推荐）
+## 本地初始化密钥（两种方式）
+
+推荐方式（更稳定）：直接在 App 的 `模型` 页面输入并保存。  
+兼容方式：运行脚本批量写入 Keychain。
 
 在项目根目录执行：
 
@@ -30,10 +33,13 @@
 ./scripts/setup-local-keys.sh
 ```
 
-脚本会交互录入两把密钥，并写入 Keychain：
+脚本会交互录入两把密钥，并写入 Keychain v2 服务：
 
+- 服务名：`com.niushuanan.PulseType.provider-profile.v2`
 - ASR key：`asr.primary`
 - 文本 key：`text.primary`
+
+如果脚本写入后仍出现访问提示，可在模型页再点一次“保存”，让当前 App 进程重绑权限。
 
 可选：安装提交前密钥扫描钩子：
 
