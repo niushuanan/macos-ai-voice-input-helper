@@ -9,6 +9,7 @@ struct SettingsView: View {
     @ObservedObject private var sessionStore: SessionStore
     @ObservedObject private var permissionsCenter: PermissionsCenter
     @ObservedObject private var providerSettingsStore: ProviderSettingsStore
+    @ObservedObject private var skillRuleStore: SkillRuleStore
     @ObservedObject private var localHistoryStore: LocalHistoryStore
 
     @State private var asrTesting = false
@@ -23,6 +24,7 @@ struct SettingsView: View {
         _sessionStore = ObservedObject(wrappedValue: model.sessionStore)
         _permissionsCenter = ObservedObject(wrappedValue: model.permissionsCenter)
         _providerSettingsStore = ObservedObject(wrappedValue: model.providerSettingsStore)
+        _skillRuleStore = ObservedObject(wrappedValue: model.skillRuleStore)
         _localHistoryStore = ObservedObject(wrappedValue: model.localHistoryStore)
     }
 
@@ -41,10 +43,7 @@ struct SettingsView: View {
                 case .memory:
                     memoryPage
                 case .skills:
-                    PlaceholderPageView(
-                        title: "技能",
-                        subtitle: "下一步会在这里提供可开关的技能中心。"
-                    )
+                    skillsPage
                 case .model:
                     PlaceholderPageView(
                         title: "模型",
@@ -191,6 +190,36 @@ struct SettingsView: View {
             }
         }
         .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var skillsPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("技能中心")
+                    .font(.title3.weight(.semibold))
+
+                Text("技能默认在本地生效。遇到异常会自动回退到原始文本流程。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                ForEach(skillRuleStore.rules) { rule in
+                    SkillRuleCardView(
+                        title: rule.id.title,
+                        subtitle: rule.id.subtitle,
+                        isEnabled: Binding(
+                            get: { skillRuleStore.rule(for: rule.id).isEnabled },
+                            set: { skillRuleStore.setEnabled($0, for: rule.id) }
+                        ),
+                        parameter: Binding(
+                            get: { skillRuleStore.rule(for: rule.id).parameter },
+                            set: { skillRuleStore.setParameter($0, for: rule.id) }
+                        )
+                    )
+                }
+            }
+            .padding(20)
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -691,6 +720,37 @@ private struct MemoryRowView: View {
             return error
         }
         return "无文本内容"
+    }
+}
+
+private struct SkillRuleCardView: View {
+    let title: String
+    let subtitle: String
+    @Binding var isEnabled: Bool
+    @Binding var parameter: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.headline)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Toggle("", isOn: $isEnabled)
+                    .labelsHidden()
+            }
+
+            TextField("参数", text: $parameter)
+                .textFieldStyle(.roundedBorder)
+                .disabled(!isEnabled)
+        }
+        .padding(12)
+        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 

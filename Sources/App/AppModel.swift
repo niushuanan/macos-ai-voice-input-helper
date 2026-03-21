@@ -10,6 +10,7 @@ final class AppModel: ObservableObject {
     let globalHotkeyService: GlobalHotkeyService
     let interactionCoordinator: InteractionCoordinator
     let audioCaptureService: AudioCaptureService
+    let skillRuleStore: SkillRuleStore
     let providerSettingsStore: ProviderSettingsStore
     let speechProviderRegistry: SpeechProviderRegistry
     let rewriteProviderRegistry: RewriteProviderRegistry
@@ -30,6 +31,7 @@ final class AppModel: ObservableObject {
         globalHotkeyService: GlobalHotkeyService,
         interactionCoordinator: InteractionCoordinator,
         audioCaptureService: AudioCaptureService,
+        skillRuleStore: SkillRuleStore,
         providerSettingsStore: ProviderSettingsStore,
         speechProviderRegistry: SpeechProviderRegistry,
         rewriteProviderRegistry: RewriteProviderRegistry,
@@ -48,6 +50,7 @@ final class AppModel: ObservableObject {
         self.globalHotkeyService = globalHotkeyService
         self.interactionCoordinator = interactionCoordinator
         self.audioCaptureService = audioCaptureService
+        self.skillRuleStore = skillRuleStore
         self.providerSettingsStore = providerSettingsStore
         self.speechProviderRegistry = speechProviderRegistry
         self.rewriteProviderRegistry = rewriteProviderRegistry
@@ -71,6 +74,7 @@ final class AppModel: ObservableObject {
         let sessionStore = SessionStore()
         let permissionsCenter = PermissionsCenter()
         let audioCaptureService = AVAudioRecorderCaptureService(temporaryDirectory: store.temporaryAudioDirectory)
+        let skillRuleStore = SkillRuleStore()
         let providerSettingsStore = ProviderSettingsStore(
             credentialStore: KeychainProviderCredentialStore()
         )
@@ -97,7 +101,8 @@ final class AppModel: ObservableObject {
             textOutputCoordinator: textOutputCoordinator,
             contextDetector: contextDetector,
             appScenePolicyStore: appScenePolicyStore,
-            localHistoryStore: localHistoryStore
+            localHistoryStore: localHistoryStore,
+            skillRuleStore: skillRuleStore
         )
         return AppModel(
             controlCenterState: controlCenterState,
@@ -106,6 +111,7 @@ final class AppModel: ObservableObject {
             globalHotkeyService: GlobalHotkeyService(interactionCoordinator: interactionCoordinator),
             interactionCoordinator: interactionCoordinator,
             audioCaptureService: audioCaptureService,
+            skillRuleStore: skillRuleStore,
             providerSettingsStore: providerSettingsStore,
             speechProviderRegistry: speechProviderRegistry,
             rewriteProviderRegistry: rewriteProviderRegistry,

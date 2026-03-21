@@ -23,6 +23,7 @@ final class InteractionCoordinator {
     private let contextDetector: ContextDetector
     private let appScenePolicyStore: AppScenePolicyStore
     private let localHistoryStore: LocalHistoryStore
+    private let skillRuleStore: SkillRuleStore
     private var cancellables = Set<AnyCancellable>()
     private var transcriptionTask: Task<Void, Never>?
 
@@ -36,7 +37,8 @@ final class InteractionCoordinator {
         textOutputCoordinator: TextOutputCoordinator,
         contextDetector: ContextDetector,
         appScenePolicyStore: AppScenePolicyStore,
-        localHistoryStore: LocalHistoryStore
+        localHistoryStore: LocalHistoryStore,
+        skillRuleStore: SkillRuleStore
     ) {
         self.sessionStore = sessionStore
         self.permissionsCenter = permissionsCenter
@@ -48,6 +50,7 @@ final class InteractionCoordinator {
         self.contextDetector = contextDetector
         self.appScenePolicyStore = appScenePolicyStore
         self.localHistoryStore = localHistoryStore
+        self.skillRuleStore = skillRuleStore
         bindListeningLevel()
     }
 
@@ -290,15 +293,26 @@ final class InteractionCoordinator {
         audioDurationSeconds: TimeInterval
     ) async {
         let focusContext = contextDetector.focusedAppContext()
+        let scenePolicy = appScenePolicyStore.policy(for: focusContext)
+        let transformedTranscript = skillRuleStore.applyDictation(
+            transcription.transcript,
+            outputBias: scenePolicy.outputBias
+        )
+        let finalTranscription = SpeechTranscriptionResult(
+            providerType: transcription.providerType,
+            providerName: transcription.providerName,
+            modelName: transcription.modelName,
+            transcript: transformedTranscript
+        )
 
         let request = TextOutputRequest(
-            text: transcription.transcript,
+            text: finalTranscription.transcript,
             operation: .insertText,
             focusContext: focusContext
         )
 
         sessionStore.markInserting(
-            transcription: transcription,
+            transcription: finalTranscription,
             focusContext: focusContext
         )
 
@@ -311,9 +325,9 @@ final class InteractionCoordinator {
                     appName: focusContext.appName,
                     bundleID: focusContext.bundleID,
                     inputText: transcription.transcript,
-                    outputText: transcription.transcript,
-                    transcriptionProvider: transcription.providerName,
-                    transcriptionModel: transcription.modelName,
+                    outputText: finalTranscription.transcript,
+                    transcriptionProvider: finalTranscription.providerName,
+                    transcriptionModel: finalTranscription.modelName,
                     status: .success,
                     audioDurationSeconds: audioDurationSeconds
                 )
@@ -327,8 +341,8 @@ final class InteractionCoordinator {
                     bundleID: focusContext.bundleID,
                     inputText: transcription.transcript,
                     outputText: nil,
-                    transcriptionProvider: transcription.providerName,
-                    transcriptionModel: transcription.modelName,
+                    transcriptionProvider: finalTranscription.providerName,
+                    transcriptionModel: finalTranscription.modelName,
                     status: .failed,
                     errorMessage: message,
                     audioDurationSeconds: audioDurationSeconds
@@ -347,8 +361,8 @@ final class InteractionCoordinator {
                     bundleID: focusContext.bundleID,
                     inputText: transcription.transcript,
                     outputText: nil,
-                    transcriptionProvider: transcription.providerName,
-                    transcriptionModel: transcription.modelName,
+                    transcriptionProvider: finalTranscription.providerName,
+                    transcriptionModel: finalTranscription.modelName,
                     status: .failed,
                     errorMessage: message,
                     audioDurationSeconds: audioDurationSeconds
@@ -362,7 +376,10 @@ final class InteractionCoordinator {
         _ transcription: SpeechTranscriptionResult,
         audioDurationSeconds: TimeInterval
     ) async {
-        let spokenInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let processedInstruction = skillRuleStore.applyRewriteInstruction(rawInstruction)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let spokenInstruction = processedInstruction.isEmpty ? rawInstruction : processedInstruction
         let initialFocusContext = contextDetector.focusedAppContext()
         let scenePolicy = appScenePolicyStore.policy(for: initialFocusContext)
         guard !spokenInstruction.isEmpty else {
@@ -513,9 +530,17 @@ final class InteractionCoordinator {
                 configuration: rewriteConfiguration,
                 apiKey: normalizedKey
             )
+            let transformedOutput = skillRuleStore.applyRewriteOutput(
+                rewriteResult.rewrittenText,
+                outputBias: scenePolicy.outputBias
+            )
+            let finalRewriteText: String = {
+                let normalized = transformedOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+                return normalized.isEmpty ? rewriteResult.rewrittenText : normalized
+            }()
 
             let outputRequest = TextOutputRequest(
-                text: rewriteResult.rewrittenText,
+                text: finalRewriteText,
                 operation: .replaceSelectedText,
                 focusContext: snapshot.focusContext
             )
@@ -533,7 +558,7 @@ final class InteractionCoordinator {
                     appName: snapshot.focusContext.appName,
                     bundleID: snapshot.focusContext.bundleID,
                     inputText: snapshot.selectedText,
-                    outputText: rewriteResult.rewrittenText,
+                    outputText: finalRewriteText,
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,

@@ -16,6 +16,7 @@
 		2DC70FB9C90A5ADE8D4B7B3A /* RewriteProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0353B0863F44CC93650023 /* RewriteProvider.swift */; };
 		2EC32C636372DEE9E912CB05 /* OpenAIEndpointResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 651B002BCD715F07DBF78CE4 /* OpenAIEndpointResolver.swift */; };
 		382AEFF6E0F7F9BCFCAF3691 /* AppScenePolicyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD3BEE22B923D79D9B8964B /* AppScenePolicyStore.swift */; };
+		3FB587B63E32498812860E51 /* SkillRuleStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5209C9FFF3D4214351BD221 /* SkillRuleStore.swift */; };
 		5BEF4C142B837D5D710A4ABA /* LocalHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AACAD05F67BBE70749EFCB /* LocalHistoryStore.swift */; };
 		69B3732554C8EB1236F0F1CE /* SpeechProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD4B5487FB8F3196B11F7169 /* SpeechProviderRegistry.swift */; };
 		733ABF320B1595A80BEB6533 /* HotkeyCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAAF330EF4380DDF60E63868 /* HotkeyCoordinator.swift */; };
@@ -80,6 +81,7 @@
 		AA9B804F228D15F5BB803E11 /* OpenAIProviderAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIProviderAdapterTests.swift; sourceTree = "<group>"; };
 		AAF8BE09956AA31E1C87954D /* PulseType.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PulseType.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B14B5D28128E0B4304B0E398 /* OpenAIEndpointResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIEndpointResolverTests.swift; sourceTree = "<group>"; };
+		B5209C9FFF3D4214351BD221 /* SkillRuleStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillRuleStore.swift; sourceTree = "<group>"; };
 		B76EE0E496B0199F87463E36 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		BE6A00315A23BF62DC01AEC6 /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
 		C5312CC574CB71C92172686C /* StatusPulseHUDController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusPulseHUDController.swift; sourceTree = "<group>"; };
@@ -231,6 +233,7 @@
 				8EEE368EF6C657E60ACB9CA9 /* Rewrite */,
 				250F69CFC98B3365B76113D2 /* Security */,
 				2D7F5CD3E1788FEB92B567B0 /* Session */,
+				FB823022887DA48BFDFB494E /* Skills */,
 				32806C4B6E2E19B8D408C4C5 /* Speech */,
 				548AD82FCA6BE7AEA44AE94D /* Storage */,
 				C3BF0F9574795D97A307845C /* TextOutput */,
@@ -309,6 +312,14 @@
 				F647CE4661A5CCCA8EA7CC20 /* ContextDetector.swift */,
 			);
 			path = Context;
+			sourceTree = "<group>";
+		};
+		FB823022887DA48BFDFB494E /* Skills */ = {
+			isa = PBXGroup;
+			children = (
+				B5209C9FFF3D4214351BD221 /* SkillRuleStore.swift */,
+			);
+			path = Skills;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -422,6 +433,7 @@
 				B5412E5EAA202D7D8C6095EA /* SessionPhase.swift in Sources */,
 				B8EC9B12B63BC6895430A731 /* SessionStore.swift in Sources */,
 				06ED5EEBD9C709D7B20DFF2C /* SettingsView.swift in Sources */,
+				3FB587B63E32498812860E51 /* SkillRuleStore.swift in Sources */,
 				BDEB0BB760F09FFDA3943FF8 /* SpeechProvider.swift in Sources */,
 				69B3732554C8EB1236F0F1CE /* SpeechProviderRegistry.swift in Sources */,
 				1B54052D55540BDFF9C094A7 /* StatusPulseHUDController.swift in Sources */,
