@@ -29,7 +29,7 @@ if ! command -v rsync >/dev/null 2>&1; then
   exit 2
 fi
 
-echo "开始构建 $SCHEME（$CONFIGURATION）..."
+echo "开始构建 ${SCHEME}（${CONFIGURATION}）..."
 DEVELOPER_DIR="$DEVELOPER_DIR_VALUE" \
   xcodebuild \
   -project "$PROJECT_PATH" \
