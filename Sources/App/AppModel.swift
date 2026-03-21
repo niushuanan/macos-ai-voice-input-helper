@@ -63,6 +63,7 @@ final class AppModel: ObservableObject {
         self.diagnosticsCenter = diagnosticsCenter
         self.statusPulseHUDController = statusPulseHUDController
 
+        migrateLegacyLocalState()
         permissionsCenter.refreshStatuses()
         bindStatusPulse()
         bindAppLifecycle()
@@ -154,5 +155,22 @@ final class AppModel: ObservableObject {
                 self?.permissionsCenter.refreshStatuses()
             }
             .store(in: &cancellables)
+    }
+
+    private func migrateLegacyLocalState() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "KeyboardShortcuts_stopSession")
+
+        guard Bundle.main.bundlePath == "/Applications/PulseType.app" else {
+            return
+        }
+
+        if
+            let fingerprint = defaults.string(forKey: "permissions.accessibilityPromptFingerprint"),
+            !fingerprint.contains("/Applications/PulseType.app")
+        {
+            defaults.set(false, forKey: "permissions.didPromptAccessibility")
+            defaults.removeObject(forKey: "permissions.accessibilityPromptFingerprint")
+        }
     }
 }
