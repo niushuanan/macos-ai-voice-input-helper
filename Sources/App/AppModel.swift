@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -44,14 +45,20 @@ final class AppModel: ObservableObject {
         self.diagnosticsCenter = diagnosticsCenter
         self.statusPulseHUDController = statusPulseHUDController
 
+        permissionsCenter.refreshStatuses()
         bindStatusPulse()
+        bindAppLifecycle()
         activateGlobalHotkeys()
     }
 
     static func bootstrap() -> AppModel {
         let store = LocalStore.bootstrap()
         let sessionStore = SessionStore()
-        let interactionCoordinator = InteractionCoordinator(sessionStore: sessionStore)
+        let permissionsCenter = PermissionsCenter()
+        let interactionCoordinator = InteractionCoordinator(
+            sessionStore: sessionStore,
+            permissionsCenter: permissionsCenter
+        )
         return AppModel(
             sessionStore: sessionStore,
             hotkeyCoordinator: HotkeyCoordinator.defaultConfiguration,
@@ -61,7 +68,7 @@ final class AppModel: ObservableObject {
             speechProvider: PlaceholderSpeechProvider(),
             textOutputCoordinator: StubTextOutputCoordinator(),
             contextDetector: StubContextDetector(),
-            permissionsCenter: PermissionsCenter(),
+            permissionsCenter: permissionsCenter,
             localStore: store,
             diagnosticsCenter: DiagnosticsCenter(),
             statusPulseHUDController: StatusPulseHUDController()
@@ -81,5 +88,13 @@ final class AppModel: ObservableObject {
 
     private func activateGlobalHotkeys() {
         globalHotkeyService.activate()
+    }
+
+    private func bindAppLifecycle() {
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                self?.permissionsCenter.refreshStatuses()
+            }
+            .store(in: &cancellables)
     }
 }

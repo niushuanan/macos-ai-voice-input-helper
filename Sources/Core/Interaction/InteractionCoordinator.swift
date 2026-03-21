@@ -13,15 +13,28 @@ struct WakeInvocationContext: Equatable {
 @MainActor
 final class InteractionCoordinator {
     private let sessionStore: SessionStore
+    private let permissionsCenter: PermissionsCenter
 
-    init(sessionStore: SessionStore) {
+    init(sessionStore: SessionStore, permissionsCenter: PermissionsCenter) {
         self.sessionStore = sessionStore
+        self.permissionsCenter = permissionsCenter
     }
 
     func handleWakeInput(context: WakeInvocationContext = .dictation) {
+        permissionsCenter.refreshStatuses()
+
         switch sessionStore.phase {
         case .idle, .cancelled, .error:
+            guard permissionsCenter.snapshot.canStartVoiceSession else {
+                sessionStore.fail(message: "Microphone permission is required before starting a voice session.")
+                return
+            }
+
             if context.rewriteModifierHeld && context.selectionAvailable {
+                guard permissionsCenter.snapshot.accessibility == .granted else {
+                    sessionStore.fail(message: "Accessibility permission is required for selection rewrite.")
+                    return
+                }
                 sessionStore.startRewrite()
             } else {
                 sessionStore.startDictation()
