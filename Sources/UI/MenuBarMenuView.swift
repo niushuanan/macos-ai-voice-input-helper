@@ -16,38 +16,38 @@ struct MenuBarMenuView: View {
     }
 
     var body: some View {
-        Text("Phase: \(model.sessionStore.phase.title)")
+        Text("阶段：\(model.sessionStore.phase.title)")
             .font(.caption)
-        Text("Lane: \(model.sessionStore.activeLane.title)")
+        Text("通道：\(model.sessionStore.activeLane.title)")
             .font(.caption)
-        Text("ASR: \(providerSettingsStore.selectedTranscriptionProviderName)")
+        Text("转写：\(providerSettingsStore.selectedTranscriptionProviderName)")
             .font(.caption2)
             .foregroundStyle(.secondary)
-        Text("Rewrite: \(providerSettingsStore.selectedRewriteProviderName)")
+        Text("改写：\(providerSettingsStore.selectedRewriteProviderName)")
             .font(.caption2)
             .foregroundStyle(.secondary)
 
         if permissionsCenter.snapshot.hasBlockingIssue {
             Divider()
 
-            Label("Microphone permission required before start.", systemImage: "exclamationmark.triangle.fill")
+            Label("开始前需要麦克风权限。", systemImage: "exclamationmark.triangle.fill")
                 .font(.caption)
                 .foregroundStyle(.orange)
 
-            Button("Open Privacy Settings") {
+            Button("打开隐私设置") {
                 permissionsCenter.openSystemSettings(for: .microphone)
             }
         }
 
         Divider()
 
-        Button("Wake Dictation") {
+        Button("开始听写") {
             model.interactionCoordinator.handleWakeInput(context: .dictation)
         }
         .disabled(!canStartSession)
         .globalKeyboardShortcut(.wakeSession)
 
-        Button("Wake Rewrite") {
+        Button("开始改写") {
             model.interactionCoordinator.handleWakeInput(
                 context: WakeInvocationContext(
                     rewriteModifierHeld: true,
@@ -57,13 +57,13 @@ struct MenuBarMenuView: View {
         }
         .disabled(!canStartSession)
 
-        Button("Stop Listening") {
+        Button("停止") {
             model.interactionCoordinator.handleStopInput()
         }
         .disabled(model.sessionStore.phase != .listening)
         .globalKeyboardShortcut(.stopSession)
 
-        Button("Cancel Session") {
+        Button("取消会话") {
             model.interactionCoordinator.handleCancelInput()
         }
         .disabled(model.sessionStore.phase == .idle)
@@ -71,15 +71,15 @@ struct MenuBarMenuView: View {
 
         Divider()
 
-        Button("Open Command Deck") {
+        Button("打开命令台") {
             openWindow(id: "command-deck")
         }
 
         SettingsLink {
-            Text("Settings")
+            Text("设置")
         }
 
-        Button("Quit PulseType") {
+        Button("退出 PulseType") {
             NSApplication.shared.terminate(nil)
         }
         .onAppear {

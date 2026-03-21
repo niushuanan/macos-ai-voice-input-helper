@@ -22,11 +22,11 @@ enum PermissionKind: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .microphone:
-            return "Microphone"
+            return "麦克风"
         case .accessibility:
-            return "Accessibility"
+            return "辅助功能"
         case .globalHotkeys:
-            return "Global Hotkeys"
+            return "全局快捷键"
         }
     }
 }
@@ -172,42 +172,42 @@ final class PermissionsCenter: ObservableObject {
         case .microphone:
             switch snapshot.microphone {
             case .granted:
-                return "Ready. Voice sessions can start immediately."
+                return "已允许，可直接开始语音会话。"
             case .notRequested:
-                return "Missing. Voice sessions cannot start until microphone access is granted."
+                return "未允许，语音会话暂时无法开始。"
             case .pending:
-                return "System prompt is in progress. Confirm microphone access to continue."
+                return "系统弹窗处理中，请确认麦克风权限。"
             case .denied:
-                return "Denied. PulseType cannot capture speech."
+                return "已拒绝，PulseType 无法录音。"
             case .notRequired:
-                return "Not required."
+                return "不需要。"
             }
         case .accessibility:
             switch snapshot.accessibility {
             case .granted:
-                return "Ready. Cross-app selection rewrite and direct insertion are available."
+                return "已允许，可进行跨应用改写与直写。"
             case .notRequested:
-                return "Optional for dictation fallback, required for stable rewrite and direct insertion."
+                return "普通听写可运行，但改写与稳定直写建议开启。"
             case .pending:
-                return "Authorization request has been opened. Finish it in System Settings."
+                return "权限向导已打开，请在系统设置里完成。"
             case .denied:
-                return "Denied. Selection rewrite and AX insertion are not available."
+                return "已拒绝，选区改写与 AX 直写不可用。"
             case .notRequired:
-                return "Not required."
+                return "不需要。"
             }
         case .globalHotkeys:
-            return "No extra permission is required for Carbon-level global hotkeys."
+            return "Carbon 级全局快捷键无需额外权限。"
         }
     }
 
     private func guidanceText(for kind: PermissionKind) -> String {
         switch kind {
         case .microphone:
-            return "Tap Request first. If denied, open System Settings > Privacy & Security > Microphone and enable PulseType."
+            return "先点“请求”，如果被拒绝，请到 系统设置 > 隐私与安全性 > 麦克风 开启 PulseType。"
         case .accessibility:
-            return "Tap Request first. Then enable PulseType in System Settings > Privacy & Security > Accessibility."
+            return "先点“请求”，再到 系统设置 > 隐私与安全性 > 辅助功能 开启 PulseType。"
         case .globalHotkeys:
-            return "If shortcuts conflict with macOS defaults, change them in PulseType settings or System Settings > Keyboard > Keyboard Shortcuts."
+            return "若与系统快捷键冲突，请在 PulseType 设置或 系统设置 > 键盘 > 键盘快捷键 中调整。"
         }
     }
 }

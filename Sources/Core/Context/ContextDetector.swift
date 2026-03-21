@@ -27,13 +27,13 @@ struct AccessibilityContextDetector: ContextDetector {
         return ContextSnapshot(
             focusContext: focusContext,
             rewriteAvailable: focusContext.hasEditableTarget,
-            styleHint: "Adaptive"
+            styleHint: "自适应"
         )
     }
 
     func focusedAppContext() -> FocusedAppContext {
         let app = NSWorkspace.shared.frontmostApplication
-        let appName = app?.localizedName ?? "Unknown App"
+        let appName = app?.localizedName ?? "未知应用"
         let bundleID = app?.bundleIdentifier ?? "unknown.bundle"
         let focusedRole = focusedElementRole()
         let editable = hasEditableFocusedTarget()
@@ -139,15 +139,15 @@ struct AccessibilityContextDetector: ContextDetector {
 
     private func strategyHint(for bundleID: String) -> String {
         if bundleID == "com.apple.TextEdit" || bundleID == "com.apple.Notes" {
-            return "AX direct insert is usually stable."
+            return "AX 直写通常较稳定。"
         }
         if bundleID.contains("Xcode") || bundleID.contains("code") {
-            return "AX may vary, paste fallback is often used."
+            return "AX 结果可能波动，常用粘贴兜底。"
         }
         if bundleID.contains("discord") || bundleID.contains("slack") {
-            return "Message apps often work best with paste fallback."
+            return "聊天应用通常更适合粘贴兜底。"
         }
-        return "Try AX direct path first, then paste fallback if needed."
+        return "优先尝试 AX 直写，失败后切换粘贴兜底。"
     }
 }
 
@@ -155,14 +155,14 @@ struct StubContextDetector: ContextDetector {
     func currentSnapshot() -> ContextSnapshot {
         ContextSnapshot(
             focusContext: FocusedAppContext(
-                appName: "Unknown App",
+                appName: "未知应用",
                 bundleID: "unknown.bundle",
                 focusedRole: nil,
                 hasEditableTarget: true,
-                strategyHint: "Try AX direct path first, then paste fallback if needed."
+                strategyHint: "优先尝试 AX 直写，失败后切换粘贴兜底。"
             ),
             rewriteAvailable: true,
-            styleHint: "Adaptive"
+            styleHint: "自适应"
         )
     }
 

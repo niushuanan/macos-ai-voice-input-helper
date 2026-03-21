@@ -35,35 +35,35 @@ struct SettingsView: View {
                     Text("PulseType")
                         .font(.largeTitle.weight(.bold))
 
-                    Text("A keyboard-first macOS helper app for dictation and selection rewrite.")
+                    Text("键盘优先的 macOS 语音输入助手，支持普通听写与选区改写。")
                         .font(.title3)
                         .foregroundStyle(.secondary)
                 }
 
-                GroupBox("Product posture") {
+                GroupBox("产品定位") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Helper app, not an InputMethodKit extension.")
-                        Text("Cloud model APIs come first, with user-supplied keys in the app UI.")
-                        Text("History, sessions, and configuration stay local by default.")
+                        Text("这是 Helper App，不是 InputMethodKit 输入法。")
+                        Text("当前阶段优先接云端模型 API，用户在界面中填写自己的 Key。")
+                        Text("历史、会话与配置默认保留在本地。")
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                GroupBox("Provider center") {
+                GroupBox("服务商中心") {
                     VStack(alignment: .leading, spacing: 12) {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Role assignment")
+                            Text("角色分配")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
 
-                            Picker("Transcription provider", selection: $providerSettingsStore.selectedTranscriptionProfileID) {
+                            Picker("转写服务商", selection: $providerSettingsStore.selectedTranscriptionProfileID) {
                                 ForEach(providerSettingsStore.enabledProfiles) { profile in
                                     Text(profile.name).tag(profile.id)
                                 }
                             }
                             .pickerStyle(.menu)
 
-                            Picker("Rewrite provider", selection: $providerSettingsStore.selectedRewriteProfileID) {
+                            Picker("改写服务商", selection: $providerSettingsStore.selectedRewriteProfileID) {
                                 ForEach(providerSettingsStore.enabledProfiles) { profile in
                                     Text(profile.name).tag(profile.id)
                                 }
@@ -72,13 +72,13 @@ struct SettingsView: View {
                         }
 
                         if let validationMessage = providerSettingsStore.configurationValidationMessage {
-                            Label("Transcription: \(validationMessage)", systemImage: "exclamationmark.triangle.fill")
+                            Label("转写配置：\(validationMessage)", systemImage: "exclamationmark.triangle.fill")
                                 .font(.caption)
                                 .foregroundStyle(.red)
                         }
 
                         if let rewriteValidation = providerSettingsStore.rewriteConfigurationValidationMessage {
-                            Label("Rewrite: \(rewriteValidation)", systemImage: "exclamationmark.triangle.fill")
+                            Label("改写配置：\(rewriteValidation)", systemImage: "exclamationmark.triangle.fill")
                                 .font(.caption)
                                 .foregroundStyle(.red)
                         }
@@ -86,11 +86,11 @@ struct SettingsView: View {
                         Divider()
 
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Profile editor")
+                            Text("配置编辑")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
 
-                            Picker("Edit profile", selection: $providerSettingsStore.selectedProfileIDForEditing) {
+                            Picker("编辑目标", selection: $providerSettingsStore.selectedProfileIDForEditing) {
                                 ForEach(providerSettingsStore.profiles) { profile in
                                     Text("\(profile.name) · \(profile.type.shortLabel)")
                                         .tag(profile.id)
@@ -100,31 +100,31 @@ struct SettingsView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Profile name")
+                            Text("配置名称")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            TextField("Provider profile name", text: editingProfileNameBinding)
+                            TextField("请输入配置名称", text: editingProfileNameBinding)
                                 .textFieldStyle(.roundedBorder)
                                 .autocorrectionDisabled()
                         }
 
-                        Picker("Provider type", selection: editingProfileTypeBinding) {
+                        Picker("服务商类型", selection: editingProfileTypeBinding) {
                             ForEach(ProviderType.allCases) { type in
                                 Text(type.displayName).tag(type)
                             }
                         }
                         .pickerStyle(.menu)
 
-                        Toggle("Enabled", isOn: editingProfileEnabledBinding)
+                        Toggle("启用此配置", isOn: editingProfileEnabledBinding)
 
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Base URL")
+                            Text("接口地址（Base URL）")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
                             TextField(
                                 editingProfileType == .openAI
-                                    ? "https://api.openai.com (fixed)"
+                                    ? "https://api.openai.com（固定）"
                                     : "https://your-compatible-endpoint.com",
                                 text: editingBaseURLBinding
                             )
@@ -134,7 +134,7 @@ struct SettingsView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Transcription model")
+                            Text("转写模型")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             TextField("whisper-1", text: editingTranscriptionModelBinding)
@@ -143,7 +143,7 @@ struct SettingsView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Rewrite model")
+                            Text("改写模型")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             TextField("gpt-4o-mini", text: editingRewriteModelBinding)
@@ -152,20 +152,20 @@ struct SettingsView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("API key")
+                            Text("API 密钥")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
 
                             HStack {
-                                SecureField("Paste API key for \(editingProfileName)", text: $providerSettingsStore.apiKeyDraft)
+                                SecureField("请输入 \(editingProfileName) 的 API 密钥", text: $providerSettingsStore.apiKeyDraft)
                                     .textFieldStyle(.roundedBorder)
 
-                                Button("Save") {
+                                Button("保存") {
                                     providerSettingsStore.saveDraftedAPIKey()
                                 }
                                 .disabled(providerSettingsStore.apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-                                Button("Delete", role: .destructive) {
+                                Button("删除", role: .destructive) {
                                     providerSettingsStore.clearSavedAPIKey()
                                 }
                                 .disabled(providerSettingsStore.credentialState == .missing)
@@ -173,11 +173,11 @@ struct SettingsView: View {
                         }
 
                         HStack {
-                            Button("Add profile") {
+                            Button("新增配置") {
                                 providerSettingsStore.addProfile()
                             }
 
-                            Button("Delete profile", role: .destructive) {
+                            Button("删除配置", role: .destructive) {
                                 providerSettingsStore.deleteEditingProfile()
                             }
                             .disabled(providerSettingsStore.profiles.count <= 1)
@@ -193,14 +193,14 @@ struct SettingsView: View {
                                 .foregroundStyle(feedbackColor)
                         }
 
-                        Text("Key storage: saved in macOS Keychain, not in plain-text config files.")
+                        Text("密钥存储策略：仅写入 macOS 钥匙串，不写明文配置文件。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                GroupBox("Planned hotkeys") {
+                GroupBox("默认快捷键") {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("\(model.hotkeyCoordinator.wakeShortcut.name): \(model.hotkeyCoordinator.wakeShortcut.trigger)")
                         Text("\(model.hotkeyCoordinator.stopShortcut.name): \(model.hotkeyCoordinator.stopShortcut.trigger)")
@@ -210,30 +210,30 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                GroupBox("Hotkey configuration") {
+                GroupBox("快捷键配置") {
                     VStack(alignment: .leading, spacing: 10) {
-                        KeyboardShortcuts.Recorder("Wake / Start", name: .wakeSession)
-                        KeyboardShortcuts.Recorder("Stop / Submit", name: .stopSession)
-                        KeyboardShortcuts.Recorder("Cancel Session", name: .cancelSession)
+                        KeyboardShortcuts.Recorder("唤醒 / 开始", name: .wakeSession)
+                        KeyboardShortcuts.Recorder("停止 / 提交", name: .stopSession)
+                        KeyboardShortcuts.Recorder("取消会话", name: .cancelSession)
 
                         if let shortcutConflictWarning {
                             Label(shortcutConflictWarning, systemImage: "exclamationmark.triangle.fill")
                                 .font(.caption)
                                 .foregroundStyle(.orange)
                         } else {
-                            Label("No shortcut conflict detected.", systemImage: "checkmark.circle.fill")
+                            Label("未发现快捷键冲突。", systemImage: "checkmark.circle.fill")
                                 .font(.caption)
                                 .foregroundStyle(.green)
                         }
 
                         HStack {
-                            Button("Reset to defaults") {
+                            Button("恢复默认快捷键") {
                                 KeyboardShortcuts.reset(.wakeSession, .stopSession, .cancelSession)
                             }
 
                             Spacer()
 
-                            Text("Global shortcuts are active immediately.")
+                            Text("全局快捷键会立即生效。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -241,7 +241,7 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                GroupBox("Permissions center") {
+                GroupBox("权限中心") {
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(permissionsCenter.presentationItems()) { item in
                             PermissionRowView(
@@ -252,35 +252,35 @@ struct SettingsView: View {
                         }
 
                         if permissionsCenter.snapshot.hasBlockingIssue {
-                            Label("Voice session start is currently blocked by missing permission.", systemImage: "xmark.octagon.fill")
+                            Label("当前存在权限缺失，语音会话无法开始。", systemImage: "xmark.octagon.fill")
                                 .font(.caption)
                                 .foregroundStyle(.red)
                         } else {
-                            Label("Permission baseline is ready for starting voice sessions.", systemImage: "checkmark.seal.fill")
+                            Label("权限条件已满足，可开始语音会话。", systemImage: "checkmark.seal.fill")
                                 .font(.caption)
                                 .foregroundStyle(.green)
                         }
 
-                        Button("Refresh permission status") {
+                        Button("刷新权限状态") {
                             permissionsCenter.refreshStatuses()
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                GroupBox("Scene policy by app") {
+                GroupBox("按应用场景策略") {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Tune output style and default lane behavior by frontmost app. Policies are local and editable.")
+                        Text("按前台应用调整输出风格与默认通道行为，策略仅保留在本地。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
                         HStack(alignment: .firstTextBaseline) {
-                            Text("Focused app: \(focusedAppContext.appName)")
+                            Text("当前应用：\(focusedAppContext.appName)")
                                 .font(.subheadline.weight(.semibold))
 
                             Spacer()
 
-                            Button("Refresh frontmost app") {
+                            Button("刷新当前应用") {
                                 refreshFocusedAppPolicyEditor()
                             }
                         }
@@ -292,14 +292,14 @@ struct SettingsView: View {
 
                         Label(
                             focusedPolicyIsStored
-                                ? "Custom policy is active for this app."
-                                : "No custom policy yet. Heuristic defaults are in effect.",
+                                ? "该应用已启用自定义策略。"
+                                : "该应用暂无自定义策略，正在使用启发式默认值。",
                             systemImage: focusedPolicyIsStored ? "slider.horizontal.3" : "sparkles"
                         )
                         .font(.caption)
                         .foregroundStyle(focusedPolicyIsStored ? .green : .secondary)
 
-                        Picker("Default output style", selection: $focusedAppOutputBias) {
+                        Picker("默认输出风格", selection: $focusedAppOutputBias) {
                             ForEach(AppOutputBias.allCases) { bias in
                                 Text(bias.displayName).tag(bias)
                             }
@@ -307,16 +307,16 @@ struct SettingsView: View {
                         .pickerStyle(.menu)
 
                         Toggle(
-                            "Prefer selection rewrite when selected text exists",
+                            "当存在选区时优先改写",
                             isOn: $focusedAppPreferSelectionRewrite
                         )
 
                         HStack {
-                            Button("Save policy") {
+                            Button("保存策略") {
                                 saveFocusedAppPolicy()
                             }
 
-                            Button("Delete custom policy", role: .destructive) {
+                            Button("删除自定义策略", role: .destructive) {
                                 removeFocusedAppPolicy()
                             }
                             .disabled(!focusedPolicyIsStored)
@@ -324,12 +324,12 @@ struct SettingsView: View {
 
                         Divider()
 
-                        Text("Saved custom app policies")
+                        Text("已保存的应用策略")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
 
                         if customPolicies.isEmpty {
-                            Text("No custom app policies yet.")
+                            Text("暂无自定义应用策略。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
@@ -357,21 +357,21 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                GroupBox("Local history") {
+                GroupBox("本地历史") {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Session records are stored on this Mac only. You can delete individual entries or clear all.")
+                        Text("会话记录仅保留在本机，可逐条删除，也可全部清理。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
                         HStack(spacing: 10) {
-                            Picker("Mode", selection: $historyModeFilter) {
+                            Picker("模式", selection: $historyModeFilter) {
                                 ForEach(HistoryModeFilter.allCases) { filter in
                                     Text(filter.displayName).tag(filter)
                                 }
                             }
                             .pickerStyle(.menu)
 
-                            Picker("Status", selection: $historyStatusFilter) {
+                            Picker("状态", selection: $historyStatusFilter) {
                                 ForEach(HistoryStatusFilter.allCases) { filter in
                                     Text(filter.displayName).tag(filter)
                                 }
@@ -379,17 +379,17 @@ struct SettingsView: View {
                             .pickerStyle(.menu)
                         }
 
-                        TextField("Filter by app name or bundle id", text: $historyAppQuery)
+                        TextField("按应用名或 bundle id 过滤", text: $historyAppQuery)
                             .textFieldStyle(.roundedBorder)
                             .autocorrectionDisabled()
 
                         Toggle(
-                            "Only show focused app (\(focusedAppContext.appName))",
+                            "仅显示当前应用（\(focusedAppContext.appName)）",
                             isOn: $historyOnlyFocusedApp
                         )
 
                         if filteredHistoryEntries.isEmpty {
-                            Text("No history entries yet.")
+                            Text("暂无历史记录。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
@@ -406,13 +406,13 @@ struct SettingsView: View {
                         }
 
                         HStack {
-                            Text("Showing \(filteredHistoryEntries.count) / \(localHistoryStore.entries.count)")
+                            Text("显示 \(filteredHistoryEntries.count) / \(localHistoryStore.entries.count)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
                             Spacer()
 
-                            Button("Delete all history", role: .destructive) {
+                            Button("删除全部历史", role: .destructive) {
                                 localHistoryStore.clearAll()
                             }
                             .disabled(localHistoryStore.entries.isEmpty)
@@ -421,7 +421,7 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                GroupBox("Local data paths") {
+                GroupBox("本地数据目录") {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(model.localStore.rootDirectory.path)
                         Text(model.localStore.historyDirectory.path)
@@ -433,7 +433,7 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                GroupBox("Diagnostics") {
+                GroupBox("诊断信息") {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(model.diagnosticsCenter.summaryLines(), id: \.self) { line in
                             Text(line)
@@ -462,22 +462,22 @@ struct SettingsView: View {
         let cancel = KeyboardShortcuts.getShortcut(for: .cancelSession)
 
         if wake != nil && wake == stop {
-            return "Wake and stop use the same shortcut. This can cause accidental phase jumps."
+            return "唤醒与停止使用了同一快捷键，可能导致状态误切换。"
         }
 
         if wake != nil && wake == cancel {
-            return "Wake and cancel use the same shortcut. Session control is ambiguous."
+            return "唤醒与取消使用了同一快捷键，会话控制会变得不明确。"
         }
 
         if stop != nil && stop == cancel {
-            return "Stop and cancel use the same shortcut. Keep them separate for safer control."
+            return "停止与取消使用了同一快捷键，建议分开以降低误触。"
         }
 
         return nil
     }
 
     private var editingProfileName: String {
-        providerSettingsStore.editingProfile?.name ?? "Selected Profile"
+        providerSettingsStore.editingProfile?.name ?? "当前配置"
     }
 
     private var editingProfileType: ProviderType {
@@ -607,9 +607,9 @@ struct SettingsView: View {
     private var apiKeyStatusText: String {
         switch providerSettingsStore.credentialState {
         case .saved:
-            return "API key is saved for \(editingProfileName)."
+            return "\(editingProfileName) 的 API 密钥已写入钥匙串。"
         case .missing:
-            return "No API key saved for \(editingProfileName)."
+            return "\(editingProfileName) 暂无 API 密钥。"
         }
     }
 
@@ -635,7 +635,7 @@ struct SettingsView: View {
         guard let feedbackMessage = providerSettingsStore.feedbackMessage?.lowercased() else {
             return .secondary
         }
-        if feedbackMessage.contains("could not") || feedbackMessage.contains("cannot") {
+        if feedbackMessage.contains("无法") || feedbackMessage.contains("失败") {
             return .red
         }
         return .secondary
@@ -652,11 +652,11 @@ private enum HistoryModeFilter: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .all:
-            return "All modes"
+            return "全部模式"
         case .dictation:
-            return "Dictation"
+            return "普通听写"
         case .selectionRewrite:
-            return "Selection rewrite"
+            return "选区改写"
         }
     }
 
@@ -683,13 +683,13 @@ private enum HistoryStatusFilter: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .all:
-            return "All status"
+            return "全部状态"
         case .success:
-            return "Success"
+            return "成功"
         case .failed:
-            return "Failed"
+            return "失败"
         case .cancelled:
-            return "Cancelled"
+            return "已取消"
         }
     }
 
@@ -721,7 +721,7 @@ private struct AppPolicyRowView: View {
 
                 Spacer()
 
-                Button("Delete", role: .destructive) {
+                Button("删除", role: .destructive) {
                     onDelete()
                 }
                 .font(.caption)
@@ -732,7 +732,7 @@ private struct AppPolicyRowView: View {
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
 
-            Picker("Output style", selection: Binding(
+            Picker("输出风格", selection: Binding(
                 get: { policy.outputBias },
                 set: { onOutputBiasChange($0) }
             )) {
@@ -743,7 +743,7 @@ private struct AppPolicyRowView: View {
             .pickerStyle(.menu)
 
             Toggle(
-                "Prefer selection rewrite",
+                "优先选区改写",
                 isOn: Binding(
                     get: { policy.preferSelectionRewrite },
                     set: { onPreferSelectionRewriteChange($0) }
@@ -774,7 +774,7 @@ private struct HistoryEntryRowView: View {
                     .font(.caption)
                     .foregroundStyle(statusColor)
 
-                Button("Delete", role: .destructive) {
+                Button("删除", role: .destructive) {
                     onDelete()
                 }
                 .font(.caption)
@@ -789,19 +789,19 @@ private struct HistoryEntryRowView: View {
                 .textSelection(.enabled)
 
             if let instruction = entry.instructionText, !instruction.isEmpty {
-                Text("Instruction: \(instruction)")
+                Text("指令：\(instruction)")
                     .font(.caption)
                     .lineLimit(2)
             }
 
             if !entry.inputText.isEmpty {
-                Text("Input: \(entry.inputText)")
+                Text("输入：\(entry.inputText)")
                     .font(.caption)
                     .lineLimit(2)
             }
 
             if let outputText = entry.outputText, !outputText.isEmpty {
-                Text("Output: \(outputText)")
+                Text("输出：\(outputText)")
                     .font(.caption)
                     .lineLimit(2)
                     .foregroundStyle(.secondary)
@@ -829,20 +829,20 @@ private struct HistoryEntryRowView: View {
     private var modeLabel: String {
         switch entry.mode {
         case .dictation:
-            return "Dictation"
+            return "普通听写"
         case .selectionRewrite:
-            return "Selection rewrite"
+            return "选区改写"
         }
     }
 
     private var statusLabel: String {
         switch entry.status {
         case .success:
-            return "Success"
+            return "成功"
         case .failed:
-            return "Failed"
+            return "失败"
         case .cancelled:
-            return "Cancelled"
+            return "已取消"
         }
     }
 
@@ -872,16 +872,16 @@ private struct HistoryEntryRowView: View {
         var parts: [String] = []
         if let transcriptionProvider = entry.transcriptionProvider, !transcriptionProvider.isEmpty {
             if let transcriptionModel = entry.transcriptionModel, !transcriptionModel.isEmpty {
-                parts.append("ASR: \(transcriptionProvider) · \(transcriptionModel)")
+                parts.append("转写：\(transcriptionProvider) · \(transcriptionModel)")
             } else {
-                parts.append("ASR: \(transcriptionProvider)")
+                parts.append("转写：\(transcriptionProvider)")
             }
         }
         if let rewriteProvider = entry.rewriteProvider, !rewriteProvider.isEmpty {
             if let rewriteModel = entry.rewriteModel, !rewriteModel.isEmpty {
-                parts.append("Rewrite: \(rewriteProvider) · \(rewriteModel)")
+                parts.append("改写：\(rewriteProvider) · \(rewriteModel)")
             } else {
-                parts.append("Rewrite: \(rewriteProvider)")
+                parts.append("改写：\(rewriteProvider)")
             }
         }
         return parts.joined(separator: " | ")
@@ -902,7 +902,7 @@ private struct PermissionRowView: View {
 
                 Spacer()
 
-                Text(item.state.rawValue)
+                Text(stateText)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(stateColor)
             }
@@ -916,12 +916,12 @@ private struct PermissionRowView: View {
 
             HStack {
                 if item.state != .granted && item.state != .notRequired {
-                    Button("Request") {
+                    Button("请求权限") {
                         onRequest()
                     }
                 }
 
-                Button("Open System Settings") {
+                Button("打开系统设置") {
                     onOpenSettings()
                 }
             }
@@ -956,6 +956,21 @@ private struct PermissionRowView: View {
             return .red
         case .notRequested:
             return .secondary
+        }
+    }
+
+    private var stateText: String {
+        switch item.state {
+        case .notRequested:
+            return "未请求"
+        case .pending:
+            return "请求中"
+        case .granted:
+            return "已允许"
+        case .denied:
+            return "已拒绝"
+        case .notRequired:
+            return "不需要"
         }
     }
 }

@@ -45,21 +45,21 @@ enum TextOutputError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .emptyText:
-            return "No text available for insertion."
+            return "没有可写入文本。"
         case .accessibilityPermissionMissing:
-            return "Accessibility permission is required for direct insertion."
+            return "AX 直写需要辅助功能权限。"
         case .noFocusedElement:
-            return "No focused input target found."
+            return "未找到焦点输入目标。"
         case .noEditableTarget:
-            return "Focused target is not editable."
+            return "当前焦点不可编辑。"
         case let .accessibilityPathFailed(reason):
-            return "Direct insertion failed: \(reason)"
+            return "AX 写入失败：\(reason)"
         case .pasteboardUnavailable:
-            return "Pasteboard is unavailable for fallback."
+            return "粘贴兜底不可用，剪贴板访问异常。"
         case .pasteShortcutInjectionFailed:
-            return "Could not trigger paste shortcut for fallback."
+            return "粘贴兜底失败，无法触发 Command+V。"
         case let .fallbackFailed(primaryReason):
-            return "Direct path and fallback both failed. Direct path reason: \(primaryReason)"
+            return "AX 与兜底路径均失败。AX 原因：\(primaryReason)"
         }
     }
 }
@@ -73,7 +73,7 @@ protocol TextOutputCoordinator {
 
 @MainActor
 final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
-    let insertionStrategy: String = "Primary: AX direct insertion. Fallback: pasteboard + Command+V."
+    let insertionStrategy: String = "主路径：AX 直写；兜底：剪贴板 + Command+V。"
 
     private let logger: TextOutputLogger
 
@@ -84,11 +84,11 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
     func currentSelectionSnapshot() -> FocusedSelectionSnapshot? {
         let app = NSWorkspace.shared.frontmostApplication
         let focusContext = FocusedAppContext(
-            appName: app?.localizedName ?? "Unknown App",
+            appName: app?.localizedName ?? "未知应用",
             bundleID: app?.bundleIdentifier ?? "unknown.bundle",
             focusedRole: nil,
             hasEditableTarget: true,
-            strategyHint: "AX selected-range path"
+            strategyHint: "AX 选区路径"
         )
 
         guard AXIsProcessTrusted() else {
@@ -201,7 +201,7 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
                 text as CFTypeRef
             )
             guard status == .success else {
-                throw TextOutputError.accessibilityPathFailed(reason: "Could not set selected text.")
+                throw TextOutputError.accessibilityPathFailed(reason: "无法直接写入选中文本。")
             }
             return
         }
@@ -219,7 +219,7 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             updatedValue as CFTypeRef
         )
         guard setValueStatus == .success else {
-            throw TextOutputError.accessibilityPathFailed(reason: "Could not update focused value.")
+            throw TextOutputError.accessibilityPathFailed(reason: "无法更新当前焦点内容。")
         }
 
         var cursorRange = CFRange(

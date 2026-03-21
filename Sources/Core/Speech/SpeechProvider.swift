@@ -11,9 +11,9 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
     var displayName: String {
         switch self {
         case .openAI:
-            return "OpenAI (Official)"
+            return "OpenAI（官方）"
         case .openAICompatible:
-            return "OpenAI-Compatible"
+            return "OpenAI 兼容"
         }
     }
 
@@ -22,7 +22,7 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
         case .openAI:
             return "OpenAI"
         case .openAICompatible:
-            return "Compatible"
+            return "兼容"
         }
     }
 
@@ -116,17 +116,17 @@ enum SpeechTranscriptionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case let .missingAPIKey(providerName):
-            return "\(providerName) API key is missing."
+            return "\(providerName) 缺少 API 密钥。"
         case let .audioFormatUnsupported(fileExtension):
-            return "Audio format \(fileExtension) is not supported by this provider."
+            return "该服务商不支持音频格式 \(fileExtension)。"
         case let .networkFailure(description):
-            return "Network request failed: \(description)"
+            return "网络请求失败：\(description)"
         case let .providerFailure(description):
-            return "Provider returned an error: \(description)"
+            return "服务商返回异常：\(description)"
         case .invalidResponse:
-            return "Provider response could not be parsed."
+            return "服务商返回内容无法解析。"
         case .cancelled:
-            return "Transcription request was cancelled."
+            return "转写请求已取消。"
         }
     }
 }
@@ -147,9 +147,9 @@ enum ProviderCredentialStoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case let .unexpectedStatus(status):
-            return "Keychain operation failed with status \(status)."
+            return "钥匙串操作失败，状态码：\(status)。"
         case .invalidCredentialEncoding:
-            return "Stored credential could not be decoded."
+            return "已存凭证无法解析。"
         }
     }
 }
@@ -251,11 +251,11 @@ final class ProviderSettingsStore: ObservableObject {
     }
 
     var selectedTranscriptionProviderName: String {
-        profile(with: selectedTranscriptionProfileID)?.name ?? "Unavailable Provider"
+        profile(with: selectedTranscriptionProfileID)?.name ?? "不可用服务商"
     }
 
     var selectedRewriteProviderName: String {
-        profile(with: selectedRewriteProfileID)?.name ?? "Unavailable Provider"
+        profile(with: selectedRewriteProfileID)?.name ?? "不可用服务商"
     }
 
     var selectedProviderName: String {
@@ -304,7 +304,7 @@ final class ProviderSettingsStore: ObservableObject {
             credentialState = (key?.isEmpty == false) ? .saved : .missing
         } catch {
             credentialState = .missing
-            feedbackMessage = "Could not read API key from Keychain."
+            feedbackMessage = "无法从钥匙串读取 API 密钥。"
         }
     }
 
@@ -312,12 +312,12 @@ final class ProviderSettingsStore: ObservableObject {
     func saveDraftedAPIKey() -> Bool {
         let normalized = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
-            feedbackMessage = "API key cannot be empty."
+            feedbackMessage = "API 密钥不能为空。"
             return false
         }
 
         guard normalized.count >= 12 else {
-            feedbackMessage = "API key looks too short."
+            feedbackMessage = "API 密钥长度看起来太短。"
             return false
         }
 
@@ -325,10 +325,10 @@ final class ProviderSettingsStore: ObservableObject {
             try credentialStore.saveAPIKey(normalized, for: selectedProfileIDForEditing)
             apiKeyDraft = ""
             credentialState = .saved
-            feedbackMessage = "API key saved in Keychain."
+            feedbackMessage = "API 密钥已写入钥匙串。"
             return true
         } catch {
-            feedbackMessage = "Could not save API key to Keychain."
+            feedbackMessage = "无法把 API 密钥写入钥匙串。"
             return false
         }
     }
@@ -338,10 +338,10 @@ final class ProviderSettingsStore: ObservableObject {
         do {
             try credentialStore.deleteAPIKey(for: selectedProfileIDForEditing)
             credentialState = .missing
-            feedbackMessage = "Saved API key was deleted."
+            feedbackMessage = "已删除已存 API 密钥。"
             return true
         } catch {
-            feedbackMessage = "Could not delete API key from Keychain."
+            feedbackMessage = "无法删除钥匙串中的 API 密钥。"
             return false
         }
     }
@@ -360,7 +360,7 @@ final class ProviderSettingsStore: ObservableObject {
 
     func addProfile() {
         let profile = ProviderProfile(
-            name: "Compatible Profile \(profiles.count + 1)",
+            name: "兼容配置 \(profiles.count + 1)",
             type: .openAICompatible,
             isEnabled: true
         )
@@ -377,7 +377,7 @@ final class ProviderSettingsStore: ObservableObject {
     @discardableResult
     func deleteEditingProfile() -> Bool {
         guard profiles.count > 1 else {
-            feedbackMessage = "At least one provider profile must remain."
+            feedbackMessage = "至少要保留一个服务商配置。"
             return false
         }
         let deletingID = selectedProfileIDForEditing
@@ -388,7 +388,7 @@ final class ProviderSettingsStore: ObservableObject {
         try? credentialStore.deleteAPIKey(for: deletingID)
         persistProfiles()
         ensureSelectionConsistency()
-        feedbackMessage = "Provider profile deleted."
+        feedbackMessage = "已删除服务商配置。"
         return true
     }
 
@@ -552,14 +552,14 @@ final class ProviderSettingsStore: ObservableObject {
 
     private func validationMessageForTranscriptionProfile() -> String? {
         guard let profile = profile(with: selectedTranscriptionProfileID) else {
-            return "Transcription provider profile is missing."
+            return "转写服务商配置不存在。"
         }
         return validationMessage(for: profile, lane: .transcription)
     }
 
     private func validationMessageForRewriteProfile() -> String? {
         guard let profile = profile(with: selectedRewriteProfileID) else {
-            return "Rewrite provider profile is missing."
+            return "改写服务商配置不存在。"
         }
         return validationMessage(for: profile, lane: .rewrite)
     }
@@ -571,7 +571,7 @@ final class ProviderSettingsStore: ObservableObject {
 
     private func validationMessage(for profile: ProviderProfile, lane: LaneKind) -> String? {
         if !profile.isEnabled {
-            return "Selected provider profile is disabled."
+            return "当前服务商配置未启用。"
         }
 
         let modelName: String
@@ -588,7 +588,7 @@ final class ProviderSettingsStore: ObservableObject {
         }
 
         if resolvedBaseURL(for: profile) == nil {
-            return "Base URL is invalid."
+            return "接口地址（Base URL）无效。"
         }
 
         return nil
@@ -596,15 +596,15 @@ final class ProviderSettingsStore: ObservableObject {
 
     private func modelValidationMessage(for model: String) -> String? {
         if model.isEmpty {
-            return "Model name cannot be empty."
+            return "模型名不能为空。"
         }
 
         if model.count > 80 {
-            return "Model name is too long."
+            return "模型名过长。"
         }
 
         if model.contains(where: \.isWhitespace) {
-            return "Model name should not include whitespace."
+            return "模型名不能带空格。"
         }
 
         return nil
@@ -690,13 +690,13 @@ final class ProviderSettingsStore: ObservableObject {
     private static func seedProfiles() -> [ProviderProfile] {
         [
             ProviderProfile(
-                name: "OpenAI Official",
+                name: "OpenAI 官方",
                 type: .openAI,
                 isEnabled: true,
                 baseURLString: "https://api.openai.com"
             ),
             ProviderProfile(
-                name: "Compatible Endpoint",
+                name: "兼容接口",
                 type: .openAICompatible,
                 isEnabled: false,
                 baseURLString: ""
@@ -735,5 +735,5 @@ protocol SpeechProvider {
 }
 
 struct PlaceholderSpeechProvider: SpeechProvider {
-    let providerName: String = "User-supplied cloud provider key"
+    let providerName: String = "用户自填云端服务商 Key"
 }

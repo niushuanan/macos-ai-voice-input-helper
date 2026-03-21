@@ -22,16 +22,16 @@ struct MenuBarPanelView: View {
 
     private var interactionSkeletonSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Tap-Tap Skeleton")
+            Text("快捷键骨架")
                 .font(.headline)
 
-            Text("Wake: Control + Option + Space")
+            Text("唤醒：Control + Option + Space")
                 .font(.caption)
-            Text("Stop: tap the same combo while listening")
+            Text("停止：聆听中按 Control + Option + Return")
                 .font(.caption)
-            Text("Cancel: Control + Option + Escape")
+            Text("取消：Control + Option + Escape")
                 .font(.caption)
-            Text("Rewrite lane: wake while text is selected")
+            Text("改写通道：先选中内容再唤醒")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -39,19 +39,19 @@ struct MenuBarPanelView: View {
 
     private var laneSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Interaction Lanes")
+            Text("交互通道")
                 .font(.headline)
 
             LaneCard(
-                title: model.sessionStore.activeLane == .directDictation ? "Direct Dictation Active" : "Direct Dictation",
-                subtitle: "Fresh text into the focused app",
+                title: model.sessionStore.activeLane == .directDictation ? "普通听写（当前）" : "普通听写",
+                subtitle: "把新文本写入当前焦点输入位置",
                 shortcut: model.hotkeyCoordinator.wakeShortcut.trigger,
                 accent: .blue
             )
 
             LaneCard(
-                title: "Selection Rewrite",
-                subtitle: "Talk over highlighted text without leaving the keyboard",
+                title: "选区改写",
+                subtitle: "不离开键盘，对选中内容说指令改写",
                 shortcut: model.hotkeyCoordinator.rewriteModifierHint.trigger,
                 accent: .orange
             )
@@ -60,16 +60,16 @@ struct MenuBarPanelView: View {
 
     private var quickFlowSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Session Flow Drill")
+            Text("会话流转演练")
                 .font(.headline)
 
             HStack {
-                Button("Wake Dictate") {
+                Button("开始听写") {
                     model.interactionCoordinator.handleWakeInput(context: .dictation)
                 }
                 .disabled(!canStartSession)
 
-                Button("Wake Rewrite") {
+                Button("开始改写") {
                     model.interactionCoordinator.handleWakeInput(
                         context: WakeInvocationContext(
                             rewriteModifierHeld: true,
@@ -79,40 +79,40 @@ struct MenuBarPanelView: View {
                 }
                 .disabled(!canStartSession)
 
-                Button("Stop") {
+                Button("停止") {
                     model.interactionCoordinator.handleStopInput()
                 }
                 .disabled(model.sessionStore.phase != .listening)
             }
 
             HStack {
-                Button("Rewrite") {
+                Button("改写阶段") {
                     model.sessionStore.markRewriting()
                 }
                 .disabled(model.sessionStore.phase != .transcribing)
 
-                Button("Insert") {
+                Button("写回阶段") {
                     model.sessionStore.markInserting()
                 }
                 .disabled(!canInsert)
 
-                Button("Finish") {
+                Button("完成") {
                     model.interactionCoordinator.handleCompleteInput()
                 }
                 .disabled(model.sessionStore.phase != .inserting)
             }
 
             HStack {
-                Button("Cancel", role: .destructive) {
+                Button("取消", role: .destructive) {
                     model.interactionCoordinator.handleCancelInput()
                 }
                 .disabled(model.sessionStore.phase == .idle)
 
-                Button("Simulate Error") {
-                    model.sessionStore.fail(message: "A provider or permissions issue blocked the session.")
+                Button("模拟异常") {
+                    model.sessionStore.fail(message: "服务商或权限异常，导致会话中断。")
                 }
 
-                Button("Reset") {
+                Button("重置") {
                     model.interactionCoordinator.handleResetInput()
                 }
             }
@@ -123,31 +123,31 @@ struct MenuBarPanelView: View {
         VStack(alignment: .leading, spacing: 10) {
             Divider()
 
-            Text("Provider and Storage")
+            Text("服务商与本地存储")
                 .font(.headline)
 
-            InfoRow(title: "Transcription provider", value: model.providerSettingsStore.selectedTranscriptionProviderName)
-            InfoRow(title: "Rewrite provider", value: model.providerSettingsStore.selectedRewriteProviderName)
-            InfoRow(title: "Transcription model", value: model.providerSettingsStore.modelName)
-            InfoRow(title: "Rewrite model", value: model.providerSettingsStore.rewriteModelName)
-            InfoRow(title: "Insertion path", value: model.textOutputCoordinator.insertionStrategy)
-            InfoRow(title: "Scene output style", value: activeScenePolicy.outputBias.displayName)
+            InfoRow(title: "转写服务商", value: model.providerSettingsStore.selectedTranscriptionProviderName)
+            InfoRow(title: "改写服务商", value: model.providerSettingsStore.selectedRewriteProviderName)
+            InfoRow(title: "转写模型", value: model.providerSettingsStore.modelName)
+            InfoRow(title: "改写模型", value: model.providerSettingsStore.rewriteModelName)
+            InfoRow(title: "写回路径", value: model.textOutputCoordinator.insertionStrategy)
+            InfoRow(title: "场景输出风格", value: activeScenePolicy.outputBias.displayName)
             InfoRow(
-                title: "Scene lane hint",
+                title: "场景通道建议",
                 value: activeScenePolicy.preferSelectionRewrite
-                    ? "Prefer selection rewrite with active selection"
-                    : "Prefer direct dictation"
+                    ? "有选区时优先改写"
+                    : "优先普通听写"
             )
-            InfoRow(title: "History root", value: model.localStore.rootDirectory.path)
+            InfoRow(title: "历史目录", value: model.localStore.rootDirectory.path)
 
             HStack {
                 SettingsLink {
-                    Label("Settings...", systemImage: "gearshape")
+                    Label("打开设置", systemImage: "gearshape")
                 }
 
                 Spacer()
 
-                Button("Quit") {
+                Button("退出") {
                     NSApplication.shared.terminate(nil)
                 }
             }
@@ -203,21 +203,21 @@ private struct StatusCard: View {
             }
 
             if let clip = sessionStore.pendingClip {
-                Text("Pending audio: \(clip.displaySummary)")
+                Text("待处理音频：\(clip.displaySummary)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
 
             if sessionStore.phase == .transcribing {
-                Label("Request in progress. Keep this menu open to monitor status.", systemImage: "antenna.radiowaves.left.and.right")
+                Label("请求处理中，可保持此窗口开启以观察状态。", systemImage: "antenna.radiowaves.left.and.right")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             if let latestTranscription = sessionStore.latestTranscription {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Latest transcript · \(latestTranscription.providerName) · \(latestTranscription.modelName)")
+                    Text("最近转写 · \(latestTranscription.providerName) · \(latestTranscription.modelName)")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
 
@@ -230,19 +230,19 @@ private struct StatusCard: View {
 
             if let focusContext = sessionStore.latestFocusContext {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Target app: \(focusContext.appName)")
+                    Text("目标应用：\(focusContext.appName)")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
 
-                    Text("Bundle: \(focusContext.bundleID)")
+                    Text("Bundle：\(focusContext.bundleID)")
                         .font(.caption2.monospaced())
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
 
                     Label(
                         focusContext.hasEditableTarget
-                            ? "Editable target detected"
-                            : "Editable target not detected",
+                            ? "已检测到可编辑目标"
+                            : "未检测到可编辑目标",
                         systemImage: focusContext.hasEditableTarget
                             ? "checkmark.circle.fill"
                             : "exclamationmark.triangle.fill"
@@ -250,7 +250,7 @@ private struct StatusCard: View {
                     .font(.caption)
                     .foregroundStyle(focusContext.hasEditableTarget ? .green : .orange)
 
-                    Text("Strategy hint: \(focusContext.strategyHint)")
+                    Text("策略提示：\(focusContext.strategyHint)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -260,8 +260,8 @@ private struct StatusCard: View {
             if let outputResult = sessionStore.latestOutputResult {
                 Label(
                     outputResult.usedFallback
-                        ? "Write path: fallback paste (Command+V)"
-                        : "Write path: direct AX insertion",
+                        ? "写回路径：粘贴兜底（Command+V）"
+                        : "写回路径：AX 直写",
                     systemImage: outputResult.usedFallback
                         ? "arrow.triangle.branch"
                         : "arrow.forward.circle.fill"
@@ -288,7 +288,7 @@ private struct ListeningLevelStrip: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Input level")
+            Text("输入音量")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 

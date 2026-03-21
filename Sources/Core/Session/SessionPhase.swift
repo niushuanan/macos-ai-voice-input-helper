@@ -12,19 +12,19 @@ enum SessionPhase: String, CaseIterable {
     var title: String {
         switch self {
         case .idle:
-            return "Idle"
+            return "待命"
         case .listening:
-            return "Listening"
+            return "聆听中"
         case .transcribing:
-            return "Transcribing"
+            return "转写中"
         case .rewriting:
-            return "Rewriting"
+            return "改写中"
         case .inserting:
-            return "Inserting"
+            return "写回中"
         case .cancelled:
-            return "Cancelled"
+            return "已取消"
         case .error:
-            return "Error"
+            return "异常"
         }
     }
 

@@ -11,13 +11,13 @@ enum AppOutputBias: String, Codable, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .neutral:
-            return "Neutral"
+            return "中性"
         case .formal:
-            return "Formal"
+            return "正式"
         case .casual:
-            return "Casual"
+            return "口语"
         case .structured:
-            return "Structured"
+            return "结构化"
         }
     }
 

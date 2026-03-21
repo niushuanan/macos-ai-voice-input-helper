@@ -35,7 +35,7 @@ final class SessionStoreTests: XCTestCase {
         store.markInserting()
 
         XCTAssertEqual(store.phase, .idle)
-        XCTAssertEqual(store.statusMessage, "Ready for a keyboard-first voice session.")
+        XCTAssertEqual(store.statusMessage, "已准备，可通过快捷键开始语音会话。")
     }
 
     func testCancelClearsRuntimeAndMarksCancelled() {
@@ -48,7 +48,7 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.phase, .cancelled)
         XCTAssertNil(store.latestTranscription)
         XCTAssertNil(store.latestOutputResult)
-        XCTAssertEqual(store.statusMessage, "Session cancelled without changing the target app.")
+        XCTAssertEqual(store.statusMessage, "本次会话已取消，目标应用内容未变化。")
     }
 
     func testRewriteFlowTransitionsToIdleOnCompletion() {
@@ -83,7 +83,7 @@ final class SessionStoreTests: XCTestCase {
             bundleID: "com.apple.TextEdit",
             focusedRole: "AXTextArea",
             hasEditableTarget: true,
-            strategyHint: "AX direct insert is usually stable."
+            strategyHint: "AX 直写通常较稳定。"
         )
     }
 

@@ -28,7 +28,7 @@ struct OpenAITranscriptionProvider: SpeechTranscriptionProvider {
         do {
             audioData = try Data(contentsOf: fileURL)
         } catch {
-            throw SpeechTranscriptionError.providerFailure(description: "Could not read recorded audio file.")
+            throw SpeechTranscriptionError.providerFailure(description: "无法读取录音文件。")
         }
 
         var urlRequest = URLRequest(

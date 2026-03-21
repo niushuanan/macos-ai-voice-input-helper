@@ -15,23 +15,23 @@ struct HotkeyCoordinator {
     static let defaultConfiguration = HotkeyCoordinator(
         wakeShortcut: HotkeyDescriptor(
             id: "wake",
-            name: "Wake session",
+            name: "唤醒会话",
             trigger: "Control + Option + Space"
         ),
         stopShortcut: HotkeyDescriptor(
             id: "stop",
-            name: "Stop listening and move to text stage",
+            name: "停止聆听并进入处理",
             trigger: "Control + Option + Return"
         ),
         cancelShortcut: HotkeyDescriptor(
             id: "cancel",
-            name: "Cancel active session",
+            name: "取消当前会话",
             trigger: "Control + Option + Escape"
         ),
         rewriteModifierHint: HotkeyDescriptor(
             id: "rewrite-lane",
-            name: "Selection rewrite lane",
-            trigger: "Wake while text is selected"
+            name: "选区改写通道",
+            trigger: "选中内容后唤醒"
         )
     )
 }

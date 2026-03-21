@@ -11,7 +11,7 @@ struct RecordedAudioClip: Equatable {
 
     var displaySummary: String {
         let seconds = String(format: "%.1f", duration)
-        return "\(seconds)s captured at \(Int(sampleRate))Hz"
+        return "\(seconds) 秒，\(Int(sampleRate))Hz"
     }
 }
 
@@ -25,15 +25,15 @@ enum AudioCaptureError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .recorderBusy:
-            return "Recorder is already running."
+            return "录音器已在运行。"
         case .recorderNotReady:
-            return "Recorder is not ready yet."
+            return "录音器尚未就绪。"
         case .startFailed:
-            return "Could not start recording."
+            return "无法开始录音。"
         case .noClipAvailable:
-            return "No recorded clip is available."
+            return "没有可用录音片段。"
         case .persistenceFailed:
-            return "Could not persist the recorded clip."
+            return "录音片段写入失败。"
         }
     }
 }
@@ -55,7 +55,7 @@ protocol AudioCaptureService: AnyObject {
 @MainActor
 final class AVAudioRecorderCaptureService: NSObject, AudioCaptureService {
     let preferredSampleRate: Double
-    let audioFormatDescription: String = "AAC mono capture (.m4a) for cloud speech APIs"
+    let audioFormatDescription: String = "AAC 单声道（.m4a），用于云端语音接口"
 
     private let temporaryDirectory: URL
     private let fileManager: FileManager

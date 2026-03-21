@@ -149,7 +149,7 @@ struct DesktopDashboardView: View {
 
     private var providerCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Provider")
+            Text("服务商")
                 .font(.headline)
 
             Text("转写：\(model.providerSettingsStore.selectedTranscriptionProviderName)")

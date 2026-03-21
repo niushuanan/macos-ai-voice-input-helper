@@ -5,7 +5,7 @@ import Foundation
 final class SessionStore: ObservableObject {
     @Published private(set) var phase: SessionPhase = .idle
     @Published private(set) var activeLane: InputLane = .directDictation
-    @Published private(set) var statusMessage: String = "Ready for a keyboard-first voice session."
+    @Published private(set) var statusMessage: String = "已准备，可通过快捷键开始语音会话。"
     @Published private(set) var errorMessage: String?
     @Published private(set) var listeningLevel: Double = 0
     @Published private(set) var pendingClip: RecordedAudioClip?
@@ -26,20 +26,20 @@ final class SessionStore: ObservableObject {
     func startDictation() {
         clearRuntimeArtifactsForNewSession()
         activeLane = .directDictation
-        transition(to: .listening, statusMessage: "Listening for direct dictation.")
+        transition(to: .listening, statusMessage: "正在聆听普通听写。")
     }
 
     func startRewrite() {
         clearRuntimeArtifactsForNewSession()
         activeLane = .selectionRewrite
-        transition(to: .listening, statusMessage: "Listening for rewrite intent on the current selection.")
+        transition(to: .listening, statusMessage: "正在聆听选区改写指令。")
     }
 
     func markTranscribing(audioSummary: String? = nil) {
         if let audioSummary {
-            transition(to: .transcribing, statusMessage: "Audio ready: \(audioSummary)")
+            transition(to: .transcribing, statusMessage: "录音已完成：\(audioSummary)")
         } else {
-            transition(to: .transcribing, statusMessage: "Turning speech into a structured text request.")
+            transition(to: .transcribing, statusMessage: "正在把语音转成文本请求。")
         }
     }
 
@@ -50,7 +50,7 @@ final class SessionStore: ObservableObject {
     ) {
         transition(
             to: .transcribing,
-            statusMessage: "Transcribing \(audioSummary) with \(providerName) · \(modelName)."
+            statusMessage: "正在用 \(providerName) · \(modelName) 转写（\(audioSummary)）。"
         )
     }
 
@@ -66,7 +66,7 @@ final class SessionStore: ObservableObject {
         latestFocusContext = focusContext
         transition(
             to: .inserting,
-            statusMessage: "Writing transcript into \(focusContext.appName)."
+            statusMessage: "正在把文本写入 \(focusContext.appName)。"
         )
     }
 
@@ -74,8 +74,8 @@ final class SessionStore: ObservableObject {
         latestOutputResult = outputResult
         pendingClip = nil
         listeningLevel = 0
-        let pathTitle = outputResult.usedFallback ? "fallback paste path" : "direct AX path"
-        transition(to: .idle, statusMessage: "Text written to \(outputResult.appName) via \(pathTitle).")
+        let pathTitle = outputResult.usedFallback ? "粘贴兜底路径" : "AX 直写路径"
+        transition(to: .idle, statusMessage: "文本已写入 \(outputResult.appName)（\(pathTitle)）。")
     }
 
     func markRewriting(actionLabel: String? = nil) {
@@ -83,30 +83,30 @@ final class SessionStore: ObservableObject {
         if let actionLabel, !actionLabel.isEmpty {
             transition(
                 to: .rewriting,
-                statusMessage: "Applying \(actionLabel) to the selected text."
+                statusMessage: "正在对选中文本执行：\(actionLabel)。"
             )
         } else {
             transition(
                 to: .rewriting,
-                statusMessage: "Applying rewrite instructions to the selected text."
+                statusMessage: "正在按语音指令改写选中文本。"
             )
         }
     }
 
     func markInserting() {
-        transition(to: .inserting, statusMessage: "Handing the final text back to the focused app.")
+        transition(to: .inserting, statusMessage: "正在把最终文本写回当前应用。")
     }
 
     func completeInsertion() {
         pendingClip = nil
         listeningLevel = 0
-        transition(to: .idle, statusMessage: "Ready for the next voice session.")
+        transition(to: .idle, statusMessage: "已完成，可开始下一次语音会话。")
     }
 
     func cancel() {
         clearRuntimeArtifactsForNewSession()
         phase = .cancelled
-        statusMessage = "Session cancelled without changing the target app."
+        statusMessage = "本次会话已取消，目标应用内容未变化。"
     }
 
     func fail(message: String) {
@@ -122,7 +122,7 @@ final class SessionStore: ObservableObject {
         clearRuntimeArtifactsForNewSession()
         activeLane = .directDictation
         phase = .idle
-        statusMessage = "Ready for a keyboard-first voice session."
+        statusMessage = "已准备，可通过快捷键开始语音会话。"
     }
 
     func updateListeningLevel(_ level: Double) {

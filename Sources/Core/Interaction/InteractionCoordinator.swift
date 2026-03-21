@@ -59,13 +59,13 @@ final class InteractionCoordinator {
             discardPendingClipIfNeeded()
 
             guard permissionsCenter.snapshot.canStartVoiceSession else {
-                sessionStore.fail(message: "Microphone permission is required before starting a voice session.")
+                sessionStore.fail(message: "开始语音会话前，需要先允许麦克风权限。")
                 return
             }
 
             let lane = resolvedLane(context: context)
             if lane == .selectionRewrite && permissionsCenter.snapshot.accessibility != .granted {
-                sessionStore.fail(message: "Accessibility permission is required for selection rewrite.")
+                sessionStore.fail(message: "选区改写需要辅助功能权限。")
                 return
             }
             startRecordingAndTransition(lane: lane)
@@ -93,7 +93,7 @@ final class InteractionCoordinator {
             )
             startTranscription(for: clip)
         } catch {
-            sessionStore.fail(message: "Recording could not stop cleanly: \(error.localizedDescription)")
+            sessionStore.fail(message: "停止录音失败：\(error.localizedDescription)")
         }
     }
 
@@ -123,7 +123,7 @@ final class InteractionCoordinator {
                 inputText: latestInput,
                 outputText: nil,
                 status: .cancelled,
-                errorMessage: "User cancelled the current session."
+                errorMessage: "用户取消了当前会话。"
             )
         )
     }
@@ -157,7 +157,7 @@ final class InteractionCoordinator {
                 sessionStore.startRewrite()
             }
         } catch {
-            sessionStore.fail(message: "Recording could not start: \(error.localizedDescription)")
+            sessionStore.fail(message: "无法开始录音：\(error.localizedDescription)")
         }
     }
 
@@ -174,14 +174,14 @@ final class InteractionCoordinator {
             do {
                 guard providerSettingsStore.isConfigurationValid else {
                     throw SpeechTranscriptionError.providerFailure(
-                        description: providerSettingsStore.configurationValidationMessage ?? "Provider configuration is invalid."
+                        description: providerSettingsStore.configurationValidationMessage ?? "服务商配置无效。"
                     )
                 }
 
                 let configuration = providerSettingsStore.configuration
                 resolvedConfiguration = configuration
                 guard let provider = providerRegistry.provider(for: configuration.providerType) else {
-                    throw SpeechTranscriptionError.providerFailure(description: "Selected provider is not available in this build.")
+                    throw SpeechTranscriptionError.providerFailure(description: "当前构建不含所选 provider。")
                 }
 
                 guard
@@ -346,7 +346,7 @@ final class InteractionCoordinator {
         let initialFocusContext = contextDetector.focusedAppContext()
         let scenePolicy = appScenePolicyStore.policy(for: initialFocusContext)
         guard !spokenInstruction.isEmpty else {
-            let message = "Rewrite instruction is empty. Please try again with a clear command."
+            let message = "改写指令为空，请重试并说出明确命令。"
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -371,7 +371,7 @@ final class InteractionCoordinator {
         ).action.label)
 
         guard let snapshot = textOutputCoordinator.currentSelectionSnapshot() else {
-            let message = "No selected text detected. Select text first, then trigger rewrite."
+            let message = "未检测到选中文本，请先选中内容再触发改写。"
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -392,7 +392,7 @@ final class InteractionCoordinator {
 
         guard providerSettingsStore.isRewriteConfigurationValid else {
             let message = providerSettingsStore.rewriteConfigurationValidationMessage
-                ?? "Rewrite model configuration is invalid."
+                ?? "改写模型配置无效。"
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -414,7 +414,7 @@ final class InteractionCoordinator {
         }
 
         guard let loadedKey = try? providerSettingsStore.loadAPIKeyForRewriteProvider() else {
-            let message = "Provider API key is missing. Open Settings to add it."
+            let message = "缺少服务商 API 密钥，请到设置页填写。"
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -435,7 +435,7 @@ final class InteractionCoordinator {
 
         let normalizedKey = loadedKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedKey.isEmpty else {
-            let message = "Provider API key is missing. Open Settings to add it."
+            let message = "缺少服务商 API 密钥，请到设置页填写。"
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -456,7 +456,7 @@ final class InteractionCoordinator {
 
         let rewriteConfiguration = providerSettingsStore.rewriteConfiguration
         guard let rewriteProvider = rewriteProviderRegistry.provider(for: rewriteConfiguration.providerType) else {
-            let message = "Selected rewrite provider is not available in this build."
+            let message = "当前构建不含所选改写 provider。"
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -556,7 +556,7 @@ final class InteractionCoordinator {
             )
             sessionStore.fail(message: message)
         } catch {
-            let message = "Rewrite failed: \(error.localizedDescription)"
+            let message = "改写失败：\(error.localizedDescription)"
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -602,17 +602,17 @@ final class InteractionCoordinator {
     private func actionableMessage(for error: SpeechTranscriptionError) -> String {
         switch error {
         case let .missingAPIKey(providerName):
-            return "\(providerName) API key is missing. Open Settings -> Provider to add it."
+            return "\(providerName) 缺少 API 密钥，请在设置页服务商配置中填写。"
         case let .networkFailure(description):
-            return "Network issue while transcribing. Check connection and retry. (\(description))"
+            return "转写时出现网络问题，请检查网络后重试。（\(description)）"
         case let .providerFailure(description):
-            return "Transcription request failed. \(providerFailureHint(from: description)) (\(description))"
+            return "转写请求失败。\(providerFailureHint(from: description))（\(description)）"
         case let .audioFormatUnsupported(fileExtension):
-            return "Recorded audio format \(fileExtension) is unsupported. Restart recording and try again."
+            return "录音格式 \(fileExtension) 不支持，请重新录音后再试。"
         case .invalidResponse:
-            return "Provider response could not be parsed. Retry once, then change model if needed."
+            return "服务商返回内容无法解析，可先重试一次，仍失败请更换模型。"
         case .cancelled:
-            return "Transcription was cancelled."
+            return "转写已取消。"
         }
     }
 
@@ -622,55 +622,55 @@ final class InteractionCoordinator {
     ) -> String {
         switch error {
         case .emptyText:
-            return "Transcription returned empty text. Please try speaking again."
+            return "转写结果为空，请再说一次。"
         case .accessibilityPermissionMissing:
-            return "Accessibility permission is required for direct insertion into \(focusContext.appName)."
+            return "向 \(focusContext.appName) 直写文本需要辅助功能权限。"
         case .noFocusedElement:
-            return "No focused input target in \(focusContext.appName). Click an editor and try again."
+            return "\(focusContext.appName) 当前没有可写入焦点，请先点击输入区域。"
         case .noEditableTarget:
-            return "Focused target in \(focusContext.appName) is not editable."
+            return "\(focusContext.appName) 当前焦点不可编辑。"
         case let .accessibilityPathFailed(reason):
-            return "Direct insertion failed in \(focusContext.appName): \(reason)"
+            return "\(focusContext.appName) AX 直写失败：\(reason)"
         case .pasteboardUnavailable:
-            return "Fallback paste path is unavailable because pasteboard access failed."
+            return "粘贴兜底不可用，剪贴板访问失败。"
         case .pasteShortcutInjectionFailed:
-            return "Fallback paste path could not send Command+V."
+            return "粘贴兜底失败，无法发送 Command+V。"
         case let .fallbackFailed(primaryReason):
-            return "Writeback failed in \(focusContext.appName). Direct path reason: \(primaryReason)"
+            return "\(focusContext.appName) 写回失败。AX 路径原因：\(primaryReason)"
         }
     }
 
     private func actionableRewriteMessage(for error: RewriteProviderError) -> String {
         switch error {
         case .noSelectedText:
-            return "No selected text is available for rewrite."
+            return "没有可改写的选中文本。"
         case .emptyInstruction:
-            return "Instruction is empty. Try a command like translate, polish, condense, or structure."
+            return "指令为空，可尝试“翻译、润色、精简、结构化整理”等命令。"
         case let .generationFailed(description):
-            return "Rewrite request failed. \(providerFailureHint(from: description)) (\(description))"
+            return "改写请求失败。\(providerFailureHint(from: description))（\(description)）"
         case .invalidGeneratedText:
-            return "Rewrite model returned empty text. Please try a clearer command."
+            return "改写结果为空，请用更清晰的命令再试一次。"
         }
     }
 
     private func providerFailureHint(from description: String) -> String {
         let lowered = description.lowercased()
         if lowered.contains("401") || lowered.contains("unauthorized") || lowered.contains("invalid api key") {
-            return "Verify API key and provider type."
+            return "请检查 API 密钥与服务商类型。"
         }
         if lowered.contains("403") || lowered.contains("forbidden") {
-            return "Check provider account permission for this model."
+            return "请检查账号是否有该模型的调用权限。"
         }
         if lowered.contains("404") || lowered.contains("model") {
-            return "Verify model name and endpoint base URL."
+            return "请核对模型名与 base URL。"
         }
         if lowered.contains("429") || lowered.contains("rate limit") {
-            return "Provider rate limit reached. Retry shortly or switch model/provider."
+            return "触发频率限制，可稍后再试或切换模型/服务商。"
         }
         if lowered.contains("500") || lowered.contains("502") || lowered.contains("503") || lowered.contains("504") {
-            return "Provider service is unstable. Retry later."
+            return "服务商接口当前不稳定，请稍后再试。"
         }
-        return "Verify key, model, endpoint, and provider quota."
+        return "请检查 Key、模型、接口地址与额度。"
     }
 
     private func resolvedLane(context: WakeInvocationContext) -> InputLane {
