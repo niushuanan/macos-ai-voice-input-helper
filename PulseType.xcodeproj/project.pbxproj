@@ -29,12 +29,10 @@
 		B5412E5EAA202D7D8C6095EA /* SessionPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 555DDAEA56E00B69BBD68976 /* SessionPhase.swift */; };
 		B8EC9B12B63BC6895430A731 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9459C6CBE5C6757CBFB2D250 /* SessionStore.swift */; };
 		BDEB0BB760F09FFDA3943FF8 /* SpeechProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA0007EF478F376F9F4AA27C /* SpeechProvider.swift */; };
-		BE93095D0E4E794184EE3371 /* MenuBarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF85AEA4B8AD0C5A4BF090B1 /* MenuBarPanelView.swift */; };
 		C406240E5F631778241BFC19 /* InteractionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76C33145AB5557B714895617 /* InteractionCoordinator.swift */; };
 		C5B85760CE9451FE36B4B278 /* OpenAITranscriptionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 241181D9FA17D66D2CB559E2 /* OpenAITranscriptionProvider.swift */; };
 		CCC3EBB173C21789DCF37B08 /* GlobalHotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C63ABC16650228A74B81F7FA /* GlobalHotkeyService.swift */; };
 		CCFC70782D453121CD3D621A /* OpenAIEndpointResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B14B5D28128E0B4304B0E398 /* OpenAIEndpointResolverTests.swift */; };
-		D48AE4DCB6348C7B967D1DE1 /* DesktopDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1831CB84E33B4824C31143C6 /* DesktopDashboardView.swift */; };
 		D7565185FDA605CB6CEBFB93 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6A00315A23BF62DC01AEC6 /* AudioCaptureService.swift */; };
 		E1DBC788787F324D6B2178FD /* SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71EDE485545C13E98B2E5B72 /* SessionStoreTests.swift */; };
 		E4AAEBBCFE13544B1223300E /* KeychainProviderCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 157337AD796A00BA0C88EF3E /* KeychainProviderCredentialStore.swift */; };
@@ -59,7 +57,6 @@
 		0FD3BEE22B923D79D9B8964B /* AppScenePolicyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppScenePolicyStore.swift; sourceTree = "<group>"; };
 		157337AD796A00BA0C88EF3E /* KeychainProviderCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainProviderCredentialStore.swift; sourceTree = "<group>"; };
 		1691E3B3D2D0AC8A19526566 /* PermissionsCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsCenter.swift; sourceTree = "<group>"; };
-		1831CB84E33B4824C31143C6 /* DesktopDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopDashboardView.swift; sourceTree = "<group>"; };
 		1EC0E51656149B05168617A2 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		241181D9FA17D66D2CB559E2 /* OpenAITranscriptionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAITranscriptionProvider.swift; sourceTree = "<group>"; };
 		41E7D653314499348F50BC9E /* LocalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStore.swift; sourceTree = "<group>"; };
@@ -83,7 +80,6 @@
 		B14B5D28128E0B4304B0E398 /* OpenAIEndpointResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIEndpointResolverTests.swift; sourceTree = "<group>"; };
 		B76EE0E496B0199F87463E36 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		BE6A00315A23BF62DC01AEC6 /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
-		BF85AEA4B8AD0C5A4BF090B1 /* MenuBarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPanelView.swift; sourceTree = "<group>"; };
 		C5312CC574CB71C92172686C /* StatusPulseHUDController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusPulseHUDController.swift; sourceTree = "<group>"; };
 		C63ABC16650228A74B81F7FA /* GlobalHotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyService.swift; sourceTree = "<group>"; };
 		C7AACAD05F67BBE70749EFCB /* LocalHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalHistoryStore.swift; sourceTree = "<group>"; };
@@ -184,9 +180,7 @@
 		7F2914AE884BB268C18F27DF /* UI */ = {
 			isa = PBXGroup;
 			children = (
-				1831CB84E33B4824C31143C6 /* DesktopDashboardView.swift */,
 				7D48BFEC8EABFB9C0E92E685 /* MenuBarMenuView.swift */,
-				BF85AEA4B8AD0C5A4BF090B1 /* MenuBarPanelView.swift */,
 				61E5EB79A499501B92D5C649 /* MenuBarStatusView.swift */,
 				615736F7FBCACF8AF8B17CCF /* SettingsView.swift */,
 				C5312CC574CB71C92172686C /* StatusPulseHUDController.swift */,
@@ -404,7 +398,6 @@
 				382AEFF6E0F7F9BCFCAF3691 /* AppScenePolicyStore.swift in Sources */,
 				D7565185FDA605CB6CEBFB93 /* AudioCaptureService.swift in Sources */,
 				7F6206DC7CEF1E8584C8F82C /* ContextDetector.swift in Sources */,
-				D48AE4DCB6348C7B967D1DE1 /* DesktopDashboardView.swift in Sources */,
 				FDBF32C0FEB203F01750712D /* DiagnosticsCenter.swift in Sources */,
 				CCC3EBB173C21789DCF37B08 /* GlobalHotkeyService.swift in Sources */,
 				733ABF320B1595A80BEB6533 /* HotkeyCoordinator.swift in Sources */,
@@ -415,7 +408,6 @@
 				5BEF4C142B837D5D710A4ABA /* LocalHistoryStore.swift in Sources */,
 				8B8BBF2A06B443EA95BEA159 /* LocalStore.swift in Sources */,
 				02080CA78961B65946CBF53F /* MenuBarMenuView.swift in Sources */,
-				BE93095D0E4E794184EE3371 /* MenuBarPanelView.swift in Sources */,
 				79FB17D471512BFA5C11586C /* MenuBarStatusView.swift in Sources */,
 				2EC32C636372DEE9E912CB05 /* OpenAIEndpointResolver.swift in Sources */,
 				08AEBC14B14DCFC8330558BA /* OpenAITextGenerationProvider.swift in Sources */,

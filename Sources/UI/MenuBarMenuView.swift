@@ -65,12 +65,8 @@ struct MenuBarMenuView: View {
 
         Divider()
 
-        Button("打开命令台") {
-            openWindow(id: "command-deck")
-        }
-
-        SettingsLink {
-            Text("设置")
+        Button("打开主界面") {
+            openWindow(id: "control-center")
         }
 
         Button("退出 PulseType") {
