@@ -183,6 +183,17 @@ private struct StatusCard: View {
                 .font(.subheadline)
                 .foregroundStyle(.primary)
 
+            if sessionStore.phase == .listening {
+                ListeningLevelStrip(level: sessionStore.listeningLevel)
+            }
+
+            if let clip = sessionStore.pendingClip {
+                Text("Pending audio: \(clip.displaySummary)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
             if let errorMessage = sessionStore.errorMessage {
                 Text(errorMessage)
                     .font(.caption)
@@ -193,6 +204,37 @@ private struct StatusCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(sessionStore.phase.tintColor.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+private struct ListeningLevelStrip: View {
+    let level: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Input level")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.blue.opacity(0.15))
+
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.blue.opacity(0.55), Color.blue],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: proxy.size.width * CGFloat(max(0, min(1, level))))
+                }
+            }
+            .frame(height: 8)
+            .animation(.linear(duration: 0.06), value: level)
+        }
     }
 }
 
