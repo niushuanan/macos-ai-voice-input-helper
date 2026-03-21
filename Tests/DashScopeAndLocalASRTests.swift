@@ -46,6 +46,9 @@ final class DashScopeAndLocalASRTests: XCTestCase {
             let audioDataURL = try XCTUnwrap(content.first?["audio"] as? String)
             XCTAssertTrue(audioDataURL.hasPrefix("data:audio/wav;base64,"))
 
+            let parameters = try XCTUnwrap(json["parameters"] as? [String: Any])
+            XCTAssertEqual(parameters["result_format"] as? String, "message")
+
             let response = HTTPURLResponse(
                 url: request.url!,
                 statusCode: 200,
@@ -103,6 +106,113 @@ final class DashScopeAndLocalASRTests: XCTestCase {
         XCTAssertEqual(result.status, .failure)
         XCTAssertEqual(result.httpStatus, 401)
         XCTAssertTrue(result.hint.contains("密钥"))
+    }
+
+    func testDashScopeConnectionTesterParsesTopLevelChoicesMessageString() async {
+        let credentialStore = InMemoryCredentialStore()
+        try? credentialStore.saveAPIKey(fakeAPIKey, for: "asr")
+
+        let tester = ASRConnectionTester(
+            session: makeStubSession(),
+            credentialStore: credentialStore
+        )
+
+        DashScopeURLProtocolStub.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let data = Data(
+                #"{"choices":[{"message":{"content":"这是 choices 字符串结构"}}]}"#.utf8
+            )
+            return (response, data)
+        }
+
+        let result = await tester.test(
+            config: ASRConfig(
+                providerType: .dashScopeQwenASR,
+                baseURLString: "https://dashscope.aliyuncs.com",
+                modelName: "qwen3-asr-flash",
+                keyRef: "asr"
+            )
+        )
+
+        XCTAssertEqual(result.status, .success)
+        XCTAssertTrue(result.message.contains("choices 字符串结构"))
+    }
+
+    func testDashScopeConnectionTesterParsesOutputTextFallback() async {
+        let credentialStore = InMemoryCredentialStore()
+        try? credentialStore.saveAPIKey(fakeAPIKey, for: "asr")
+
+        let tester = ASRConnectionTester(
+            session: makeStubSession(),
+            credentialStore: credentialStore
+        )
+
+        DashScopeURLProtocolStub.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let data = Data(
+                #"{"output":{"text":"这是 output.text 兜底结构"}}"#.utf8
+            )
+            return (response, data)
+        }
+
+        let result = await tester.test(
+            config: ASRConfig(
+                providerType: .dashScopeQwenASR,
+                baseURLString: "https://dashscope.aliyuncs.com",
+                modelName: "qwen3-asr-flash",
+                keyRef: "asr"
+            )
+        )
+
+        XCTAssertEqual(result.status, .success)
+        XCTAssertTrue(result.message.contains("output.text"))
+    }
+
+    func testDashScopeConnectionTesterMapsHTTP200BusinessError() async {
+        let credentialStore = InMemoryCredentialStore()
+        try? credentialStore.saveAPIKey(fakeAPIKey, for: "asr")
+
+        let tester = ASRConnectionTester(
+            session: makeStubSession(),
+            credentialStore: credentialStore
+        )
+
+        DashScopeURLProtocolStub.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let data = Data(
+                #"{"code":"InvalidModel","message":"model qwen3-asr-flash is unavailable"}"#.utf8
+            )
+            return (response, data)
+        }
+
+        let result = await tester.test(
+            config: ASRConfig(
+                providerType: .dashScopeQwenASR,
+                baseURLString: "https://dashscope.aliyuncs.com",
+                modelName: "qwen3-asr-flash",
+                keyRef: "asr"
+            )
+        )
+
+        XCTAssertEqual(result.status, .failure)
+        XCTAssertEqual(result.httpStatus, 200)
+        XCTAssertTrue(result.message.contains("InvalidModel"))
+        XCTAssertTrue(result.hint.contains("模型"))
     }
 
     func testLocalSenseVoiceHealthCheckerFailsWhenModelDirectoryMissing() {

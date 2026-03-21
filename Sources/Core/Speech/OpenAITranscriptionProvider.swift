@@ -265,7 +265,10 @@ struct DashScopeQwenASRProvider: SpeechTranscriptionProvider {
                     )
                 ]
             ),
-            parameters: .init(asrOptions: .init(enableITN: false))
+            parameters: .init(
+                resultFormat: "message",
+                asrOptions: .init(enableITN: false)
+            )
         )
 
         do {
@@ -299,6 +302,11 @@ struct DashScopeQwenASRProvider: SpeechTranscriptionProvider {
 
         let transcript = parseTranscript(from: responseData)
         guard !transcript.isEmpty else {
+            if let businessError = DashScopeResponseParser.businessError(from: responseData) {
+                throw SpeechTranscriptionError.providerFailure(
+                    description: businessError.displayMessage
+                )
+            }
             throw SpeechTranscriptionError.invalidResponse
         }
 
@@ -311,18 +319,7 @@ struct DashScopeQwenASRProvider: SpeechTranscriptionProvider {
     }
 
     private func parseTranscript(from data: Data) -> String {
-        if
-            let payload = try? JSONDecoder().decode(DashScopeASRResponse.self, from: data),
-            let firstChoice = payload.output.choices.first
-        {
-            let parts = firstChoice.message.content
-                .compactMap { $0.text?.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            if !parts.isEmpty {
-                return parts.joined(separator: "\n")
-            }
-        }
-        return ""
+        DashScopeResponseParser.transcript(from: data)
     }
 }
 

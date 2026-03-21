@@ -1240,7 +1240,10 @@ struct ASRConnectionTester {
                             )
                         ]
                     ),
-                    parameters: .init(asrOptions: .init(enableITN: false))
+                    parameters: .init(
+                        resultFormat: "message",
+                        asrOptions: .init(enableITN: false)
+                    )
                 )
             )
         } catch {
@@ -1262,9 +1265,16 @@ struct ASRConnectionTester {
             if (200..<300).contains(http.statusCode) {
                 let transcript = Self.parseDashScopeTranscript(from: data)
                 if transcript.isEmpty {
+                    if let businessError = DashScopeResponseParser.businessError(from: data) {
+                        return .failure(
+                            message: "语音识别测试失败：\(businessError.displayMessage)",
+                            hint: Self.hintForDashScopeBusinessError(businessError),
+                            httpStatus: http.statusCode
+                        )
+                    }
                     return .failure(
                         message: "语音识别接口可达，但返回内容无法解析。",
-                        hint: "请确认模型支持 DashScope ASR 协议。",
+                        hint: "请确认模型名可用，并检查返回格式是否为 message。",
                         httpStatus: http.statusCode
                     )
                 }
@@ -1328,22 +1338,31 @@ struct ASRConnectionTester {
     }
 
     private static func parseDashScopeTranscript(from data: Data) -> String {
-        if
-            let payload = try? JSONDecoder().decode(DashScopeASRResponse.self, from: data),
-            let choice = payload.output.choices.first
-        {
-            let text = choice.message.content
-                .compactMap { $0.text?.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .joined(separator: "\n")
-            if !text.isEmpty {
-                return text
-            }
+        DashScopeResponseParser.transcript(from: data)
+    }
+
+    private static func hintForDashScopeBusinessError(_ error: DashScopeBusinessError) -> String {
+        let probe = "\(error.code ?? "") \(error.message)".lowercased()
+        if probe.contains("api key") || probe.contains("accesskey") || probe.contains("token") || probe.contains("密钥") {
+            return "请检查 API 密钥是否正确、是否仍有效。"
         }
-        return ""
+        if probe.contains("model") || probe.contains("模型") {
+            return "请确认模型名与当前账号可用模型一致。"
+        }
+        if probe.contains("quota") || probe.contains("余额") || probe.contains("frequency") || probe.contains("rate") || probe.contains("429") {
+            return "请检查额度与频率限制，稍后重试。"
+        }
+        if probe.contains("network") || probe.contains("timeout") || probe.contains("连接") {
+            return "请检查网络、代理以及接口地址可达性。"
+        }
+        return "请检查模型名、密钥、额度与网络后重试。"
     }
 
     static func parseProviderError(from data: Data) -> String {
+        if let businessError = DashScopeResponseParser.businessError(from: data) {
+            return redactSensitiveText(businessError.displayMessage)
+        }
+
         if
             let payload = try? JSONDecoder().decode(ConnectionTestErrorEnvelope.self, from: data),
             let message = payload.error.message?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1587,6 +1606,10 @@ private enum DiagnosticAudioSample {
         duration: Double = 0.6,
         frequency: Double = 440
     ) -> Data {
+        if let bundled = bundledSpeechSampleData() {
+            return bundled
+        }
+
         let sampleCount = max(1, Int(Double(sampleRate) * duration))
         var pcmData = Data(capacity: sampleCount * MemoryLayout<Int16>.size)
         let amplitude = 0.2
@@ -1620,7 +1643,26 @@ private enum DiagnosticAudioSample {
         wave.append(pcmData)
         return wave
     }
+
+    private static func bundledSpeechSampleData() -> Data? {
+        for bundle in candidateBundles {
+            if
+                let url = bundle.url(forResource: "diagnostic-voice-zh", withExtension: "wav"),
+                let data = try? Data(contentsOf: url),
+                data.count > 44
+            {
+                return data
+            }
+        }
+        return nil
+    }
+
+    private static var candidateBundles: [Bundle] {
+        [.main, Bundle(for: DiagnosticAudioSampleBundleProbe.self)]
+    }
 }
+
+private final class DiagnosticAudioSampleBundleProbe: NSObject {}
 
 private struct ConnectionTestTranscriptionPayload: Decodable {
     let text: String
@@ -1662,6 +1704,8 @@ struct DashScopeASRPayload: Encodable {
     }
 
     struct Parameters: Encodable {
+        let resultFormat: String
+
         struct ASROptions: Encodable {
             let enableITN: Bool
 
@@ -1673,6 +1717,7 @@ struct DashScopeASRPayload: Encodable {
         let asrOptions: ASROptions
 
         enum CodingKeys: String, CodingKey {
+            case resultFormat = "result_format"
             case asrOptions = "asr_options"
         }
     }
@@ -1683,23 +1728,217 @@ struct DashScopeASRPayload: Encodable {
 }
 
 struct DashScopeASRResponse: Decodable {
-    struct Output: Decodable {
-        struct Choice: Decodable {
-            struct Message: Decodable {
-                struct Content: Decodable {
-                    let text: String?
-                }
+    let output: DashScopeASROutput?
+    let choices: [DashScopeASRChoice]?
 
-                let content: [Content]
-            }
-
-            let message: Message
-        }
-
-        let choices: [Choice]
+    struct DashScopeASROutput: Decodable {
+        let choices: [DashScopeASRChoice]?
+        let text: String?
     }
 
-    let output: Output
+    struct DashScopeASRChoice: Decodable {
+        let message: DashScopeASRMessage?
+        let text: String?
+    }
+
+    struct DashScopeASRMessage: Decodable {
+        let content: DashScopeASRContent
+    }
+
+    enum DashScopeASRContent: Decodable {
+        case string(String)
+        case items([DashScopeASRContentItem])
+        case empty
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if let string = try? container.decode(String.self) {
+                self = .string(string)
+                return
+            }
+            if let items = try? container.decode([DashScopeASRContentItem].self) {
+                self = .items(items)
+                return
+            }
+            self = .empty
+        }
+    }
+
+    struct DashScopeASRContentItem: Decodable {
+        let text: String?
+    }
+}
+
+struct DashScopeBusinessError: Equatable {
+    let code: String?
+    let message: String
+
+    var displayMessage: String {
+        if let code, !code.isEmpty {
+            return "\(code)：\(message)"
+        }
+        return message
+    }
+}
+
+enum DashScopeResponseParser {
+    static func transcript(from data: Data) -> String {
+        if
+            let payload = try? JSONDecoder().decode(DashScopeASRResponse.self, from: data),
+            let parsed = transcript(from: payload),
+            !parsed.isEmpty
+        {
+            return parsed
+        }
+
+        guard
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let json = object as? [String: Any]
+        else {
+            return ""
+        }
+
+        let fromOutputChoices = parseChoices(
+            from: (json["output"] as? [String: Any])?["choices"]
+        )
+        if !fromOutputChoices.isEmpty {
+            return fromOutputChoices.joined(separator: "\n")
+        }
+
+        let fromTopChoices = parseChoices(from: json["choices"])
+        if !fromTopChoices.isEmpty {
+            return fromTopChoices.joined(separator: "\n")
+        }
+
+        if
+            let output = json["output"] as? [String: Any],
+            let outputText = normalizeText(output["text"])
+        {
+            return outputText
+        }
+
+        if let text = normalizeText(json["text"]) {
+            return text
+        }
+
+        return ""
+    }
+
+    static func businessError(from data: Data) -> DashScopeBusinessError? {
+        if
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let json = object as? [String: Any]
+        {
+            let directMessage = normalizeText(json["message"])
+            let directCode = normalizeText(json["code"])
+
+            if
+                let errorObject = json["error"] as? [String: Any],
+                let nestedMessage = normalizeText(errorObject["message"])
+            {
+                let nestedCode = normalizeText(errorObject["code"]) ?? directCode
+                return DashScopeBusinessError(code: nestedCode, message: nestedMessage)
+            }
+
+            if let directMessage {
+                return DashScopeBusinessError(code: directCode, message: directMessage)
+            }
+        }
+
+        return nil
+    }
+
+    private static func transcript(from payload: DashScopeASRResponse) -> String? {
+        let outputChoiceText = collectChoiceText(from: payload.output?.choices)
+        if !outputChoiceText.isEmpty {
+            return outputChoiceText.joined(separator: "\n")
+        }
+
+        let topChoiceText = collectChoiceText(from: payload.choices)
+        if !topChoiceText.isEmpty {
+            return topChoiceText.joined(separator: "\n")
+        }
+
+        if let outputText = payload.output?.text?.trimmingCharacters(in: .whitespacesAndNewlines), !outputText.isEmpty {
+            return outputText
+        }
+        return nil
+    }
+
+    private static func collectChoiceText(from choices: [DashScopeASRResponse.DashScopeASRChoice]?) -> [String] {
+        guard let choices else {
+            return []
+        }
+        return uniqueNonEmpty(
+            choices.compactMap { choice in
+                if let content = choice.message?.content {
+                    switch content {
+                    case let .string(text):
+                        return text
+                    case let .items(items):
+                        return items.compactMap(\.text).joined(separator: "\n")
+                    case .empty:
+                        return choice.text
+                    }
+                }
+                return choice.text
+            }
+        )
+    }
+
+    private static func parseChoices(from value: Any?) -> [String] {
+        guard let choices = value as? [[String: Any]] else {
+            return []
+        }
+
+        var fragments: [String] = []
+        for choice in choices {
+            if
+                let message = choice["message"] as? [String: Any],
+                let content = message["content"]
+            {
+                fragments.append(contentsOf: parseContent(content))
+            }
+            if let text = normalizeText(choice["text"]) {
+                fragments.append(text)
+            }
+        }
+        return uniqueNonEmpty(fragments)
+    }
+
+    private static func parseContent(_ value: Any) -> [String] {
+        if let text = normalizeText(value) {
+            return [text]
+        }
+        if let items = value as? [[String: Any]] {
+            return uniqueNonEmpty(items.compactMap { normalizeText($0["text"]) })
+        }
+        if let strings = value as? [String] {
+            return uniqueNonEmpty(strings)
+        }
+        return []
+    }
+
+    private static func uniqueNonEmpty(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values
+            .compactMap {
+                let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            .filter { seen.insert($0).inserted }
+    }
+
+    private static func normalizeText(_ value: Any?) -> String? {
+        guard let value else {
+            return nil
+        }
+        if let string = value as? String {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return nil
+    }
 }
 
 enum DashScopeEndpointResolver {
