@@ -21,7 +21,9 @@ keyboard replacement. PulseType takes a different path:
 This repository now includes:
 
 - a native macOS SwiftUI helper app scaffold built around `MenuBarExtra`
-- a menu bar panel and settings screen
+- a menu bar icon plus basic menu actions (wake, stop, cancel, settings, quit)
+- a command deck window for interaction drill and diagnostics visibility
+- a short non-blocking status HUD pulse on state changes
 - a session-state spine covering `idle`, `listening`, `transcribing`,
   `rewriting`, `inserting`, `cancelled`, and `error`
 - architecture and engineering docs that define the path from phase 0 to beta
@@ -41,8 +43,8 @@ These tracks are documented in
 - `project.yml`: XcodeGen source of truth
 - `PulseType.xcodeproj`: generated Xcode project
 - `Sources/App`: app lifecycle and composition root
-- `Sources/Core`: session, hotkey, provider, permissions, storage, diagnostics
-- `Sources/UI`: menu bar and settings surfaces
+- `Sources/Core`: session, interaction, hotkey, provider, permissions, storage, diagnostics
+- `Sources/UI`: menu bar menu, command deck, status HUD, and settings surfaces
 - `docs/`: product, architecture, engineering plan, milestones, and ADRs
 
 ## Build
