@@ -30,6 +30,21 @@ final class CachedProviderCredentialStore: ProviderCredentialStore {
         storeCache(nil, for: profileID)
     }
 
+    func containsAPIKey(for profileID: String, allowUserInteraction: Bool) throws -> Bool {
+        if let cached = cachedValue(for: profileID) {
+            return cached != nil
+        }
+
+        let contains = try upstream.containsAPIKey(
+            for: profileID,
+            allowUserInteraction: allowUserInteraction
+        )
+        if !contains {
+            storeCache(nil, for: profileID)
+        }
+        return contains
+    }
+
     private func cachedValue(for profileID: String) -> String?? {
         lock.lock()
         defer { lock.unlock() }

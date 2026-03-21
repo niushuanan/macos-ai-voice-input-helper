@@ -1416,16 +1416,16 @@ private struct ModelConfigCard: View {
                     Button("删除", role: .destructive) {
                         _ = onDeleteKey()
                     }
-                    .disabled(credentialState == .missing)
+                    .disabled(credentialState == .missing || credentialState == .unknown)
                 }
                 .buttonStyle(.bordered)
 
                 Label(
-                    credentialState == .saved ? "密钥已保存（钥匙串）" : "密钥未保存",
-                    systemImage: credentialState == .saved ? "lock.shield.fill" : "exclamationmark.shield.fill"
+                    credentialStateTitle,
+                    systemImage: credentialStateIcon
                 )
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(credentialStateColor)
             } else {
                 Label("本地模型模式不需要 API 密钥。", systemImage: "lock.open.fill")
                     .font(.caption)
@@ -1446,6 +1446,45 @@ private struct ModelConfigCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
+    }
+
+    private var credentialStateTitle: String {
+        switch credentialState {
+        case .saved:
+            return "密钥已保存（钥匙串）"
+        case .needsRebind:
+            return "需要重绑：请重新保存一次密钥"
+        case .unknown:
+            return "密钥状态未检测"
+        case .missing:
+            return "密钥未保存"
+        }
+    }
+
+    private var credentialStateIcon: String {
+        switch credentialState {
+        case .saved:
+            return "lock.shield.fill"
+        case .needsRebind:
+            return "key.fill"
+        case .unknown:
+            return "questionmark.shield.fill"
+        case .missing:
+            return "exclamationmark.shield.fill"
+        }
+    }
+
+    private var credentialStateColor: Color {
+        switch credentialState {
+        case .saved:
+            return .secondary
+        case .needsRebind:
+            return .orange
+        case .unknown:
+            return .secondary
+        case .missing:
+            return .secondary
+        }
     }
 }
 

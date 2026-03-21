@@ -202,4 +202,8 @@ private final class MemoryCredentialStoreForInteractionTests: ProviderCredential
     func saveAPIKey(_ value: String, for profileID: String) throws {}
 
     func deleteAPIKey(for profileID: String) throws {}
+
+    func containsAPIKey(for profileID: String, allowUserInteraction: Bool) throws -> Bool {
+        false
+    }
 }

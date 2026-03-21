@@ -106,4 +106,8 @@ private final class MemoryCredentialStoreForSettingsTests: ProviderCredentialSto
     func deleteAPIKey(for profileID: String) throws {
         storage.removeValue(forKey: profileID)
     }
+
+    func containsAPIKey(for profileID: String, allowUserInteraction: Bool) throws -> Bool {
+        storage[profileID]?.isEmpty == false
+    }
 }

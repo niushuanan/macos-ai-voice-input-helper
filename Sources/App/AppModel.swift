@@ -152,7 +152,6 @@ final class AppModel: ObservableObject {
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in
                 self?.permissionsCenter.refreshStatuses()
-                self?.providerSettingsStore.refreshCredentialState()
             }
             .store(in: &cancellables)
     }

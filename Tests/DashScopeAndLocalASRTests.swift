@@ -245,6 +245,10 @@ private final class InMemoryCredentialStore: ProviderCredentialStore {
     func deleteAPIKey(for profileID: String) throws {
         storage.removeValue(forKey: profileID)
     }
+
+    func containsAPIKey(for profileID: String, allowUserInteraction: Bool) throws -> Bool {
+        storage[profileID]?.isEmpty == false
+    }
 }
 
 private final class DashScopeURLProtocolStub: URLProtocol {

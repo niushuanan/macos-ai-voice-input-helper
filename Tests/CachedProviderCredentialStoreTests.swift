@@ -62,4 +62,8 @@ private final class CountingCredentialStore: ProviderCredentialStore {
         deleteCount += 1
         storage.removeValue(forKey: profileID)
     }
+
+    func containsAPIKey(for profileID: String, allowUserInteraction: Bool) throws -> Bool {
+        storage[profileID]?.isEmpty == false
+    }
 }
