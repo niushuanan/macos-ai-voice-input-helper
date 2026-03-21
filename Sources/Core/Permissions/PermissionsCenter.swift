@@ -69,17 +69,24 @@ final class PermissionsCenter: ObservableObject {
 
     private let defaults: UserDefaults
     private let didPromptAccessibilityKey = "permissions.didPromptAccessibility"
+    private let accessibilityPromptFingerprintKey = "permissions.accessibilityPromptFingerprint"
     private let microphoneStateResolver: (() -> PermissionState)?
     private let accessibilityStateResolver: (() -> PermissionState)?
+    private let isAccessibilityTrusted: (() -> Bool)?
+    private let accessibilityPromptFingerprintProvider: (() -> String)?
 
     init(
         defaults: UserDefaults = .standard,
         microphoneStateResolver: (() -> PermissionState)? = nil,
-        accessibilityStateResolver: (() -> PermissionState)? = nil
+        accessibilityStateResolver: (() -> PermissionState)? = nil,
+        isAccessibilityTrusted: (() -> Bool)? = nil,
+        accessibilityPromptFingerprintProvider: (() -> String)? = nil
     ) {
         self.defaults = defaults
         self.microphoneStateResolver = microphoneStateResolver
         self.accessibilityStateResolver = accessibilityStateResolver
+        self.isAccessibilityTrusted = isAccessibilityTrusted
+        self.accessibilityPromptFingerprintProvider = accessibilityPromptFingerprintProvider
     }
 
     func refreshStatuses() {
@@ -137,6 +144,7 @@ final class PermissionsCenter: ObservableObject {
     private func requestAccessibilityAccess() {
         snapshot.accessibility = .pending
         defaults.set(true, forKey: didPromptAccessibilityKey)
+        defaults.set(currentAccessibilityPromptFingerprint(), forKey: accessibilityPromptFingerprintKey)
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -168,10 +176,25 @@ final class PermissionsCenter: ObservableObject {
             return accessibilityStateResolver()
         }
 
-        if AXIsProcessTrusted() {
+        let trusted = isAccessibilityTrusted?() ?? AXIsProcessTrusted()
+        if trusted {
+            defaults.set(false, forKey: didPromptAccessibilityKey)
+            defaults.removeObject(forKey: accessibilityPromptFingerprintKey)
             return .granted
         }
-        return defaults.bool(forKey: didPromptAccessibilityKey) ? .denied : .notRequested
+
+        guard defaults.bool(forKey: didPromptAccessibilityKey) else {
+            return .notRequested
+        }
+
+        if
+            let promptedFingerprint = defaults.string(forKey: accessibilityPromptFingerprintKey),
+            promptedFingerprint != currentAccessibilityPromptFingerprint()
+        {
+            return .notRequested
+        }
+
+        return .denied
     }
 
     private func detailText(for kind: PermissionKind) -> String {
@@ -210,7 +233,20 @@ final class PermissionsCenter: ObservableObject {
         case .microphone:
             return "先点“请求”，如果被拒绝，请到 系统设置 > 隐私与安全性 > 麦克风 开启 PulseType。"
         case .accessibility:
-            return "先点“请求”，再到 系统设置 > 隐私与安全性 > 辅助功能 开启 PulseType。"
+            return "先点“请求”，再到 系统设置 > 隐私与安全性 > 辅助功能 开启 PulseType。若列表里有多个同名项，只保留当前正在运行的 PulseType。"
         }
+    }
+
+    private func currentAccessibilityPromptFingerprint() -> String {
+        if let accessibilityPromptFingerprintProvider {
+            return accessibilityPromptFingerprintProvider()
+        }
+
+        let bundlePath = Bundle.main.bundlePath
+        let executablePath = Bundle.main.executablePath ?? bundlePath
+        let attributes = (try? FileManager.default.attributesOfItem(atPath: executablePath)) ?? [:]
+        let modificationDate = attributes[.modificationDate] as? Date
+        let timestamp = Int((modificationDate ?? .distantPast).timeIntervalSince1970)
+        return "\(bundlePath)|\(executablePath)|\(timestamp)"
     }
 }
