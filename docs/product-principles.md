@@ -126,6 +126,19 @@ Selected in this round:
 - `Menu bar live level meter` as the default listening feedback.
 - Keep the existing short phase HUD for transition moments only.
 
+## Prompt 5 trust-focused candidates
+
+| Candidate | User value | Implementation cost | Main risk | Decision |
+| --- | --- | --- | --- | --- |
+| Provider transparency panel | Clearly shows active provider/model and request phase (`transcribing` in progress, latest transcript result) so users can trust what system is doing. | Low to medium. Mostly state + UI binding work. | If too verbose, it can clutter the command deck. | Selected |
+| Post-failure guided recovery card | Shows tailored next actions per failure type (missing key, network, quota, bad model) with one-click shortcuts. | Medium. Needs richer error taxonomy + action routing. | Requires tighter coupling with settings/actions early. | Parked |
+
+Selected implementation in this round:
+
+- Provider/model visibility in the command deck.
+- In-flight transcription status visibility.
+- Latest transcript preview tied to provider and model metadata.
+
 ## Non-negotiable interaction principles
 
 - Summon and cancel actions must be easy to memorize.

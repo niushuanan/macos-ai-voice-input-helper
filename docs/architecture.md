@@ -12,7 +12,8 @@ The repository already contains these concrete building blocks:
   - `Session`: state machine and lane definitions
   - `Hotkey`: current shortcut plan
   - `Audio`: native `AVAudioRecorder` capture service with live level metering
-  - `Speech`: provider abstraction placeholder
+  - `Speech`: provider protocol, provider registry, OpenAI transcription client, provider settings
+  - `Security`: Keychain-backed API key credential store
   - `TextOutput`: insertion abstraction placeholder
   - `Context`: frontmost-app and style context placeholder
   - `Permissions`: permission snapshot placeholder
@@ -172,6 +173,14 @@ Dependency rule:
 - may depend on user key storage
 - must not talk directly to the UI layer
 
+Current implementation:
+
+- `SpeechTranscriptionProvider` defines the provider contract.
+- `SpeechProviderRegistry` resolves the selected provider.
+- `OpenAITranscriptionProvider` uploads `.m4a` audio with multipart requests.
+- `ProviderSettingsStore` manages selected provider and model.
+- API keys are loaded from Keychain through `ProviderCredentialStore`.
+
 ### TextOutput
 
 Responsibility:
@@ -225,6 +234,12 @@ Responsibility:
 - hotkey configuration
 - preset and storage preferences
 
+Current implementation:
+
+- provider picker
+- model text input with validation
+- API key save/delete using Keychain-backed store
+
 ### Diagnostics
 
 Responsibility:
@@ -263,7 +278,6 @@ Rules:
 
 These are known missing pieces, not accidents:
 
-- no provider networking yet
 - no insertion bridge yet
 - no full first-launch permission walkthrough yet
 - no waveform-grade visualizer; current listening feedback is a minimal level meter
