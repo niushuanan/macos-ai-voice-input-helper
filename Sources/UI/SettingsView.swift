@@ -234,14 +234,13 @@ struct SettingsView: View {
                 modelRoleSection(
                     roleTitle: "ASR（语音识别）",
                     cardTitle: "语音识别（ASR）",
+                    availableProviderTypes: asrProviderOptions,
                     providerType: asrProviderTypeBinding,
                     baseURL: asrBaseURLBinding,
                     modelName: asrModelBinding,
                     allowsCustomBaseURL: providerSettingsStore.asrConfig.providerType.allowsCustomBaseURL,
-                    baseURLPlaceholder: providerSettingsStore.asrConfig.providerType.allowsCustomBaseURL
-                        ? "https://your-openai-compatible.com"
-                        : "https://api.openai.com（固定）",
-                    modelPlaceholder: "whisper-1",
+                    baseURLPlaceholder: baseURLPlaceholder(for: providerSettingsStore.asrConfig.providerType),
+                    modelPlaceholder: providerSettingsStore.asrConfig.providerType.defaultTranscriptionModelName,
                     apiKeyDraft: $providerSettingsStore.asrAPIKeyDraft,
                     credentialState: providerSettingsStore.asrCredentialState,
                     validationMessage: providerSettingsStore.asrConfigurationValidationMessage,
@@ -262,14 +261,13 @@ struct SettingsView: View {
                 modelRoleSection(
                     roleTitle: "文本处理",
                     cardTitle: "文本处理",
+                    availableProviderTypes: textProviderOptions,
                     providerType: textProviderTypeBinding,
                     baseURL: textBaseURLBinding,
                     modelName: textModelBinding,
                     allowsCustomBaseURL: providerSettingsStore.textConfig.providerType.allowsCustomBaseURL,
-                    baseURLPlaceholder: providerSettingsStore.textConfig.providerType.allowsCustomBaseURL
-                        ? "https://your-openai-compatible.com"
-                        : "https://api.openai.com（固定）",
-                    modelPlaceholder: "gpt-4o-mini",
+                    baseURLPlaceholder: baseURLPlaceholder(for: providerSettingsStore.textConfig.providerType),
+                    modelPlaceholder: providerSettingsStore.textConfig.providerType.defaultRewriteModelName,
                     apiKeyDraft: $providerSettingsStore.textAPIKeyDraft,
                     credentialState: providerSettingsStore.textCredentialState,
                     validationMessage: providerSettingsStore.textConfigurationValidationMessage,
@@ -299,6 +297,7 @@ struct SettingsView: View {
     private func modelRoleSection(
         roleTitle: String,
         cardTitle: String,
+        availableProviderTypes: [ProviderType],
         providerType: Binding<ProviderType>,
         baseURL: Binding<String>,
         modelName: Binding<String>,
@@ -323,6 +322,7 @@ struct SettingsView: View {
 
             ModelConfigCard(
                 title: cardTitle,
+                availableProviderTypes: availableProviderTypes,
                 providerType: providerType,
                 baseURL: baseURL,
                 modelName: modelName,
@@ -645,14 +645,13 @@ struct SettingsView: View {
         Section("模型配置") {
             ModelConfigCard(
                 title: "语音识别（ASR）",
+                availableProviderTypes: asrProviderOptions,
                 providerType: asrProviderTypeBinding,
                 baseURL: asrBaseURLBinding,
                 modelName: asrModelBinding,
                 allowsCustomBaseURL: providerSettingsStore.asrConfig.providerType.allowsCustomBaseURL,
-                baseURLPlaceholder: providerSettingsStore.asrConfig.providerType.allowsCustomBaseURL
-                    ? "https://your-openai-compatible.com"
-                    : "https://api.openai.com（固定）",
-                modelPlaceholder: "whisper-1",
+                baseURLPlaceholder: baseURLPlaceholder(for: providerSettingsStore.asrConfig.providerType),
+                modelPlaceholder: providerSettingsStore.asrConfig.providerType.defaultTranscriptionModelName,
                 apiKeyDraft: $providerSettingsStore.asrAPIKeyDraft,
                 credentialState: providerSettingsStore.asrCredentialState,
                 validationMessage: providerSettingsStore.asrConfigurationValidationMessage,
@@ -663,14 +662,13 @@ struct SettingsView: View {
 
             ModelConfigCard(
                 title: "文本处理",
+                availableProviderTypes: textProviderOptions,
                 providerType: textProviderTypeBinding,
                 baseURL: textBaseURLBinding,
                 modelName: textModelBinding,
                 allowsCustomBaseURL: providerSettingsStore.textConfig.providerType.allowsCustomBaseURL,
-                baseURLPlaceholder: providerSettingsStore.textConfig.providerType.allowsCustomBaseURL
-                    ? "https://your-openai-compatible.com"
-                    : "https://api.openai.com（固定）",
-                modelPlaceholder: "gpt-4o-mini",
+                baseURLPlaceholder: baseURLPlaceholder(for: providerSettingsStore.textConfig.providerType),
+                modelPlaceholder: providerSettingsStore.textConfig.providerType.defaultRewriteModelName,
                 apiKeyDraft: $providerSettingsStore.textAPIKeyDraft,
                 credentialState: providerSettingsStore.textCredentialState,
                 validationMessage: providerSettingsStore.textConfigurationValidationMessage,
@@ -799,6 +797,23 @@ struct SettingsView: View {
             get: { providerSettingsStore.textConfig.modelName },
             set: { providerSettingsStore.updateTextModel($0) }
         )
+    }
+
+    private var asrProviderOptions: [ProviderType] {
+        ProviderType.allCases.filter(\.supportsTranscription)
+    }
+
+    private var textProviderOptions: [ProviderType] {
+        ProviderType.allCases.filter(\.supportsRewrite)
+    }
+
+    private func baseURLPlaceholder(for type: ProviderType) -> String {
+        if type.allowsCustomBaseURL {
+            return type == .openAICompatible
+                ? "https://api.deepseek.com"
+                : "https://your-openai-compatible.com"
+        }
+        return "\(type.fixedBaseURL?.absoluteString ?? "https://api.openai.com")（固定）"
     }
 
     private var shortcutConflictWarning: String? {
@@ -1215,6 +1230,7 @@ private struct HomeMetricCard: View {
 
 private struct ModelConfigCard: View {
     let title: String
+    let availableProviderTypes: [ProviderType]
     let providerType: Binding<ProviderType>
     let baseURL: Binding<String>
     let modelName: Binding<String>
@@ -1235,7 +1251,7 @@ private struct ModelConfigCard: View {
                 .padding(.top, 2)
 
             Picker("Provider 类型", selection: providerType) {
-                ForEach(ProviderType.allCases) { type in
+                ForEach(availableProviderTypes) { type in
                     Text(type.displayName).tag(type)
                 }
             }

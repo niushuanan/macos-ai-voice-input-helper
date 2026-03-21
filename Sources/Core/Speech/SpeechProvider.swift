@@ -44,7 +44,37 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
     }
 
     var defaultRewriteModelName: String {
-        "gpt-4o-mini"
+        switch self {
+        case .openAI:
+            return "gpt-4o-mini"
+        case .openAICompatible:
+            return "deepseek-chat"
+        case .dashScopeQwenASR:
+            return "deepseek-chat"
+        }
+    }
+
+    var supportsTranscription: Bool {
+        switch self {
+        case .openAI, .openAICompatible, .dashScopeQwenASR:
+            return true
+        }
+    }
+
+    var supportsRewrite: Bool {
+        switch self {
+        case .openAI, .openAICompatible:
+            return true
+        case .dashScopeQwenASR:
+            return false
+        }
+    }
+
+    var requiresAPIKey: Bool {
+        switch self {
+        case .openAI, .openAICompatible, .dashScopeQwenASR:
+            return true
+        }
     }
 
     var allowsCustomBaseURL: Bool {
@@ -766,18 +796,18 @@ final class ProviderSettingsStore: ObservableObject {
 
     private static func defaultASRConfig() -> ASRConfig {
         ASRConfig(
-            providerType: .openAI,
-            baseURLString: "https://api.openai.com",
-            modelName: ProviderType.openAI.defaultTranscriptionModelName,
+            providerType: .dashScopeQwenASR,
+            baseURLString: "https://dashscope.aliyuncs.com",
+            modelName: ProviderType.dashScopeQwenASR.defaultTranscriptionModelName,
             keyRef: defaultASRCredentialKeyRef
         )
     }
 
     private static func defaultTextConfig() -> TextConfig {
         TextConfig(
-            providerType: .openAI,
-            baseURLString: "https://api.openai.com",
-            modelName: ProviderType.openAI.defaultRewriteModelName,
+            providerType: .openAICompatible,
+            baseURLString: "https://api.deepseek.com",
+            modelName: "deepseek-chat",
             keyRef: defaultTextCredentialKeyRef
         )
     }
