@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsView: View {
     let model: AppModel
 
+    @ObservedObject private var sessionStore: SessionStore
     @ObservedObject private var permissionsCenter: PermissionsCenter
     @ObservedObject private var providerSettingsStore: ProviderSettingsStore
 
@@ -14,22 +15,24 @@ struct SettingsView: View {
 
     init(model: AppModel) {
         self.model = model
+        _sessionStore = ObservedObject(wrappedValue: model.sessionStore)
         _permissionsCenter = ObservedObject(wrappedValue: model.permissionsCenter)
         _providerSettingsStore = ObservedObject(wrappedValue: model.providerSettingsStore)
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                headerSection
+        VStack(alignment: .leading, spacing: 14) {
+            headerSection
+            Form {
                 sessionControlSection
                 modelConfigurationSection
                 permissionsSection
                 diagnosticsSection
+                sessionSnapshotSection
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             permissionsCenter.refreshStatuses()
@@ -42,191 +45,209 @@ struct SettingsView: View {
 
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("PulseType 设置")
+            Text("PulseType 主界面")
                 .font(.title.weight(.bold))
-            Text("目标：第一次打开就能看懂、能配通、能开始说话。")
+            Text("一个页面完成会话控制、模型配置、权限与诊断。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
     }
 
-    private var sessionControlSection: some View {
-        GroupBox("会话控制") {
-            VStack(alignment: .leading, spacing: 12) {
-                Label("当前阶段：\(model.sessionStore.phase.title)", systemImage: model.sessionStore.phase.menuBarSymbol)
-                    .font(.subheadline.weight(.semibold))
+    private var sessionSnapshotSection: some View {
+        Section("会话动态") {
+            LabeledContent("阶段", value: sessionStore.phase.title)
+            LabeledContent("模式", value: sessionStore.activeLane.title)
+            LabeledContent("状态", value: sessionStore.statusMessage)
 
-                Text(model.sessionStore.statusMessage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                KeyboardShortcuts.Recorder("语音输入主快捷键（开始/停止）", name: .wakeSession)
-                KeyboardShortcuts.Recorder("取消当前会话快捷键", name: .cancelSession)
-
-                if let conflict = shortcutConflictWarning {
-                    Label(conflict, systemImage: "exclamationmark.triangle.fill")
+            if let latest = sessionStore.latestTranscription {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("最近转写")
                         .font(.caption)
-                        .foregroundStyle(.orange)
-                } else {
-                    Label("快捷键冲突检查通过。", systemImage: "checkmark.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(.secondary)
+                    Text(latest.transcript)
+                        .font(.callout)
+                        .lineLimit(4)
+                        .textSelection(.enabled)
                 }
-
-                HStack {
-                    Button(primaryToggleTitle) {
-                        model.interactionCoordinator.handleWakeInput(context: .dictation)
-                    }
-                    .disabled(!canToggleSession)
-
-                    Button("取消当前会话", role: .destructive) {
-                        model.interactionCoordinator.handleCancelInput()
-                    }
-                    .disabled(model.sessionStore.phase == .idle)
-
-                    Spacer()
-
-                    Button("恢复默认快捷键") {
-                        KeyboardShortcuts.reset(.wakeSession, .stopSession, .cancelSession)
-                    }
-                }
-
-                Text("交互规则：主快捷键在空闲时开始录音，聆听中再次按下会停止并进入后续处理。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let output = sessionStore.latestOutputResult {
+                LabeledContent(
+                    "写回路径",
+                    value: output.usedFallback ? "粘贴兜底" : "AX 直写"
+                )
+            }
+
+            if let error = sessionStore.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private var sessionControlSection: some View {
+        Section("会话控制") {
+            Label("当前阶段：\(sessionStore.phase.title)", systemImage: sessionStore.phase.menuBarSymbol)
+                .font(.subheadline.weight(.semibold))
+
+            Text(sessionStore.statusMessage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            KeyboardShortcuts.Recorder("语音输入主快捷键（开始/停止）", name: .wakeSession)
+            KeyboardShortcuts.Recorder("取消当前会话快捷键", name: .cancelSession)
+
+            if let conflict = shortcutConflictWarning {
+                Label(conflict, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else {
+                Label("快捷键冲突检查通过。", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            }
+
+            HStack {
+                Button(primaryToggleTitle) {
+                    model.interactionCoordinator.handleWakeInput(context: .dictation)
+                }
+                .disabled(!canToggleSession)
+
+                Button("取消当前会话", role: .destructive) {
+                    model.interactionCoordinator.handleCancelInput()
+                }
+                .disabled(sessionStore.phase == .idle)
+
+                Spacer()
+
+                Button("恢复默认快捷键") {
+                    KeyboardShortcuts.reset(.wakeSession, .stopSession, .cancelSession)
+                }
+            }
+            .buttonStyle(.bordered)
+
+            Text("交互规则：主快捷键在空闲时开始录音，聆听中再次按下会停止并进入后续处理。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
     private var modelConfigurationSection: some View {
-        GroupBox("模型配置") {
-            VStack(alignment: .leading, spacing: 14) {
-                ModelConfigCard(
-                    title: "语音识别（ASR）",
-                    providerType: asrProviderTypeBinding,
-                    baseURL: asrBaseURLBinding,
-                    modelName: asrModelBinding,
-                    allowsCustomBaseURL: providerSettingsStore.asrConfig.providerType.allowsCustomBaseURL,
-                    baseURLPlaceholder: providerSettingsStore.asrConfig.providerType.allowsCustomBaseURL
-                        ? "https://your-openai-compatible.com"
-                        : "https://api.openai.com（固定）",
-                    modelPlaceholder: "whisper-1",
-                    apiKeyDraft: $providerSettingsStore.asrAPIKeyDraft,
-                    credentialState: providerSettingsStore.asrCredentialState,
-                    validationMessage: providerSettingsStore.asrConfigurationValidationMessage,
-                    feedbackMessage: providerSettingsStore.asrFeedbackMessage,
-                    testResult: asrTestResult,
-                    testing: asrTesting,
-                    onSaveKey: { providerSettingsStore.saveASRAPIKeyDraft() },
-                    onDeleteKey: { providerSettingsStore.clearASRAPIKey() },
-                    onTest: runASRTest
-                )
+        Section("模型配置") {
+            ModelConfigCard(
+                title: "语音识别（ASR）",
+                providerType: asrProviderTypeBinding,
+                baseURL: asrBaseURLBinding,
+                modelName: asrModelBinding,
+                allowsCustomBaseURL: providerSettingsStore.asrConfig.providerType.allowsCustomBaseURL,
+                baseURLPlaceholder: providerSettingsStore.asrConfig.providerType.allowsCustomBaseURL
+                    ? "https://your-openai-compatible.com"
+                    : "https://api.openai.com（固定）",
+                modelPlaceholder: "whisper-1",
+                apiKeyDraft: $providerSettingsStore.asrAPIKeyDraft,
+                credentialState: providerSettingsStore.asrCredentialState,
+                validationMessage: providerSettingsStore.asrConfigurationValidationMessage,
+                feedbackMessage: providerSettingsStore.asrFeedbackMessage,
+                onSaveKey: { providerSettingsStore.saveASRAPIKeyDraft() },
+                onDeleteKey: { providerSettingsStore.clearASRAPIKey() }
+            )
 
-                ModelConfigCard(
-                    title: "文本处理",
-                    providerType: textProviderTypeBinding,
-                    baseURL: textBaseURLBinding,
-                    modelName: textModelBinding,
-                    allowsCustomBaseURL: providerSettingsStore.textConfig.providerType.allowsCustomBaseURL,
-                    baseURLPlaceholder: providerSettingsStore.textConfig.providerType.allowsCustomBaseURL
-                        ? "https://your-openai-compatible.com"
-                        : "https://api.openai.com（固定）",
-                    modelPlaceholder: "gpt-4o-mini",
-                    apiKeyDraft: $providerSettingsStore.textAPIKeyDraft,
-                    credentialState: providerSettingsStore.textCredentialState,
-                    validationMessage: providerSettingsStore.textConfigurationValidationMessage,
-                    feedbackMessage: providerSettingsStore.textFeedbackMessage,
-                    testResult: textTestResult,
-                    testing: textTesting,
-                    onSaveKey: { providerSettingsStore.saveTextAPIKeyDraft() },
-                    onDeleteKey: { providerSettingsStore.clearTextAPIKey() },
-                    onTest: runTextTest
-                )
+            ModelConfigCard(
+                title: "文本处理",
+                providerType: textProviderTypeBinding,
+                baseURL: textBaseURLBinding,
+                modelName: textModelBinding,
+                allowsCustomBaseURL: providerSettingsStore.textConfig.providerType.allowsCustomBaseURL,
+                baseURLPlaceholder: providerSettingsStore.textConfig.providerType.allowsCustomBaseURL
+                    ? "https://your-openai-compatible.com"
+                    : "https://api.openai.com（固定）",
+                modelPlaceholder: "gpt-4o-mini",
+                apiKeyDraft: $providerSettingsStore.textAPIKeyDraft,
+                credentialState: providerSettingsStore.textCredentialState,
+                validationMessage: providerSettingsStore.textConfigurationValidationMessage,
+                feedbackMessage: providerSettingsStore.textFeedbackMessage,
+                onSaveKey: { providerSettingsStore.saveTextAPIKeyDraft() },
+                onDeleteKey: { providerSettingsStore.clearTextAPIKey() }
+            )
 
-                Text("安全策略：密钥仅写入 macOS 钥匙串，不写入明文配置。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Text("安全策略：密钥仅写入 macOS 钥匙串，不写入明文配置。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
     private var permissionsSection: some View {
-        GroupBox("权限中心") {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(permissionsCenter.presentationItems()) { item in
-                    PermissionRowView(
-                        item: item,
-                        onRequest: { permissionsCenter.requestAccess(for: item.id) },
-                        onOpenSettings: { permissionsCenter.openSystemSettings(for: item.id) }
-                    )
-                }
-
-                if permissionsCenter.snapshot.microphone != .granted {
-                    Label("缺少麦克风权限，无法开始录音。", systemImage: "xmark.octagon.fill")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                } else {
-                    Label("麦克风权限已就绪。", systemImage: "checkmark.seal.fill")
-                        .font(.caption)
-                        .foregroundStyle(.green)
-                }
-
-                if permissionsCenter.snapshot.accessibility != .granted {
-                    Label("辅助功能未允许：选区改写不可用；普通听写可继续，但写回成功率会下降。", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                } else {
-                    Label("辅助功能权限已就绪。", systemImage: "checkmark.seal.fill")
-                        .font(.caption)
-                        .foregroundStyle(.green)
-                }
-
-                Button("重新检测权限") {
-                    permissionsCenter.refreshStatuses()
-                }
+        Section("权限中心") {
+            ForEach(permissionsCenter.presentationItems()) { item in
+                PermissionRowView(
+                    item: item,
+                    onRequest: { permissionsCenter.requestAccess(for: item.id) },
+                    onOpenSettings: { permissionsCenter.openSystemSettings(for: item.id) }
+                )
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if permissionsCenter.snapshot.microphone != .granted {
+                Label("缺少麦克风权限，无法开始录音。", systemImage: "xmark.octagon.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            } else {
+                Label("麦克风权限已就绪。", systemImage: "checkmark.seal.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            }
+
+            if permissionsCenter.snapshot.accessibility != .granted {
+                Label("辅助功能未允许：选区改写不可用；普通听写可继续，但写回成功率会下降。", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else {
+                Label("辅助功能权限已就绪。", systemImage: "checkmark.seal.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            }
+
+            Button("重新检测权限") {
+                permissionsCenter.refreshStatuses()
+            }
+            .buttonStyle(.bordered)
         }
     }
 
     private var diagnosticsSection: some View {
-        GroupBox("诊断与测试") {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("可点击按钮发起真实请求，验证接口地址、模型名、密钥与额度。")
+        Section("诊断与测试") {
+            Text("可点击按钮发起真实请求，验证接口地址、模型名、密钥与额度。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Button(asrTesting ? "测试ASR中..." : "测试ASR") {
+                    runASRTest()
+                }
+                .disabled(asrTesting)
+
+                Button(textTesting ? "测试文本模型中..." : "测试文本模型") {
+                    runTextTest()
+                }
+                .disabled(textTesting)
+            }
+            .buttonStyle(.bordered)
+
+            if let latestResult {
+                ConnectionTestSummaryView(title: "最近一次测试结果", result: latestResult)
+            } else {
+                Text("还没有测试记录。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-
-                HStack {
-                    Button(asrTesting ? "测试ASR中..." : "测试ASR") {
-                        runASRTest()
-                    }
-                    .disabled(asrTesting)
-
-                    Button(textTesting ? "测试文本模型中..." : "测试文本模型") {
-                        runTextTest()
-                    }
-                    .disabled(textTesting)
-                }
-
-                if let latestResult {
-                    ConnectionTestSummaryView(title: "最近一次测试结果", result: latestResult)
-                } else {
-                    Text("还没有测试记录。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let asrTestResult {
-                    ConnectionTestSummaryView(title: "ASR 最近结果", result: asrTestResult)
-                }
-
-                if let textTestResult {
-                    ConnectionTestSummaryView(title: "文本模型最近结果", result: textTestResult)
-                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let asrTestResult {
+                ConnectionTestSummaryView(title: "ASR 最近结果", result: asrTestResult)
+            }
+
+            if let textTestResult {
+                ConnectionTestSummaryView(title: "文本模型最近结果", result: textTestResult)
+            }
         }
     }
 
@@ -282,7 +303,7 @@ struct SettingsView: View {
     }
 
     private var canToggleSession: Bool {
-        switch model.sessionStore.phase {
+        switch sessionStore.phase {
         case .idle, .cancelled, .error:
             return true
         case .listening:
@@ -293,7 +314,7 @@ struct SettingsView: View {
     }
 
     private var primaryToggleTitle: String {
-        model.sessionStore.phase == .listening ? "停止并处理" : "开始语音输入"
+        sessionStore.phase == .listening ? "停止并处理" : "开始语音输入"
     }
 
     private var latestResult: ConnectionTestResult? {
@@ -350,16 +371,14 @@ private struct ModelConfigCard: View {
     let credentialState: ProviderSettingsStore.CredentialState
     let validationMessage: String?
     let feedbackMessage: String?
-    let testResult: ConnectionTestResult?
-    let testing: Bool
     let onSaveKey: () -> Bool
     let onDeleteKey: () -> Bool
-    let onTest: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
                 .font(.headline)
+                .padding(.top, 2)
 
             Picker("Provider 类型", selection: providerType) {
                 ForEach(ProviderType.allCases) { type in
@@ -368,58 +387,46 @@ private struct ModelConfigCard: View {
             }
             .pickerStyle(.menu)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("API 地址")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextField(baseURLPlaceholder, text: baseURL)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-                    .disabled(!allowsCustomBaseURL)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("模型名")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextField(modelPlaceholder, text: modelName)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("API 密钥")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                HStack {
-                    SecureField("请输入 API 密钥", text: $apiKeyDraft)
-                        .textFieldStyle(.roundedBorder)
-
-                    Button("保存") {
-                        _ = onSaveKey()
-                    }
-                    .disabled(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                    Button("删除", role: .destructive) {
-                        _ = onDeleteKey()
-                    }
-                    .disabled(credentialState == .missing)
-                }
-            }
-
-            HStack {
-                Button(testing ? "测试中..." : "测试") {
-                    onTest()
-                }
-                .disabled(testing)
-
-                Label(
-                    credentialState == .saved ? "密钥已保存" : "密钥未保存",
-                    systemImage: credentialState == .saved ? "lock.shield.fill" : "exclamationmark.shield.fill"
-                )
+            Text("API 地址")
                 .font(.caption)
-                .foregroundStyle(credentialState == .saved ? .green : .orange)
+                .foregroundStyle(.secondary)
+            TextField(baseURLPlaceholder, text: baseURL)
+                .textFieldStyle(.roundedBorder)
+                .autocorrectionDisabled()
+                .disabled(!allowsCustomBaseURL)
+
+            Text("模型名")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField(modelPlaceholder, text: modelName)
+                .textFieldStyle(.roundedBorder)
+                .autocorrectionDisabled()
+
+            Text("API 密钥")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                SecureField("请输入 API 密钥", text: $apiKeyDraft)
+                    .textFieldStyle(.roundedBorder)
+
+                Button("保存") {
+                    _ = onSaveKey()
+                }
+                .disabled(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Button("删除", role: .destructive) {
+                    _ = onDeleteKey()
+                }
+                .disabled(credentialState == .missing)
             }
+            .buttonStyle(.bordered)
+
+            Label(
+                credentialState == .saved ? "密钥已保存（钥匙串）" : "密钥未保存",
+                systemImage: credentialState == .saved ? "lock.shield.fill" : "exclamationmark.shield.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
 
             if let validationMessage {
                 Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
@@ -432,15 +439,9 @@ private struct ModelConfigCard: View {
                     .font(.caption)
                     .foregroundStyle(feedbackMessage.contains("无法") || feedbackMessage.contains("失败") ? .red : .secondary)
             }
-
-            if let testResult {
-                ConnectionTestSummaryView(title: "测试结果", result: testResult)
-            }
         }
-        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.secondary.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.vertical, 4)
     }
 }
 
@@ -475,8 +476,8 @@ private struct ConnectionTestSummaryView: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(statusColor.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private var statusTitle: String {
@@ -539,10 +540,8 @@ private struct PermissionRowView: View {
             }
             .buttonStyle(.bordered)
         }
-        .padding(10)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(stateColor.opacity(0.09))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var iconName: String {

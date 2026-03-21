@@ -28,7 +28,7 @@ Core product loop:
 - Local history with delete operations and app/mode/status filters
 - App-aware policy (`output bias` + rewrite-lane preference)
 - Permission center for microphone and accessibility
-- Status feedback in menu bar, command deck, and HUD pulse
+- Status feedback in menu bar, single-page control center, and HUD pulse
 
 Engineering baseline:
 
