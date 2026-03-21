@@ -33,45 +33,106 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                GroupBox("Provider and models") {
+                GroupBox("Provider center") {
                     VStack(alignment: .leading, spacing: 12) {
-                        Picker("Provider", selection: $providerSettingsStore.selectedProviderID) {
-                            ForEach(SpeechProviderID.allCases) { providerID in
-                                Text(providerID.displayName).tag(providerID)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Role assignment")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            Picker("Transcription provider", selection: $providerSettingsStore.selectedTranscriptionProfileID) {
+                                ForEach(providerSettingsStore.enabledProfiles) { profile in
+                                    Text(profile.name).tag(profile.id)
+                                }
+                            }
+                            .pickerStyle(.menu)
+
+                            Picker("Rewrite provider", selection: $providerSettingsStore.selectedRewriteProfileID) {
+                                ForEach(providerSettingsStore.enabledProfiles) { profile in
+                                    Text(profile.name).tag(profile.id)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
+
+                        if let validationMessage = providerSettingsStore.configurationValidationMessage {
+                            Label("Transcription: \(validationMessage)", systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+
+                        if let rewriteValidation = providerSettingsStore.rewriteConfigurationValidationMessage {
+                            Label("Rewrite: \(rewriteValidation)", systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Profile editor")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            Picker("Edit profile", selection: $providerSettingsStore.selectedProfileIDForEditing) {
+                                ForEach(providerSettingsStore.profiles) { profile in
+                                    Text("\(profile.name) · \(profile.type.shortLabel)")
+                                        .tag(profile.id)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Profile name")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("Provider profile name", text: editingProfileNameBinding)
+                                .textFieldStyle(.roundedBorder)
+                                .autocorrectionDisabled()
+                        }
+
+                        Picker("Provider type", selection: editingProfileTypeBinding) {
+                            ForEach(ProviderType.allCases) { type in
+                                Text(type.displayName).tag(type)
                             }
                         }
                         .pickerStyle(.menu)
 
+                        Toggle("Enabled", isOn: editingProfileEnabledBinding)
+
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Transcription model")
-                                .font(.caption.weight(.semibold))
+                            Text("Base URL")
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
 
-                            TextField("Model name", text: $providerSettingsStore.modelName)
-                                .textFieldStyle(.roundedBorder)
-                                .autocorrectionDisabled()
+                            TextField(
+                                editingProfileType == .openAI
+                                    ? "https://api.openai.com (fixed)"
+                                    : "https://your-compatible-endpoint.com",
+                                text: editingBaseURLBinding
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled()
+                            .disabled(!editingProfileType.allowsCustomBaseURL)
                         }
 
-                        if let validationMessage = providerSettingsStore.configurationValidationMessage {
-                            Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Transcription model")
                                 .font(.caption)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(.secondary)
+                            TextField("whisper-1", text: editingTranscriptionModelBinding)
+                                .textFieldStyle(.roundedBorder)
+                                .autocorrectionDisabled()
                         }
 
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Rewrite model")
-                                .font(.caption.weight(.semibold))
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
-
-                            TextField("Rewrite model name", text: $providerSettingsStore.rewriteModelName)
+                            TextField("gpt-4o-mini", text: editingRewriteModelBinding)
                                 .textFieldStyle(.roundedBorder)
                                 .autocorrectionDisabled()
-                        }
-
-                        if let rewriteValidation = providerSettingsStore.rewriteConfigurationValidationMessage {
-                            Label(rewriteValidation, systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption)
-                                .foregroundStyle(.red)
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
@@ -80,7 +141,7 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
 
                             HStack {
-                                SecureField("Paste API key for \(providerSettingsStore.selectedProviderName)", text: $providerSettingsStore.apiKeyDraft)
+                                SecureField("Paste API key for \(editingProfileName)", text: $providerSettingsStore.apiKeyDraft)
                                     .textFieldStyle(.roundedBorder)
 
                                 Button("Save") {
@@ -93,6 +154,17 @@ struct SettingsView: View {
                                 }
                                 .disabled(providerSettingsStore.credentialState == .missing)
                             }
+                        }
+
+                        HStack {
+                            Button("Add profile") {
+                                providerSettingsStore.addProfile()
+                            }
+
+                            Button("Delete profile", role: .destructive) {
+                                providerSettingsStore.deleteEditingProfile()
+                            }
+                            .disabled(providerSettingsStore.profiles.count <= 1)
                         }
 
                         Label(apiKeyStatusText, systemImage: apiKeyStatusIcon)
@@ -234,12 +306,62 @@ struct SettingsView: View {
         return nil
     }
 
+    private var editingProfileName: String {
+        providerSettingsStore.editingProfile?.name ?? "Selected Profile"
+    }
+
+    private var editingProfileType: ProviderType {
+        providerSettingsStore.editingProfile?.type ?? .openAICompatible
+    }
+
+    private var editingProfileNameBinding: Binding<String> {
+        Binding(
+            get: { providerSettingsStore.editingProfile?.name ?? "" },
+            set: { providerSettingsStore.updateEditingProfileName($0) }
+        )
+    }
+
+    private var editingProfileTypeBinding: Binding<ProviderType> {
+        Binding(
+            get: { providerSettingsStore.editingProfile?.type ?? .openAICompatible },
+            set: { providerSettingsStore.updateEditingProfileType($0) }
+        )
+    }
+
+    private var editingProfileEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { providerSettingsStore.editingProfile?.isEnabled ?? false },
+            set: { providerSettingsStore.updateEditingProfileEnabled($0) }
+        )
+    }
+
+    private var editingBaseURLBinding: Binding<String> {
+        Binding(
+            get: { providerSettingsStore.editingProfile?.baseURLString ?? "" },
+            set: { providerSettingsStore.updateEditingBaseURL($0) }
+        )
+    }
+
+    private var editingTranscriptionModelBinding: Binding<String> {
+        Binding(
+            get: { providerSettingsStore.editingProfile?.transcriptionModelName ?? "" },
+            set: { providerSettingsStore.updateEditingTranscriptionModel($0) }
+        )
+    }
+
+    private var editingRewriteModelBinding: Binding<String> {
+        Binding(
+            get: { providerSettingsStore.editingProfile?.rewriteModelName ?? "" },
+            set: { providerSettingsStore.updateEditingRewriteModel($0) }
+        )
+    }
+
     private var apiKeyStatusText: String {
         switch providerSettingsStore.credentialState {
         case .saved:
-            return "API key is saved for \(providerSettingsStore.selectedProviderName)."
+            return "API key is saved for \(editingProfileName)."
         case .missing:
-            return "No API key saved for \(providerSettingsStore.selectedProviderName)."
+            return "No API key saved for \(editingProfileName)."
         }
     }
 

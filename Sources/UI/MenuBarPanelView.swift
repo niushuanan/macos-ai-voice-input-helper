@@ -126,7 +126,8 @@ struct MenuBarPanelView: View {
             Text("Provider and Storage")
                 .font(.headline)
 
-            InfoRow(title: "Speech provider", value: model.providerSettingsStore.selectedProviderName)
+            InfoRow(title: "Transcription provider", value: model.providerSettingsStore.selectedTranscriptionProviderName)
+            InfoRow(title: "Rewrite provider", value: model.providerSettingsStore.selectedRewriteProviderName)
             InfoRow(title: "Transcription model", value: model.providerSettingsStore.modelName)
             InfoRow(title: "Rewrite model", value: model.providerSettingsStore.rewriteModelName)
             InfoRow(title: "Insertion path", value: model.textOutputCoordinator.insertionStrategy)
