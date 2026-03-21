@@ -1180,9 +1180,9 @@ struct ASRConnectionTester {
             if (200..<300).contains(http.statusCode) {
                 let transcript = Self.parseASRTranscript(from: data)
                 if transcript.isEmpty {
-                    return .failure(
-                        message: "语音识别接口可达，但返回内容无法解析。",
-                        hint: "请核对接口是否兼容 OpenAI `/v1/audio/transcriptions`。",
+                    return .success(
+                        message: "语音识别接口可达，测试音频未识别到有效语音内容。",
+                        hint: "接口连通正常；可用真实语音再测一次文本识别效果。",
                         httpStatus: http.statusCode
                     )
                 }
@@ -1272,9 +1272,9 @@ struct ASRConnectionTester {
                             httpStatus: http.statusCode
                         )
                     }
-                    return .failure(
-                        message: "语音识别接口可达，但返回内容无法解析。",
-                        hint: "请确认模型名可用，并检查返回格式是否为 message。",
+                    return .success(
+                        message: "语音识别接口可达，测试音频未识别到有效语音内容。",
+                        hint: "接口连通正常；可用真实语音再测一次文本识别效果。",
                         httpStatus: http.statusCode
                     )
                 }
