@@ -4,10 +4,12 @@ import SwiftUI
 struct SettingsView: View {
     let model: AppModel
     @ObservedObject private var permissionsCenter: PermissionsCenter
+    @ObservedObject private var providerSettingsStore: ProviderSettingsStore
 
     init(model: AppModel) {
         self.model = model
         _permissionsCenter = ObservedObject(wrappedValue: model.permissionsCenter)
+        _providerSettingsStore = ObservedObject(wrappedValue: model.providerSettingsStore)
     }
 
     var body: some View {
@@ -27,6 +29,69 @@ struct SettingsView: View {
                         Text("Helper app, not an InputMethodKit extension.")
                         Text("Cloud model APIs come first, with user-supplied keys in the app UI.")
                         Text("History, sessions, and configuration stay local by default.")
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                GroupBox("Transcription provider") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Picker("Provider", selection: $providerSettingsStore.selectedProviderID) {
+                            ForEach(SpeechProviderID.allCases) { providerID in
+                                Text(providerID.displayName).tag(providerID)
+                            }
+                        }
+                        .pickerStyle(.menu)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Model")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            TextField("Model name", text: $providerSettingsStore.modelName)
+                                .textFieldStyle(.roundedBorder)
+                                .autocorrectionDisabled()
+                        }
+
+                        if let validationMessage = providerSettingsStore.configurationValidationMessage {
+                            Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("API key")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            HStack {
+                                SecureField("Paste API key for \(providerSettingsStore.selectedProviderName)", text: $providerSettingsStore.apiKeyDraft)
+                                    .textFieldStyle(.roundedBorder)
+
+                                Button("Save") {
+                                    providerSettingsStore.saveDraftedAPIKey()
+                                }
+                                .disabled(providerSettingsStore.apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                                Button("Delete", role: .destructive) {
+                                    providerSettingsStore.clearSavedAPIKey()
+                                }
+                                .disabled(providerSettingsStore.credentialState == .missing)
+                            }
+                        }
+
+                        Label(apiKeyStatusText, systemImage: apiKeyStatusIcon)
+                            .font(.caption)
+                            .foregroundStyle(apiKeyStatusColor)
+
+                        if let feedbackMessage = providerSettingsStore.feedbackMessage {
+                            Text(feedbackMessage)
+                                .font(.caption)
+                                .foregroundStyle(feedbackColor)
+                        }
+
+                        Text("Key storage: saved in macOS Keychain, not in plain-text config files.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -126,6 +191,7 @@ struct SettingsView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             permissionsCenter.refreshStatuses()
+            providerSettingsStore.refreshCredentialState()
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             permissionsCenter.refreshStatuses()
@@ -150,6 +216,43 @@ struct SettingsView: View {
         }
 
         return nil
+    }
+
+    private var apiKeyStatusText: String {
+        switch providerSettingsStore.credentialState {
+        case .saved:
+            return "API key is saved for \(providerSettingsStore.selectedProviderName)."
+        case .missing:
+            return "No API key saved for \(providerSettingsStore.selectedProviderName)."
+        }
+    }
+
+    private var apiKeyStatusIcon: String {
+        switch providerSettingsStore.credentialState {
+        case .saved:
+            return "lock.shield.fill"
+        case .missing:
+            return "exclamationmark.shield.fill"
+        }
+    }
+
+    private var apiKeyStatusColor: Color {
+        switch providerSettingsStore.credentialState {
+        case .saved:
+            return .green
+        case .missing:
+            return .orange
+        }
+    }
+
+    private var feedbackColor: Color {
+        guard let feedbackMessage = providerSettingsStore.feedbackMessage?.lowercased() else {
+            return .secondary
+        }
+        if feedbackMessage.contains("could not") || feedbackMessage.contains("cannot") {
+            return .red
+        }
+        return .secondary
     }
 }
 

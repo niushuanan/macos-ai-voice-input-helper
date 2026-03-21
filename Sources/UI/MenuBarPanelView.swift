@@ -195,6 +195,25 @@ private struct StatusCard: View {
                     .textSelection(.enabled)
             }
 
+            if sessionStore.phase == .transcribing {
+                Label("Request in progress. Keep this menu open to monitor status.", systemImage: "antenna.radiowaves.left.and.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let latestTranscription = sessionStore.latestTranscription {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Latest transcript · \(latestTranscription.providerName) · \(latestTranscription.modelName)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    Text(latestTranscription.transcript)
+                        .font(.caption)
+                        .textSelection(.enabled)
+                        .lineLimit(5)
+                }
+            }
+
             if let errorMessage = sessionStore.errorMessage {
                 Text(errorMessage)
                     .font(.caption)
