@@ -66,6 +66,18 @@ Selected model: `tap-tap dual-lane session`
   - menu bar icon reflects phase in real time
   - a short non-blocking HUD pulse appears on phase change
 
+Current default keymap:
+
+- Wake and start: `Control + Option + Space`
+- Stop and submit: `Control + Option + Return`
+- Cancel session: `Control + Option + Escape`
+
+Implementation notes:
+
+- Registered through the `KeyboardShortcuts` package.
+- Routed through `InteractionCoordinator` into `SessionStore`.
+- Session cancel is independent from app quit.
+
 ### Session model
 
 The central state machine lives in `Sources/Core/Session/SessionStore.swift`.
@@ -180,6 +192,12 @@ Responsibility:
 - query microphone and Accessibility readiness
 - drive guidance UI when a needed capability is blocked
 
+Current model:
+
+- microphone permission is required for session start
+- Accessibility permission is required for selection rewrite and insertion bridge
+- global hotkeys do not require additional permission with Carbon-based registration
+
 ### LocalStore
 
 Responsibility:
@@ -233,11 +251,17 @@ Rules:
 
 These are known missing pieces, not accidents:
 
-- no real global hotkey registration yet (current build uses a local simulation path)
+- no live audio streaming pipeline yet after the listening phase
 - no live microphone capture yet
 - no provider networking yet
 - no insertion bridge yet
-- no permission prompts yet
+- no full first-launch permission walkthrough yet
+
+## Known system limits
+
+- global shortcuts may collide with user or system-level bindings
+- Accessibility capabilities vary by target app and app version
+- permission changes can lag until app focus returns from System Settings
 
 ## Open questions
 

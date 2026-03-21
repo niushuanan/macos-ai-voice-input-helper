@@ -75,5 +75,6 @@ If your shell already points to the full Xcode developer directory, the
 - [docs/product-principles.md](docs/product-principles.md)
 - [docs/engineering-plan.md](docs/engineering-plan.md)
 - [docs/architecture.md](docs/architecture.md)
+- [docs/hotkeys-permissions.md](docs/hotkeys-permissions.md)
 - [docs/milestones.md](docs/milestones.md)
 - [docs/adr/0001-helper-app-direction.md](docs/adr/0001-helper-app-direction.md)
