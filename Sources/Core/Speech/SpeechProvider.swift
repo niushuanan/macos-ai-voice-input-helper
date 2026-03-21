@@ -500,17 +500,25 @@ final class ProviderSettingsStore: ObservableObject {
     func testASRConnection() async -> ConnectionTestResult {
         let tester = ASRConnectionTester(credentialStore: credentialStore)
         let result = await tester.test(config: asrConfig)
-        latestASRTestResult = result
-        persistLatestASRTestResult()
+        recordASRTestResult(result)
         return result
     }
 
     func testTextConnection() async -> ConnectionTestResult {
         let tester = TextConnectionTester(credentialStore: credentialStore)
         let result = await tester.test(config: textConfig)
+        recordTextTestResult(result)
+        return result
+    }
+
+    func recordASRTestResult(_ result: ConnectionTestResult) {
+        latestASRTestResult = result
+        persistLatestASRTestResult()
+    }
+
+    func recordTextTestResult(_ result: ConnectionTestResult) {
         latestTextTestResult = result
         persistLatestTextTestResult()
-        return result
     }
 
     private func resolvedTranscriptionConfiguration() -> SpeechProviderConfiguration? {

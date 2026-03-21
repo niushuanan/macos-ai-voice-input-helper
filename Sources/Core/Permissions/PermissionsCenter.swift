@@ -69,9 +69,17 @@ final class PermissionsCenter: ObservableObject {
 
     private let defaults: UserDefaults
     private let didPromptAccessibilityKey = "permissions.didPromptAccessibility"
+    private let microphoneStateResolver: (() -> PermissionState)?
+    private let accessibilityStateResolver: (() -> PermissionState)?
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        microphoneStateResolver: (() -> PermissionState)? = nil,
+        accessibilityStateResolver: (() -> PermissionState)? = nil
+    ) {
         self.defaults = defaults
+        self.microphoneStateResolver = microphoneStateResolver
+        self.accessibilityStateResolver = accessibilityStateResolver
     }
 
     func refreshStatuses() {
@@ -137,6 +145,10 @@ final class PermissionsCenter: ObservableObject {
     }
 
     private func microphoneState() -> PermissionState {
+        if let microphoneStateResolver {
+            return microphoneStateResolver()
+        }
+
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .notDetermined:
             return .notRequested
@@ -152,6 +164,10 @@ final class PermissionsCenter: ObservableObject {
     }
 
     private func accessibilityState() -> PermissionState {
+        if let accessibilityStateResolver {
+            return accessibilityStateResolver()
+        }
+
         if AXIsProcessTrusted() {
             return .granted
         }
