@@ -214,6 +214,48 @@ private struct StatusCard: View {
                 }
             }
 
+            if let focusContext = sessionStore.latestFocusContext {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Target app: \(focusContext.appName)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    Text("Bundle: \(focusContext.bundleID)")
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+
+                    Label(
+                        focusContext.hasEditableTarget
+                            ? "Editable target detected"
+                            : "Editable target not detected",
+                        systemImage: focusContext.hasEditableTarget
+                            ? "checkmark.circle.fill"
+                            : "exclamationmark.triangle.fill"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(focusContext.hasEditableTarget ? .green : .orange)
+
+                    Text("Strategy hint: \(focusContext.strategyHint)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, 2)
+            }
+
+            if let outputResult = sessionStore.latestOutputResult {
+                Label(
+                    outputResult.usedFallback
+                        ? "Write path: fallback paste (Command+V)"
+                        : "Write path: direct AX insertion",
+                    systemImage: outputResult.usedFallback
+                        ? "arrow.triangle.branch"
+                        : "arrow.forward.circle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(outputResult.usedFallback ? .orange : .green)
+            }
+
             if let errorMessage = sessionStore.errorMessage {
                 Text(errorMessage)
                     .font(.caption)
