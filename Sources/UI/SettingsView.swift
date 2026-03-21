@@ -112,8 +112,7 @@ struct SettingsView: View {
                     }
                 }
                 .padding(16)
-                .background(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .pulseCard(cornerRadius: 12)
 
                 HStack(spacing: 12) {
                     HomeMetricCard(
@@ -367,8 +366,7 @@ struct SettingsView: View {
             }
         }
         .padding(14)
-        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .pulseCard(cornerRadius: 12)
     }
 
     private var settingsPage: some View {
@@ -422,8 +420,7 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(14)
-        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .pulseCard(cornerRadius: 12)
     }
 
     private var permissionSettingsCard: some View {
@@ -448,8 +445,7 @@ struct SettingsView: View {
             }
         }
         .padding(14)
-        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .pulseCard(cornerRadius: 12)
     }
 
     private var scenePolicySettingsCard: some View {
@@ -516,8 +512,7 @@ struct SettingsView: View {
             }
         }
         .padding(14)
-        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .pulseCard(cornerRadius: 12)
     }
 
     private var aboutSettingsCard: some View {
@@ -532,8 +527,7 @@ struct SettingsView: View {
             LabeledContent("密钥策略", value: "API Key 仅存 macOS 钥匙串")
         }
         .padding(14)
-        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .pulseCard(cornerRadius: 12)
     }
 
     private var legacyConsolePage: some View {
@@ -1151,8 +1145,7 @@ private struct SkillRuleCardView: View {
                 .disabled(!isEnabled)
         }
         .padding(12)
-        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.4))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .pulseCard(cornerRadius: 10)
     }
 }
 
@@ -1216,8 +1209,7 @@ private struct HomeMetricCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.4))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .pulseCard(cornerRadius: 10)
     }
 }
 
@@ -1338,8 +1330,7 @@ private struct ConnectionTestSummaryView: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .pulseCard(cornerRadius: 8)
     }
 
     private var statusTitle: String {
@@ -1445,5 +1436,24 @@ private struct PermissionRowView: View {
         case .notRequired:
             return "不需要"
         }
+    }
+}
+
+private struct PulseCardStyle: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background(.ultraThinMaterial, in: shape)
+            .overlay(
+                shape.stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+    }
+}
+
+private extension View {
+    func pulseCard(cornerRadius: CGFloat) -> some View {
+        modifier(PulseCardStyle(cornerRadius: cornerRadius))
     }
 }
