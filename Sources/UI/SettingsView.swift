@@ -33,7 +33,7 @@ struct SettingsView: View {
             Group {
                 switch controlCenterState.selectedSection {
                 case .home:
-                    legacyConsolePage
+                    homePage
                 case .memory:
                     PlaceholderPageView(
                         title: "记忆",
@@ -58,6 +58,86 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(Color(nsColor: .windowBackgroundColor))
+        }
+    }
+
+    private var homePage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 16) {
+                    Label("主键：\(wakeShortcutText)", systemImage: "keyboard")
+                    Label("模式：\(sessionStore.activeLane.title)", systemImage: "slider.horizontal.3")
+                    Label("阶段：\(sessionStore.phase.title)", systemImage: sessionStore.phase.menuBarSymbol)
+                }
+                .font(.subheadline.weight(.semibold))
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("开始语音")
+                        .font(.title3.weight(.semibold))
+
+                    Text(sessionStore.statusMessage)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    if permissionsCenter.snapshot.microphone != .granted {
+                        Label("还没有麦克风权限，先在权限中心点“请求权限”。", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+
+                    HStack {
+                        Button(primaryToggleTitle) {
+                            model.interactionCoordinator.handleWakeInput(context: .dictation)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!canToggleSession)
+
+                        Button("取消当前会话", role: .destructive) {
+                            model.interactionCoordinator.handleCancelInput()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(sessionStore.phase == .idle)
+
+                        Spacer()
+                    }
+
+                    if let latest = sessionStore.latestTranscription {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("最近结果")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(latest.transcript)
+                                .lineLimit(4)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+                .padding(16)
+                .background(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                HStack(spacing: 12) {
+                    HomeMetricCard(
+                        title: "今日时长",
+                        value: durationText(controlCenterState.homeStatsSnapshot.totalDurationSeconds),
+                        subtitle: "来自本地历史"
+                    )
+                    HomeMetricCard(
+                        title: "今日字数",
+                        value: "\(controlCenterState.homeStatsSnapshot.totalCharacters)",
+                        subtitle: "输出文本统计"
+                    )
+                    HomeMetricCard(
+                        title: "当前速度",
+                        value: speedText(controlCenterState.homeStatsSnapshot.charactersPerMinute),
+                        subtitle: "字/分钟"
+                    )
+                }
+            }
+            .padding(20)
+        }
+        .onAppear {
+            permissionsCenter.refreshStatuses()
         }
     }
 
@@ -369,6 +449,25 @@ struct SettingsView: View {
         }
     }
 
+    private var wakeShortcutText: String {
+        KeyboardShortcuts.getShortcut(for: .wakeSession)?
+            .description
+            .replacingOccurrences(of: "-", with: " + ")
+            ?? "Control + Option + Space"
+    }
+
+    private func durationText(_ seconds: Double) -> String {
+        let safeSeconds = max(0, Int(seconds.rounded()))
+        let minutes = safeSeconds / 60
+        let remainSeconds = safeSeconds % 60
+        return "\(minutes)分 \(remainSeconds)秒"
+    }
+
+    private func speedText(_ value: Double) -> String {
+        let safe = max(0, Int(value.rounded()))
+        return "\(safe)"
+    }
+
     private func runASRTest() {
         guard !asrTesting else {
             return
@@ -413,6 +512,29 @@ private struct PlaceholderPageView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct HomeMetricCard: View {
+    let title: String
+    let value: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.title3.weight(.semibold))
+            Text(subtitle)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 

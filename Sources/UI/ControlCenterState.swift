@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 enum DesktopSection: String, CaseIterable, Identifiable {
@@ -62,21 +63,27 @@ enum MemoryFilterOption: String, CaseIterable, Identifiable {
     }
 }
 
-struct HomeStatsSnapshot: Equatable {
-    var totalDurationSeconds: Double
-    var totalCharacters: Int
-    var charactersPerMinute: Double
-
-    static let zero = HomeStatsSnapshot(
-        totalDurationSeconds: 0,
-        totalCharacters: 0,
-        charactersPerMinute: 0
-    )
-}
-
 @MainActor
 final class ControlCenterState: ObservableObject {
     @Published var selectedSection: DesktopSection = .home
     @Published var memoryFilter: MemoryFilterOption = .all
-    @Published var homeStatsSnapshot: HomeStatsSnapshot = .zero
+    @Published private(set) var homeStatsSnapshot: HistoryStatisticsSnapshot = .zero
+
+    private var cancellables = Set<AnyCancellable>()
+
+    init(localHistoryStore: LocalHistoryStore) {
+        homeStatsSnapshot = localHistoryStore.todayStatistics()
+
+        localHistoryStore.$entries
+            .sink { [weak self, weak localHistoryStore] _ in
+                guard
+                    let self,
+                    let localHistoryStore
+                else {
+                    return
+                }
+                self.homeStatsSnapshot = localHistoryStore.todayStatistics()
+            }
+            .store(in: &cancellables)
+    }
 }

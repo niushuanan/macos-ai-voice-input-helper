@@ -68,7 +68,6 @@ final class AppModel: ObservableObject {
 
     static func bootstrap() -> AppModel {
         let store = LocalStore.bootstrap()
-        let controlCenterState = ControlCenterState()
         let sessionStore = SessionStore()
         let permissionsCenter = PermissionsCenter()
         let audioCaptureService = AVAudioRecorderCaptureService(temporaryDirectory: store.temporaryAudioDirectory)
@@ -87,6 +86,7 @@ final class AppModel: ObservableObject {
             logger: TextOutputLogger(diagnosticsDirectory: store.diagnosticsDirectory)
         )
         let localHistoryStore = LocalHistoryStore(historyDirectory: store.historyDirectory)
+        let controlCenterState = ControlCenterState(localHistoryStore: localHistoryStore)
         let interactionCoordinator = InteractionCoordinator(
             sessionStore: sessionStore,
             permissionsCenter: permissionsCenter,

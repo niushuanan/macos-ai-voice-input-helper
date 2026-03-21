@@ -26,6 +26,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
     let rewriteModel: String?
     let status: SessionHistoryStatus
     let errorMessage: String?
+    let audioDurationSeconds: Double?
 
     init(
         id: UUID = UUID(),
@@ -41,7 +42,8 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         rewriteProvider: String? = nil,
         rewriteModel: String? = nil,
         status: SessionHistoryStatus,
-        errorMessage: String? = nil
+        errorMessage: String? = nil,
+        audioDurationSeconds: Double? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -57,7 +59,20 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         self.rewriteModel = rewriteModel
         self.status = status
         self.errorMessage = errorMessage
+        self.audioDurationSeconds = audioDurationSeconds
     }
+}
+
+struct HistoryStatisticsSnapshot: Equatable {
+    let totalDurationSeconds: Double
+    let totalCharacters: Int
+    let charactersPerMinute: Double
+
+    static let zero = HistoryStatisticsSnapshot(
+        totalDurationSeconds: 0,
+        totalCharacters: 0,
+        charactersPerMinute: 0
+    )
 }
 
 @MainActor
@@ -104,6 +119,36 @@ final class LocalHistoryStore: ObservableObject {
         if fileManager.fileExists(atPath: fileURL.path) {
             try? fileManager.removeItem(at: fileURL)
         }
+    }
+
+    func todayStatistics(
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> HistoryStatisticsSnapshot {
+        let todayEntries = entries.filter { calendar.isDate($0.timestamp, inSameDayAs: now) }
+        guard !todayEntries.isEmpty else {
+            return .zero
+        }
+
+        let totalDuration = todayEntries.reduce(0) { partial, entry in
+            partial + max(0, entry.audioDurationSeconds ?? 0)
+        }
+        let totalCharacters = todayEntries.reduce(0) { partial, entry in
+            let text = (entry.outputText ?? entry.inputText).trimmingCharacters(in: .whitespacesAndNewlines)
+            return partial + text.count
+        }
+        let charactersPerMinute: Double
+        if totalDuration > 0 {
+            charactersPerMinute = (Double(totalCharacters) / totalDuration) * 60
+        } else {
+            charactersPerMinute = 0
+        }
+
+        return HistoryStatisticsSnapshot(
+            totalDurationSeconds: totalDuration,
+            totalCharacters: totalCharacters,
+            charactersPerMinute: charactersPerMinute
+        )
     }
 
     private func load() {

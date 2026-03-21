@@ -105,6 +105,7 @@ final class InteractionCoordinator {
         let focusContext = contextDetector.focusedAppContext()
         let mode = historyMode(for: sessionStore.activeLane)
         let latestInput = sessionStore.latestTranscription?.transcript ?? ""
+        let clipDuration = sessionStore.pendingClip?.duration
 
         transcriptionTask?.cancel()
         transcriptionTask = nil
@@ -123,7 +124,8 @@ final class InteractionCoordinator {
                 inputText: latestInput,
                 outputText: nil,
                 status: .cancelled,
-                errorMessage: "用户取消了当前会话。"
+                errorMessage: "用户取消了当前会话。",
+                audioDurationSeconds: clipDuration
             )
         )
     }
@@ -208,7 +210,11 @@ final class InteractionCoordinator {
 
                 audioCaptureService.removeClip(at: clip.fileURL)
                 sessionStore.clearPendingClipReference()
-                await processTranscriptionResult(result, lane: request.lane)
+                await processTranscriptionResult(
+                    result,
+                    lane: request.lane,
+                    audioDurationSeconds: clip.duration
+                )
             } catch is CancellationError {
                 return
             } catch let speechError as SpeechTranscriptionError {
@@ -228,7 +234,8 @@ final class InteractionCoordinator {
                         transcriptionProvider: resolvedConfiguration?.providerName,
                         transcriptionModel: resolvedConfiguration?.modelName,
                         status: .failed,
-                        errorMessage: actionableMessage(for: speechError)
+                        errorMessage: actionableMessage(for: speechError),
+                        audioDurationSeconds: clip.duration
                     )
                 )
                 sessionStore.fail(message: actionableMessage(for: speechError))
@@ -250,7 +257,8 @@ final class InteractionCoordinator {
                         transcriptionProvider: resolvedConfiguration?.providerName,
                         transcriptionModel: resolvedConfiguration?.modelName,
                         status: .failed,
-                        errorMessage: message
+                        errorMessage: message,
+                        audioDurationSeconds: clip.duration
                     )
                 )
                 sessionStore.fail(message: message)
@@ -260,18 +268,26 @@ final class InteractionCoordinator {
 
     private func processTranscriptionResult(
         _ transcription: SpeechTranscriptionResult,
-        lane: InputLane
+        lane: InputLane,
+        audioDurationSeconds: TimeInterval
     ) async {
         switch lane {
         case .directDictation:
-            await outputDictationTranscript(transcription)
+            await outputDictationTranscript(
+                transcription,
+                audioDurationSeconds: audioDurationSeconds
+            )
         case .selectionRewrite:
-            await outputSelectionRewrite(transcription)
+            await outputSelectionRewrite(
+                transcription,
+                audioDurationSeconds: audioDurationSeconds
+            )
         }
     }
 
     private func outputDictationTranscript(
-        _ transcription: SpeechTranscriptionResult
+        _ transcription: SpeechTranscriptionResult,
+        audioDurationSeconds: TimeInterval
     ) async {
         let focusContext = contextDetector.focusedAppContext()
 
@@ -298,7 +314,8 @@ final class InteractionCoordinator {
                     outputText: transcription.transcript,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
-                    status: .success
+                    status: .success,
+                    audioDurationSeconds: audioDurationSeconds
                 )
             )
         } catch let outputError as TextOutputError {
@@ -313,7 +330,8 @@ final class InteractionCoordinator {
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     status: .failed,
-                    errorMessage: message
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds
                 )
             )
             sessionStore.fail(message: message)
@@ -332,7 +350,8 @@ final class InteractionCoordinator {
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     status: .failed,
-                    errorMessage: message
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds
                 )
             )
             sessionStore.fail(message: message)
@@ -340,7 +359,8 @@ final class InteractionCoordinator {
     }
 
     private func outputSelectionRewrite(
-        _ transcription: SpeechTranscriptionResult
+        _ transcription: SpeechTranscriptionResult,
+        audioDurationSeconds: TimeInterval
     ) async {
         let spokenInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialFocusContext = contextDetector.focusedAppContext()
@@ -358,7 +378,8 @@ final class InteractionCoordinator {
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     status: .failed,
-                    errorMessage: message
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds
                 )
             )
             sessionStore.fail(message: message)
@@ -383,7 +404,8 @@ final class InteractionCoordinator {
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     status: .failed,
-                    errorMessage: message
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds
                 )
             )
             sessionStore.fail(message: message)
@@ -404,7 +426,8 @@ final class InteractionCoordinator {
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     status: .failed,
-                    errorMessage: message
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds
                 )
             )
             sessionStore.fail(
@@ -426,7 +449,8 @@ final class InteractionCoordinator {
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     status: .failed,
-                    errorMessage: message
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds
                 )
             )
             sessionStore.fail(message: message)
@@ -447,7 +471,8 @@ final class InteractionCoordinator {
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     status: .failed,
-                    errorMessage: message
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds
                 )
             )
             sessionStore.fail(message: message)
@@ -514,7 +539,8 @@ final class InteractionCoordinator {
                     transcriptionModel: transcription.modelName,
                     rewriteProvider: rewriteResult.providerName,
                     rewriteModel: rewriteResult.modelName,
-                    status: .success
+                    status: .success,
+                    audioDurationSeconds: audioDurationSeconds
                 )
             )
         } catch let rewriteError as RewriteProviderError {
@@ -532,7 +558,8 @@ final class InteractionCoordinator {
                     rewriteProvider: rewriteConfiguration.providerName,
                     rewriteModel: rewriteConfiguration.modelName,
                     status: .failed,
-                    errorMessage: message
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds
                 )
             )
             sessionStore.fail(message: message)
@@ -551,7 +578,8 @@ final class InteractionCoordinator {
                     rewriteProvider: rewriteConfiguration.providerName,
                     rewriteModel: rewriteConfiguration.modelName,
                     status: .failed,
-                    errorMessage: message
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds
                 )
             )
             sessionStore.fail(message: message)
@@ -570,7 +598,8 @@ final class InteractionCoordinator {
                     rewriteProvider: rewriteConfiguration.providerName,
                     rewriteModel: rewriteConfiguration.modelName,
                     status: .failed,
-                    errorMessage: message
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds
                 )
             )
             sessionStore.fail(message: message)
