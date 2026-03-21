@@ -183,6 +183,19 @@ final class DashScopeAndLocalASRTests: XCTestCase {
         }
     }
 
+    func testParseProviderErrorRedactsSensitiveTokens() throws {
+        let token = "sk-" + String(repeating: "a", count: 24)
+        let body: [String: String] = [
+            "message": "Authorization: Bearer \(token)"
+        ]
+        let data = try JSONSerialization.data(withJSONObject: body)
+
+        let detail = ASRConnectionTester.parseProviderError(from: data)
+        XCTAssertFalse(detail.contains(token))
+        XCTAssertTrue(detail.contains("Bearer [REDACTED]"))
+        XCTAssertTrue(detail.contains("Authorization:"))
+    }
+
     private func makeStubSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [DashScopeURLProtocolStub.self]

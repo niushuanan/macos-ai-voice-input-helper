@@ -1282,7 +1282,7 @@ struct ASRConnectionTester {
             let message = payload.error.message?.trimmingCharacters(in: .whitespacesAndNewlines),
             !message.isEmpty
         {
-            return message
+            return redactSensitiveText(message)
         }
 
         if
@@ -1290,12 +1290,52 @@ struct ASRConnectionTester {
             let message = payload.message?.trimmingCharacters(in: .whitespacesAndNewlines),
             !message.isEmpty
         {
-            return message
+            return redactSensitiveText(message)
         }
 
         let fallback = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return fallback.isEmpty ? "无错误详情" : fallback
+        guard !fallback.isEmpty else {
+            return "无错误详情"
+        }
+        return redactSensitiveText(fallback)
+    }
+
+    static func redactSensitiveText(_ text: String) -> String {
+        var output = text
+        output = replaceRegex(
+            pattern: #"(?i)(Authorization\s*:\s*Bearer\s+)[A-Za-z0-9._\-]+"#,
+            template: "$1[REDACTED]",
+            in: output
+        )
+        output = replaceRegex(
+            pattern: #"\bBearer\s+[A-Za-z0-9._\-]{20,}\b"#,
+            template: "Bearer [REDACTED]",
+            in: output
+        )
+        output = replaceRegex(
+            pattern: #"\bsk-[A-Za-z0-9]{10,}\b"#,
+            template: "sk-[REDACTED]",
+            in: output
+        )
+        return output
+    }
+
+    private static func replaceRegex(
+        pattern: String,
+        template: String,
+        in text: String
+    ) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return text
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.stringByReplacingMatches(
+            in: text,
+            options: [],
+            range: range,
+            withTemplate: template
+        )
     }
 }
 

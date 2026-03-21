@@ -382,8 +382,45 @@ final class TextOutputLogger {
     func log(_ message: String) {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let line = "\(formatter.string(from: Date())) \(message)\n"
+        let line = "\(formatter.string(from: Date())) \(Self.redactSensitiveText(message))\n"
         append(line)
+    }
+
+    private static func redactSensitiveText(_ text: String) -> String {
+        var output = text
+        output = replaceRegex(
+            pattern: #"(?i)(Authorization\s*:\s*Bearer\s+)[A-Za-z0-9._\-]+"#,
+            template: "$1[REDACTED]",
+            in: output
+        )
+        output = replaceRegex(
+            pattern: #"\bBearer\s+[A-Za-z0-9._\-]{20,}\b"#,
+            template: "Bearer [REDACTED]",
+            in: output
+        )
+        output = replaceRegex(
+            pattern: #"\bsk-[A-Za-z0-9]{10,}\b"#,
+            template: "sk-[REDACTED]",
+            in: output
+        )
+        return output
+    }
+
+    private static func replaceRegex(
+        pattern: String,
+        template: String,
+        in text: String
+    ) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return text
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.stringByReplacingMatches(
+            in: text,
+            options: [],
+            range: range,
+            withTemplate: template
+        )
     }
 
     private func append(_ value: String) {
