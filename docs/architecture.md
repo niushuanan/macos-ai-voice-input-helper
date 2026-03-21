@@ -354,6 +354,13 @@ Current implementation:
   - base URL (optional for compatible type)
   - transcription model and rewrite model
 - API key save/delete using profile-scoped Keychain entries
+- local history panel with:
+  - app/mode/status filters
+  - focused-app-only toggle
+  - per-entry delete and full clear
+- app scene policy panel with:
+  - focused-app quick edit
+  - saved policy list and inline controls
 
 ### Diagnostics
 

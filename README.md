@@ -1,10 +1,9 @@
 # PulseType
 
 PulseType is a keyboard-first macOS helper app for AI voice input.
-It is intentionally not an `InputMethodKit` input method. The product target is
-a menu bar and global-hotkey tool that can be summoned from anywhere, use
-user-supplied cloud model keys, and keep history plus configuration on the
-local machine by default.
+It is intentionally not an `InputMethodKit` input method.
+
+Current repository goal: deliver a stable **trialable v0/v1** build with clear setup, clear limits, and local-first behavior.
 
 ## Why this project exists
 
@@ -16,27 +15,25 @@ keyboard replacement. PulseType takes a different path:
 - treat direct dictation and selection rewrite as two first-class lanes
 - tune output by context without forcing users into a chat window
 
-## Current status
+## What works now
 
-This repository now includes:
+Core product loop:
 
-- a native macOS SwiftUI helper app scaffold built around `MenuBarExtra`
-- a menu bar icon plus basic menu actions (wake, stop, cancel, settings, quit)
-- a command deck window for interaction drill and diagnostics visibility
-- a short non-blocking status HUD pulse on state changes
-- native local audio recording into temporary `.m4a` clips with session-level cleanup
-- live listening-level feedback in the menu bar and command deck
-- OpenAI cloud transcription path from recorded audio to text result
-- multi-provider profile center with Keychain-backed per-profile API keys
-- split routing: one provider for transcription, another for rewrite
-- OpenAI official and OpenAI-compatible endpoint support
-- selection-aware rewrite lane with action parsing (`translate`, `polish`, `condense`, `structure`)
-- focus-aware text writeback engine with explicit fallback labeling
-- local session history logging with in-app view and delete controls
-- per-app scene policy (`output bias` + `rewrite lane preference`) with settings UI
-- a session-state spine covering `idle`, `listening`, `transcribing`,
-  `rewriting`, `inserting`, `cancelled`, and `error`
-- architecture and engineering docs that define the path from phase 0 to beta
+- Global shortcuts: wake, stop, cancel
+- Local audio recording + cloud transcription
+- Dictation writeback into focused app
+- Selection rewrite (`translate`, `polish`, `condense`, `structure`)
+- Provider role split (transcription provider and rewrite provider)
+- API key input in settings, stored in Keychain
+- Local history with delete operations and app/mode/status filters
+- App-aware policy (`output bias` + rewrite-lane preference)
+- Permission center for microphone and accessibility
+- Status feedback in menu bar, command deck, and HUD pulse
+
+Engineering baseline:
+
+- Unit tests for state machine, intent parsing, endpoint resolution, provider adapters
+- GitHub Actions CI running macOS build and test
 
 ## Selected innovation tracks
 
@@ -48,24 +45,24 @@ This repository now includes:
 These tracks are documented in
 [docs/product-principles.md](docs/product-principles.md).
 
-## Repository map
+## Current limits (important)
 
-- `project.yml`: XcodeGen source of truth
-- `PulseType.xcodeproj`: generated Xcode project
-- `Sources/App`: app lifecycle and composition root
-- `Sources/Core`: session, interaction, hotkey, provider, permissions, storage, diagnostics
-- `Sources/UI`: menu bar menu, command deck, status HUD, and settings surfaces
-- `docs/`: product, architecture, engineering plan, milestones, and ADRs
+- Compatibility is validated on a limited app set; broad editor coverage is not complete yet.
+- AX direct insertion can still vary across target apps and app versions.
+- No offline ASR or local LLM path in this stage.
+- No signed/notarized distributable package in this stage.
 
-## Build
+See [docs/compatibility-matrix-v1.md](docs/compatibility-matrix-v1.md) for tested targets and known unstable scenarios.
 
-Generate the Xcode project:
+## Quick start
+
+Generate project:
 
 ```bash
 xcodegen generate
 ```
 
-Build from the command line:
+Build:
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
@@ -77,11 +74,32 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   build
 ```
 
-If your shell already points to the full Xcode developer directory, the
-`DEVELOPER_DIR` prefix is not necessary.
+Test:
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild \
+  -project PulseType.xcodeproj \
+  -scheme PulseType \
+  -configuration Debug \
+  CODE_SIGNING_ALLOWED=NO \
+  test
+```
+
+## Trial checklist
+
+1. Configure provider profile and API key in settings.
+2. Grant microphone permission.
+3. Grant accessibility permission.
+4. Try direct dictation in TextEdit.
+5. Try selection rewrite with highlighted text.
+6. Check history panel and filters.
 
 ## Key documents
 
+- [docs/install.md](docs/install.md)
+- [docs/usage.md](docs/usage.md)
+- [docs/api-key-setup.md](docs/api-key-setup.md)
 - [docs/product-principles.md](docs/product-principles.md)
 - [docs/engineering-plan.md](docs/engineering-plan.md)
 - [docs/architecture.md](docs/architecture.md)
@@ -91,5 +109,7 @@ If your shell already points to the full Xcode developer directory, the
 - [docs/text-output.md](docs/text-output.md)
 - [docs/compatibility-matrix-v1.md](docs/compatibility-matrix-v1.md)
 - [docs/local-history-and-scene-policy.md](docs/local-history-and-scene-policy.md)
+- [docs/release-checklist.md](docs/release-checklist.md)
+- [docs/v1-backlog.md](docs/v1-backlog.md)
 - [docs/milestones.md](docs/milestones.md)
 - [docs/adr/0001-helper-app-direction.md](docs/adr/0001-helper-app-direction.md)

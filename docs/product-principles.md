@@ -268,6 +268,33 @@ Why this was selected:
 - fully explainable and reversible behavior for users
 - fits v1 engineering budget while creating a strong base for future scene intelligence
 
+## Prompt 10 completion-polish candidates
+
+Goal in this phase:
+
+- shift from feature accumulation to trial-ready product experience
+- improve trust and debuggability with minimal risk
+
+| Candidate | User value | Build risk | Development cost | v0/v1 fit | Decision |
+| --- | --- | --- | --- | --- | --- |
+| History scene filters | Users can quickly inspect what happened by app, lane, and status. This reduces trial confusion and speeds issue reports. | Low | Low to medium | Best | Selected |
+| One-click retry after failure | Faster recovery after provider or network errors. | Medium | Medium | Good | Parked |
+
+### Selected in this round: history scene filters
+
+Implemented experience:
+
+- filter history by mode (`dictation` / `selectionRewrite`)
+- filter by status (`success` / `failed` / `cancelled`)
+- filter by app name or bundle id
+- optional focus-app only switch
+
+Why this choice:
+
+- clearly visible upgrade in daily trial usage
+- minimal runtime risk to session pipeline
+- directly supports debugging and quality loops for beta
+
 ## Non-negotiable interaction principles
 
 - Summon and cancel actions must be easy to memorize.
