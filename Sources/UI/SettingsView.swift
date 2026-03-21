@@ -351,8 +351,23 @@ struct SettingsView: View {
         onTest: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(roleTitle)
-                .font(.headline)
+            HStack(alignment: .center, spacing: 10) {
+                Text(roleTitle)
+                    .font(.headline)
+                Label(
+                    providerType.wrappedValue.displayName,
+                    systemImage: providerType.wrappedValue == .localSenseVoice ? "cpu" : "cloud.fill"
+                )
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color.accentColor.opacity(0.14))
+                )
+                .foregroundStyle(providerType.wrappedValue == .localSenseVoice ? .orange : .accentColor)
+                Spacer()
+            }
 
             ModelConfigCard(
                 title: cardTitle,
@@ -482,6 +497,29 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.bordered)
                 Spacer()
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("当前运行实例")
+                    .font(.subheadline.weight(.semibold))
+                Text("Bundle ID：\(permissionsCenter.runtimeDiagnostics.bundleIdentifier)")
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+                Text("可执行文件：\(permissionsCenter.runtimeDiagnostics.executablePath)")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                Text("签名摘要：\(permissionsCenter.runtimeDiagnostics.signatureSummary)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("最近检测：\(permissionsCenter.runtimeDiagnostics.checkedAt.formatted(date: .omitted, time: .standard))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Label("系统设置里如出现多个 PulseType，请只保留这一路径对应的项。", systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(14)
@@ -869,9 +907,9 @@ struct SettingsView: View {
     private var detailPaneBackground: some View {
         LinearGradient(
             colors: [
-                Color.accentColor.opacity(0.06),
                 Color(nsColor: .windowBackgroundColor),
-                Color(nsColor: .controlBackgroundColor).opacity(0.96)
+                Color.white.opacity(0.72),
+                Color.accentColor.opacity(0.05)
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
@@ -1635,12 +1673,16 @@ private struct PulseCardStyle: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
             .background(
-                shape.fill(Color(nsColor: .controlBackgroundColor).opacity(0.95))
+                shape.fill(Color(nsColor: .textBackgroundColor).opacity(0.9))
+                    .background(
+                        shape.fill(.ultraThinMaterial)
+                    )
             )
             .overlay(
-                shape.stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                shape.stroke(Color.white.opacity(0.72), lineWidth: 1)
+                    .shadow(color: Color.black.opacity(0.06), radius: 0, x: 0, y: 0)
             )
-            .shadow(color: Color.black.opacity(0.05), radius: 7, x: 0, y: 2)
+            .shadow(color: Color.black.opacity(0.06), radius: 12, x: 0, y: 4)
     }
 }
 

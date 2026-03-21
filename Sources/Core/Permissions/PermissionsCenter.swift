@@ -3,6 +3,7 @@ import AppKit
 import ApplicationServices
 import Combine
 import Foundation
+import Security
 
 enum PermissionState: String {
     case notRequested
@@ -63,9 +64,74 @@ struct PermissionPresentation: Identifiable {
     let guidance: String
 }
 
+struct PermissionRuntimeDiagnostics: Equatable {
+    let bundleIdentifier: String
+    let bundlePath: String
+    let executablePath: String
+    let signatureSummary: String
+    let checkedAt: Date
+
+    static func current(bundle: Bundle = .main, now: Date = Date()) -> PermissionRuntimeDiagnostics {
+        let bundleIdentifier = bundle.bundleIdentifier ?? "unknown"
+        let bundlePath = bundle.bundlePath
+        let executablePath = bundle.executablePath ?? bundle.bundlePath
+        return PermissionRuntimeDiagnostics(
+            bundleIdentifier: bundleIdentifier,
+            bundlePath: bundlePath,
+            executablePath: executablePath,
+            signatureSummary: signatureSummary(forExecutablePath: executablePath),
+            checkedAt: now
+        )
+    }
+
+    private static func signatureSummary(forExecutablePath executablePath: String) -> String {
+        let executableURL = URL(fileURLWithPath: executablePath)
+        var staticCode: SecStaticCode?
+        let createStatus = SecStaticCodeCreateWithPath(
+            executableURL as CFURL,
+            SecCSFlags(),
+            &staticCode
+        )
+        guard createStatus == errSecSuccess, let staticCode else {
+            return "签名信息不可用"
+        }
+
+        var information: CFDictionary?
+        let infoStatus = SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: kSecCSSigningInformation),
+            &information
+        )
+        guard
+            infoStatus == errSecSuccess,
+            let dictionary = information as? [String: Any]
+        else {
+            return "签名信息不可用"
+        }
+
+        let teamIdentifier = (
+            dictionary[kSecCodeInfoTeamIdentifier as String] as? String
+        ) ?? (dictionary["teamid"] as? String)
+        let source = (
+            dictionary[kSecCodeInfoSource as String] as? String
+        ) ?? (dictionary["source"] as? String)
+
+        if let teamIdentifier, !teamIdentifier.isEmpty {
+            return "已签名 · TeamID \(teamIdentifier)"
+        }
+
+        if let source, source.lowercased().contains("adhoc") {
+            return "本地签名（ad-hoc）"
+        }
+
+        return "本地签名（无 TeamID）"
+    }
+}
+
 @MainActor
 final class PermissionsCenter: ObservableObject {
     @Published private(set) var snapshot: PermissionSnapshot = .initial
+    @Published private(set) var runtimeDiagnostics: PermissionRuntimeDiagnostics
 
     private let defaults: UserDefaults
     private let didPromptAccessibilityKey = "permissions.didPromptAccessibility"
@@ -74,19 +140,44 @@ final class PermissionsCenter: ObservableObject {
     private let accessibilityStateResolver: (() -> PermissionState)?
     private let isAccessibilityTrusted: (() -> Bool)?
     private let accessibilityPromptFingerprintProvider: (() -> String)?
+    private let accessibilityPromptRequester: (() -> Void)?
+    private let accessibilityPollingAttemptCount: Int
+    private let accessibilityPollingIntervalNanoseconds: UInt64
+    private let pollingSleep: (UInt64) async -> Void
+    private let runtimeDiagnosticsProvider: () -> PermissionRuntimeDiagnostics
+    private var accessibilityPollingTask: Task<Void, Never>?
 
     init(
         defaults: UserDefaults = .standard,
         microphoneStateResolver: (() -> PermissionState)? = nil,
         accessibilityStateResolver: (() -> PermissionState)? = nil,
         isAccessibilityTrusted: (() -> Bool)? = nil,
-        accessibilityPromptFingerprintProvider: (() -> String)? = nil
+        accessibilityPromptFingerprintProvider: (() -> String)? = nil,
+        accessibilityPromptRequester: (() -> Void)? = nil,
+        accessibilityPollingAttemptCount: Int = 25,
+        accessibilityPollingIntervalNanoseconds: UInt64 = 1_000_000_000,
+        pollingSleep: @escaping (UInt64) async -> Void = { nanoseconds in
+            try? await Task.sleep(nanoseconds: nanoseconds)
+        },
+        runtimeDiagnosticsProvider: @escaping () -> PermissionRuntimeDiagnostics = {
+            PermissionRuntimeDiagnostics.current()
+        }
     ) {
         self.defaults = defaults
         self.microphoneStateResolver = microphoneStateResolver
         self.accessibilityStateResolver = accessibilityStateResolver
         self.isAccessibilityTrusted = isAccessibilityTrusted
         self.accessibilityPromptFingerprintProvider = accessibilityPromptFingerprintProvider
+        self.accessibilityPromptRequester = accessibilityPromptRequester
+        self.accessibilityPollingAttemptCount = max(1, accessibilityPollingAttemptCount)
+        self.accessibilityPollingIntervalNanoseconds = accessibilityPollingIntervalNanoseconds
+        self.pollingSleep = pollingSleep
+        self.runtimeDiagnosticsProvider = runtimeDiagnosticsProvider
+        self.runtimeDiagnostics = runtimeDiagnosticsProvider()
+    }
+
+    deinit {
+        accessibilityPollingTask?.cancel()
     }
 
     func refreshStatuses() {
@@ -94,6 +185,11 @@ final class PermissionsCenter: ObservableObject {
             microphone: microphoneState(),
             accessibility: accessibilityState()
         )
+        runtimeDiagnostics = runtimeDiagnosticsProvider()
+        if snapshot.accessibility == .granted {
+            accessibilityPollingTask?.cancel()
+            accessibilityPollingTask = nil
+        }
     }
 
     func requestAccess(for kind: PermissionKind) {
@@ -145,11 +241,13 @@ final class PermissionsCenter: ObservableObject {
         snapshot.accessibility = .pending
         defaults.set(true, forKey: didPromptAccessibilityKey)
         defaults.set(currentAccessibilityPromptFingerprint(), forKey: accessibilityPromptFingerprintKey)
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.refreshStatuses()
+        if let accessibilityPromptRequester {
+            accessibilityPromptRequester()
+        } else {
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
         }
+        startAccessibilityPolling()
     }
 
     private func microphoneState() -> PermissionState {
@@ -248,5 +346,25 @@ final class PermissionsCenter: ObservableObject {
         let modificationDate = attributes[.modificationDate] as? Date
         let timestamp = Int((modificationDate ?? .distantPast).timeIntervalSince1970)
         return "\(bundlePath)|\(executablePath)|\(timestamp)"
+    }
+
+    private func startAccessibilityPolling() {
+        accessibilityPollingTask?.cancel()
+        accessibilityPollingTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            for _ in 0..<self.accessibilityPollingAttemptCount {
+                await self.pollingSleep(self.accessibilityPollingIntervalNanoseconds)
+                if Task.isCancelled {
+                    return
+                }
+                self.refreshStatuses()
+                if self.snapshot.accessibility == .granted {
+                    return
+                }
+            }
+        }
     }
 }
