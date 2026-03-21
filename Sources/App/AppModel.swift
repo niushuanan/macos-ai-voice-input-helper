@@ -11,6 +11,7 @@ final class AppModel: ObservableObject {
     let audioCaptureService: AudioCaptureService
     let providerSettingsStore: ProviderSettingsStore
     let speechProviderRegistry: SpeechProviderRegistry
+    let rewriteProviderRegistry: RewriteProviderRegistry
     let textOutputCoordinator: TextOutputCoordinator
     let contextDetector: ContextDetector
     let permissionsCenter: PermissionsCenter
@@ -27,6 +28,7 @@ final class AppModel: ObservableObject {
         audioCaptureService: AudioCaptureService,
         providerSettingsStore: ProviderSettingsStore,
         speechProviderRegistry: SpeechProviderRegistry,
+        rewriteProviderRegistry: RewriteProviderRegistry,
         textOutputCoordinator: TextOutputCoordinator,
         contextDetector: ContextDetector,
         permissionsCenter: PermissionsCenter,
@@ -41,6 +43,7 @@ final class AppModel: ObservableObject {
         self.audioCaptureService = audioCaptureService
         self.providerSettingsStore = providerSettingsStore
         self.speechProviderRegistry = speechProviderRegistry
+        self.rewriteProviderRegistry = rewriteProviderRegistry
         self.textOutputCoordinator = textOutputCoordinator
         self.contextDetector = contextDetector
         self.permissionsCenter = permissionsCenter
@@ -65,6 +68,9 @@ final class AppModel: ObservableObject {
         let speechProviderRegistry = SpeechProviderRegistry(
             providers: [OpenAITranscriptionProvider()]
         )
+        let rewriteProviderRegistry = RewriteProviderRegistry(
+            providers: [OpenAIRewriteProvider()]
+        )
         let contextDetector = AccessibilityContextDetector()
         let textOutputCoordinator = AccessibilityTextOutputCoordinator(
             logger: TextOutputLogger(diagnosticsDirectory: store.diagnosticsDirectory)
@@ -75,6 +81,7 @@ final class AppModel: ObservableObject {
             audioCaptureService: audioCaptureService,
             providerSettingsStore: providerSettingsStore,
             providerRegistry: speechProviderRegistry,
+            rewriteProviderRegistry: rewriteProviderRegistry,
             textOutputCoordinator: textOutputCoordinator,
             contextDetector: contextDetector
         )
@@ -86,6 +93,7 @@ final class AppModel: ObservableObject {
             audioCaptureService: audioCaptureService,
             providerSettingsStore: providerSettingsStore,
             speechProviderRegistry: speechProviderRegistry,
+            rewriteProviderRegistry: rewriteProviderRegistry,
             textOutputCoordinator: textOutputCoordinator,
             contextDetector: contextDetector,
             permissionsCenter: permissionsCenter,

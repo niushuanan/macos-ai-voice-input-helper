@@ -18,6 +18,7 @@ final class InteractionCoordinator {
     private let audioCaptureService: AudioCaptureService
     private let providerSettingsStore: ProviderSettingsStore
     private let providerRegistry: SpeechProviderRegistry
+    private let rewriteProviderRegistry: RewriteProviderRegistry
     private let textOutputCoordinator: TextOutputCoordinator
     private let contextDetector: ContextDetector
     private var cancellables = Set<AnyCancellable>()
@@ -29,6 +30,7 @@ final class InteractionCoordinator {
         audioCaptureService: AudioCaptureService,
         providerSettingsStore: ProviderSettingsStore,
         providerRegistry: SpeechProviderRegistry,
+        rewriteProviderRegistry: RewriteProviderRegistry,
         textOutputCoordinator: TextOutputCoordinator,
         contextDetector: ContextDetector
     ) {
@@ -37,6 +39,7 @@ final class InteractionCoordinator {
         self.audioCaptureService = audioCaptureService
         self.providerSettingsStore = providerSettingsStore
         self.providerRegistry = providerRegistry
+        self.rewriteProviderRegistry = rewriteProviderRegistry
         self.textOutputCoordinator = textOutputCoordinator
         self.contextDetector = contextDetector
         bindListeningLevel()
@@ -54,15 +57,12 @@ final class InteractionCoordinator {
                 return
             }
 
-            if context.rewriteModifierHeld && context.selectionAvailable {
-                guard permissionsCenter.snapshot.accessibility == .granted else {
-                    sessionStore.fail(message: "Accessibility permission is required for selection rewrite.")
-                    return
-                }
-                startRecordingAndTransition(lane: .selectionRewrite)
-            } else {
-                startRecordingAndTransition(lane: .directDictation)
+            let lane = resolvedLane(context: context)
+            if lane == .selectionRewrite && permissionsCenter.snapshot.accessibility != .granted {
+                sessionStore.fail(message: "Accessibility permission is required for selection rewrite.")
+                return
             }
+            startRecordingAndTransition(lane: lane)
         case .listening:
             handleStopInput()
         case .transcribing, .rewriting, .inserting:
@@ -182,7 +182,7 @@ final class InteractionCoordinator {
 
                 audioCaptureService.removeClip(at: clip.fileURL)
                 sessionStore.clearPendingClipReference()
-                await outputTranscript(result, lane: request.lane)
+                await processTranscriptionResult(result, lane: request.lane)
             } catch is CancellationError {
                 return
             } catch let speechError as SpeechTranscriptionError {
@@ -203,18 +203,26 @@ final class InteractionCoordinator {
         }
     }
 
-    private func outputTranscript(
+    private func processTranscriptionResult(
         _ transcription: SpeechTranscriptionResult,
         lane: InputLane
     ) async {
+        switch lane {
+        case .directDictation:
+            await outputDictationTranscript(transcription)
+        case .selectionRewrite:
+            await outputSelectionRewrite(transcription)
+        }
+    }
+
+    private func outputDictationTranscript(
+        _ transcription: SpeechTranscriptionResult
+    ) async {
         let focusContext = contextDetector.focusedAppContext()
-        let operation: TextOutputOperation = lane == .selectionRewrite
-            ? .replaceSelectedText
-            : .insertText
 
         let request = TextOutputRequest(
             text: transcription.transcript,
-            operation: operation,
+            operation: .insertText,
             focusContext: focusContext
         )
 
@@ -233,6 +241,82 @@ final class InteractionCoordinator {
                 for: .accessibilityPathFailed(reason: error.localizedDescription),
                 focusContext: focusContext
             ))
+        }
+    }
+
+    private func outputSelectionRewrite(
+        _ transcription: SpeechTranscriptionResult
+    ) async {
+        let spokenInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !spokenInstruction.isEmpty else {
+            sessionStore.fail(message: "Rewrite instruction is empty. Please try again with a clear command.")
+            return
+        }
+
+        let quickActionLabel = (try? RewriteIntentParser().parse(instruction: spokenInstruction).action.label)
+
+        guard let snapshot = textOutputCoordinator.currentSelectionSnapshot() else {
+            sessionStore.fail(message: "No selected text detected. Select text first, then trigger rewrite.")
+            return
+        }
+
+        guard providerSettingsStore.isRewriteConfigurationValid else {
+            sessionStore.fail(
+                message: providerSettingsStore.rewriteConfigurationValidationMessage
+                    ?? "Rewrite model configuration is invalid."
+            )
+            return
+        }
+
+        guard let loadedKey = try? providerSettingsStore.loadAPIKeyForActiveProvider() else {
+            sessionStore.fail(message: "Provider API key is missing. Open Settings to add it.")
+            return
+        }
+
+        let normalizedKey = loadedKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedKey.isEmpty else {
+            sessionStore.fail(message: "Provider API key is missing. Open Settings to add it.")
+            return
+        }
+
+        let rewriteConfiguration = providerSettingsStore.rewriteConfiguration
+        guard let rewriteProvider = rewriteProviderRegistry.provider(for: rewriteConfiguration.providerID) else {
+            sessionStore.fail(message: "Selected rewrite provider is not available in this build.")
+            return
+        }
+
+        sessionStore.markRewriting(actionLabel: quickActionLabel)
+
+        do {
+            let rewriteResult = try await rewriteProvider.rewrite(
+                request: SelectionRewriteRequest(
+                    selectedText: snapshot.selectedText,
+                    spokenInstruction: spokenInstruction,
+                    focusContext: snapshot.focusContext
+                ),
+                configuration: rewriteConfiguration,
+                apiKey: normalizedKey
+            )
+
+            let outputRequest = TextOutputRequest(
+                text: rewriteResult.rewrittenText,
+                operation: .replaceSelectedText,
+                focusContext: snapshot.focusContext
+            )
+
+            sessionStore.markInserting(
+                transcription: transcription,
+                focusContext: snapshot.focusContext
+            )
+
+            let outputResult = try await textOutputCoordinator.write(request: outputRequest)
+            sessionStore.completeInsertion(outputResult: outputResult)
+        } catch let rewriteError as RewriteProviderError {
+            sessionStore.fail(message: actionableRewriteMessage(for: rewriteError))
+        } catch let outputError as TextOutputError {
+            sessionStore.fail(message: actionableOutputMessage(for: outputError, focusContext: snapshot.focusContext))
+        } catch {
+            sessionStore.fail(message: "Rewrite failed: \(error.localizedDescription)")
         }
     }
 
@@ -297,5 +381,30 @@ final class InteractionCoordinator {
         case let .fallbackFailed(primaryReason):
             return "Writeback failed in \(focusContext.appName). Direct path reason: \(primaryReason)"
         }
+    }
+
+    private func actionableRewriteMessage(for error: RewriteProviderError) -> String {
+        switch error {
+        case .noSelectedText:
+            return "No selected text is available for rewrite."
+        case .emptyInstruction:
+            return "Instruction is empty. Try a command like translate, polish, condense, or structure."
+        case let .generationFailed(description):
+            return "Rewrite model request failed. Check model/key/quota. (\(description))"
+        case .invalidGeneratedText:
+            return "Rewrite model returned empty text. Please try a clearer command."
+        }
+    }
+
+    private func resolvedLane(context: WakeInvocationContext) -> InputLane {
+        if context.rewriteModifierHeld && context.selectionAvailable {
+            return .selectionRewrite
+        }
+
+        if textOutputCoordinator.currentSelectionSnapshot() != nil {
+            return .selectionRewrite
+        }
+
+        return .directDictation
     }
 }

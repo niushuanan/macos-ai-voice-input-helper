@@ -80,9 +80,19 @@ final class SessionStore: ObservableObject {
         transition(to: .idle, statusMessage: "Text written to \(outputResult.appName) via \(pathTitle).")
     }
 
-    func markRewriting() {
+    func markRewriting(actionLabel: String? = nil) {
         activeLane = .selectionRewrite
-        transition(to: .rewriting, statusMessage: "Applying rewrite instructions to the selected text.")
+        if let actionLabel, !actionLabel.isEmpty {
+            transition(
+                to: .rewriting,
+                statusMessage: "Applying \(actionLabel) to the selected text."
+            )
+        } else {
+            transition(
+                to: .rewriting,
+                statusMessage: "Applying rewrite instructions to the selected text."
+            )
+        }
     }
 
     func markInserting() {

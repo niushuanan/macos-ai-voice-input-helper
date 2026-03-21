@@ -20,9 +20,21 @@ enum SpeechProviderID: String, CaseIterable, Identifiable {
             return "whisper-1"
         }
     }
+
+    var defaultRewriteModelName: String {
+        switch self {
+        case .openAI:
+            return "gpt-4o-mini"
+        }
+    }
 }
 
 struct SpeechProviderConfiguration: Equatable {
+    let providerID: SpeechProviderID
+    let modelName: String
+}
+
+struct TextGenerationProviderConfiguration: Equatable {
     let providerID: SpeechProviderID
     let modelName: String
 }
@@ -109,6 +121,9 @@ final class ProviderSettingsStore: ObservableObject {
             if modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 modelName = selectedProviderID.defaultModelName
             }
+            if rewriteModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                rewriteModelName = selectedProviderID.defaultRewriteModelName
+            }
             refreshCredentialState()
         }
     }
@@ -116,6 +131,12 @@ final class ProviderSettingsStore: ObservableObject {
     @Published var modelName: String {
         didSet {
             defaults.set(modelName, forKey: defaultsModelKey)
+        }
+    }
+
+    @Published var rewriteModelName: String {
+        didSet {
+            defaults.set(rewriteModelName, forKey: defaultsRewriteModelKey)
         }
     }
 
@@ -127,6 +148,7 @@ final class ProviderSettingsStore: ObservableObject {
     private let credentialStore: ProviderCredentialStore
     private let defaultsProviderKey = "speech.provider.id"
     private let defaultsModelKey = "speech.provider.model"
+    private let defaultsRewriteModelKey = "rewrite.provider.model"
 
     init(
         defaults: UserDefaults = .standard,
@@ -153,6 +175,14 @@ final class ProviderSettingsStore: ObservableObject {
             modelName = initialProviderID.defaultModelName
         }
 
+        let storedRewriteModel = defaults.string(forKey: defaultsRewriteModelKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let storedRewriteModel, !storedRewriteModel.isEmpty {
+            rewriteModelName = storedRewriteModel
+        } else {
+            rewriteModelName = initialProviderID.defaultRewriteModelName
+        }
+
         refreshCredentialState()
     }
 
@@ -160,6 +190,13 @@ final class ProviderSettingsStore: ObservableObject {
         SpeechProviderConfiguration(
             providerID: selectedProviderID,
             modelName: normalizedModelName
+        )
+    }
+
+    var rewriteConfiguration: TextGenerationProviderConfiguration {
+        TextGenerationProviderConfiguration(
+            providerID: selectedProviderID,
+            modelName: normalizedRewriteModelName
         )
     }
 
@@ -171,20 +208,16 @@ final class ProviderSettingsStore: ObservableObject {
         configurationValidationMessage == nil
     }
 
+    var isRewriteConfigurationValid: Bool {
+        rewriteConfigurationValidationMessage == nil
+    }
+
     var configurationValidationMessage: String? {
-        if normalizedModelName.isEmpty {
-            return "Model name cannot be empty."
-        }
+        modelValidationMessage(for: normalizedModelName)
+    }
 
-        if normalizedModelName.count > 80 {
-            return "Model name is too long."
-        }
-
-        if normalizedModelName.contains(where: \.isWhitespace) {
-            return "Model name should not include whitespace."
-        }
-
-        return nil
+    var rewriteConfigurationValidationMessage: String? {
+        modelValidationMessage(for: normalizedRewriteModelName)
     }
 
     func refreshCredentialState() {
@@ -241,6 +274,26 @@ final class ProviderSettingsStore: ObservableObject {
 
     private var normalizedModelName: String {
         modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var normalizedRewriteModelName: String {
+        rewriteModelName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func modelValidationMessage(for model: String) -> String? {
+        if model.isEmpty {
+            return "Model name cannot be empty."
+        }
+
+        if model.count > 80 {
+            return "Model name is too long."
+        }
+
+        if model.contains(where: \.isWhitespace) {
+            return "Model name should not include whitespace."
+        }
+
+        return nil
     }
 }
 

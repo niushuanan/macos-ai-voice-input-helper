@@ -14,6 +14,11 @@ struct TextOutputRequest: Equatable {
     let focusContext: FocusedAppContext
 }
 
+struct FocusedSelectionSnapshot: Equatable {
+    let focusContext: FocusedAppContext
+    let selectedText: String
+}
+
 enum TextOutputPath: String, Equatable {
     case accessibilitySelectionReplacement
     case pasteFallbackCommandV
@@ -61,6 +66,7 @@ enum TextOutputError: LocalizedError {
 
 protocol TextOutputCoordinator {
     var insertionStrategy: String { get }
+    func currentSelectionSnapshot() -> FocusedSelectionSnapshot?
     func write(request: TextOutputRequest) async throws -> TextOutputResult
 }
 
@@ -72,6 +78,55 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
 
     init(logger: TextOutputLogger) {
         self.logger = logger
+    }
+
+    func currentSelectionSnapshot() -> FocusedSelectionSnapshot? {
+        let app = NSWorkspace.shared.frontmostApplication
+        let focusContext = FocusedAppContext(
+            appName: app?.localizedName ?? "Unknown App",
+            bundleID: app?.bundleIdentifier ?? "unknown.bundle",
+            focusedRole: nil,
+            hasEditableTarget: true,
+            strategyHint: "AX selected-range path"
+        )
+
+        guard AXIsProcessTrusted() else {
+            return nil
+        }
+        guard let focused = focusedElement() else {
+            return nil
+        }
+
+        if let selectedText = stringAttribute(kAXSelectedTextAttribute, on: focused) {
+            let normalized = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalized.isEmpty {
+                return FocusedSelectionSnapshot(
+                    focusContext: focusContext,
+                    selectedText: selectedText
+                )
+            }
+        }
+
+        guard
+            let selectedRange = selectedTextRange(for: focused),
+            selectedRange.length > 0,
+            let value = stringAttribute(kAXValueAttribute, on: focused)
+        else {
+            return nil
+        }
+
+        let text = value as NSString
+        let safeLocation = max(0, min(selectedRange.location, text.length))
+        let safeLength = max(0, min(selectedRange.length, text.length - safeLocation))
+        let nsRange = NSRange(location: safeLocation, length: safeLength)
+        guard nsRange.length > 0 else {
+            return nil
+        }
+
+        return FocusedSelectionSnapshot(
+            focusContext: focusContext,
+            selectedText: text.substring(with: nsRange)
+        )
     }
 
     func write(request: TextOutputRequest) async throws -> TextOutputResult {
