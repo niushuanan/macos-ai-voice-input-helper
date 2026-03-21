@@ -76,7 +76,9 @@ final class AppModel: ObservableObject {
         let audioCaptureService = AVAudioRecorderCaptureService(temporaryDirectory: store.temporaryAudioDirectory)
         let skillRuleStore = SkillRuleStore()
         let providerSettingsStore = ProviderSettingsStore(
-            credentialStore: KeychainProviderCredentialStore()
+            credentialStore: CachedProviderCredentialStore(
+                upstream: KeychainProviderCredentialStore()
+            )
         )
         let speechProviderRegistry = SpeechProviderRegistry(
             providers: [
