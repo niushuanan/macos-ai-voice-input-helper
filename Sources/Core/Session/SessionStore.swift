@@ -10,6 +10,8 @@ final class SessionStore: ObservableObject {
     @Published private(set) var listeningLevel: Double = 0
     @Published private(set) var pendingClip: RecordedAudioClip?
     @Published private(set) var latestTranscription: SpeechTranscriptionResult?
+    @Published private(set) var latestFocusContext: FocusedAppContext?
+    @Published private(set) var latestOutputResult: TextOutputResult?
 
     private let allowedTransitions: [SessionPhase: Set<SessionPhase>] = [
         .idle: [.listening],
@@ -56,12 +58,26 @@ final class SessionStore: ObservableObject {
 
     func completeTranscription(result: SpeechTranscriptionResult) {
         latestTranscription = result
+    }
+
+    func markInserting(
+        transcription result: SpeechTranscriptionResult,
+        focusContext: FocusedAppContext
+    ) {
+        latestTranscription = result
+        latestFocusContext = focusContext
+        transition(
+            to: .inserting,
+            statusMessage: "Writing transcript into \(focusContext.appName)."
+        )
+    }
+
+    func completeInsertion(outputResult: TextOutputResult) {
+        latestOutputResult = outputResult
         pendingClip = nil
         listeningLevel = 0
-        transition(
-            to: .idle,
-            statusMessage: "Transcript ready via \(result.providerName) · \(result.modelName)."
-        )
+        let pathTitle = outputResult.usedFallback ? "fallback paste path" : "direct AX path"
+        transition(to: .idle, statusMessage: "Text written to \(outputResult.appName) via \(pathTitle).")
     }
 
     func markRewriting() {

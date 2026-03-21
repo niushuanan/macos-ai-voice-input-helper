@@ -18,6 +18,8 @@ final class InteractionCoordinator {
     private let audioCaptureService: AudioCaptureService
     private let providerSettingsStore: ProviderSettingsStore
     private let providerRegistry: SpeechProviderRegistry
+    private let textOutputCoordinator: TextOutputCoordinator
+    private let contextDetector: ContextDetector
     private var cancellables = Set<AnyCancellable>()
     private var transcriptionTask: Task<Void, Never>?
 
@@ -26,13 +28,17 @@ final class InteractionCoordinator {
         permissionsCenter: PermissionsCenter,
         audioCaptureService: AudioCaptureService,
         providerSettingsStore: ProviderSettingsStore,
-        providerRegistry: SpeechProviderRegistry
+        providerRegistry: SpeechProviderRegistry,
+        textOutputCoordinator: TextOutputCoordinator,
+        contextDetector: ContextDetector
     ) {
         self.sessionStore = sessionStore
         self.permissionsCenter = permissionsCenter
         self.audioCaptureService = audioCaptureService
         self.providerSettingsStore = providerSettingsStore
         self.providerRegistry = providerRegistry
+        self.textOutputCoordinator = textOutputCoordinator
+        self.contextDetector = contextDetector
         bindListeningLevel()
     }
 
@@ -175,7 +181,8 @@ final class InteractionCoordinator {
                 }
 
                 audioCaptureService.removeClip(at: clip.fileURL)
-                sessionStore.completeTranscription(result: result)
+                sessionStore.clearPendingClipReference()
+                await outputTranscript(result, lane: request.lane)
             } catch is CancellationError {
                 return
             } catch let speechError as SpeechTranscriptionError {
@@ -193,6 +200,39 @@ final class InteractionCoordinator {
                 sessionStore.clearPendingClipReference()
                 sessionStore.fail(message: actionableMessage(for: .providerFailure(description: error.localizedDescription)))
             }
+        }
+    }
+
+    private func outputTranscript(
+        _ transcription: SpeechTranscriptionResult,
+        lane: InputLane
+    ) async {
+        let focusContext = contextDetector.focusedAppContext()
+        let operation: TextOutputOperation = lane == .selectionRewrite
+            ? .replaceSelectedText
+            : .insertText
+
+        let request = TextOutputRequest(
+            text: transcription.transcript,
+            operation: operation,
+            focusContext: focusContext
+        )
+
+        sessionStore.markInserting(
+            transcription: transcription,
+            focusContext: focusContext
+        )
+
+        do {
+            let outputResult = try await textOutputCoordinator.write(request: request)
+            sessionStore.completeInsertion(outputResult: outputResult)
+        } catch let outputError as TextOutputError {
+            sessionStore.fail(message: actionableOutputMessage(for: outputError, focusContext: focusContext))
+        } catch {
+            sessionStore.fail(message: actionableOutputMessage(
+                for: .accessibilityPathFailed(reason: error.localizedDescription),
+                focusContext: focusContext
+            ))
         }
     }
 
@@ -232,6 +272,30 @@ final class InteractionCoordinator {
             return "Provider response could not be parsed. Retry once, then change model if needed."
         case .cancelled:
             return "Transcription was cancelled."
+        }
+    }
+
+    private func actionableOutputMessage(
+        for error: TextOutputError,
+        focusContext: FocusedAppContext
+    ) -> String {
+        switch error {
+        case .emptyText:
+            return "Transcription returned empty text. Please try speaking again."
+        case .accessibilityPermissionMissing:
+            return "Accessibility permission is required for direct insertion into \(focusContext.appName)."
+        case .noFocusedElement:
+            return "No focused input target in \(focusContext.appName). Click an editor and try again."
+        case .noEditableTarget:
+            return "Focused target in \(focusContext.appName) is not editable."
+        case let .accessibilityPathFailed(reason):
+            return "Direct insertion failed in \(focusContext.appName): \(reason)"
+        case .pasteboardUnavailable:
+            return "Fallback paste path is unavailable because pasteboard access failed."
+        case .pasteShortcutInjectionFailed:
+            return "Fallback paste path could not send Command+V."
+        case let .fallbackFailed(primaryReason):
+            return "Writeback failed in \(focusContext.appName). Direct path reason: \(primaryReason)"
         }
     }
 }

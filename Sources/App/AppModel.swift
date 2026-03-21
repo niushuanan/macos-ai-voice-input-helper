@@ -65,12 +65,18 @@ final class AppModel: ObservableObject {
         let speechProviderRegistry = SpeechProviderRegistry(
             providers: [OpenAITranscriptionProvider()]
         )
+        let contextDetector = AccessibilityContextDetector()
+        let textOutputCoordinator = AccessibilityTextOutputCoordinator(
+            logger: TextOutputLogger(diagnosticsDirectory: store.diagnosticsDirectory)
+        )
         let interactionCoordinator = InteractionCoordinator(
             sessionStore: sessionStore,
             permissionsCenter: permissionsCenter,
             audioCaptureService: audioCaptureService,
             providerSettingsStore: providerSettingsStore,
-            providerRegistry: speechProviderRegistry
+            providerRegistry: speechProviderRegistry,
+            textOutputCoordinator: textOutputCoordinator,
+            contextDetector: contextDetector
         )
         return AppModel(
             sessionStore: sessionStore,
@@ -80,8 +86,8 @@ final class AppModel: ObservableObject {
             audioCaptureService: audioCaptureService,
             providerSettingsStore: providerSettingsStore,
             speechProviderRegistry: speechProviderRegistry,
-            textOutputCoordinator: StubTextOutputCoordinator(),
-            contextDetector: StubContextDetector(),
+            textOutputCoordinator: textOutputCoordinator,
+            contextDetector: contextDetector,
             permissionsCenter: permissionsCenter,
             localStore: store,
             diagnosticsCenter: DiagnosticsCenter(),
