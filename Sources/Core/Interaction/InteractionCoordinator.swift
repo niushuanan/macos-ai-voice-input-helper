@@ -34,6 +34,8 @@ final class InteractionCoordinator {
 
         switch sessionStore.phase {
         case .idle, .cancelled, .error:
+            discardPendingClipIfNeeded()
+
             guard permissionsCenter.snapshot.canStartVoiceSession else {
                 sessionStore.fail(message: "Microphone permission is required before starting a voice session.")
                 return
@@ -61,6 +63,7 @@ final class InteractionCoordinator {
         }
         do {
             let clip = try audioCaptureService.stopRecording()
+            discardPendingClipIfNeeded()
             sessionStore.attachPendingClip(clip)
             sessionStore.updateListeningLevel(0)
             sessionStore.markTranscribing(audioSummary: clip.displaySummary)
@@ -76,10 +79,24 @@ final class InteractionCoordinator {
         if audioCaptureService.isRecording {
             audioCaptureService.cancelRecording()
         }
-        if let clip = sessionStore.pendingClip {
-            audioCaptureService.removeClip(at: clip.fileURL)
-        }
+        discardPendingClipIfNeeded()
         sessionStore.cancel()
+    }
+
+    func handleCompleteInput() {
+        guard sessionStore.phase == .inserting else {
+            return
+        }
+        discardPendingClipIfNeeded()
+        sessionStore.completeInsertion()
+    }
+
+    func handleResetInput() {
+        if audioCaptureService.isRecording {
+            audioCaptureService.cancelRecording()
+        }
+        discardPendingClipIfNeeded()
+        sessionStore.reset()
     }
 
     private func startRecordingAndTransition(lane: InputLane) {
@@ -108,5 +125,12 @@ final class InteractionCoordinator {
                 }
             }
             .store(in: &cancellables)
+    }
+
+    private func discardPendingClipIfNeeded() {
+        guard let clip = sessionStore.pendingClip else {
+            return
+        }
+        audioCaptureService.removeClip(at: clip.fileURL)
     }
 }

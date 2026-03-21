@@ -97,7 +97,7 @@ struct MenuBarPanelView: View {
                 .disabled(!canInsert)
 
                 Button("Finish") {
-                    model.sessionStore.completeInsertion()
+                    model.interactionCoordinator.handleCompleteInput()
                 }
                 .disabled(model.sessionStore.phase != .inserting)
             }
@@ -113,7 +113,7 @@ struct MenuBarPanelView: View {
                 }
 
                 Button("Reset") {
-                    model.sessionStore.reset()
+                    model.interactionCoordinator.handleResetInput()
                 }
             }
         }
