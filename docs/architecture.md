@@ -46,6 +46,26 @@ Planned:
 - initialize permissions and diagnostics observers
 - keep lightweight session state hot even when the settings window is closed
 
+### Keyboard interaction skeleton (v1)
+
+Selected model: `tap-tap dual-lane session`
+
+- Wake:
+  - `Control + Option + Space`
+  - if app state is `idle`, `cancelled`, or `error`, start a new session
+- Stop:
+  - tap `Control + Option + Space` again when in `listening`
+  - this transitions to `transcribing`
+- Cancel:
+  - `Control + Option + Escape` at any active phase
+  - this transitions to `cancelled`
+- Lane split:
+  - default wake -> `directDictation`
+  - wake with rewrite modifier plus valid selection -> `selectionRewrite`
+- Status cue:
+  - menu bar icon reflects phase in real time
+  - a short non-blocking HUD pulse appears on phase change
+
 ### Session model
 
 The central state machine lives in `Sources/Core/Session/SessionStore.swift`.
@@ -65,6 +85,15 @@ Design intent:
 - one authoritative session phase for the whole app
 - one lane selector that tracks `directDictation` versus `selectionRewrite`
 - explicit cancel and error paths so text insertion never happens by accident
+
+Transition rhythm in v1:
+
+- Wake -> `listening`
+- Stop -> `transcribing`
+- Rewrite branch (if needed) -> `rewriting`
+- Apply output -> `inserting`
+- Finish -> `idle`
+- Cancel from active phases -> `cancelled` -> `idle`
 
 ### Interaction lanes
 
@@ -204,7 +233,7 @@ Rules:
 
 These are known missing pieces, not accidents:
 
-- no real global hotkey registration yet
+- no real global hotkey registration yet (current build uses a local simulation path)
 - no live microphone capture yet
 - no provider networking yet
 - no insertion bridge yet

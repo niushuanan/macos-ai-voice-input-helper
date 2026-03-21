@@ -56,6 +56,64 @@ Why it matters:
 - A modest preset layer is cheap compared with fully autonomous context logic
 - It gives the product a clear point of view without demanding heavy UI
 
+## Keyboard interaction candidates (Prompt 2)
+
+### Candidate A: Hold-to-talk lane switch
+
+- Wake: hold `Control + Option + Space`
+- Stop: release key combo
+- Cancel: tap `Control + Option + Escape`
+- Lane split:
+  - normal hold -> direct dictation
+  - hold with `Option` and active selection -> selection rewrite
+- HUD: optional, can be skipped
+- Learning cost: low
+- System conflict risk: medium
+- Dev complexity: medium to high (key-down and key-up global tracking)
+- Innovation impact: medium
+- V1 fit: fair but not ideal
+
+### Candidate B: Tap-tap dual-lane session (Selected)
+
+- Wake: tap `Control + Option + Space`
+- Stop: tap the same combo again
+- Cancel: tap `Control + Option + Escape`
+- Lane split:
+  - wake tap by default -> direct dictation
+  - wake tap while `Option` is held and selection exists -> selection rewrite
+- HUD: yes, short pulse status overlay (about 1 second)
+- Learning cost: low to medium
+- System conflict risk: low to medium
+- Dev complexity: medium
+- Innovation impact: high (clear, memorable rhythm)
+- V1 fit: best
+
+### Candidate C: Wake then command key lane
+
+- Wake: tap `Control + Option + Space`, then pick lane key
+- Stop: tap `Return`
+- Cancel: tap `Escape`
+- Lane split:
+  - `D` for dictation
+  - `R` for selection rewrite
+- HUD: yes, command hint strip is required
+- Learning cost: medium
+- System conflict risk: low
+- Dev complexity: medium
+- Innovation impact: medium to high
+- V1 fit: usable, but adds one extra decision step every session
+
+## Selected keyboard skeleton for v1
+
+We adopt Candidate B: `tap-tap dual-lane session`.
+
+Reason:
+
+- It keeps one primary summon combo, so users memorize fast.
+- It preserves a strong cancel path with an independent shortcut.
+- It gives a distinct interaction rhythm compared with plain dictation apps.
+- It is easier to ship in v1 than hold-tracking or command-lane UIs.
+
 ## Non-negotiable interaction principles
 
 - Summon and cancel actions must be easy to memorize.
