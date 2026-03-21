@@ -131,6 +131,13 @@ struct MenuBarPanelView: View {
             InfoRow(title: "Transcription model", value: model.providerSettingsStore.modelName)
             InfoRow(title: "Rewrite model", value: model.providerSettingsStore.rewriteModelName)
             InfoRow(title: "Insertion path", value: model.textOutputCoordinator.insertionStrategy)
+            InfoRow(title: "Scene output style", value: activeScenePolicy.outputBias.displayName)
+            InfoRow(
+                title: "Scene lane hint",
+                value: activeScenePolicy.preferSelectionRewrite
+                    ? "Prefer selection rewrite with active selection"
+                    : "Prefer direct dictation"
+            )
             InfoRow(title: "History root", value: model.localStore.rootDirectory.path)
 
             HStack {
@@ -159,6 +166,11 @@ struct MenuBarPanelView: View {
 
     private var canInsert: Bool {
         model.sessionStore.phase == .rewriting || model.sessionStore.phase == .transcribing
+    }
+
+    private var activeScenePolicy: AppScenePolicy {
+        let context = model.contextDetector.focusedAppContext()
+        return model.appScenePolicyStore.policy(for: context)
     }
 }
 

@@ -75,6 +75,10 @@ final class AppScenePolicyStore: ObservableObject {
         return heuristicPolicy(for: context)
     }
 
+    func hasStoredPolicy(bundleID: String) -> Bool {
+        policies.contains { $0.bundleID == bundleID }
+    }
+
     func upsertPolicy(
         for context: FocusedAppContext,
         outputBias: AppOutputBias,
@@ -93,6 +97,26 @@ final class AppScenePolicyStore: ObservableObject {
             policies.append(next)
         }
         persist()
+    }
+
+    func upsertPolicy(
+        appName: String,
+        bundleID: String,
+        outputBias: AppOutputBias,
+        preferSelectionRewrite: Bool
+    ) {
+        let context = FocusedAppContext(
+            appName: appName,
+            bundleID: bundleID,
+            focusedRole: nil,
+            hasEditableTarget: true,
+            strategyHint: ""
+        )
+        upsertPolicy(
+            for: context,
+            outputBias: outputBias,
+            preferSelectionRewrite: preferSelectionRewrite
+        )
     }
 
     func removePolicy(bundleID: String) {

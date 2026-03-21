@@ -5,11 +5,23 @@ struct SettingsView: View {
     let model: AppModel
     @ObservedObject private var permissionsCenter: PermissionsCenter
     @ObservedObject private var providerSettingsStore: ProviderSettingsStore
+    @ObservedObject private var appScenePolicyStore: AppScenePolicyStore
+    @ObservedObject private var localHistoryStore: LocalHistoryStore
+    @State private var focusedAppContext: FocusedAppContext
+    @State private var focusedAppOutputBias: AppOutputBias
+    @State private var focusedAppPreferSelectionRewrite: Bool
 
     init(model: AppModel) {
         self.model = model
+        let initialContext = model.contextDetector.focusedAppContext()
+        let initialPolicy = model.appScenePolicyStore.policy(for: initialContext)
         _permissionsCenter = ObservedObject(wrappedValue: model.permissionsCenter)
         _providerSettingsStore = ObservedObject(wrappedValue: model.providerSettingsStore)
+        _appScenePolicyStore = ObservedObject(wrappedValue: model.appScenePolicyStore)
+        _localHistoryStore = ObservedObject(wrappedValue: model.localHistoryStore)
+        _focusedAppContext = State(initialValue: initialContext)
+        _focusedAppOutputBias = State(initialValue: initialPolicy.outputBias)
+        _focusedAppPreferSelectionRewrite = State(initialValue: initialPolicy.preferSelectionRewrite)
     }
 
     var body: some View {
@@ -252,6 +264,134 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
+                GroupBox("Scene policy by app") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Tune output style and default lane behavior by frontmost app. Policies are local and editable.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("Focused app: \(focusedAppContext.appName)")
+                                .font(.subheadline.weight(.semibold))
+
+                            Spacer()
+
+                            Button("Refresh frontmost app") {
+                                refreshFocusedAppPolicyEditor()
+                            }
+                        }
+
+                        Text(focusedAppContext.bundleID)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+
+                        Label(
+                            focusedPolicyIsStored
+                                ? "Custom policy is active for this app."
+                                : "No custom policy yet. Heuristic defaults are in effect.",
+                            systemImage: focusedPolicyIsStored ? "slider.horizontal.3" : "sparkles"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(focusedPolicyIsStored ? .green : .secondary)
+
+                        Picker("Default output style", selection: $focusedAppOutputBias) {
+                            ForEach(AppOutputBias.allCases) { bias in
+                                Text(bias.displayName).tag(bias)
+                            }
+                        }
+                        .pickerStyle(.menu)
+
+                        Toggle(
+                            "Prefer selection rewrite when selected text exists",
+                            isOn: $focusedAppPreferSelectionRewrite
+                        )
+
+                        HStack {
+                            Button("Save policy") {
+                                saveFocusedAppPolicy()
+                            }
+
+                            Button("Delete custom policy", role: .destructive) {
+                                removeFocusedAppPolicy()
+                            }
+                            .disabled(!focusedPolicyIsStored)
+                        }
+
+                        Divider()
+
+                        Text("Saved custom app policies")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                        if customPolicies.isEmpty {
+                            Text("No custom app policies yet.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(customPolicies) { policy in
+                                    AppPolicyRowView(
+                                        policy: policy,
+                                        onOutputBiasChange: { newBias in
+                                            updatePolicy(policy, outputBias: newBias)
+                                        },
+                                        onPreferSelectionRewriteChange: { enabled in
+                                            updatePolicy(policy, preferSelectionRewrite: enabled)
+                                        },
+                                        onDelete: {
+                                            appScenePolicyStore.removePolicy(bundleID: policy.bundleID)
+                                            if policy.bundleID == focusedAppContext.bundleID {
+                                                refreshFocusedAppPolicyEditor()
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                GroupBox("Local history") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Session records are stored on this Mac only. You can delete individual entries or clear all.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        if recentHistoryEntries.isEmpty {
+                            Text("No history entries yet.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(recentHistoryEntries) { entry in
+                                    HistoryEntryRowView(
+                                        entry: entry,
+                                        onDelete: {
+                                            localHistoryStore.delete(entryID: entry.id)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        HStack {
+                            Text("Total entries: \(localHistoryStore.entries.count)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            Spacer()
+
+                            Button("Delete all history", role: .destructive) {
+                                localHistoryStore.clearAll()
+                            }
+                            .disabled(localHistoryStore.entries.isEmpty)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 GroupBox("Local data paths") {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(model.localStore.rootDirectory.path)
@@ -280,6 +420,7 @@ struct SettingsView: View {
         .onAppear {
             permissionsCenter.refreshStatuses()
             providerSettingsStore.refreshCredentialState()
+            refreshFocusedAppPolicyEditor()
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             permissionsCenter.refreshStatuses()
@@ -356,6 +497,62 @@ struct SettingsView: View {
         )
     }
 
+    private var focusedPolicyIsStored: Bool {
+        appScenePolicyStore.hasStoredPolicy(bundleID: focusedAppContext.bundleID)
+    }
+
+    private var customPolicies: [AppScenePolicy] {
+        appScenePolicyStore.policies.sorted {
+            if $0.appName == $1.appName {
+                return $0.bundleID < $1.bundleID
+            }
+            return $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
+        }
+    }
+
+    private var recentHistoryEntries: [SessionHistoryEntry] {
+        Array(localHistoryStore.entries.prefix(20))
+    }
+
+    private func refreshFocusedAppPolicyEditor() {
+        let context = model.contextDetector.focusedAppContext()
+        let policy = appScenePolicyStore.policy(for: context)
+        focusedAppContext = context
+        focusedAppOutputBias = policy.outputBias
+        focusedAppPreferSelectionRewrite = policy.preferSelectionRewrite
+    }
+
+    private func saveFocusedAppPolicy() {
+        appScenePolicyStore.upsertPolicy(
+            for: focusedAppContext,
+            outputBias: focusedAppOutputBias,
+            preferSelectionRewrite: focusedAppPreferSelectionRewrite
+        )
+        refreshFocusedAppPolicyEditor()
+    }
+
+    private func removeFocusedAppPolicy() {
+        appScenePolicyStore.removePolicy(bundleID: focusedAppContext.bundleID)
+        refreshFocusedAppPolicyEditor()
+    }
+
+    private func updatePolicy(
+        _ policy: AppScenePolicy,
+        outputBias: AppOutputBias? = nil,
+        preferSelectionRewrite: Bool? = nil
+    ) {
+        appScenePolicyStore.upsertPolicy(
+            appName: policy.appName,
+            bundleID: policy.bundleID,
+            outputBias: outputBias ?? policy.outputBias,
+            preferSelectionRewrite: preferSelectionRewrite ?? policy.preferSelectionRewrite
+        )
+
+        if policy.bundleID == focusedAppContext.bundleID {
+            refreshFocusedAppPolicyEditor()
+        }
+    }
+
     private var apiKeyStatusText: String {
         switch providerSettingsStore.credentialState {
         case .saved:
@@ -391,6 +588,187 @@ struct SettingsView: View {
             return .red
         }
         return .secondary
+    }
+}
+
+private struct AppPolicyRowView: View {
+    let policy: AppScenePolicy
+    let onOutputBiasChange: (AppOutputBias) -> Void
+    let onPreferSelectionRewriteChange: (Bool) -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(policy.appName)
+                    .font(.subheadline.weight(.semibold))
+
+                Spacer()
+
+                Button("Delete", role: .destructive) {
+                    onDelete()
+                }
+                .font(.caption)
+            }
+
+            Text(policy.bundleID)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+
+            Picker("Output style", selection: Binding(
+                get: { policy.outputBias },
+                set: { onOutputBiasChange($0) }
+            )) {
+                ForEach(AppOutputBias.allCases) { bias in
+                    Text(bias.displayName).tag(bias)
+                }
+            }
+            .pickerStyle(.menu)
+
+            Toggle(
+                "Prefer selection rewrite",
+                isOn: Binding(
+                    get: { policy.preferSelectionRewrite },
+                    set: { onPreferSelectionRewriteChange($0) }
+                )
+            )
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+private struct HistoryEntryRowView: View {
+    let entry: SessionHistoryEntry
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Label(statusLabel, systemImage: statusIcon)
+                    .font(.caption)
+                    .foregroundStyle(statusColor)
+
+                Button("Delete", role: .destructive) {
+                    onDelete()
+                }
+                .font(.caption)
+            }
+
+            Text("\(modeLabel) · \(entry.appName)")
+                .font(.subheadline.weight(.semibold))
+
+            Text(entry.bundleID)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+
+            if let instruction = entry.instructionText, !instruction.isEmpty {
+                Text("Instruction: \(instruction)")
+                    .font(.caption)
+                    .lineLimit(2)
+            }
+
+            if !entry.inputText.isEmpty {
+                Text("Input: \(entry.inputText)")
+                    .font(.caption)
+                    .lineLimit(2)
+            }
+
+            if let outputText = entry.outputText, !outputText.isEmpty {
+                Text("Output: \(outputText)")
+                    .font(.caption)
+                    .lineLimit(2)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !providerLine.isEmpty {
+                Text(providerLine)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let errorMessage = entry.errorMessage, !errorMessage.isEmpty {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(statusColor.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var modeLabel: String {
+        switch entry.mode {
+        case .dictation:
+            return "Dictation"
+        case .selectionRewrite:
+            return "Selection rewrite"
+        }
+    }
+
+    private var statusLabel: String {
+        switch entry.status {
+        case .success:
+            return "Success"
+        case .failed:
+            return "Failed"
+        case .cancelled:
+            return "Cancelled"
+        }
+    }
+
+    private var statusIcon: String {
+        switch entry.status {
+        case .success:
+            return "checkmark.circle.fill"
+        case .failed:
+            return "xmark.octagon.fill"
+        case .cancelled:
+            return "slash.circle.fill"
+        }
+    }
+
+    private var statusColor: Color {
+        switch entry.status {
+        case .success:
+            return .green
+        case .failed:
+            return .red
+        case .cancelled:
+            return .orange
+        }
+    }
+
+    private var providerLine: String {
+        var parts: [String] = []
+        if let transcriptionProvider = entry.transcriptionProvider, !transcriptionProvider.isEmpty {
+            if let transcriptionModel = entry.transcriptionModel, !transcriptionModel.isEmpty {
+                parts.append("ASR: \(transcriptionProvider) · \(transcriptionModel)")
+            } else {
+                parts.append("ASR: \(transcriptionProvider)")
+            }
+        }
+        if let rewriteProvider = entry.rewriteProvider, !rewriteProvider.isEmpty {
+            if let rewriteModel = entry.rewriteModel, !rewriteModel.isEmpty {
+                parts.append("Rewrite: \(rewriteProvider) · \(rewriteModel)")
+            } else {
+                parts.append("Rewrite: \(rewriteProvider)")
+            }
+        }
+        return parts.joined(separator: " | ")
     }
 }
 
