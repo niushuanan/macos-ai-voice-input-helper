@@ -114,6 +114,18 @@ Reason:
 - It gives a distinct interaction rhythm compared with plain dictation apps.
 - It is easier to ship in v1 than hold-tracking or command-lane UIs.
 
+## Prompt 4 listening-feedback candidates
+
+| Candidate | User value | Implementation cost | Main risk | Decision |
+| --- | --- | --- | --- | --- |
+| Menu bar live level meter | Users can see that voice energy is being captured without opening any extra UI. The app feels active but stays low-noise. | Low. Reuse session listening level from `AudioCaptureService` and render tiny dynamic bars in the menu bar icon area. | Small icons can be hard to tune for readability on all menu bar themes. | Selected |
+| Continuous floating listening chip | Gives strong confidence with a persistent on-screen feedback element while recording. | Medium. Needs a persistent non-activating panel lifecycle and careful multi-display positioning. | Easy to feel intrusive and visually noisy in daily usage. | Parked |
+
+Selected in this round:
+
+- `Menu bar live level meter` as the default listening feedback.
+- Keep the existing short phase HUD for transition moments only.
+
 ## Non-negotiable interaction principles
 
 - Summon and cancel actions must be easy to memorize.

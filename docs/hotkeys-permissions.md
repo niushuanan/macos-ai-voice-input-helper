@@ -8,6 +8,10 @@ The app uses a dedicated global shortcut for each core session action:
 - Stop listening and move to text stage: `Control + Option + Return`
 - Cancel current session: `Control + Option + Escape`
 
+Additional behavior:
+
+- While in `listening`, pressing wake (`Control + Option + Space`) again also triggers stop.
+
 Implementation notes:
 
 - Global registration is provided by `KeyboardShortcuts` (Carbon-backed).

@@ -24,6 +24,8 @@ This repository now includes:
 - a menu bar icon plus basic menu actions (wake, stop, cancel, settings, quit)
 - a command deck window for interaction drill and diagnostics visibility
 - a short non-blocking status HUD pulse on state changes
+- native local audio recording into temporary `.m4a` clips with session-level cleanup
+- live listening-level feedback in the menu bar and command deck
 - a session-state spine covering `idle`, `listening`, `transcribing`,
   `rewriting`, `inserting`, `cancelled`, and `error`
 - architecture and engineering docs that define the path from phase 0 to beta
@@ -76,5 +78,6 @@ If your shell already points to the full Xcode developer directory, the
 - [docs/engineering-plan.md](docs/engineering-plan.md)
 - [docs/architecture.md](docs/architecture.md)
 - [docs/hotkeys-permissions.md](docs/hotkeys-permissions.md)
+- [docs/audio-session.md](docs/audio-session.md)
 - [docs/milestones.md](docs/milestones.md)
 - [docs/adr/0001-helper-app-direction.md](docs/adr/0001-helper-app-direction.md)

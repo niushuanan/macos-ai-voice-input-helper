@@ -11,7 +11,7 @@ The repository already contains these concrete building blocks:
 - `Sources/Core`
   - `Session`: state machine and lane definitions
   - `Hotkey`: current shortcut plan
-  - `Audio`: audio capture protocol
+  - `Audio`: native `AVAudioRecorder` capture service with live level metering
   - `Speech`: provider abstraction placeholder
   - `TextOutput`: insertion abstraction placeholder
   - `Context`: frontmost-app and style context placeholder
@@ -55,6 +55,7 @@ Selected model: `tap-tap dual-lane session`
   - if app state is `idle`, `cancelled`, or `error`, start a new session
 - Stop:
   - tap `Control + Option + Space` again when in `listening`
+  - or use dedicated stop shortcut `Control + Option + Return`
   - this transitions to `transcribing`
 - Cancel:
   - `Control + Option + Escape` at any active phase
@@ -141,12 +142,23 @@ Dependency rule:
 Responsibility:
 
 - microphone session setup
-- buffering and handoff to the speech layer
+- record a session clip and hand it to the speech layer
+- publish low-latency listening level for lightweight UI feedback
 
 Dependency rule:
 
 - may publish captured audio artifacts
 - must not own provider prompts or insertion logic
+
+Current implementation:
+
+- `AVAudioRecorderCaptureService` records AAC mono `.m4a` clips.
+- Input level updates are published every 50ms for UI feedback.
+- The active clip is tracked as `pendingClip` in `SessionStore` after stop.
+- Temp clip lifecycle is tied to session controls:
+  - cancel: delete active or pending clip
+  - complete/reset/new session start: delete older pending clip
+  - app launch: purge stale temp files older than 24 hours
 
 ### SpeechProvider
 
@@ -232,7 +244,7 @@ Persist locally by default:
 Do not persist in plain text unless there is a clear product reason:
 
 - provider secrets
-- temporary raw audio artifacts beyond the active session
+- temporary raw audio artifacts beyond the active session lifecycle
 
 ## Dependency direction
 
@@ -251,11 +263,10 @@ Rules:
 
 These are known missing pieces, not accidents:
 
-- no live audio streaming pipeline yet after the listening phase
-- no live microphone capture yet
 - no provider networking yet
 - no insertion bridge yet
 - no full first-launch permission walkthrough yet
+- no waveform-grade visualizer; current listening feedback is a minimal level meter
 
 ## Known system limits
 
