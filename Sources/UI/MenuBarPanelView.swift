@@ -25,11 +25,9 @@ struct MenuBarPanelView: View {
             Text("快捷键骨架")
                 .font(.headline)
 
-            Text("唤醒：Control + Option + Space")
+            Text("主键：Control + Option + Space（再次按下停止）")
                 .font(.caption)
-            Text("停止：聆听中按 Control + Option + Return")
-                .font(.caption)
-            Text("取消：Control + Option + Escape")
+            Text("取消：Escape")
                 .font(.caption)
             Text("改写通道：先选中内容再唤醒")
                 .font(.caption)
@@ -64,10 +62,10 @@ struct MenuBarPanelView: View {
                 .font(.headline)
 
             HStack {
-                Button("开始听写") {
+                Button(primaryToggleTitle) {
                     model.interactionCoordinator.handleWakeInput(context: .dictation)
                 }
-                .disabled(!canStartSession)
+                .disabled(!canToggleSession)
 
                 Button("开始改写") {
                     model.interactionCoordinator.handleWakeInput(
@@ -77,12 +75,7 @@ struct MenuBarPanelView: View {
                         )
                     )
                 }
-                .disabled(!canStartSession)
-
-                Button("停止") {
-                    model.interactionCoordinator.handleStopInput()
-                }
-                .disabled(model.sessionStore.phase != .listening)
+                .disabled(!canStartRewrite)
             }
 
             HStack {
@@ -166,6 +159,25 @@ struct MenuBarPanelView: View {
 
     private var canInsert: Bool {
         model.sessionStore.phase == .rewriting || model.sessionStore.phase == .transcribing
+    }
+
+    private var canToggleSession: Bool {
+        switch model.sessionStore.phase {
+        case .idle, .cancelled, .error:
+            return true
+        case .listening:
+            return true
+        case .transcribing, .rewriting, .inserting:
+            return false
+        }
+    }
+
+    private var canStartRewrite: Bool {
+        canStartSession && model.permissionsCenter.snapshot.accessibility == .granted
+    }
+
+    private var primaryToggleTitle: String {
+        model.sessionStore.phase == .listening ? "停止并处理" : "开始听写"
     }
 
     private var activeScenePolicy: AppScenePolicy {

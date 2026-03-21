@@ -13,6 +13,6 @@ extension KeyboardShortcuts.Name {
 
     static let cancelSession = Self(
         "cancelSession",
-        default: .init(.escape, modifiers: [.control, .option])
+        default: .init(.escape)
     )
 }

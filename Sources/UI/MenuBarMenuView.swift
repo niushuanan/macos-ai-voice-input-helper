@@ -41,10 +41,10 @@ struct MenuBarMenuView: View {
 
         Divider()
 
-        Button("开始听写") {
+        Button(primaryToggleTitle) {
             model.interactionCoordinator.handleWakeInput(context: .dictation)
         }
-        .disabled(!canStartSession)
+        .disabled(!canToggleSession)
         .globalKeyboardShortcut(.wakeSession)
 
         Button("开始改写") {
@@ -55,13 +55,7 @@ struct MenuBarMenuView: View {
                 )
             )
         }
-        .disabled(!canStartSession)
-
-        Button("停止") {
-            model.interactionCoordinator.handleStopInput()
-        }
-        .disabled(model.sessionStore.phase != .listening)
-        .globalKeyboardShortcut(.stopSession)
+        .disabled(!canStartRewrite)
 
         Button("取消会话") {
             model.interactionCoordinator.handleCancelInput()
@@ -94,5 +88,27 @@ struct MenuBarMenuView: View {
         case .listening, .transcribing, .rewriting, .inserting:
             return false
         }
+    }
+
+    private var canToggleSession: Bool {
+        switch model.sessionStore.phase {
+        case .idle, .cancelled, .error:
+            return true
+        case .listening:
+            return true
+        case .transcribing, .rewriting, .inserting:
+            return false
+        }
+    }
+
+    private var canStartRewrite: Bool {
+        canStartSession && permissionsCenter.snapshot.accessibility == .granted
+    }
+
+    private var primaryToggleTitle: String {
+        if model.sessionStore.phase == .listening {
+            return "停止并处理"
+        }
+        return "开始听写"
     }
 }

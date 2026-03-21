@@ -15,7 +15,6 @@ enum PermissionState: String {
 enum PermissionKind: String, CaseIterable, Identifiable {
     case microphone
     case accessibility
-    case globalHotkeys
 
     var id: String { rawValue }
 
@@ -25,8 +24,6 @@ enum PermissionKind: String, CaseIterable, Identifiable {
             return "麦克风"
         case .accessibility:
             return "辅助功能"
-        case .globalHotkeys:
-            return "全局快捷键"
         }
     }
 }
@@ -34,12 +31,10 @@ enum PermissionKind: String, CaseIterable, Identifiable {
 struct PermissionSnapshot: Equatable {
     var microphone: PermissionState
     var accessibility: PermissionState
-    var globalHotkeys: PermissionState
 
     static let initial = PermissionSnapshot(
         microphone: .notRequested,
-        accessibility: .notRequested,
-        globalHotkeys: .notRequired
+        accessibility: .notRequested
     )
 
     func state(for kind: PermissionKind) -> PermissionState {
@@ -48,8 +43,6 @@ struct PermissionSnapshot: Equatable {
             return microphone
         case .accessibility:
             return accessibility
-        case .globalHotkeys:
-            return globalHotkeys
         }
     }
 
@@ -84,8 +77,7 @@ final class PermissionsCenter: ObservableObject {
     func refreshStatuses() {
         snapshot = PermissionSnapshot(
             microphone: microphoneState(),
-            accessibility: accessibilityState(),
-            globalHotkeys: .notRequired
+            accessibility: accessibilityState()
         )
     }
 
@@ -95,8 +87,6 @@ final class PermissionsCenter: ObservableObject {
             requestMicrophoneAccess()
         case .accessibility:
             requestAccessibilityAccess()
-        case .globalHotkeys:
-            break
         }
     }
 
@@ -107,8 +97,6 @@ final class PermissionsCenter: ObservableObject {
             urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
         case .accessibility:
             urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-        case .globalHotkeys:
-            urlString = "x-apple.systempreferences:com.apple.Keyboard-Settings.extension"
         }
 
         guard let url = URL(string: urlString) else {
@@ -139,10 +127,13 @@ final class PermissionsCenter: ObservableObject {
     }
 
     private func requestAccessibilityAccess() {
+        snapshot.accessibility = .pending
         defaults.set(true, forKey: didPromptAccessibilityKey)
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
-        refreshStatuses()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.refreshStatuses()
+        }
     }
 
     private func microphoneState() -> PermissionState {
@@ -195,8 +186,6 @@ final class PermissionsCenter: ObservableObject {
             case .notRequired:
                 return "不需要。"
             }
-        case .globalHotkeys:
-            return "Carbon 级全局快捷键无需额外权限。"
         }
     }
 
@@ -206,8 +195,6 @@ final class PermissionsCenter: ObservableObject {
             return "先点“请求”，如果被拒绝，请到 系统设置 > 隐私与安全性 > 麦克风 开启 PulseType。"
         case .accessibility:
             return "先点“请求”，再到 系统设置 > 隐私与安全性 > 辅助功能 开启 PulseType。"
-        case .globalHotkeys:
-            return "若与系统快捷键冲突，请在 PulseType 设置或 系统设置 > 键盘 > 键盘快捷键 中调整。"
         }
     }
 }

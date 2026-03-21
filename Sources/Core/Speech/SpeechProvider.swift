@@ -2,6 +2,9 @@ import Combine
 import Foundation
 import Security
 
+private let defaultASRCredentialKeyRef = "asr.primary"
+private let defaultTextCredentialKeyRef = "text.primary"
+
 enum ProviderType: String, CaseIterable, Codable, Identifiable {
     case openAI
     case openAICompatible
@@ -48,31 +51,41 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
     }
 }
 
-struct ProviderProfile: Codable, Identifiable, Equatable {
-    let id: String
-    var name: String
-    var type: ProviderType
-    var isEnabled: Bool
+struct ASRConfig: Codable, Equatable {
+    var providerType: ProviderType
     var baseURLString: String
-    var transcriptionModelName: String
-    var rewriteModelName: String
+    var modelName: String
+    var keyRef: String
 
     init(
-        id: String = UUID().uuidString,
-        name: String,
-        type: ProviderType,
-        isEnabled: Bool = true,
+        providerType: ProviderType = .openAI,
         baseURLString: String? = nil,
-        transcriptionModelName: String? = nil,
-        rewriteModelName: String? = nil
+        modelName: String? = nil,
+        keyRef: String = defaultASRCredentialKeyRef
     ) {
-        self.id = id
-        self.name = name
-        self.type = type
-        self.isEnabled = isEnabled
-        self.baseURLString = baseURLString ?? ""
-        self.transcriptionModelName = transcriptionModelName ?? type.defaultTranscriptionModelName
-        self.rewriteModelName = rewriteModelName ?? type.defaultRewriteModelName
+        self.providerType = providerType
+        self.baseURLString = baseURLString ?? providerType.fixedBaseURL?.absoluteString ?? ""
+        self.modelName = modelName ?? providerType.defaultTranscriptionModelName
+        self.keyRef = keyRef
+    }
+}
+
+struct TextConfig: Codable, Equatable {
+    var providerType: ProviderType
+    var baseURLString: String
+    var modelName: String
+    var keyRef: String
+
+    init(
+        providerType: ProviderType = .openAI,
+        baseURLString: String? = nil,
+        modelName: String? = nil,
+        keyRef: String = defaultTextCredentialKeyRef
+    ) {
+        self.providerType = providerType
+        self.baseURLString = baseURLString ?? providerType.fixedBaseURL?.absoluteString ?? ""
+        self.modelName = modelName ?? providerType.defaultRewriteModelName
+        self.keyRef = keyRef
     }
 }
 
@@ -160,6 +173,57 @@ protocol ProviderCredentialStore {
     func deleteAPIKey(for profileID: String) throws
 }
 
+enum ProviderConfigurationValidator {
+    static func validationMessage(
+        providerType: ProviderType,
+        baseURLString: String,
+        modelName: String
+    ) -> String? {
+        let normalizedModel = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedModel.isEmpty {
+            return "模型名不能为空。"
+        }
+
+        if normalizedModel.count > 80 {
+            return "模型名过长。"
+        }
+
+        if normalizedModel.contains(where: \.isWhitespace) {
+            return "模型名不能带空格。"
+        }
+
+        if resolvedBaseURL(providerType: providerType, baseURLString: baseURLString) == nil {
+            return "接口地址（Base URL）无效。"
+        }
+
+        return nil
+    }
+
+    static func resolvedBaseURL(
+        providerType: ProviderType,
+        baseURLString: String
+    ) -> URL? {
+        if let fixedURL = providerType.fixedBaseURL {
+            return fixedURL
+        }
+
+        let normalized = baseURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return nil
+        }
+
+        guard
+            let url = URL(string: normalized),
+            let scheme = url.scheme?.lowercased(),
+            scheme == "http" || scheme == "https"
+        else {
+            return nil
+        }
+
+        return url
+    }
+}
+
 @MainActor
 final class ProviderSettingsStore: ObservableObject {
     enum CredentialState: Equatable {
@@ -167,95 +231,36 @@ final class ProviderSettingsStore: ObservableObject {
         case saved
     }
 
-    @Published private(set) var profiles: [ProviderProfile]
-
-    @Published var selectedTranscriptionProfileID: String {
+    @Published var asrConfig: ASRConfig {
         didSet {
-            defaults.set(selectedTranscriptionProfileID, forKey: defaultsTranscriptionProfileKey)
+            persistASRConfig()
         }
     }
 
-    @Published var selectedRewriteProfileID: String {
+    @Published var textConfig: TextConfig {
         didSet {
-            defaults.set(selectedRewriteProfileID, forKey: defaultsRewriteProfileKey)
+            persistTextConfig()
         }
     }
 
-    @Published var selectedProfileIDForEditing: String {
-        didSet {
-            defaults.set(selectedProfileIDForEditing, forKey: defaultsEditingProfileKey)
-            refreshCredentialState()
-        }
-    }
+    @Published var asrAPIKeyDraft: String = ""
+    @Published var textAPIKeyDraft: String = ""
 
-    @Published var apiKeyDraft: String = ""
-    @Published private(set) var credentialState: CredentialState = .missing
-    @Published private(set) var feedbackMessage: String?
+    @Published private(set) var asrCredentialState: CredentialState = .missing
+    @Published private(set) var textCredentialState: CredentialState = .missing
+    @Published private(set) var asrFeedbackMessage: String?
+    @Published private(set) var textFeedbackMessage: String?
 
-    private let defaults: UserDefaults
-    private let credentialStore: ProviderCredentialStore
-    private let defaultsProfilesKey = "providers.profiles.v1"
-    private let defaultsTranscriptionProfileKey = "providers.transcription.profile.id"
-    private let defaultsRewriteProfileKey = "providers.rewrite.profile.id"
-    private let defaultsEditingProfileKey = "providers.editing.profile.id"
-
-    init(
-        defaults: UserDefaults = .standard,
-        credentialStore: ProviderCredentialStore
-    ) {
-        self.defaults = defaults
-        self.credentialStore = credentialStore
-
-        let loadedProfiles = ProviderSettingsStore.decodeProfiles(
-            from: defaults.data(forKey: defaultsProfilesKey)
-        )
-        let migratedProfiles = ProviderSettingsStore.applyLegacyModelMigration(
-            loadedProfiles: loadedProfiles,
-            defaults: defaults
-        )
-        let initialProfiles = ProviderSettingsStore.sanitizeProfiles(migratedProfiles)
-        self.profiles = initialProfiles
-
-        let enabledIDs = Set(initialProfiles.filter(\.isEnabled).map(\.id))
-        let fallbackID = initialProfiles.first?.id ?? ""
-
-        let transcriptionID = defaults.string(forKey: defaultsTranscriptionProfileKey)
-        let resolvedTranscriptionID = enabledIDs.contains(transcriptionID ?? "")
-            ? transcriptionID!
-            : (initialProfiles.first(where: \.isEnabled)?.id ?? fallbackID)
-
-        let rewriteID = defaults.string(forKey: defaultsRewriteProfileKey)
-        let resolvedRewriteID = enabledIDs.contains(rewriteID ?? "")
-            ? rewriteID!
-            : resolvedTranscriptionID
-
-        let editingID = defaults.string(forKey: defaultsEditingProfileKey)
-        let resolvedEditingID = initialProfiles.contains(where: { $0.id == editingID })
-            ? (editingID ?? resolvedTranscriptionID)
-            : resolvedTranscriptionID
-
-        self.selectedTranscriptionProfileID = resolvedTranscriptionID
-        self.selectedRewriteProfileID = resolvedRewriteID
-        self.selectedProfileIDForEditing = resolvedEditingID
-
-        persistProfiles()
-        refreshCredentialState()
-    }
-
-    var enabledProfiles: [ProviderProfile] {
-        profiles.filter(\.isEnabled)
-    }
-
-    var editingProfile: ProviderProfile? {
-        profiles.first(where: { $0.id == selectedProfileIDForEditing })
+    var feedbackMessage: String? {
+        textFeedbackMessage ?? asrFeedbackMessage
     }
 
     var selectedTranscriptionProviderName: String {
-        profile(with: selectedTranscriptionProfileID)?.name ?? "不可用服务商"
+        asrConfig.providerType.displayName
     }
 
     var selectedRewriteProviderName: String {
-        profile(with: selectedRewriteProfileID)?.name ?? "不可用服务商"
+        textConfig.providerType.displayName
     }
 
     var selectedProviderName: String {
@@ -263,27 +268,43 @@ final class ProviderSettingsStore: ObservableObject {
     }
 
     var modelName: String {
-        profile(with: selectedTranscriptionProfileID)?.transcriptionModelName ?? ""
+        asrConfig.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var rewriteModelName: String {
-        profile(with: selectedRewriteProfileID)?.rewriteModelName ?? ""
+        textConfig.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var asrConfigurationValidationMessage: String? {
+        ProviderConfigurationValidator.validationMessage(
+            providerType: asrConfig.providerType,
+            baseURLString: asrConfig.baseURLString,
+            modelName: asrConfig.modelName
+        )
+    }
+
+    var textConfigurationValidationMessage: String? {
+        ProviderConfigurationValidator.validationMessage(
+            providerType: textConfig.providerType,
+            baseURLString: textConfig.baseURLString,
+            modelName: textConfig.modelName
+        )
     }
 
     var configurationValidationMessage: String? {
-        validationMessageForTranscriptionProfile()
+        asrConfigurationValidationMessage
     }
 
     var rewriteConfigurationValidationMessage: String? {
-        validationMessageForRewriteProfile()
+        textConfigurationValidationMessage
     }
 
     var isConfigurationValid: Bool {
-        configurationValidationMessage == nil
+        asrConfigurationValidationMessage == nil
     }
 
     var isRewriteConfigurationValid: Bool {
-        rewriteConfigurationValidationMessage == nil
+        textConfigurationValidationMessage == nil
     }
 
     var configuration: SpeechProviderConfiguration {
@@ -298,435 +319,480 @@ final class ProviderSettingsStore: ObservableObject {
         resolvedTranscriptionConfiguration()
     }
 
+    var credentialState: CredentialState {
+        asrCredentialState
+    }
+
+    private let defaults: UserDefaults
+    private let credentialStore: ProviderCredentialStore
+    private let defaultsASRConfigKey = "providers.asr.config.v2"
+    private let defaultsTextConfigKey = "providers.text.config.v2"
+
+    init(
+        defaults: UserDefaults = .standard,
+        credentialStore: ProviderCredentialStore
+    ) {
+        self.defaults = defaults
+        self.credentialStore = credentialStore
+
+        let decodedASRConfig = Self.decodeASRConfig(
+            from: defaults.data(forKey: defaultsASRConfigKey)
+        )
+        let decodedTextConfig = Self.decodeTextConfig(
+            from: defaults.data(forKey: defaultsTextConfigKey)
+        )
+
+        let legacyMigration = Self.migrateLegacyConfiguration(defaults: defaults)
+
+        self.asrConfig = Self.sanitizeASRConfig(
+            decodedASRConfig ?? legacyMigration.asrConfig
+        )
+        self.textConfig = Self.sanitizeTextConfig(
+            decodedTextConfig ?? legacyMigration.textConfig
+        )
+
+        persistASRConfig()
+        persistTextConfig()
+        migrateLegacyCredentialsIfNeeded(using: legacyMigration)
+        refreshCredentialState()
+    }
+
     func refreshCredentialState() {
         do {
-            let key = try credentialStore.loadAPIKey(for: selectedProfileIDForEditing)
-            credentialState = (key?.isEmpty == false) ? .saved : .missing
+            let asr = try credentialStore.loadAPIKey(for: asrConfig.keyRef)
+            asrCredentialState = (asr?.isEmpty == false) ? .saved : .missing
         } catch {
-            credentialState = .missing
-            feedbackMessage = "无法从钥匙串读取 API 密钥。"
+            asrCredentialState = .missing
+            asrFeedbackMessage = "无法从钥匙串读取语音识别 API 密钥。"
+        }
+
+        do {
+            let text = try credentialStore.loadAPIKey(for: textConfig.keyRef)
+            textCredentialState = (text?.isEmpty == false) ? .saved : .missing
+        } catch {
+            textCredentialState = .missing
+            textFeedbackMessage = "无法从钥匙串读取文本模型 API 密钥。"
         }
     }
 
     @discardableResult
-    func saveDraftedAPIKey() -> Bool {
-        let normalized = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
-            feedbackMessage = "API 密钥不能为空。"
-            return false
-        }
-
-        guard normalized.count >= 12 else {
-            feedbackMessage = "API 密钥长度看起来太短。"
-            return false
-        }
-
-        do {
-            try credentialStore.saveAPIKey(normalized, for: selectedProfileIDForEditing)
-            apiKeyDraft = ""
-            credentialState = .saved
-            feedbackMessage = "API 密钥已写入钥匙串。"
-            return true
-        } catch {
-            feedbackMessage = "无法把 API 密钥写入钥匙串。"
-            return false
-        }
+    func saveASRAPIKeyDraft() -> Bool {
+        saveAPIKey(
+            draft: asrAPIKeyDraft,
+            keyRef: asrConfig.keyRef,
+            roleName: "语音识别",
+            onSuccess: { [weak self] in
+                self?.asrAPIKeyDraft = ""
+                self?.asrCredentialState = .saved
+                self?.asrFeedbackMessage = "语音识别 API 密钥已写入钥匙串。"
+            },
+            onFailure: { [weak self] message in
+                self?.asrFeedbackMessage = message
+            }
+        )
     }
 
     @discardableResult
-    func clearSavedAPIKey() -> Bool {
-        do {
-            try credentialStore.deleteAPIKey(for: selectedProfileIDForEditing)
-            credentialState = .missing
-            feedbackMessage = "已删除已存 API 密钥。"
-            return true
-        } catch {
-            feedbackMessage = "无法删除钥匙串中的 API 密钥。"
-            return false
-        }
+    func saveTextAPIKeyDraft() -> Bool {
+        saveAPIKey(
+            draft: textAPIKeyDraft,
+            keyRef: textConfig.keyRef,
+            roleName: "文本模型",
+            onSuccess: { [weak self] in
+                self?.textAPIKeyDraft = ""
+                self?.textCredentialState = .saved
+                self?.textFeedbackMessage = "文本模型 API 密钥已写入钥匙串。"
+            },
+            onFailure: { [weak self] message in
+                self?.textFeedbackMessage = message
+            }
+        )
+    }
+
+    @discardableResult
+    func clearASRAPIKey() -> Bool {
+        clearAPIKey(
+            keyRef: asrConfig.keyRef,
+            roleName: "语音识别",
+            onSuccess: { [weak self] in
+                self?.asrCredentialState = .missing
+                self?.asrFeedbackMessage = "语音识别 API 密钥已删除。"
+            },
+            onFailure: { [weak self] message in
+                self?.asrFeedbackMessage = message
+            }
+        )
+    }
+
+    @discardableResult
+    func clearTextAPIKey() -> Bool {
+        clearAPIKey(
+            keyRef: textConfig.keyRef,
+            roleName: "文本模型",
+            onSuccess: { [weak self] in
+                self?.textCredentialState = .missing
+                self?.textFeedbackMessage = "文本模型 API 密钥已删除。"
+            },
+            onFailure: { [weak self] message in
+                self?.textFeedbackMessage = message
+            }
+        )
     }
 
     func loadAPIKeyForTranscriptionProvider() throws -> String? {
-        try credentialStore.loadAPIKey(for: selectedTranscriptionProfileID)
+        try credentialStore.loadAPIKey(for: asrConfig.keyRef)
     }
 
     func loadAPIKeyForRewriteProvider() throws -> String? {
-        try credentialStore.loadAPIKey(for: selectedRewriteProfileID)
+        try credentialStore.loadAPIKey(for: textConfig.keyRef)
     }
 
     func loadAPIKeyForActiveProvider() throws -> String? {
-        try credentialStore.loadAPIKey(for: selectedProfileIDForEditing)
+        try credentialStore.loadAPIKey(for: asrConfig.keyRef)
     }
 
-    func addProfile() {
-        let profile = ProviderProfile(
-            name: "兼容配置 \(profiles.count + 1)",
-            type: .openAICompatible,
-            isEnabled: true
-        )
-        profiles.append(profile)
-        selectedProfileIDForEditing = profile.id
-        if enabledProfiles.count == 1 {
-            selectedTranscriptionProfileID = profile.id
-            selectedRewriteProfileID = profile.id
+    func updateASRProviderType(_ type: ProviderType) {
+        asrConfig.providerType = type
+        if !type.allowsCustomBaseURL {
+            asrConfig.baseURLString = type.fixedBaseURL?.absoluteString ?? ""
         }
-        persistProfiles()
-        ensureSelectionConsistency()
-    }
-
-    @discardableResult
-    func deleteEditingProfile() -> Bool {
-        guard profiles.count > 1 else {
-            feedbackMessage = "至少要保留一个服务商配置。"
-            return false
-        }
-        let deletingID = selectedProfileIDForEditing
-        profiles.removeAll(where: { $0.id == deletingID })
-        if let fallback = profiles.first {
-            selectedProfileIDForEditing = fallback.id
-        }
-        try? credentialStore.deleteAPIKey(for: deletingID)
-        persistProfiles()
-        ensureSelectionConsistency()
-        feedbackMessage = "已删除服务商配置。"
-        return true
-    }
-
-    func updateEditingProfileName(_ value: String) {
-        updateEditingProfile { profile in
-            profile.name = value
+        if asrConfig.modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            asrConfig.modelName = type.defaultTranscriptionModelName
         }
     }
 
-    func updateEditingProfileType(_ type: ProviderType) {
-        updateEditingProfile { profile in
-            profile.type = type
-            if !type.allowsCustomBaseURL {
-                profile.baseURLString = type.fixedBaseURL?.absoluteString ?? ""
-            }
-            if profile.transcriptionModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                profile.transcriptionModelName = type.defaultTranscriptionModelName
-            }
-            if profile.rewriteModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                profile.rewriteModelName = type.defaultRewriteModelName
-            }
+    func updateTextProviderType(_ type: ProviderType) {
+        textConfig.providerType = type
+        if !type.allowsCustomBaseURL {
+            textConfig.baseURLString = type.fixedBaseURL?.absoluteString ?? ""
+        }
+        if textConfig.modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            textConfig.modelName = type.defaultRewriteModelName
         }
     }
 
-    func updateEditingProfileEnabled(_ isEnabled: Bool) {
-        updateEditingProfile { profile in
-            profile.isEnabled = isEnabled
-        }
-        ensureSelectionConsistency()
+    func updateASRBaseURL(_ value: String) {
+        asrConfig.baseURLString = value
     }
 
-    func updateEditingBaseURL(_ value: String) {
-        updateEditingProfile { profile in
-            profile.baseURLString = value
-        }
+    func updateTextBaseURL(_ value: String) {
+        textConfig.baseURLString = value
     }
 
-    func updateEditingTranscriptionModel(_ value: String) {
-        updateEditingProfile { profile in
-            profile.transcriptionModelName = value
-        }
+    func updateASRModel(_ value: String) {
+        asrConfig.modelName = value
     }
 
-    func updateEditingRewriteModel(_ value: String) {
-        updateEditingProfile { profile in
-            profile.rewriteModelName = value
-        }
+    func updateTextModel(_ value: String) {
+        textConfig.modelName = value
     }
 
-    private func updateEditingProfile(_ mutation: (inout ProviderProfile) -> Void) {
-        guard let index = profiles.firstIndex(where: { $0.id == selectedProfileIDForEditing }) else {
-            return
-        }
-        var edited = profiles[index]
-        mutation(&edited)
-        profiles[index] = edited
-        persistProfiles()
-        ensureSelectionConsistency()
+    func testASRConnection() async -> ConnectionTestResult {
+        let tester = ASRConnectionTester(credentialStore: credentialStore)
+        return await tester.test(config: asrConfig)
     }
 
-    private func ensureSelectionConsistency() {
-        let enabled = enabledProfiles
-        if enabled.isEmpty {
-            if let first = profiles.first, let index = profiles.firstIndex(where: { $0.id == first.id }) {
-                profiles[index].isEnabled = true
-                persistProfiles()
-            }
-        }
-
-        let enabledIDs = Set(enabledProfiles.map(\.id))
-        if !enabledIDs.contains(selectedTranscriptionProfileID), let fallback = enabledProfiles.first {
-            selectedTranscriptionProfileID = fallback.id
-        }
-
-        if !enabledIDs.contains(selectedRewriteProfileID), let fallback = enabledProfiles.first {
-            selectedRewriteProfileID = fallback.id
-        }
-
-        if !profiles.contains(where: { $0.id == selectedProfileIDForEditing }), let fallback = profiles.first {
-            selectedProfileIDForEditing = fallback.id
-        }
-    }
-
-    private func profile(with id: String) -> ProviderProfile? {
-        profiles.first(where: { $0.id == id })
-    }
-
-    private func fallbackTranscriptionConfiguration() -> SpeechProviderConfiguration {
-        let profile = profile(with: selectedTranscriptionProfileID) ?? profiles.first!
-        return SpeechProviderConfiguration(
-            profileID: profile.id,
-            providerType: profile.type,
-            providerName: profile.name,
-            modelName: profile.type.defaultTranscriptionModelName,
-            baseURL: profile.type.fixedBaseURL ?? URL(string: "https://api.openai.com")!
-        )
-    }
-
-    private func fallbackRewriteConfiguration() -> TextGenerationProviderConfiguration {
-        let profile = profile(with: selectedRewriteProfileID) ?? profiles.first!
-        return TextGenerationProviderConfiguration(
-            profileID: profile.id,
-            providerType: profile.type,
-            providerName: profile.name,
-            modelName: profile.type.defaultRewriteModelName,
-            baseURL: profile.type.fixedBaseURL ?? URL(string: "https://api.openai.com")!
-        )
+    func testTextConnection() async -> ConnectionTestResult {
+        let tester = TextConnectionTester(credentialStore: credentialStore)
+        return await tester.test(config: textConfig)
     }
 
     private func resolvedTranscriptionConfiguration() -> SpeechProviderConfiguration? {
-        guard let profile = profile(with: selectedTranscriptionProfileID) else {
-            return nil
-        }
-        guard profile.isEnabled else {
+        guard asrConfigurationValidationMessage == nil else {
             return nil
         }
 
-        let normalizedModel = profile.transcriptionModelName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard modelValidationMessage(for: normalizedModel) == nil else {
-            return nil
-        }
-
-        guard let baseURL = resolvedBaseURL(for: profile) else {
+        guard let baseURL = ProviderConfigurationValidator.resolvedBaseURL(
+            providerType: asrConfig.providerType,
+            baseURLString: asrConfig.baseURLString
+        ) else {
             return nil
         }
 
         return SpeechProviderConfiguration(
-            profileID: profile.id,
-            providerType: profile.type,
-            providerName: profile.name,
-            modelName: normalizedModel,
+            profileID: asrConfig.keyRef,
+            providerType: asrConfig.providerType,
+            providerName: asrConfig.providerType.displayName,
+            modelName: modelName,
             baseURL: baseURL
         )
     }
 
     private func resolvedRewriteConfiguration() -> TextGenerationProviderConfiguration? {
-        guard let profile = profile(with: selectedRewriteProfileID) else {
-            return nil
-        }
-        guard profile.isEnabled else {
+        guard textConfigurationValidationMessage == nil else {
             return nil
         }
 
-        let normalizedModel = profile.rewriteModelName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard modelValidationMessage(for: normalizedModel) == nil else {
-            return nil
-        }
-
-        guard let baseURL = resolvedBaseURL(for: profile) else {
+        guard let baseURL = ProviderConfigurationValidator.resolvedBaseURL(
+            providerType: textConfig.providerType,
+            baseURLString: textConfig.baseURLString
+        ) else {
             return nil
         }
 
         return TextGenerationProviderConfiguration(
-            profileID: profile.id,
-            providerType: profile.type,
-            providerName: profile.name,
-            modelName: normalizedModel,
+            profileID: textConfig.keyRef,
+            providerType: textConfig.providerType,
+            providerName: textConfig.providerType.displayName,
+            modelName: rewriteModelName,
             baseURL: baseURL
         )
     }
 
-    private func validationMessageForTranscriptionProfile() -> String? {
-        guard let profile = profile(with: selectedTranscriptionProfileID) else {
-            return "转写服务商配置不存在。"
-        }
-        return validationMessage(for: profile, lane: .transcription)
+    private func fallbackTranscriptionConfiguration() -> SpeechProviderConfiguration {
+        SpeechProviderConfiguration(
+            profileID: asrConfig.keyRef,
+            providerType: asrConfig.providerType,
+            providerName: asrConfig.providerType.displayName,
+            modelName: asrConfig.providerType.defaultTranscriptionModelName,
+            baseURL: asrConfig.providerType.fixedBaseURL ?? URL(string: "https://api.openai.com")!
+        )
     }
 
-    private func validationMessageForRewriteProfile() -> String? {
-        guard let profile = profile(with: selectedRewriteProfileID) else {
-            return "改写服务商配置不存在。"
-        }
-        return validationMessage(for: profile, lane: .rewrite)
+    private func fallbackRewriteConfiguration() -> TextGenerationProviderConfiguration {
+        TextGenerationProviderConfiguration(
+            profileID: textConfig.keyRef,
+            providerType: textConfig.providerType,
+            providerName: textConfig.providerType.displayName,
+            modelName: textConfig.providerType.defaultRewriteModelName,
+            baseURL: textConfig.providerType.fixedBaseURL ?? URL(string: "https://api.openai.com")!
+        )
     }
 
-    private enum LaneKind {
-        case transcription
-        case rewrite
+    private func persistASRConfig() {
+        if let data = try? JSONEncoder().encode(asrConfig) {
+            defaults.set(data, forKey: defaultsASRConfigKey)
+        }
     }
 
-    private func validationMessage(for profile: ProviderProfile, lane: LaneKind) -> String? {
-        if !profile.isEnabled {
-            return "当前服务商配置未启用。"
+    private func persistTextConfig() {
+        if let data = try? JSONEncoder().encode(textConfig) {
+            defaults.set(data, forKey: defaultsTextConfigKey)
         }
-
-        let modelName: String
-        switch lane {
-        case .transcription:
-            modelName = profile.transcriptionModelName
-        case .rewrite:
-            modelName = profile.rewriteModelName
-        }
-
-        let normalizedModel = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let modelIssue = modelValidationMessage(for: normalizedModel) {
-            return modelIssue
-        }
-
-        if resolvedBaseURL(for: profile) == nil {
-            return "接口地址（Base URL）无效。"
-        }
-
-        return nil
     }
 
-    private func modelValidationMessage(for model: String) -> String? {
-        if model.isEmpty {
-            return "模型名不能为空。"
-        }
-
-        if model.count > 80 {
-            return "模型名过长。"
-        }
-
-        if model.contains(where: \.isWhitespace) {
-            return "模型名不能带空格。"
-        }
-
-        return nil
-    }
-
-    private func resolvedBaseURL(for profile: ProviderProfile) -> URL? {
-        if let fixed = profile.type.fixedBaseURL {
-            return fixed
-        }
-
-        let normalized = profile.baseURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func saveAPIKey(
+        draft: String,
+        keyRef: String,
+        roleName: String,
+        onSuccess: () -> Void,
+        onFailure: (String) -> Void
+    ) -> Bool {
+        let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
-            return nil
+            onFailure("\(roleName) API 密钥不能为空。")
+            return false
+        }
+
+        guard normalized.count >= 12 else {
+            onFailure("\(roleName) API 密钥长度看起来太短。")
+            return false
+        }
+
+        do {
+            try credentialStore.saveAPIKey(normalized, for: keyRef)
+            onSuccess()
+            return true
+        } catch {
+            onFailure("无法把 \(roleName) API 密钥写入钥匙串。")
+            return false
+        }
+    }
+
+    private func clearAPIKey(
+        keyRef: String,
+        roleName: String,
+        onSuccess: () -> Void,
+        onFailure: (String) -> Void
+    ) -> Bool {
+        do {
+            try credentialStore.deleteAPIKey(for: keyRef)
+            onSuccess()
+            return true
+        } catch {
+            onFailure("无法删除 \(roleName) API 密钥。")
+            return false
+        }
+    }
+
+    private func migrateLegacyCredentialsIfNeeded(using migration: LegacyMigration) {
+        migrateLegacyCredential(
+            oldRef: migration.legacyASRKeyRef,
+            newRef: asrConfig.keyRef
+        )
+        migrateLegacyCredential(
+            oldRef: migration.legacyTextKeyRef,
+            newRef: textConfig.keyRef
+        )
+    }
+
+    private func migrateLegacyCredential(oldRef: String?, newRef: String) {
+        guard let oldRef, !oldRef.isEmpty, oldRef != newRef else {
+            return
+        }
+
+        if
+            let existing = try? credentialStore.loadAPIKey(for: newRef),
+            !existing.isEmpty
+        {
+            return
         }
 
         guard
-            let url = URL(string: normalized),
-            let scheme = url.scheme?.lowercased(),
-            scheme == "https" || scheme == "http"
+            let legacy = try? credentialStore.loadAPIKey(for: oldRef),
+            !legacy.isEmpty
         else {
-            return nil
+            return
         }
 
-        return url
+        try? credentialStore.saveAPIKey(legacy, for: newRef)
     }
 
-    private func persistProfiles() {
-        if let data = try? JSONEncoder().encode(profiles) {
-            defaults.set(data, forKey: defaultsProfilesKey)
+    private static func sanitizeASRConfig(_ config: ASRConfig) -> ASRConfig {
+        var sanitized = config
+        if !sanitized.providerType.allowsCustomBaseURL {
+            sanitized.baseURLString = sanitized.providerType.fixedBaseURL?.absoluteString ?? ""
         }
+        if sanitized.modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sanitized.modelName = sanitized.providerType.defaultTranscriptionModelName
+        }
+        if sanitized.keyRef.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sanitized.keyRef = defaultASRCredentialKeyRef
+        }
+        return sanitized
     }
 
-    private static func decodeProfiles(from data: Data?) -> [ProviderProfile] {
+    private static func sanitizeTextConfig(_ config: TextConfig) -> TextConfig {
+        var sanitized = config
+        if !sanitized.providerType.allowsCustomBaseURL {
+            sanitized.baseURLString = sanitized.providerType.fixedBaseURL?.absoluteString ?? ""
+        }
+        if sanitized.modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sanitized.modelName = sanitized.providerType.defaultRewriteModelName
+        }
+        if sanitized.keyRef.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sanitized.keyRef = defaultTextCredentialKeyRef
+        }
+        return sanitized
+    }
+
+    private static func decodeASRConfig(from data: Data?) -> ASRConfig? {
         guard
             let data,
-            let decoded = try? JSONDecoder().decode([ProviderProfile].self, from: data)
+            let decoded = try? JSONDecoder().decode(ASRConfig.self, from: data)
         else {
-            return seedProfiles()
+            return nil
         }
         return decoded
     }
 
-    private static func sanitizeProfiles(_ loadedProfiles: [ProviderProfile]) -> [ProviderProfile] {
-        var deduped: [ProviderProfile] = []
-        var seen = Set<String>()
-
-        for var profile in loadedProfiles {
-            if seen.contains(profile.id) {
-                continue
-            }
-            seen.insert(profile.id)
-
-            if !profile.type.allowsCustomBaseURL {
-                profile.baseURLString = profile.type.fixedBaseURL?.absoluteString ?? ""
-            }
-
-            if profile.transcriptionModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                profile.transcriptionModelName = profile.type.defaultTranscriptionModelName
-            }
-
-            if profile.rewriteModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                profile.rewriteModelName = profile.type.defaultRewriteModelName
-            }
-
-            if profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                profile.name = profile.type.displayName
-            }
-
-            deduped.append(profile)
+    private static func decodeTextConfig(from data: Data?) -> TextConfig? {
+        guard
+            let data,
+            let decoded = try? JSONDecoder().decode(TextConfig.self, from: data)
+        else {
+            return nil
         }
-
-        if deduped.isEmpty {
-            deduped = seedProfiles()
-        }
-
-        if !deduped.contains(where: \.isEnabled), !deduped.isEmpty {
-            deduped[0].isEnabled = true
-        }
-
-        return deduped
+        return decoded
     }
 
-    private static func seedProfiles() -> [ProviderProfile] {
-        [
-            ProviderProfile(
-                name: "OpenAI 官方",
-                type: .openAI,
-                isEnabled: true,
-                baseURLString: "https://api.openai.com"
-            ),
-            ProviderProfile(
-                name: "兼容接口",
-                type: .openAICompatible,
-                isEnabled: false,
-                baseURLString: ""
+    private static func defaultASRConfig() -> ASRConfig {
+        ASRConfig(
+            providerType: .openAI,
+            baseURLString: "https://api.openai.com",
+            modelName: ProviderType.openAI.defaultTranscriptionModelName,
+            keyRef: defaultASRCredentialKeyRef
+        )
+    }
+
+    private static func defaultTextConfig() -> TextConfig {
+        TextConfig(
+            providerType: .openAI,
+            baseURLString: "https://api.openai.com",
+            modelName: ProviderType.openAI.defaultRewriteModelName,
+            keyRef: defaultTextCredentialKeyRef
+        )
+    }
+
+    private struct LegacyProviderProfile: Codable {
+        let id: String
+        let type: ProviderType
+        let isEnabled: Bool
+        let baseURLString: String
+        let transcriptionModelName: String
+        let rewriteModelName: String
+    }
+
+    private struct LegacyMigration {
+        let asrConfig: ASRConfig
+        let textConfig: TextConfig
+        let legacyASRKeyRef: String?
+        let legacyTextKeyRef: String?
+    }
+
+    private static func migrateLegacyConfiguration(defaults: UserDefaults) -> LegacyMigration {
+        let fallbackASR = defaultASRConfig()
+        let fallbackText = defaultTextConfig()
+        guard
+            let data = defaults.data(forKey: "providers.profiles.v1"),
+            let profiles = try? JSONDecoder().decode([LegacyProviderProfile].self, from: data),
+            !profiles.isEmpty
+        else {
+            let asrModel = defaults.string(forKey: "speech.provider.model")?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let textModel = defaults.string(forKey: "rewrite.provider.model")?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let asr = ASRConfig(
+                providerType: fallbackASR.providerType,
+                baseURLString: fallbackASR.baseURLString,
+                modelName: (asrModel?.isEmpty == false) ? asrModel : fallbackASR.modelName,
+                keyRef: defaultASRCredentialKeyRef
             )
-        ]
-    }
-
-    private static func applyLegacyModelMigration(
-        loadedProfiles: [ProviderProfile],
-        defaults: UserDefaults
-    ) -> [ProviderProfile] {
-        guard !loadedProfiles.isEmpty else {
-            var seeded = seedProfiles()
-            if
-                let legacyModel = defaults.string(forKey: "speech.provider.model")?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                !legacyModel.isEmpty
-            {
-                seeded[0].transcriptionModelName = legacyModel
-            }
-            if
-                let legacyRewrite = defaults.string(forKey: "rewrite.provider.model")?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                !legacyRewrite.isEmpty
-            {
-                seeded[0].rewriteModelName = legacyRewrite
-            }
-            return seeded
+            let text = TextConfig(
+                providerType: fallbackText.providerType,
+                baseURLString: fallbackText.baseURLString,
+                modelName: (textModel?.isEmpty == false) ? textModel : fallbackText.modelName,
+                keyRef: defaultTextCredentialKeyRef
+            )
+            return LegacyMigration(
+                asrConfig: asr,
+                textConfig: text,
+                legacyASRKeyRef: nil,
+                legacyTextKeyRef: nil
+            )
         }
-        return loadedProfiles
+
+        let enabledProfiles = profiles.filter(\.isEnabled)
+        let pool = enabledProfiles.isEmpty ? profiles : enabledProfiles
+
+        let selectedASRID = defaults.string(forKey: "providers.transcription.profile.id")
+        let selectedTextID = defaults.string(forKey: "providers.rewrite.profile.id")
+
+        let asrProfile = pool.first(where: { $0.id == selectedASRID }) ?? pool[0]
+        let textProfile = pool.first(where: { $0.id == selectedTextID }) ?? asrProfile
+
+        let asrBaseURL = asrProfile.type.fixedBaseURL?.absoluteString ?? asrProfile.baseURLString
+        let textBaseURL = textProfile.type.fixedBaseURL?.absoluteString ?? textProfile.baseURLString
+
+        let asr = ASRConfig(
+            providerType: asrProfile.type,
+            baseURLString: asrBaseURL,
+            modelName: asrProfile.transcriptionModelName,
+            keyRef: defaultASRCredentialKeyRef
+        )
+        let text = TextConfig(
+            providerType: textProfile.type,
+            baseURLString: textBaseURL,
+            modelName: textProfile.rewriteModelName,
+            keyRef: defaultTextCredentialKeyRef
+        )
+
+        return LegacyMigration(
+            asrConfig: asr,
+            textConfig: text,
+            legacyASRKeyRef: asrProfile.id,
+            legacyTextKeyRef: textProfile.id
+        )
     }
 }
 
@@ -736,4 +802,450 @@ protocol SpeechProvider {
 
 struct PlaceholderSpeechProvider: SpeechProvider {
     let providerName: String = "用户自填云端服务商 Key"
+}
+
+enum ConnectionTestStatus: String, Equatable {
+    case success
+    case failure
+}
+
+struct ConnectionTestResult: Equatable {
+    let status: ConnectionTestStatus
+    let message: String
+    let hint: String
+    let timestamp: Date
+    let httpStatus: Int?
+
+    static func success(
+        message: String,
+        hint: String = "配置可用。",
+        httpStatus: Int? = 200
+    ) -> ConnectionTestResult {
+        ConnectionTestResult(
+            status: .success,
+            message: message,
+            hint: hint,
+            timestamp: Date(),
+            httpStatus: httpStatus
+        )
+    }
+
+    static func failure(
+        message: String,
+        hint: String,
+        httpStatus: Int? = nil
+    ) -> ConnectionTestResult {
+        ConnectionTestResult(
+            status: .failure,
+            message: message,
+            hint: hint,
+            timestamp: Date(),
+            httpStatus: httpStatus
+        )
+    }
+}
+
+struct ASRConnectionTester {
+    private let session: URLSession
+    private let credentialStore: ProviderCredentialStore
+
+    init(
+        session: URLSession = .shared,
+        credentialStore: ProviderCredentialStore
+    ) {
+        self.session = session
+        self.credentialStore = credentialStore
+    }
+
+    func test(config: ASRConfig) async -> ConnectionTestResult {
+        if let validationMessage = ProviderConfigurationValidator.validationMessage(
+            providerType: config.providerType,
+            baseURLString: config.baseURLString,
+            modelName: config.modelName
+        ) {
+            return .failure(
+                message: "语音识别配置校验失败：\(validationMessage)",
+                hint: "请检查接口地址和模型名。"
+            )
+        }
+
+        let apiKey: String
+        do {
+            let loaded = (try credentialStore.loadAPIKey(for: config.keyRef) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !loaded.isEmpty else {
+                return .failure(
+                    message: "语音识别 API 密钥为空。",
+                    hint: "请先填写并保存 API 密钥，再点测试。"
+                )
+            }
+            apiKey = loaded
+        } catch {
+            return .failure(
+                message: "无法读取语音识别 API 密钥：\(error.localizedDescription)",
+                hint: "请重新保存密钥后重试。"
+            )
+        }
+
+        guard
+            let baseURL = ProviderConfigurationValidator.resolvedBaseURL(
+                providerType: config.providerType,
+                baseURLString: config.baseURLString
+            )
+        else {
+            return .failure(
+                message: "语音识别接口地址无效。",
+                hint: "请填写以 http 或 https 开头的地址。"
+            )
+        }
+
+        let audioData = DiagnosticAudioSample.makeWaveData()
+        let endpoint = OpenAIEndpointResolver.transcriptionURL(baseURL: baseURL)
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        let boundary = "Boundary-\(UUID().uuidString)"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Self.multipartBody(
+            boundary: boundary,
+            modelName: config.modelName.trimmingCharacters(in: .whitespacesAndNewlines),
+            audioData: audioData
+        )
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                return .failure(
+                    message: "语音识别测试失败：无效 HTTP 响应。",
+                    hint: "请检查接口地址是否正确。"
+                )
+            }
+
+            if (200..<300).contains(http.statusCode) {
+                let transcript = Self.parseASRTranscript(from: data)
+                if transcript.isEmpty {
+                    return .failure(
+                        message: "语音识别接口可达，但返回内容无法解析。",
+                        hint: "请核对接口是否兼容 OpenAI `/v1/audio/transcriptions`。",
+                        httpStatus: http.statusCode
+                    )
+                }
+                return .success(
+                    message: "语音识别测试成功：\(transcript)",
+                    hint: "接口、模型与密钥均可用。",
+                    httpStatus: http.statusCode
+                )
+            }
+
+            let detail = Self.parseProviderError(from: data)
+            return .failure(
+                message: "语音识别测试失败：HTTP \(http.statusCode) \(detail)",
+                hint: ConnectionTestHintResolver.hint(for: http.statusCode),
+                httpStatus: http.statusCode
+            )
+        } catch let urlError as URLError {
+            return .failure(
+                message: "语音识别测试失败：网络异常 \(urlError.localizedDescription)",
+                hint: "请检查网络、代理或接口地址是否可访问。"
+            )
+        } catch {
+            return .failure(
+                message: "语音识别测试失败：\(error.localizedDescription)",
+                hint: "请稍后重试，如反复失败请检查地址与密钥。"
+            )
+        }
+    }
+
+    private static func multipartBody(
+        boundary: String,
+        modelName: String,
+        audioData: Data
+    ) -> Data {
+        var body = Data()
+        body.appendUTF8Bytes("--\(boundary)\r\n")
+        body.appendUTF8Bytes("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
+        body.appendUTF8Bytes("\(modelName)\r\n")
+        body.appendUTF8Bytes("--\(boundary)\r\n")
+        body.appendUTF8Bytes("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n")
+        body.appendUTF8Bytes("json\r\n")
+        body.appendUTF8Bytes("--\(boundary)\r\n")
+        body.appendUTF8Bytes("Content-Disposition: form-data; name=\"file\"; filename=\"pulse-test.wav\"\r\n")
+        body.appendUTF8Bytes("Content-Type: audio/wav\r\n\r\n")
+        body.append(audioData)
+        body.appendUTF8Bytes("\r\n")
+        body.appendUTF8Bytes("--\(boundary)--\r\n")
+        return body
+    }
+
+    private static func parseASRTranscript(from data: Data) -> String {
+        if
+            let payload = try? JSONDecoder().decode(ConnectionTestTranscriptionPayload.self, from: data),
+            !payload.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            return payload.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    static func parseProviderError(from data: Data) -> String {
+        if
+            let payload = try? JSONDecoder().decode(ConnectionTestErrorEnvelope.self, from: data),
+            let message = payload.error.message?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !message.isEmpty
+        {
+            return message
+        }
+
+        let fallback = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return fallback.isEmpty ? "无错误详情" : fallback
+    }
+}
+
+struct TextConnectionTester {
+    private let session: URLSession
+    private let credentialStore: ProviderCredentialStore
+
+    init(
+        session: URLSession = .shared,
+        credentialStore: ProviderCredentialStore
+    ) {
+        self.session = session
+        self.credentialStore = credentialStore
+    }
+
+    func test(config: TextConfig) async -> ConnectionTestResult {
+        if let validationMessage = ProviderConfigurationValidator.validationMessage(
+            providerType: config.providerType,
+            baseURLString: config.baseURLString,
+            modelName: config.modelName
+        ) {
+            return .failure(
+                message: "文本模型配置校验失败：\(validationMessage)",
+                hint: "请检查接口地址和模型名。"
+            )
+        }
+
+        let apiKey: String
+        do {
+            let loaded = (try credentialStore.loadAPIKey(for: config.keyRef) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !loaded.isEmpty else {
+                return .failure(
+                    message: "文本模型 API 密钥为空。",
+                    hint: "请先填写并保存 API 密钥，再点测试。"
+                )
+            }
+            apiKey = loaded
+        } catch {
+            return .failure(
+                message: "无法读取文本模型 API 密钥：\(error.localizedDescription)",
+                hint: "请重新保存密钥后重试。"
+            )
+        }
+
+        guard
+            let baseURL = ProviderConfigurationValidator.resolvedBaseURL(
+                providerType: config.providerType,
+                baseURLString: config.baseURLString
+            )
+        else {
+            return .failure(
+                message: "文本模型接口地址无效。",
+                hint: "请填写以 http 或 https 开头的地址。"
+            )
+        }
+
+        let endpoint = OpenAIEndpointResolver.chatCompletionsURL(baseURL: baseURL)
+        let payload = TextConnectionPayload(
+            model: config.modelName.trimmingCharacters(in: .whitespacesAndNewlines),
+            messages: [
+                .init(role: "system", content: "你是连接测试助手。"),
+                .init(role: "user", content: "请只回复“连接正常”。")
+            ]
+        )
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        do {
+            request.httpBody = try JSONEncoder().encode(payload)
+        } catch {
+            return .failure(
+                message: "文本模型测试失败：请求编码异常。",
+                hint: "请检查模型名后重试。"
+            )
+        }
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                return .failure(
+                    message: "文本模型测试失败：无效 HTTP 响应。",
+                    hint: "请检查接口地址是否正确。"
+                )
+            }
+
+            if (200..<300).contains(http.statusCode) {
+                guard let output = Self.parseTextOutput(from: data) else {
+                    return .failure(
+                        message: "文本模型接口可达，但返回内容无法解析。",
+                        hint: "请确认接口兼容 OpenAI `/v1/chat/completions`。",
+                        httpStatus: http.statusCode
+                    )
+                }
+                return .success(
+                    message: "文本模型测试成功：\(output)",
+                    hint: "接口、模型与密钥均可用。",
+                    httpStatus: http.statusCode
+                )
+            }
+
+            let detail = ASRConnectionTester.parseProviderError(from: data)
+            return .failure(
+                message: "文本模型测试失败：HTTP \(http.statusCode) \(detail)",
+                hint: ConnectionTestHintResolver.hint(for: http.statusCode),
+                httpStatus: http.statusCode
+            )
+        } catch let urlError as URLError {
+            return .failure(
+                message: "文本模型测试失败：网络异常 \(urlError.localizedDescription)",
+                hint: "请检查网络、代理或接口地址是否可访问。"
+            )
+        } catch {
+            return .failure(
+                message: "文本模型测试失败：\(error.localizedDescription)",
+                hint: "请稍后重试，如反复失败请检查地址与密钥。"
+            )
+        }
+    }
+
+    private static func parseTextOutput(from data: Data) -> String? {
+        guard
+            let response = try? JSONDecoder().decode(TextConnectionResponse.self, from: data),
+            let first = response.choices.first?.message.content
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !first.isEmpty
+        else {
+            return nil
+        }
+        return first
+    }
+}
+
+private enum ConnectionTestHintResolver {
+    static func hint(for statusCode: Int) -> String {
+        switch statusCode {
+        case 401:
+            return "密钥无效，请重新粘贴 API 密钥。"
+        case 403:
+            return "账号权限不足，请确认模型权限或组织策略。"
+        case 404:
+            return "地址或模型名可能不对，请检查 Base URL 与模型名。"
+        case 429:
+            return "额度或频率受限，请检查余额或稍后重试。"
+        case 500...599:
+            return "服务端暂时异常，可稍后重试。"
+        default:
+            return "请检查密钥、模型名、接口地址与账号额度。"
+        }
+    }
+}
+
+private struct TextConnectionPayload: Encodable {
+    struct Message: Encodable {
+        let role: String
+        let content: String
+    }
+
+    let model: String
+    let messages: [Message]
+}
+
+private struct TextConnectionResponse: Decodable {
+    struct Choice: Decodable {
+        struct Message: Decodable {
+            let content: String
+        }
+
+        let message: Message
+    }
+
+    let choices: [Choice]
+}
+
+private enum DiagnosticAudioSample {
+    static func makeWaveData(
+        sampleRate: Int = 16_000,
+        duration: Double = 0.6,
+        frequency: Double = 440
+    ) -> Data {
+        let sampleCount = max(1, Int(Double(sampleRate) * duration))
+        var pcmData = Data(capacity: sampleCount * MemoryLayout<Int16>.size)
+        let amplitude = 0.2
+
+        for index in 0..<sampleCount {
+            let angle = 2.0 * Double.pi * frequency * Double(index) / Double(sampleRate)
+            let value = Int16(max(-1, min(1, sin(angle) * amplitude)) * Double(Int16.max))
+            var littleEndian = value.littleEndian
+            pcmData.append(Data(bytes: &littleEndian, count: MemoryLayout<Int16>.size))
+        }
+
+        let byteRate = sampleRate * MemoryLayout<Int16>.size
+        let blockAlign = MemoryLayout<Int16>.size
+        let dataLength = pcmData.count
+        let totalLength = 36 + dataLength
+
+        var wave = Data()
+        wave.appendUTF8Bytes("RIFF")
+        wave.appendUInt32(UInt32(totalLength))
+        wave.appendUTF8Bytes("WAVE")
+        wave.appendUTF8Bytes("fmt ")
+        wave.appendUInt32(16)
+        wave.appendUInt16(1)
+        wave.appendUInt16(1)
+        wave.appendUInt32(UInt32(sampleRate))
+        wave.appendUInt32(UInt32(byteRate))
+        wave.appendUInt16(UInt16(blockAlign))
+        wave.appendUInt16(16)
+        wave.appendUTF8Bytes("data")
+        wave.appendUInt32(UInt32(dataLength))
+        wave.append(pcmData)
+        return wave
+    }
+}
+
+private struct ConnectionTestTranscriptionPayload: Decodable {
+    let text: String
+}
+
+private struct ConnectionTestErrorEnvelope: Decodable {
+    struct Payload: Decodable {
+        let message: String?
+    }
+
+    let error: Payload
+}
+
+private extension Data {
+    mutating func appendUTF8Bytes(_ value: String) {
+        append(Data(value.utf8))
+    }
+
+    mutating func appendUInt16(_ value: UInt16) {
+        var little = value.littleEndian
+        append(Data(bytes: &little, count: MemoryLayout<UInt16>.size))
+    }
+
+    mutating func appendUInt32(_ value: UInt32) {
+        var little = value.littleEndian
+        append(Data(bytes: &little, count: MemoryLayout<UInt32>.size))
+    }
 }

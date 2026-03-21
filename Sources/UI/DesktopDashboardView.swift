@@ -66,10 +66,10 @@ struct DesktopDashboardView: View {
                 .font(.headline)
 
             HStack(spacing: 10) {
-                Button("开始听写") {
+                Button(primaryToggleTitle) {
                     model.interactionCoordinator.handleWakeInput(context: .dictation)
                 }
-                .disabled(!canStartSession)
+                .disabled(!canToggleSession)
 
                 Button("开始改写") {
                     model.interactionCoordinator.handleWakeInput(
@@ -79,12 +79,7 @@ struct DesktopDashboardView: View {
                         )
                     )
                 }
-                .disabled(!canStartSession)
-
-                Button("停止") {
-                    model.interactionCoordinator.handleStopInput()
-                }
-                .disabled(model.sessionStore.phase != .listening)
+                .disabled(!canStartRewrite)
 
                 Button("取消", role: .destructive) {
                     model.interactionCoordinator.handleCancelInput()
@@ -102,7 +97,7 @@ struct DesktopDashboardView: View {
                 }
             }
 
-            Text("默认快捷键：开始 Ctrl+Opt+Space，停止 Ctrl+Opt+Return，取消 Ctrl+Opt+Escape")
+            Text("默认快捷键：主键 Ctrl+Opt+Space（再次按下停止），取消 Escape")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -210,6 +205,25 @@ struct DesktopDashboardView: View {
         case .notRequired:
             return "不需要"
         }
+    }
+
+    private var canToggleSession: Bool {
+        switch model.sessionStore.phase {
+        case .idle, .cancelled, .error:
+            return true
+        case .listening:
+            return true
+        case .transcribing, .rewriting, .inserting:
+            return false
+        }
+    }
+
+    private var canStartRewrite: Bool {
+        canStartSession && model.permissionsCenter.snapshot.accessibility == .granted
+    }
+
+    private var primaryToggleTitle: String {
+        model.sessionStore.phase == .listening ? "停止并处理" : "开始听写"
     }
 }
 
