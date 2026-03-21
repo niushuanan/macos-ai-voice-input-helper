@@ -1,7 +1,7 @@
 name: PulseType
 options:
   createIntermediateGroups: true
-  developmentLanguage: en
+  developmentLanguage: zh-Hans
 settings:
   base:
     SWIFT_VERSION: 5.10
@@ -29,10 +29,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.niushuanan.PulseType
         PRODUCT_NAME: PulseType
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: PulseType
-        INFOPLIST_KEY_LSUIElement: "YES"
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: PulseType records audio only when you start a voice session.
-        INFOPLIST_KEY_NSAppleEventsUsageDescription: PulseType needs automation access when you enable text insertion into other apps.
+        INFOPLIST_KEY_CFBundleDisplayName: PulseType 语音助手
+        INFOPLIST_KEY_LSUIElement: "NO"
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: PulseType 会在你开始语音会话时录音，用于转写与改写。
+        INFOPLIST_KEY_NSAppleEventsUsageDescription: PulseType 需要自动化权限，用于把文本写回到其他应用。
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
 
   PulseTypeTests:

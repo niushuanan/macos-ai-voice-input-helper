@@ -34,6 +34,7 @@
 		C5B85760CE9451FE36B4B278 /* OpenAITranscriptionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 241181D9FA17D66D2CB559E2 /* OpenAITranscriptionProvider.swift */; };
 		CCC3EBB173C21789DCF37B08 /* GlobalHotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C63ABC16650228A74B81F7FA /* GlobalHotkeyService.swift */; };
 		CCFC70782D453121CD3D621A /* OpenAIEndpointResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B14B5D28128E0B4304B0E398 /* OpenAIEndpointResolverTests.swift */; };
+		D48AE4DCB6348C7B967D1DE1 /* DesktopDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1831CB84E33B4824C31143C6 /* DesktopDashboardView.swift */; };
 		D7565185FDA605CB6CEBFB93 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6A00315A23BF62DC01AEC6 /* AudioCaptureService.swift */; };
 		E1DBC788787F324D6B2178FD /* SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71EDE485545C13E98B2E5B72 /* SessionStoreTests.swift */; };
 		E4AAEBBCFE13544B1223300E /* KeychainProviderCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 157337AD796A00BA0C88EF3E /* KeychainProviderCredentialStore.swift */; };
@@ -58,6 +59,7 @@
 		0FD3BEE22B923D79D9B8964B /* AppScenePolicyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppScenePolicyStore.swift; sourceTree = "<group>"; };
 		157337AD796A00BA0C88EF3E /* KeychainProviderCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainProviderCredentialStore.swift; sourceTree = "<group>"; };
 		1691E3B3D2D0AC8A19526566 /* PermissionsCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsCenter.swift; sourceTree = "<group>"; };
+		1831CB84E33B4824C31143C6 /* DesktopDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopDashboardView.swift; sourceTree = "<group>"; };
 		1EC0E51656149B05168617A2 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		241181D9FA17D66D2CB559E2 /* OpenAITranscriptionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAITranscriptionProvider.swift; sourceTree = "<group>"; };
 		41E7D653314499348F50BC9E /* LocalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStore.swift; sourceTree = "<group>"; };
@@ -182,6 +184,7 @@
 		7F2914AE884BB268C18F27DF /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				1831CB84E33B4824C31143C6 /* DesktopDashboardView.swift */,
 				7D48BFEC8EABFB9C0E92E685 /* MenuBarMenuView.swift */,
 				BF85AEA4B8AD0C5A4BF090B1 /* MenuBarPanelView.swift */,
 				61E5EB79A499501B92D5C649 /* MenuBarStatusView.swift */,
@@ -369,11 +372,11 @@
 				};
 			};
 			buildConfigurationList = 5D7C0B3400D9A46FDC6E6F54 /* Build configuration list for PBXProject "PulseType" */;
-			developmentRegion = en;
+			developmentRegion = "zh-Hans";
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				Base,
-				en,
+				"zh-Hans",
 			);
 			mainGroup = C49A008F9B0E01FB4ED12AF1;
 			minimizedProjectReferenceProxies = 1;
@@ -401,6 +404,7 @@
 				382AEFF6E0F7F9BCFCAF3691 /* AppScenePolicyStore.swift in Sources */,
 				D7565185FDA605CB6CEBFB93 /* AudioCaptureService.swift in Sources */,
 				7F6206DC7CEF1E8584C8F82C /* ContextDetector.swift in Sources */,
+				D48AE4DCB6348C7B967D1DE1 /* DesktopDashboardView.swift in Sources */,
 				FDBF32C0FEB203F01750712D /* DiagnosticsCenter.swift in Sources */,
 				CCC3EBB173C21789DCF37B08 /* GlobalHotkeyService.swift in Sources */,
 				733ABF320B1595A80BEB6533 /* HotkeyCoordinator.swift in Sources */,
@@ -458,10 +462,10 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = PulseType;
-				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "PulseType needs automation access when you enable text insertion into other apps.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PulseType records audio only when you start a voice session.";
+				INFOPLIST_KEY_CFBundleDisplayName = "PulseType 语音助手";
+				INFOPLIST_KEY_LSUIElement = NO;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "PulseType 需要自动化权限，用于把文本写回到其他应用。";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PulseType 会在你开始语音会话时录音，用于转写与改写。";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -636,10 +640,10 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = PulseType;
-				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "PulseType needs automation access when you enable text insertion into other apps.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PulseType records audio only when you start a voice session.";
+				INFOPLIST_KEY_CFBundleDisplayName = "PulseType 语音助手";
+				INFOPLIST_KEY_LSUIElement = NO;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "PulseType 需要自动化权限，用于把文本写回到其他应用。";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PulseType 会在你开始语音会话时录音，用于转写与改写。";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

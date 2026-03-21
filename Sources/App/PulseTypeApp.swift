@@ -6,13 +6,18 @@ struct PulseTypeApp: App {
     @StateObject private var model = AppModel.bootstrap()
 
     var body: some Scene {
+        WindowGroup("PulseType 控制台") {
+            DesktopDashboardView(model: model)
+                .frame(minWidth: 920, minHeight: 640)
+        }
+
         MenuBarExtra {
             MenuBarMenuView(model: model)
         } label: {
             MenuBarStatusView(sessionStore: model.sessionStore)
         }
 
-        Window("Command Deck", id: "command-deck") {
+        Window("命令台", id: "command-deck") {
             MenuBarPanelView(model: model)
                 .frame(minWidth: 360, minHeight: 500)
         }
@@ -20,7 +25,7 @@ struct PulseTypeApp: App {
 
         Settings {
             SettingsView(model: model)
-                .frame(minWidth: 520, minHeight: 420)
+                .frame(minWidth: 760, minHeight: 680)
         }
     }
 }
