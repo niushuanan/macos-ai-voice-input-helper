@@ -55,7 +55,7 @@ protocol AudioCaptureService: AnyObject {
 @MainActor
 final class AVAudioRecorderCaptureService: NSObject, AudioCaptureService {
     let preferredSampleRate: Double
-    let audioFormatDescription: String = "AAC 单声道（.m4a），用于云端语音接口"
+    let audioFormatDescription: String = "WAV 16kHz 单声道（.wav），用于云端语音接口"
 
     private let temporaryDirectory: URL
     private let fileManager: FileManager
@@ -74,7 +74,7 @@ final class AVAudioRecorderCaptureService: NSObject, AudioCaptureService {
 
     init(
         temporaryDirectory: URL,
-        preferredSampleRate: Double = 44_100,
+        preferredSampleRate: Double = 16_000,
         fileManager: FileManager = .default
     ) {
         self.temporaryDirectory = temporaryDirectory
@@ -190,17 +190,19 @@ final class AVAudioRecorderCaptureService: NSObject, AudioCaptureService {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let timestamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let filename = "clip-\(timestamp)-\(UUID().uuidString.prefix(8)).m4a"
+        let filename = "clip-\(timestamp)-\(UUID().uuidString.prefix(8)).wav"
         return temporaryDirectory.appendingPathComponent(filename)
     }
 
     private func recorderSettings() -> [String: Any] {
         [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+            AVFormatIDKey: Int(kAudioFormatLinearPCM),
             AVSampleRateKey: preferredSampleRate,
             AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
-            AVEncoderBitRateKey: 96_000
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false
         ]
     }
 
