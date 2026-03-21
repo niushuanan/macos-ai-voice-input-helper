@@ -41,28 +41,37 @@ struct SettingsView: View {
             }
             .navigationTitle("PulseType")
         } detail: {
-            Group {
-                switch controlCenterState.selectedSection {
-                case .home:
-                    homePage
-                case .memory:
-                    memoryPage
-                case .skills:
-                    skillsPage
-                case .model:
-                    modelPage
-                case .settings:
-                    settingsPage
+            ZStack {
+                detailPaneBackground
+                    .ignoresSafeArea()
+
+                Group {
+                    switch controlCenterState.selectedSection {
+                    case .home:
+                        homePage
+                    case .memory:
+                        memoryPage
+                    case .skills:
+                        skillsPage
+                    case .model:
+                        modelPage
+                    case .settings:
+                        settingsPage
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Color(nsColor: .windowBackgroundColor))
         }
     }
 
     private var homePage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                pageHeader(
+                    title: "首页",
+                    subtitle: "主键开始语音，聆听中再次触发会停止并进入后续处理。"
+                )
+
                 HStack(spacing: 16) {
                     Label("主键：\(wakeShortcutText)", systemImage: "keyboard")
                     Label("模式：\(sessionStore.activeLane.title)", systemImage: "slider.horizontal.3")
@@ -132,7 +141,9 @@ struct SettingsView: View {
                     )
                 }
             }
-            .padding(20)
+            .frame(maxWidth: pageContentMaxWidth, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
         }
         .onAppear {
             permissionsCenter.refreshStatuses()
@@ -140,66 +151,77 @@ struct SettingsView: View {
     }
 
     private var memoryPage: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Picker("过滤", selection: $controlCenterState.memoryFilter) {
-                    ForEach(LocalHistoryFilter.allCases) { filter in
-                        Text(filter.title).tag(filter)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                pageHeader(
+                    title: "记忆",
+                    subtitle: "这里会保存每次会话的本地记录，你可以筛选、复制或删除。"
+                )
+
+                HStack {
+                    Picker("过滤", selection: $controlCenterState.memoryFilter) {
+                        ForEach(LocalHistoryFilter.allCases) { filter in
+                            Text(filter.title).tag(filter)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Spacer()
+
+                    Button("清空记录", role: .destructive) {
+                        localHistoryStore.clearAll()
+                        memoryFeedback = "本地历史已清空。"
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(localHistoryStore.entries.isEmpty)
+                }
+
+                if let memoryFeedback {
+                    Text(memoryFeedback)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if filteredHistoryEntries.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("当前筛选下还没有记录。", systemImage: "tray")
+                            .font(.subheadline.weight(.semibold))
+                        Text("先回首页进行一次语音会话，完成后就会出现记录。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(14)
+                    .pulseCard(cornerRadius: 12)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(filteredHistoryEntries) { entry in
+                            MemoryRowView(
+                                entry: entry,
+                                onCopy: { copyHistoryEntry(entry) },
+                                onDelete: {
+                                    localHistoryStore.delete(entryID: entry.id)
+                                    memoryFeedback = "已删除一条记录。"
+                                }
+                            )
+                            .padding(12)
+                            .pulseCard(cornerRadius: 12)
+                        }
                     }
                 }
-                .pickerStyle(.segmented)
-
-                Spacer()
-
-                Button("清空记录", role: .destructive) {
-                    localHistoryStore.clearAll()
-                    memoryFeedback = "本地历史已清空。"
-                }
-                .buttonStyle(.bordered)
-                .disabled(localHistoryStore.entries.isEmpty)
             }
-
-            if let memoryFeedback {
-                Text(memoryFeedback)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if filteredHistoryEntries.isEmpty {
-                Spacer()
-                Text("当前筛选下还没有记录。")
-                    .foregroundStyle(.secondary)
-                Spacer()
-            } else {
-                List {
-                    ForEach(filteredHistoryEntries) { entry in
-                        MemoryRowView(
-                            entry: entry,
-                            onCopy: { copyHistoryEntry(entry) },
-                            onDelete: {
-                                localHistoryStore.delete(entryID: entry.id)
-                                memoryFeedback = "已删除一条记录。"
-                            }
-                        )
-                        .padding(.vertical, 4)
-                    }
-                }
-                .listStyle(.inset)
-            }
+            .frame(maxWidth: pageContentMaxWidth, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var skillsPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("技能中心")
-                    .font(.title3.weight(.semibold))
-
-                Text("技能默认在本地生效。遇到异常会自动回退到原始文本流程。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                pageHeader(
+                    title: "技能",
+                    subtitle: "技能默认本地生效。发生异常时会自动退回原始流程，不会卡住主链路。"
+                )
 
                 ForEach(skillRuleStore.rules) { rule in
                     SkillRuleCardView(
@@ -216,20 +238,19 @@ struct SettingsView: View {
                     )
                 }
             }
-            .padding(20)
+            .frame(maxWidth: pageContentMaxWidth, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var modelPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("模型")
-                    .font(.title3.weight(.semibold))
-
-                Text("先配置语音识别和文本处理两个模型，再点测试，结果会常驻显示。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                pageHeader(
+                    title: "模型",
+                    subtitle: "先配置语音识别与文本处理，再点击测试。每次测试记录会持续显示。"
+                )
 
                 modelRoleSection(
                     roleTitle: "ASR（语音识别）",
@@ -294,9 +315,10 @@ struct SettingsView: View {
                     onTest: runTextTest
                 )
             }
-            .padding(20)
+            .frame(maxWidth: pageContentMaxWidth, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             providerSettingsStore.refreshCredentialState()
         }
@@ -387,17 +409,20 @@ struct SettingsView: View {
     private var settingsPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("设置")
-                    .font(.title3.weight(.semibold))
+                pageHeader(
+                    title: "设置",
+                    subtitle: "在这里管理热键、权限、场景策略以及基础信息。"
+                )
 
                 hotkeySettingsCard
                 permissionSettingsCard
                 scenePolicySettingsCard
                 aboutSettingsCard
             }
-            .padding(20)
+            .frame(maxWidth: pageContentMaxWidth, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             permissionsCenter.refreshStatuses()
             providerSettingsStore.refreshCredentialState()
@@ -837,6 +862,33 @@ struct SettingsView: View {
         ProviderType.allCases.filter(\.supportsRewrite)
     }
 
+    private var pageContentMaxWidth: CGFloat {
+        980
+    }
+
+    private var detailPaneBackground: some View {
+        LinearGradient(
+            colors: [
+                Color.accentColor.opacity(0.06),
+                Color(nsColor: .windowBackgroundColor),
+                Color(nsColor: .controlBackgroundColor).opacity(0.96)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    @ViewBuilder
+    private func pageHeader(title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.title2.weight(.bold))
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private func baseURLPlaceholder(for type: ProviderType) -> String {
         if type == .localSenseVoice {
             return "本地模式无需接口地址"
@@ -1260,8 +1312,7 @@ private struct ScenePolicyRowView: View {
             .foregroundStyle(.secondary)
         }
         .padding(10)
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.6))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .pulseCard(cornerRadius: 10)
     }
 }
 
@@ -1544,10 +1595,13 @@ private struct PulseCardStyle: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
-            .background(.ultraThinMaterial, in: shape)
-            .overlay(
-                shape.stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            .background(
+                shape.fill(Color(nsColor: .controlBackgroundColor).opacity(0.95))
             )
+            .overlay(
+                shape.stroke(Color.primary.opacity(0.06), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.05), radius: 7, x: 0, y: 2)
     }
 }
 
