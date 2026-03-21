@@ -4,6 +4,7 @@ import Security
 final class KeychainProviderCredentialStore: ProviderCredentialStore {
     private let service: String
     private let cleanupServices: [String]
+    private let securityToolPath = "/usr/bin/security"
 
     init(
         service: String = "com.niushuanan.PulseType.provider-profile.v3",
@@ -17,7 +18,20 @@ final class KeychainProviderCredentialStore: ProviderCredentialStore {
     }
 
     func loadAPIKey(for profileID: String) throws -> String? {
-        try loadAPIKey(for: profileID, in: service, allowUserInteraction: true)
+        do {
+            return try loadAPIKey(
+                for: profileID,
+                in: service,
+                allowUserInteraction: false
+            )
+        } catch ProviderCredentialStoreError.interactionRequired {
+            // Fallback for local/dev updates where ACL can become inconsistent.
+            let loaded = try loadAPIKeyViaSecurityTool(profileID: profileID, service: service)
+            if let loaded, !loaded.isEmpty {
+                try? saveViaSecurityTool(value: loaded, profileID: profileID, service: service)
+            }
+            return loaded
+        }
     }
 
     func saveAPIKey(_ value: String, for profileID: String) throws {
@@ -27,17 +41,25 @@ final class KeychainProviderCredentialStore: ProviderCredentialStore {
             return
         }
 
-        let data = Data(normalized.utf8)
-        // Recreate the keychain item so legacy ACL from old creator process does not linger.
-        try deleteAPIKey(for: profileID, in: service)
-        var addQuery = baseQuery(profileID: profileID, service: service)
-        addQuery[kSecValueData as String] = data
-        if let access = makeTrustedAccess(profileID: profileID) {
-            addQuery[kSecAttrAccess as String] = access
-        }
-        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-        guard addStatus == errSecSuccess else {
-            throw ProviderCredentialStoreError.unexpectedStatus(addStatus)
+        do {
+            try saveViaSecurityTool(value: normalized, profileID: profileID, service: service)
+        } catch {
+            // Security tool failed: fallback to Security.framework path.
+            let data = Data(normalized.utf8)
+            try deleteAPIKey(for: profileID, in: service)
+
+            var addQuery = baseQuery(profileID: profileID, service: service)
+            addQuery[kSecValueData as String] = data
+            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+
+            var addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            if addStatus == errSecParam {
+                addQuery = fallbackQueryWithoutDataProtection(addQuery)
+                addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            }
+            guard addStatus == errSecSuccess else {
+                throw ProviderCredentialStoreError.unexpectedStatus(addStatus)
+            }
         }
 
         for cleanupService in cleanupServices {
@@ -70,52 +92,89 @@ final class KeychainProviderCredentialStore: ProviderCredentialStore {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: profileID
+            kSecAttrAccount as String: profileID,
+            kSecUseDataProtectionKeychain as String: true
         ]
     }
 
-    private func makeTrustedAccess(profileID: String) -> SecAccess? {
-        var trustedApplications: [SecTrustedApplication] = []
-        var seenPaths = Set<String>()
-
-        for path in trustedApplicationPaths {
-            guard seenPaths.insert(path).inserted else {
-                continue
-            }
-
-            var trustedApp: SecTrustedApplication?
-            let status = SecTrustedApplicationCreateFromPath(path, &trustedApp)
-            if status == errSecSuccess, let trustedApp {
-                trustedApplications.append(trustedApp)
-            }
-        }
-
-        var currentApp: SecTrustedApplication?
-        let currentStatus = SecTrustedApplicationCreateFromPath(nil, &currentApp)
-        if currentStatus == errSecSuccess, let currentApp {
-            trustedApplications.append(currentApp)
-        }
-
-        guard !trustedApplications.isEmpty else {
-            return nil
-        }
-
-        let label = "\(service).\(profileID)" as CFString
-        var access: SecAccess?
-        let accessStatus = SecAccessCreate(label, trustedApplications as CFArray, &access)
-        guard accessStatus == errSecSuccess else {
-            return nil
-        }
-        return access
+    private func fallbackQueryWithoutDataProtection(
+        _ query: [String: Any]
+    ) -> [String: Any] {
+        var fallback = query
+        fallback.removeValue(forKey: kSecUseDataProtectionKeychain as String)
+        return fallback
     }
 
-    private var trustedApplicationPaths: [String] {
-        var paths: [String] = ["/Applications/PulseType.app"]
-        let mainPath = Bundle.main.bundlePath
-        if !mainPath.isEmpty {
-            paths.append(mainPath)
+    private func saveViaSecurityTool(
+        value: String,
+        profileID: String,
+        service: String
+    ) throws {
+        let result = runSecurityCommand(arguments: [
+            "add-generic-password",
+            "-U",
+            "-A",
+            "-a", profileID,
+            "-s", service,
+            "-w", value
+        ])
+        guard result.exitCode == 0 else {
+            throw ProviderCredentialStoreError.unexpectedStatus(errSecInternalError)
         }
-        return paths
+    }
+
+    private func loadAPIKeyViaSecurityTool(
+        profileID: String,
+        service: String
+    ) throws -> String? {
+        let result = runSecurityCommand(arguments: [
+            "find-generic-password",
+            "-a", profileID,
+            "-s", service,
+            "-w"
+        ])
+
+        switch result.exitCode {
+        case 0:
+            let value = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : value
+        case 44:
+            return nil
+        default:
+            if result.stderr.localizedCaseInsensitiveContains("interaction") {
+                throw ProviderCredentialStoreError.interactionRequired
+            }
+            throw ProviderCredentialStoreError.unexpectedStatus(errSecInternalError)
+        }
+    }
+
+    private func runSecurityCommand(arguments: [String]) -> SecurityCommandResult {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: securityToolPath)
+        process.arguments = arguments
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return SecurityCommandResult(exitCode: -1, stdout: "", stderr: error.localizedDescription)
+        }
+
+        let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
+        let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
+        let outputText = String(data: outputData, encoding: .utf8) ?? ""
+        let errorText = String(data: errorData, encoding: .utf8) ?? ""
+
+        return SecurityCommandResult(
+            exitCode: process.terminationStatus,
+            stdout: outputText,
+            stderr: errorText
+        )
     }
 
     private func loadAPIKey(
@@ -131,7 +190,12 @@ final class KeychainProviderCredentialStore: ProviderCredentialStore {
         }
 
         var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        var status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecParam {
+            let fallbackQuery = fallbackQueryWithoutDataProtection(query)
+            status = SecItemCopyMatching(fallbackQuery as CFDictionary, &item)
+        }
+
         switch status {
         case errSecSuccess:
             guard
@@ -152,7 +216,24 @@ final class KeychainProviderCredentialStore: ProviderCredentialStore {
 
     private func deleteAPIKey(for profileID: String, in service: String) throws {
         let query = baseQuery(profileID: profileID, service: service)
-        let status = SecItemDelete(query as CFDictionary)
+
+        var status = SecItemDelete(query as CFDictionary)
+        if status == errSecParam {
+            let fallbackQuery = fallbackQueryWithoutDataProtection(query)
+            status = SecItemDelete(fallbackQuery as CFDictionary)
+        }
+
+        if status == errSecItemNotFound {
+            let result = runSecurityCommand(arguments: [
+                "delete-generic-password",
+                "-a", profileID,
+                "-s", service
+            ])
+            if result.exitCode == 0 || result.exitCode == 44 {
+                return
+            }
+        }
+
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw ProviderCredentialStoreError.unexpectedStatus(status)
         }
@@ -171,7 +252,12 @@ final class KeychainProviderCredentialStore: ProviderCredentialStore {
         }
 
         var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        var status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecParam {
+            let fallbackQuery = fallbackQueryWithoutDataProtection(query)
+            status = SecItemCopyMatching(fallbackQuery as CFDictionary, &item)
+        }
+
         switch status {
         case errSecSuccess:
             return true
@@ -183,4 +269,10 @@ final class KeychainProviderCredentialStore: ProviderCredentialStore {
             throw ProviderCredentialStoreError.unexpectedStatus(status)
         }
     }
+}
+
+private struct SecurityCommandResult {
+    let exitCode: Int32
+    let stdout: String
+    let stderr: String
 }

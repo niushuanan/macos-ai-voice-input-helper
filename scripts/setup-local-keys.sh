@@ -17,14 +17,11 @@ save_key() {
   local -a command=(
     security add-generic-password
     -U
+    -A
     -a "$account"
     -s "$KEYCHAIN_SERVICE"
     -w "$key_value"
   )
-
-  if [[ -d "$TRUSTED_APP" ]]; then
-    command+=(-T "$TRUSTED_APP")
-  fi
 
   "${command[@]}" >/dev/null
 }
