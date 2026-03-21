@@ -39,6 +39,7 @@ struct SelectionRewriteRequest {
     let spokenInstruction: String
     let focusContext: FocusedAppContext
     let outputBias: AppOutputBias
+    let userSystemPrompt: String?
 }
 
 struct SelectionRewriteResult: Equatable {
@@ -238,11 +239,23 @@ struct RewritePromptBuilder {
         intent: RewriteIntent,
         request: SelectionRewriteRequest
     ) -> RewritePromptTemplate {
-        let systemPrompt = """
+        var systemPrompt = """
         You are a precise text rewrite engine.
         Return only rewritten text with no explanations.
         Preserve core meaning unless instruction asks for transformation.
         """
+
+        if
+            let userSystemPrompt = request.userSystemPrompt?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !userSystemPrompt.isEmpty
+        {
+            systemPrompt += """
+
+            User preference system instruction:
+            \(userSystemPrompt)
+            """
+        }
 
         let actionInstruction: String
         switch intent.action {

@@ -5,6 +5,7 @@ enum SkillRuleID: String, CaseIterable, Codable, Identifiable {
     case spokenFilter
     case autoStructure
     case appPreferenceBoost
+    case systemPrompt
 
     var id: String { rawValue }
 
@@ -18,6 +19,8 @@ enum SkillRuleID: String, CaseIterable, Codable, Identifiable {
             return "自动结构化"
         case .appPreferenceBoost:
             return "按应用偏好增强"
+        case .systemPrompt:
+            return "系统提示词"
         }
     }
 
@@ -30,7 +33,9 @@ enum SkillRuleID: String, CaseIterable, Codable, Identifiable {
         case .autoStructure:
             return "把长句整理成清晰分点。"
         case .appPreferenceBoost:
-            return "按当前应用风格做微调。"
+            return "读取“场景策略”并按当前应用风格做微调。"
+        case .systemPrompt:
+            return "每次文本处理都会附加这段提示。"
         }
     }
 
@@ -43,6 +48,8 @@ enum SkillRuleID: String, CaseIterable, Codable, Identifiable {
         case .autoStructure:
             return false
         case .appPreferenceBoost:
+            return true
+        case .systemPrompt:
             return true
         }
     }
@@ -57,6 +64,8 @@ enum SkillRuleID: String, CaseIterable, Codable, Identifiable {
             return "要点列表"
         case .appPreferenceBoost:
             return "自动"
+        case .systemPrompt:
+            return ""
         }
     }
 }
@@ -150,6 +159,19 @@ final class SkillRuleStore: ObservableObject {
             allowSpokenFilter: false,
             allowStructure: true
         )
+    }
+
+    func activeSystemPrompt() -> String? {
+        let rule = rule(for: .systemPrompt)
+        guard rule.isEnabled else {
+            return nil
+        }
+
+        let prompt = rule.parameter.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty else {
+            return nil
+        }
+        return prompt
     }
 
     private func applyPipeline(

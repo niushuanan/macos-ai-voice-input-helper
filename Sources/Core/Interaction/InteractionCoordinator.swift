@@ -542,7 +542,8 @@ final class InteractionCoordinator {
                     selectedText: snapshot.selectedText,
                     spokenInstruction: spokenInstruction,
                     focusContext: snapshot.focusContext,
-                    outputBias: scenePolicy.outputBias
+                    outputBias: scenePolicy.outputBias,
+                    userSystemPrompt: skillRuleStore.activeSystemPrompt()
                 ),
                 configuration: rewriteConfiguration,
                 apiKey: normalizedKey

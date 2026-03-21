@@ -227,13 +227,24 @@ final class LocalHistoryStore: ObservableObject {
             return .zero
         }
 
-        let totalDuration = todayEntries.reduce(0) { partial, entry in
-            partial + max(0, entry.audioDurationSeconds ?? 0)
-        }
-        let totalCharacters = todayEntries.reduce(0) { partial, entry in
+        var totalDuration: Double = 0
+        var totalCharacters: Int = 0
+
+        for entry in todayEntries {
             let text = (entry.outputText ?? entry.inputText).trimmingCharacters(in: .whitespacesAndNewlines)
-            return partial + text.count
+            let charCount = text.count
+            totalCharacters += charCount
+
+            let rawDuration = max(0, entry.audioDurationSeconds ?? 0)
+            if rawDuration > 0 {
+                totalDuration += rawDuration
+            } else if charCount > 0 {
+                // Keep metrics readable even for old history rows without duration.
+                let estimatedDuration = max(1.2, Double(charCount) / 4.0)
+                totalDuration += estimatedDuration
+            }
         }
+
         let charactersPerMinute: Double
         if totalDuration > 0 {
             charactersPerMinute = (Double(totalCharacters) / totalDuration) * 60

@@ -141,7 +141,7 @@ struct SettingsView: View {
                     )
                 }
             }
-            .frame(maxWidth: pageContentMaxWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
             .padding(.vertical, 22)
         }
@@ -209,7 +209,7 @@ struct SettingsView: View {
                     }
                 }
             }
-            .frame(maxWidth: pageContentMaxWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
             .padding(.vertical, 22)
         }
@@ -225,6 +225,7 @@ struct SettingsView: View {
 
                 ForEach(skillRuleStore.rules) { rule in
                     SkillRuleCardView(
+                        ruleID: rule.id,
                         title: rule.id.title,
                         subtitle: rule.id.subtitle,
                         isEnabled: Binding(
@@ -238,7 +239,7 @@ struct SettingsView: View {
                     )
                 }
             }
-            .frame(maxWidth: pageContentMaxWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
             .padding(.vertical, 22)
         }
@@ -315,7 +316,7 @@ struct SettingsView: View {
                     onTest: runTextTest
                 )
             }
-            .frame(maxWidth: pageContentMaxWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
             .padding(.vertical, 22)
         }
@@ -434,7 +435,7 @@ struct SettingsView: View {
                 scenePolicySettingsCard
                 aboutSettingsCard
             }
-            .frame(maxWidth: pageContentMaxWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
             .padding(.vertical, 22)
         }
@@ -451,6 +452,49 @@ struct SettingsView: View {
 
             KeyboardShortcuts.Recorder("主键（开始/停止）", name: .wakeSession)
             KeyboardShortcuts.Recorder("取消键", name: .cancelSession)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("当前主键：\(wakeShortcutText)")
+                Text("当前取消键：\(cancelShortcutText)")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            HStack(spacing: 8) {
+                Button("主键设为 Control + Option + Space") {
+                    KeyboardShortcuts.setShortcut(
+                        .init(.space, modifiers: [.control, .option]),
+                        for: .wakeSession
+                    )
+                }
+                .buttonStyle(.bordered)
+
+                Button("主键设为 Option + Space") {
+                    KeyboardShortcuts.setShortcut(
+                        .init(.space, modifiers: [.option]),
+                        for: .wakeSession
+                    )
+                }
+                .buttonStyle(.bordered)
+            }
+
+            HStack(spacing: 8) {
+                Button("取消键设为 Escape") {
+                    KeyboardShortcuts.setShortcut(
+                        .init(.escape),
+                        for: .cancelSession
+                    )
+                }
+                .buttonStyle(.bordered)
+
+                Button("取消键设为 Command + .") {
+                    KeyboardShortcuts.setShortcut(
+                        .init(.period, modifiers: [.command]),
+                        for: .cancelSession
+                    )
+                }
+                .buttonStyle(.bordered)
+            }
 
             if let conflict = shortcutConflictWarning {
                 Label(conflict, systemImage: "exclamationmark.triangle.fill")
@@ -474,6 +518,7 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .pulseCard(cornerRadius: 12)
     }
@@ -499,6 +544,15 @@ struct SettingsView: View {
                 Spacer()
             }
 
+            if permissionsCenter.runtimeDiagnostics.bundlePath != "/Applications/PulseType.app" {
+                Label(
+                    "当前不是 /Applications/PulseType.app。建议用安装脚本覆盖到 /Applications，避免权限反复重置。",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
+
             Divider()
 
             VStack(alignment: .leading, spacing: 6) {
@@ -522,6 +576,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .pulseCard(cornerRadius: 12)
     }
@@ -531,7 +586,7 @@ struct SettingsView: View {
             Text("场景策略")
                 .font(.headline)
 
-            Text("按应用设置文风偏好与改写偏好。留空不影响主流程。")
+            Text("按应用设置文风偏好与改写偏好。仅当“技能 > 按应用偏好增强”开启时才会实际生效。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -589,6 +644,7 @@ struct SettingsView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .pulseCard(cornerRadius: 12)
     }
@@ -604,6 +660,7 @@ struct SettingsView: View {
             LabeledContent("数据策略", value: "历史、配置、诊断默认保存在本地")
             LabeledContent("密钥策略", value: "API Key 仅存 macOS 钥匙串")
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .pulseCard(cornerRadius: 12)
     }
@@ -900,10 +957,6 @@ struct SettingsView: View {
         ProviderType.allCases.filter(\.supportsRewrite)
     }
 
-    private var pageContentMaxWidth: CGFloat {
-        980
-    }
-
     private var detailPaneBackground: some View {
         LinearGradient(
             colors: [
@@ -985,6 +1038,13 @@ struct SettingsView: View {
             .description
             .replacingOccurrences(of: "-", with: " + ")
             ?? "Control + Option + Space"
+    }
+
+    private var cancelShortcutText: String {
+        KeyboardShortcuts.getShortcut(for: .cancelSession)?
+            .description
+            .replacingOccurrences(of: "-", with: " + ")
+            ?? "Escape"
     }
 
     private func durationText(_ seconds: Double) -> String {
@@ -1284,6 +1344,7 @@ private struct MemoryRowView: View {
 }
 
 private struct SkillRuleCardView: View {
+    let ruleID: SkillRuleID
     let title: String
     let subtitle: String
     @Binding var isEnabled: Bool
@@ -1304,10 +1365,27 @@ private struct SkillRuleCardView: View {
                     .labelsHidden()
             }
 
-            TextField("参数", text: $parameter)
-                .textFieldStyle(.roundedBorder)
-                .disabled(!isEnabled)
+            if ruleID == .systemPrompt {
+                TextEditor(text: $parameter)
+                    .font(.system(size: 13))
+                    .frame(minHeight: 84, maxHeight: 120)
+                    .padding(6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Color(nsColor: .textBackgroundColor))
+                            )
+                    )
+                    .disabled(!isEnabled)
+            } else {
+                TextField("参数", text: $parameter)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(!isEnabled)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .pulseCard(cornerRadius: 10)
     }
@@ -1349,6 +1427,7 @@ private struct ScenePolicyRowView: View {
             }
             .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .pulseCard(cornerRadius: 10)
     }
@@ -1673,16 +1752,19 @@ private struct PulseCardStyle: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
             .background(
-                shape.fill(Color(nsColor: .textBackgroundColor).opacity(0.9))
+                shape.fill(Color.white.opacity(0.82))
                     .background(
-                        shape.fill(.ultraThinMaterial)
+                        shape.fill(Color(nsColor: .windowBackgroundColor).opacity(0.88))
+                    )
+                    .background(
+                        shape.fill(.ultraThinMaterial).opacity(0.55)
                     )
             )
             .overlay(
-                shape.stroke(Color.white.opacity(0.72), lineWidth: 1)
-                    .shadow(color: Color.black.opacity(0.06), radius: 0, x: 0, y: 0)
+                shape.stroke(Color.white.opacity(0.86), lineWidth: 1)
+                    .shadow(color: Color.black.opacity(0.045), radius: 0, x: 0, y: 0)
             )
-            .shadow(color: Color.black.opacity(0.06), radius: 12, x: 0, y: 4)
+            .shadow(color: Color.black.opacity(0.055), radius: 14, x: 0, y: 4)
     }
 }
 

@@ -64,13 +64,17 @@ final class StatusPulseHUDController {
 
         let origin = NSPoint(
             x: visibleFrame.midX - (size.width / 2),
-            y: visibleFrame.maxY - size.height - 34
+            y: visibleFrame.minY + 34
         )
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
     }
 
     private func scheduleHide(for phase: SessionPhase) {
         hideWorkItem?.cancel()
+
+        if phase == .listening {
+            return
+        }
 
         let work = DispatchWorkItem { [weak self] in
             guard let panel = self?.panel else {
@@ -94,13 +98,11 @@ final class StatusPulseHUDController {
 
     private func hideDelay(for phase: SessionPhase) -> TimeInterval {
         switch phase {
-        case .listening:
-            return 1.4
         case .transcribing, .rewriting, .inserting:
             return 1.0
         case .cancelled, .error:
             return 1.6
-        case .idle:
+        case .idle, .listening:
             return 0.9
         }
     }
