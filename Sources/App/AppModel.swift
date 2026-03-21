@@ -9,7 +9,8 @@ final class AppModel: ObservableObject {
     let globalHotkeyService: GlobalHotkeyService
     let interactionCoordinator: InteractionCoordinator
     let audioCaptureService: AudioCaptureService
-    let speechProvider: SpeechProvider
+    let providerSettingsStore: ProviderSettingsStore
+    let speechProviderRegistry: SpeechProviderRegistry
     let textOutputCoordinator: TextOutputCoordinator
     let contextDetector: ContextDetector
     let permissionsCenter: PermissionsCenter
@@ -24,7 +25,8 @@ final class AppModel: ObservableObject {
         globalHotkeyService: GlobalHotkeyService,
         interactionCoordinator: InteractionCoordinator,
         audioCaptureService: AudioCaptureService,
-        speechProvider: SpeechProvider,
+        providerSettingsStore: ProviderSettingsStore,
+        speechProviderRegistry: SpeechProviderRegistry,
         textOutputCoordinator: TextOutputCoordinator,
         contextDetector: ContextDetector,
         permissionsCenter: PermissionsCenter,
@@ -37,7 +39,8 @@ final class AppModel: ObservableObject {
         self.globalHotkeyService = globalHotkeyService
         self.interactionCoordinator = interactionCoordinator
         self.audioCaptureService = audioCaptureService
-        self.speechProvider = speechProvider
+        self.providerSettingsStore = providerSettingsStore
+        self.speechProviderRegistry = speechProviderRegistry
         self.textOutputCoordinator = textOutputCoordinator
         self.contextDetector = contextDetector
         self.permissionsCenter = permissionsCenter
@@ -56,10 +59,18 @@ final class AppModel: ObservableObject {
         let sessionStore = SessionStore()
         let permissionsCenter = PermissionsCenter()
         let audioCaptureService = AVAudioRecorderCaptureService(temporaryDirectory: store.temporaryAudioDirectory)
+        let providerSettingsStore = ProviderSettingsStore(
+            credentialStore: KeychainProviderCredentialStore()
+        )
+        let speechProviderRegistry = SpeechProviderRegistry(
+            providers: [OpenAITranscriptionProvider()]
+        )
         let interactionCoordinator = InteractionCoordinator(
             sessionStore: sessionStore,
             permissionsCenter: permissionsCenter,
-            audioCaptureService: audioCaptureService
+            audioCaptureService: audioCaptureService,
+            providerSettingsStore: providerSettingsStore,
+            providerRegistry: speechProviderRegistry
         )
         return AppModel(
             sessionStore: sessionStore,
@@ -67,7 +78,8 @@ final class AppModel: ObservableObject {
             globalHotkeyService: GlobalHotkeyService(interactionCoordinator: interactionCoordinator),
             interactionCoordinator: interactionCoordinator,
             audioCaptureService: audioCaptureService,
-            speechProvider: PlaceholderSpeechProvider(),
+            providerSettingsStore: providerSettingsStore,
+            speechProviderRegistry: speechProviderRegistry,
             textOutputCoordinator: StubTextOutputCoordinator(),
             contextDetector: StubContextDetector(),
             permissionsCenter: permissionsCenter,
@@ -97,6 +109,7 @@ final class AppModel: ObservableObject {
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in
                 self?.permissionsCenter.refreshStatuses()
+                self?.providerSettingsStore.refreshCredentialState()
             }
             .store(in: &cancellables)
     }

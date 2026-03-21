@@ -11,6 +11,7 @@
 		06ED5EEBD9C709D7B20DFF2C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615736F7FBCACF8AF8B17CCF /* SettingsView.swift */; };
 		1B54052D55540BDFF9C094A7 /* StatusPulseHUDController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5312CC574CB71C92172686C /* StatusPulseHUDController.swift */; };
 		1C28B9067E503981B8802BCD /* PulseTypeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B31135DA88F140538F690BA /* PulseTypeApp.swift */; };
+		69B3732554C8EB1236F0F1CE /* SpeechProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD4B5487FB8F3196B11F7169 /* SpeechProviderRegistry.swift */; };
 		733ABF320B1595A80BEB6533 /* HotkeyCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAAF330EF4380DDF60E63868 /* HotkeyCoordinator.swift */; };
 		79FB17D471512BFA5C11586C /* MenuBarStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61E5EB79A499501B92D5C649 /* MenuBarStatusView.swift */; };
 		7F6206DC7CEF1E8584C8F82C /* ContextDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F647CE4661A5CCCA8EA7CC20 /* ContextDetector.swift */; };
@@ -24,8 +25,10 @@
 		BDEB0BB760F09FFDA3943FF8 /* SpeechProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA0007EF478F376F9F4AA27C /* SpeechProvider.swift */; };
 		BE93095D0E4E794184EE3371 /* MenuBarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF85AEA4B8AD0C5A4BF090B1 /* MenuBarPanelView.swift */; };
 		C406240E5F631778241BFC19 /* InteractionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76C33145AB5557B714895617 /* InteractionCoordinator.swift */; };
+		C5B85760CE9451FE36B4B278 /* OpenAITranscriptionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 241181D9FA17D66D2CB559E2 /* OpenAITranscriptionProvider.swift */; };
 		CCC3EBB173C21789DCF37B08 /* GlobalHotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C63ABC16650228A74B81F7FA /* GlobalHotkeyService.swift */; };
 		D7565185FDA605CB6CEBFB93 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6A00315A23BF62DC01AEC6 /* AudioCaptureService.swift */; };
+		E4AAEBBCFE13544B1223300E /* KeychainProviderCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 157337AD796A00BA0C88EF3E /* KeychainProviderCredentialStore.swift */; };
 		E9B4D93689282E00BED565F5 /* InputLane.swift in Sources */ = {isa = PBXBuildFile; fileRef = E80D1E1D6D632A257088DD03 /* InputLane.swift */; };
 		FD46E29D44B77B9A97D545B8 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D8F2B65D755716CA52CB285 /* AppModel.swift */; };
 		FDBF32C0FEB203F01750712D /* DiagnosticsCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 787C4C62D2B8C938D225018A /* DiagnosticsCenter.swift */; };
@@ -33,8 +36,10 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		157337AD796A00BA0C88EF3E /* KeychainProviderCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainProviderCredentialStore.swift; sourceTree = "<group>"; };
 		1691E3B3D2D0AC8A19526566 /* PermissionsCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsCenter.swift; sourceTree = "<group>"; };
 		1EC0E51656149B05168617A2 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		241181D9FA17D66D2CB559E2 /* OpenAITranscriptionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAITranscriptionProvider.swift; sourceTree = "<group>"; };
 		41E7D653314499348F50BC9E /* LocalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStore.swift; sourceTree = "<group>"; };
 		555DDAEA56E00B69BBD68976 /* SessionPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPhase.swift; sourceTree = "<group>"; };
 		615736F7FBCACF8AF8B17CCF /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -56,6 +61,7 @@
 		CEE9D1B6AD35D4FEE8C8C42D /* HotkeyNames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyNames.swift; sourceTree = "<group>"; };
 		D9D6113DB9FD87EB75D2DC65 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		DAAF330EF4380DDF60E63868 /* HotkeyCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyCoordinator.swift; sourceTree = "<group>"; };
+		DD4B5487FB8F3196B11F7169 /* SpeechProviderRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechProviderRegistry.swift; sourceTree = "<group>"; };
 		E80D1E1D6D632A257088DD03 /* InputLane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputLane.swift; sourceTree = "<group>"; };
 		F647CE4661A5CCCA8EA7CC20 /* ContextDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextDetector.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -88,6 +94,14 @@
 			path = Interaction;
 			sourceTree = "<group>";
 		};
+		250F69CFC98B3365B76113D2 /* Security */ = {
+			isa = PBXGroup;
+			children = (
+				157337AD796A00BA0C88EF3E /* KeychainProviderCredentialStore.swift */,
+			);
+			path = Security;
+			sourceTree = "<group>";
+		};
 		2D7F5CD3E1788FEB92B567B0 /* Session */ = {
 			isa = PBXGroup;
 			children = (
@@ -101,7 +115,9 @@
 		32806C4B6E2E19B8D408C4C5 /* Speech */ = {
 			isa = PBXGroup;
 			children = (
+				241181D9FA17D66D2CB559E2 /* OpenAITranscriptionProvider.swift */,
 				CA0007EF478F376F9F4AA27C /* SpeechProvider.swift */,
+				DD4B5487FB8F3196B11F7169 /* SpeechProviderRegistry.swift */,
 			);
 			path = Speech;
 			sourceTree = "<group>";
@@ -163,6 +179,7 @@
 				804DDC643883FAFE3B460959 /* Hotkey */,
 				1A48D1F0CF5842B1EE06A304 /* Interaction */,
 				801BCF08C3270472DEDD0897 /* Permissions */,
+				250F69CFC98B3365B76113D2 /* Security */,
 				2D7F5CD3E1788FEB92B567B0 /* Session */,
 				32806C4B6E2E19B8D408C4C5 /* Speech */,
 				548AD82FCA6BE7AEA44AE94D /* Storage */,
@@ -304,16 +321,19 @@
 				972AFA7F034A7B07E8E722A8 /* HotkeyNames.swift in Sources */,
 				E9B4D93689282E00BED565F5 /* InputLane.swift in Sources */,
 				C406240E5F631778241BFC19 /* InteractionCoordinator.swift in Sources */,
+				E4AAEBBCFE13544B1223300E /* KeychainProviderCredentialStore.swift in Sources */,
 				8B8BBF2A06B443EA95BEA159 /* LocalStore.swift in Sources */,
 				02080CA78961B65946CBF53F /* MenuBarMenuView.swift in Sources */,
 				BE93095D0E4E794184EE3371 /* MenuBarPanelView.swift in Sources */,
 				79FB17D471512BFA5C11586C /* MenuBarStatusView.swift in Sources */,
+				C5B85760CE9451FE36B4B278 /* OpenAITranscriptionProvider.swift in Sources */,
 				B1D1C0EF683563F25230AB0A /* PermissionsCenter.swift in Sources */,
 				1C28B9067E503981B8802BCD /* PulseTypeApp.swift in Sources */,
 				B5412E5EAA202D7D8C6095EA /* SessionPhase.swift in Sources */,
 				B8EC9B12B63BC6895430A731 /* SessionStore.swift in Sources */,
 				06ED5EEBD9C709D7B20DFF2C /* SettingsView.swift in Sources */,
 				BDEB0BB760F09FFDA3943FF8 /* SpeechProvider.swift in Sources */,
+				69B3732554C8EB1236F0F1CE /* SpeechProviderRegistry.swift in Sources */,
 				1B54052D55540BDFF9C094A7 /* StatusPulseHUDController.swift in Sources */,
 				FED627529C528E95B85937EC /* TextOutputCoordinator.swift in Sources */,
 			);

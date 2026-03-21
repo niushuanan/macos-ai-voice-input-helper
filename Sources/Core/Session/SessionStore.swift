@@ -9,11 +9,12 @@ final class SessionStore: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var listeningLevel: Double = 0
     @Published private(set) var pendingClip: RecordedAudioClip?
+    @Published private(set) var latestTranscription: SpeechTranscriptionResult?
 
     private let allowedTransitions: [SessionPhase: Set<SessionPhase>] = [
         .idle: [.listening],
         .listening: [.transcribing, .cancelled, .error],
-        .transcribing: [.rewriting, .inserting, .cancelled, .error],
+        .transcribing: [.idle, .rewriting, .inserting, .cancelled, .error],
         .rewriting: [.inserting, .cancelled, .error],
         .inserting: [.idle, .cancelled, .error],
         .cancelled: [.idle, .listening],
@@ -40,6 +41,27 @@ final class SessionStore: ObservableObject {
         } else {
             transition(to: .transcribing, statusMessage: "Turning speech into a structured text request.")
         }
+    }
+
+    func markTranscribing(
+        audioSummary: String,
+        providerName: String,
+        modelName: String
+    ) {
+        transition(
+            to: .transcribing,
+            statusMessage: "Transcribing \(audioSummary) with \(providerName) · \(modelName)."
+        )
+    }
+
+    func completeTranscription(result: SpeechTranscriptionResult) {
+        latestTranscription = result
+        pendingClip = nil
+        listeningLevel = 0
+        transition(
+            to: .idle,
+            statusMessage: "Transcript ready via \(result.providerName) · \(result.modelName)."
+        )
     }
 
     func markRewriting() {
@@ -87,6 +109,10 @@ final class SessionStore: ObservableObject {
 
     func attachPendingClip(_ clip: RecordedAudioClip) {
         pendingClip = clip
+    }
+
+    func clearPendingClipReference() {
+        pendingClip = nil
     }
 
     private func transition(to nextPhase: SessionPhase, statusMessage: String) {

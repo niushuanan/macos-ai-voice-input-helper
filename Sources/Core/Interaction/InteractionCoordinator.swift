@@ -16,16 +16,23 @@ final class InteractionCoordinator {
     private let sessionStore: SessionStore
     private let permissionsCenter: PermissionsCenter
     private let audioCaptureService: AudioCaptureService
+    private let providerSettingsStore: ProviderSettingsStore
+    private let providerRegistry: SpeechProviderRegistry
     private var cancellables = Set<AnyCancellable>()
+    private var transcriptionTask: Task<Void, Never>?
 
     init(
         sessionStore: SessionStore,
         permissionsCenter: PermissionsCenter,
-        audioCaptureService: AudioCaptureService
+        audioCaptureService: AudioCaptureService,
+        providerSettingsStore: ProviderSettingsStore,
+        providerRegistry: SpeechProviderRegistry
     ) {
         self.sessionStore = sessionStore
         self.permissionsCenter = permissionsCenter
         self.audioCaptureService = audioCaptureService
+        self.providerSettingsStore = providerSettingsStore
+        self.providerRegistry = providerRegistry
         bindListeningLevel()
     }
 
@@ -66,7 +73,13 @@ final class InteractionCoordinator {
             discardPendingClipIfNeeded()
             sessionStore.attachPendingClip(clip)
             sessionStore.updateListeningLevel(0)
-            sessionStore.markTranscribing(audioSummary: clip.displaySummary)
+            let configuration = providerSettingsStore.configuration
+            sessionStore.markTranscribing(
+                audioSummary: clip.displaySummary,
+                providerName: configuration.providerID.displayName,
+                modelName: configuration.modelName
+            )
+            startTranscription(for: clip)
         } catch {
             sessionStore.fail(message: "Recording could not stop cleanly: \(error.localizedDescription)")
         }
@@ -76,6 +89,9 @@ final class InteractionCoordinator {
         guard sessionStore.phase != .idle else {
             return
         }
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+
         if audioCaptureService.isRecording {
             audioCaptureService.cancelRecording()
         }
@@ -92,6 +108,9 @@ final class InteractionCoordinator {
     }
 
     func handleResetInput() {
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+
         if audioCaptureService.isRecording {
             audioCaptureService.cancelRecording()
         }
@@ -110,6 +129,70 @@ final class InteractionCoordinator {
             }
         } catch {
             sessionStore.fail(message: "Recording could not start: \(error.localizedDescription)")
+        }
+    }
+
+    private func startTranscription(for clip: RecordedAudioClip) {
+        transcriptionTask?.cancel()
+
+        transcriptionTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                guard providerSettingsStore.isConfigurationValid else {
+                    throw SpeechTranscriptionError.providerFailure(
+                        description: providerSettingsStore.configurationValidationMessage ?? "Provider configuration is invalid."
+                    )
+                }
+
+                let configuration = providerSettingsStore.configuration
+                guard let provider = providerRegistry.provider(for: configuration.providerID) else {
+                    throw SpeechTranscriptionError.providerFailure(description: "Selected provider is not available in this build.")
+                }
+
+                guard
+                    let apiKey = try providerSettingsStore.loadAPIKeyForActiveProvider(),
+                    !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                else {
+                    throw SpeechTranscriptionError.missingAPIKey(providerName: configuration.providerID.displayName)
+                }
+
+                let request = SpeechTranscriptionRequest(
+                    clip: clip,
+                    lane: sessionStore.activeLane,
+                    contextSummary: "lane=\(sessionStore.activeLane.rawValue)"
+                )
+
+                let result = try await provider.transcribe(
+                    request: request,
+                    configuration: configuration,
+                    apiKey: apiKey
+                )
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                audioCaptureService.removeClip(at: clip.fileURL)
+                sessionStore.completeTranscription(result: result)
+            } catch is CancellationError {
+                return
+            } catch let speechError as SpeechTranscriptionError {
+                guard !Task.isCancelled else {
+                    return
+                }
+                audioCaptureService.removeClip(at: clip.fileURL)
+                sessionStore.clearPendingClipReference()
+                sessionStore.fail(message: actionableMessage(for: speechError))
+            } catch {
+                guard !Task.isCancelled else {
+                    return
+                }
+                audioCaptureService.removeClip(at: clip.fileURL)
+                sessionStore.clearPendingClipReference()
+                sessionStore.fail(message: actionableMessage(for: .providerFailure(description: error.localizedDescription)))
+            }
         }
     }
 
@@ -132,5 +215,23 @@ final class InteractionCoordinator {
             return
         }
         audioCaptureService.removeClip(at: clip.fileURL)
+        sessionStore.clearPendingClipReference()
+    }
+
+    private func actionableMessage(for error: SpeechTranscriptionError) -> String {
+        switch error {
+        case let .missingAPIKey(providerName):
+            return "\(providerName) API key is missing. Open Settings -> Provider to add it."
+        case let .networkFailure(description):
+            return "Network issue while transcribing. Check connection and retry. (\(description))"
+        case let .providerFailure(description):
+            return "Transcription provider rejected the request. Verify key, model, and quota. (\(description))"
+        case let .audioFormatUnsupported(fileExtension):
+            return "Recorded audio format \(fileExtension) is unsupported. Restart recording and try again."
+        case .invalidResponse:
+            return "Provider response could not be parsed. Retry once, then change model if needed."
+        case .cancelled:
+            return "Transcription was cancelled."
+        }
     }
 }
