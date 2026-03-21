@@ -19,11 +19,11 @@ keyboard replacement. PulseType takes a different path:
 
 Core product loop:
 
-- Global shortcuts: wake, stop, cancel
+- Global shortcuts: wake/stop toggle + cancel
 - Local audio recording + cloud transcription
 - Dictation writeback into focused app
 - Selection rewrite (`translate`, `polish`, `condense`, `structure`)
-- Provider role split (transcription provider and rewrite provider)
+- Dual-role model config (`ASR` + `Text`) with one-click connectivity test
 - API key input in settings, stored in Keychain
 - Local history with delete operations and app/mode/status filters
 - App-aware policy (`output bias` + rewrite-lane preference)
@@ -88,12 +88,12 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 
 ## Trial checklist
 
-1. Configure provider profile and API key in settings.
+1. Configure `ASR` and `Text` model cards in settings.
 2. Grant microphone permission.
 3. Grant accessibility permission.
-4. Try direct dictation in TextEdit.
-5. Try selection rewrite with highlighted text.
-6. Check history panel and filters.
+4. Run both connectivity tests from settings.
+5. Try direct dictation in TextEdit.
+6. Try selection rewrite with highlighted text.
 
 ## Key documents
 

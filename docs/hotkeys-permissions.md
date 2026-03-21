@@ -1,70 +1,58 @@
-# Hotkeys and Permissions
+# 快捷键与权限模型（可用性重构版）
 
-## Default hotkey strategy (v1 baseline)
+## 默认快捷键策略
 
-The app uses a dedicated global shortcut for each core session action:
+- 主快捷键（开始/停止）：`Control + Option + Space`
+- 取消当前会话：`Escape`
+- 兼容停止键（保留）：`Control + Option + Return`
 
-- Wake and start session: `Control + Option + Space`
-- Stop listening and move to text stage: `Control + Option + Return`
-- Cancel current session: `Control + Option + Escape`
+核心规则：
 
-Additional behavior:
+- 空闲态按主键：开始录音。
+- 聆听态再次按主键：停止录音并进入后续处理。
+- 取消键只取消当前会话，不会退出 App。
 
-- While in `listening`, pressing wake (`Control + Option + Space`) again also triggers stop.
+## 可配置与冲突提示
 
-Implementation notes:
+- 设置页提供主快捷键和取消键录制入口（`KeyboardShortcuts.Recorder`）。
+- 设置页实时检测主键与取消键冲突。
+- 提供“恢复默认快捷键”按钮，便于故障回滚。
 
-- Global registration is provided by `KeyboardShortcuts` (Carbon-backed).
-- Handlers route into `InteractionCoordinator` to keep a single state path.
-- Cancel only affects the active session; app quit remains a separate menu item.
+## 权限中心（真实请求）
 
-## Why this strategy
+当前只展示两类关键权限：
 
-- Separate stop and cancel avoids accidental termination while speaking.
-- Stable key combinations reduce behavior ambiguity across app states.
-- The recorder UI in settings allows key customization without custom low-level code.
+- 麦克风
+- 辅助功能
 
-## Permission model
+请求调用：
 
-Current permission coverage:
+- 麦克风：`AVCaptureDevice.requestAccess(for: .audio)`
+- 辅助功能：`AXIsProcessTrustedWithOptions(prompt: true)`
 
-- Microphone: required for starting voice sessions.
-- Accessibility: required for selection rewrite and cross-app insertion path.
-- Global hotkeys: no additional permission required under current approach.
+状态展示统一为：
 
-Permission handling:
+- 未请求
+- 请求中
+- 已允许
+- 已拒绝
 
-- `PermissionsCenter` performs runtime detection and request actions.
-- Missing microphone permission blocks session start with explicit error feedback.
-- Accessibility gaps are surfaced in settings and in menu guidance.
+并提供：
 
-## Known system limits
+- `请求权限`
+- `打开系统设置`
+- `重新检测权限`
 
-- Global shortcut conflicts with system shortcuts can still happen depending on user setup.
-- Accessibility behavior differs across third-party apps, especially for selected-text rewrite.
-- In macOS sandbox contexts, some modifier combinations are restricted.
-- Permission changes made in System Settings may require app focus switch before UI reflects the latest state.
+## 严格门禁规则
 
-## Prompt 3 polish candidates
+- 缺少麦克风权限：
+  - 禁止开始录音会话。
+- 缺少辅助功能权限：
+  - 禁止选区改写链路。
+  - 普通听写可继续，但跨应用写回可能进入兜底路径或失败，UI 会明确提示。
 
-### Candidate 1: Session-edge pulse HUD
+## 已知系统限制
 
-- Value: clearer phase change visibility with very low interruption.
-- Cost: low (already partly available).
-- Risk: overuse can feel noisy.
-
-### Candidate 2: Shortcut conflict advisor (Selected)
-
-- Value: warns when wake, stop, and cancel become identical or ambiguous.
-- Cost: low to medium.
-- Risk: false safety if users create external conflicts in macOS later.
-
-### Candidate 3: Permission-aware action strip
-
-- Value: menu actions could dynamically explain blocked operations in place.
-- Cost: medium.
-- Risk: too much status text can make the menu heavy.
-
-Selected for implementation in this round:
-
-- Candidate 2, via settings-level conflict checks plus reset-to-default action.
+- 全局快捷键仍可能与系统或其他工具冲突。
+- 辅助功能能力在不同应用内差异明显，尤其是选区读取与替换。
+- 用户在系统设置改权限后，通常需要回到 App 再点一次“重新检测权限”。

@@ -1,114 +1,61 @@
-# Provider Platform Design (Prompt 8)
+# Provider 接入与测试（双角色固定版）
 
-## Goal for this phase
+## 本轮目标
 
-Move from a single-provider path to a profile-based provider platform:
+用最短路径让用户在前端完成两条模型链路配置并立即自测：
 
-- user can bring their own API keys
-- transcription and rewrite can route to different providers
-- settings UI manages provider type, base URL, model, enable state, and key
-- expansion path favors `OpenAI-compatible` coverage first
+1. 语音识别（ASR）
+2. 文本处理（Rewrite / Text Generation）
 
-## Innovation candidates (Prompt 8)
+## 配置结构
 
-| Candidate | User understanding cost | Build cost | Premium feel | V1 fit | Decision |
-| --- | --- | --- | --- | --- | --- |
-| Split routing by role (transcription vs rewrite) | Low | Medium | High | Excellent | Selected |
-| Per-mode model pool with auto policy | Medium | Medium to high | High | Fair | Parked |
-| Endpoint profile marketplace templates | Medium | High | Medium | Later | Parked |
+`ProviderSettingsStore` 已从多 profile 模式改成双角色固定配置：
 
-Selected implementation:
+- `ASRConfig { providerType, baseURL, model, keyRef }`
+- `TextConfig { providerType, baseURL, model, keyRef }`
 
-- **Split routing by role**
-  - each role can bind to a different provider profile
-  - each profile can have its own model and endpoint
-  - key is isolated per profile in Keychain
+两套配置都支持：
 
-## Current provider matrix
+- `OpenAI（官方）`
+- `OpenAI 兼容`
 
-| Provider type | Transcription | Rewrite generation | Base URL strategy | Key scope |
-| --- | --- | --- | --- | --- |
-| OpenAI (Official) | Yes | Yes | fixed to `https://api.openai.com` | per profile |
-| OpenAI-Compatible | Yes | Yes | user-defined `base URL` | per profile |
+## OpenAI 兼容接口约定
 
-Notes:
+- ASR：`POST {baseURL}/v1/audio/transcriptions`
+- 文本：`POST {baseURL}/v1/chat/completions`
 
-- both rows use one shared contract family, but endpoint policy is different
-- OpenAI official mode gives stable defaults
-- compatible mode gives broad vendor coverage with minimum custom code
+地址统一通过 `OpenAIEndpointResolver` 规范化，避免 `/v1/v1` 重复路径。
 
-## Native integration vs compatible integration
+## 密钥存储策略
 
-### Native (`OpenAI Official`)
+- API 密钥只保存在 macOS 钥匙串（Keychain）。
+- `UserDefaults` 仅保存非敏感元数据（provider 类型、base URL、model、keyRef）。
+- 兼容旧版本 profile 配置时，会自动迁移可用密钥到新 keyRef。
 
-- fixed endpoint
-- fewer config mistakes
-- best default path for first-time setup
+## 前端测试能力
 
-### Compatible (`OpenAI-Compatible`)
+设置页每张卡片都提供“测试”按钮。
 
-- user can define custom endpoint
-- enables fast integration with vendors that implement OpenAI-style APIs
-- requires stronger form validation and clearer error messaging
+### 测试ASR
 
-## Settings UX in this phase
+- 使用内置短 WAV 音频样本发起真实请求。
+- 返回统一结果：
+  - 成功/失败
+  - HTTP 状态码
+  - 可读消息
+  - 建议动作（密钥/地址/模型/额度）
 
-`Provider center` now includes:
+### 测试文本模型
 
-- role assignment:
-  - transcription provider profile
-  - rewrite provider profile
-- profile editor:
-  - provider type
-  - profile name
-  - enable/disable
-  - base URL (when compatible type is selected)
-  - transcription model
-  - rewrite model
-  - API key save/delete
+- 发送固定短提示词到 `/v1/chat/completions`。
+- 校验返回内容可解析，并给出同样的统一结果结构。
 
-## Security and persistence strategy
+统一返回类型：
 
-- API keys:
-  - Keychain storage per profile ID
-  - never written into plain-text config files
-- non-secret metadata:
-  - provider profiles and role bindings in `UserDefaults`
-  - includes type/name/base URL/model/enable state
+- `ConnectionTestResult { status, message, hint, timestamp, httpStatus }`
 
-## Runtime routing path
+## 当前限制
 
-### Dictation lane
-
-1. read transcription profile binding
-2. validate profile enable state + model + endpoint
-3. load profile API key from Keychain
-4. resolve provider by `ProviderType`
-5. run transcription request
-
-### Selection rewrite lane
-
-1. read rewrite profile binding
-2. validate profile enable state + model + endpoint
-3. load profile API key from Keychain
-4. resolve rewrite provider by `ProviderType`
-5. run text-generation rewrite request
-
-## How to add a new provider type
-
-1. Add a new case to `ProviderType`.
-2. Define base URL policy and default models for that type.
-3. Implement:
-   - `SpeechTranscriptionProvider` support for the new type
-   - `TextGenerationProvider` support for the new type
-4. Register support in:
-   - `SpeechProviderRegistry`
-   - `RewriteProviderRegistry`
-5. Add validation rules in `ProviderSettingsStore` if this type needs extra fields.
-6. Confirm settings UI shows the type and can save valid profile configuration.
-
-## Known limits in this phase
-
-- provider-specific advanced params (temperature/top_p/prompt suffix) are not exposed yet
-- no per-profile connectivity test button yet
-- compatible endpoints can differ subtly in payload behavior; errors are surfaced but not auto-healed
+- 只走 OpenAI 兼容协议主线，不做多厂商原生协议深度适配。
+- 暂未开放温度、top_p 等高级参数。
+- 测试按钮验证的是“接口可用性”，不代表业务结果质量上限。

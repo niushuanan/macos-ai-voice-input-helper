@@ -68,6 +68,36 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.latestTranscription?.transcript, transcription.transcript)
     }
 
+    func testListeningToTranscribingReflectsToggleStopStage() {
+        let store = SessionStore()
+
+        store.startDictation()
+        store.markTranscribing(
+            audioSummary: "0.6 秒，44100Hz",
+            providerName: "OpenAI（官方）",
+            modelName: "whisper-1"
+        )
+
+        XCTAssertEqual(store.phase, .transcribing)
+        XCTAssertTrue(store.statusMessage.contains("whisper-1"))
+    }
+
+    func testPermissionGateDependsOnMicrophoneForSessionStart() {
+        let blocked = PermissionSnapshot(
+            microphone: .notRequested,
+            accessibility: .granted
+        )
+        let micReadyAXMissing = PermissionSnapshot(
+            microphone: .granted,
+            accessibility: .denied
+        )
+
+        XCTAssertFalse(blocked.canStartVoiceSession)
+        XCTAssertTrue(blocked.hasBlockingIssue)
+        XCTAssertTrue(micReadyAXMissing.canStartVoiceSession)
+        XCTAssertFalse(micReadyAXMissing.hasBlockingIssue)
+    }
+
     private func makeTranscription() -> SpeechTranscriptionResult {
         SpeechTranscriptionResult(
             providerType: .openAI,

@@ -1,57 +1,52 @@
-# Usage Guide (Trial Build)
+# 使用说明（当前可试用版）
 
-## Default shortcuts
+## 默认快捷键
 
-- Wake / start: `Control + Option + Space`
-- Stop / submit: `Control + Option + Return`
-- Cancel session: `Control + Option + Escape`
+- 主快捷键（开始/停止）：`Control + Option + Space`
+- 取消当前会话：`Escape`
 
-## First-run checklist
+说明：聆听中再次按主快捷键，会直接停止录音并进入转写流程。
 
-1. Open PulseType settings from menu bar.
-2. Configure provider profile and API key.
-3. Allow microphone permission.
-4. Allow accessibility permission for stable cross-app insertion/rewrite.
+## 首次配置（3 分钟内可完成）
 
-## Trial flows
+1. 打开设置页。
+2. 在“模型配置”里填写两张卡片：
+   - 语音识别（ASR）
+   - 文本处理
+3. 分别填写：
+   - API 地址
+   - 模型名
+   - API 密钥（保存到钥匙串）
+4. 点“测试ASR”和“测试文本模型”，确认都成功。
+5. 到“权限中心”请求：
+   - 麦克风
+   - 辅助功能
 
-### Flow 1: Direct dictation
+## 语音输入路径
 
-1. Focus any text input field.
-2. Press wake shortcut.
-3. Speak.
-4. Press stop shortcut.
-5. PulseType transcribes and inserts text into focused app.
+1. 在任意输入框聚焦光标。
+2. 按主快捷键开始录音。
+3. 说话。
+4. 再按一次主快捷键停止。
+5. 等待转写与写回完成。
 
-### Flow 2: Selection rewrite
+## 选区改写路径
 
-1. Select text in the target app.
-2. Press wake shortcut.
-3. Speak command, for example:
-   - "translate to Japanese"
-   - "make it formal"
-   - "condense this"
-   - "organize as bullet points"
-4. Press stop shortcut.
-5. PulseType rewrites and replaces selected text.
+1. 在目标应用先选中一段文本。
+2. 按主快捷键开始录音。
+3. 说出改写意图（如“翻译成日语”“更正式一点”）。
+4. 再按主快捷键停止。
+5. 系统会用改写结果覆盖选区原文。
 
-## Status and diagnostics
+## 常见问题定位
 
-- Menu bar icon:
-  - listening level pips in recording phase
-  - animated busy dots in transcribing/rewriting/inserting phases
-- Command Deck:
-  - phase, lane, provider/model, target app, writeback path
-- History panel:
-  - local session records with filters by mode/status/app
-
-## Troubleshooting quick map
-
-- "API key is missing":
-  - open settings > Provider center, save key
-- "Transcription request failed":
-  - verify key, model, base URL, quota
-- "No selected text detected":
-  - select text first, then run rewrite lane
-- "Accessibility permission is required":
-  - enable PulseType in System Settings > Privacy & Security > Accessibility
+- 测试失败且 HTTP 401：
+  - 密钥错误或未生效，重新保存密钥再试。
+- 测试失败且 HTTP 404：
+  - Base URL 或模型名可能不对。
+- 测试失败且 HTTP 429：
+  - 额度不足或触发限流。
+- 无法开始录音：
+  - 麦克风权限未允许。
+- 选区改写无法进入：
+  - 辅助功能权限未允许，或当前没有有效选区。

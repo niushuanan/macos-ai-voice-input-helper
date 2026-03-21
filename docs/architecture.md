@@ -57,10 +57,10 @@ Selected model: `tap-tap dual-lane session`
   - if app state is `idle`, `cancelled`, or `error`, start a new session
 - Stop:
   - tap `Control + Option + Space` again when in `listening`
-  - or use dedicated stop shortcut `Control + Option + Return`
+  - optional compatibility shortcut `Control + Option + Return`
   - this transitions to `transcribing`
 - Cancel:
-  - `Control + Option + Escape` at any active phase
+  - `Escape` at any active phase
   - this transitions to `cancelled`
 - Lane split:
   - default wake -> `directDictation`
@@ -72,8 +72,8 @@ Selected model: `tap-tap dual-lane session`
 Current default keymap:
 
 - Wake and start: `Control + Option + Space`
-- Stop and submit: `Control + Option + Return`
-- Cancel session: `Control + Option + Escape`
+- Stop and submit: press wake again when listening
+- Cancel session: `Escape`
 
 Implementation notes:
 
@@ -199,10 +199,14 @@ Current implementation:
 - `OpenAITranscriptionProvider` supports both:
   - `OpenAI Official`
   - `OpenAI-Compatible`
-- `ProviderSettingsStore` is profile-based:
-  - role binding for transcription vs rewrite
-  - profile metadata (name/type/base URL/model/enable state)
-- API keys are loaded from Keychain per profile ID via `ProviderCredentialStore`.
+- `ProviderSettingsStore` is role-fixed:
+  - `ASRConfig { providerType, baseURL, model, keyRef }`
+  - `TextConfig { providerType, baseURL, model, keyRef }`
+- API keys are loaded from Keychain via role keyRef.
+- built-in connection testers:
+  - ASR real request with short bundled WAV sample
+  - text model real request with fixed prompt
+  - unified result payload for UI diagnostics
 
 ### RewriteProvider / TextGenerationProvider
 
@@ -324,8 +328,10 @@ Responsibility:
 Current model:
 
 - microphone permission is required for session start
-- Accessibility permission is required for selection rewrite and insertion bridge
-- global hotkeys do not require additional permission with Carbon-based registration
+- Accessibility permission is required for selection rewrite path
+- when Accessibility is missing:
+  - dictation may still continue
+  - writeback can fall back or fail with explicit guidance
 
 ### LocalStore
 
@@ -344,23 +350,17 @@ Responsibility:
 
 Current implementation:
 
-- role binding pickers:
-  - transcription provider profile
-  - rewrite provider profile
-- profile editor:
+- four-section layout focused on first-run usability:
+  - 会话控制
+  - 模型配置（ASR + 文本处理）
+  - 权限中心
+  - 诊断与测试
+- each model card includes:
   - provider type
-  - name
-  - enable/disable
-  - base URL (optional for compatible type)
-  - transcription model and rewrite model
-- API key save/delete using profile-scoped Keychain entries
-- local history panel with:
-  - app/mode/status filters
-  - focused-app-only toggle
-  - per-entry delete and full clear
-- app scene policy panel with:
-  - focused-app quick edit
-  - saved policy list and inline controls
+  - base URL
+  - model
+  - API key save/delete (Keychain)
+  - one-click connectivity test
 
 ### Diagnostics
 
@@ -405,9 +405,7 @@ These are known missing pieces, not accidents:
 
 - rewrite command parser is rule-based and still limited in language coverage
 - no dedicated rewrite action palette UI yet (voice command only)
-- no per-profile provider connection test button yet
 - no vendor-specific advanced params (temperature/top_p/etc.) in settings yet
-- no full first-launch permission walkthrough yet
 - no waveform-grade visualizer; current listening feedback is a minimal level meter
 - AX replacement compatibility still needs broader validation across third-party editors
 
