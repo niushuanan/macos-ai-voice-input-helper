@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsView: View {
     let model: AppModel
 
+    @ObservedObject private var controlCenterState: ControlCenterState
     @ObservedObject private var sessionStore: SessionStore
     @ObservedObject private var permissionsCenter: PermissionsCenter
     @ObservedObject private var providerSettingsStore: ProviderSettingsStore
@@ -15,12 +16,52 @@ struct SettingsView: View {
 
     init(model: AppModel) {
         self.model = model
+        _controlCenterState = ObservedObject(wrappedValue: model.controlCenterState)
         _sessionStore = ObservedObject(wrappedValue: model.sessionStore)
         _permissionsCenter = ObservedObject(wrappedValue: model.permissionsCenter)
         _providerSettingsStore = ObservedObject(wrappedValue: model.providerSettingsStore)
     }
 
     var body: some View {
+        NavigationSplitView {
+            List(DesktopSection.allCases, selection: $controlCenterState.selectedSection) { section in
+                Label(section.title, systemImage: section.symbolName)
+                    .tag(section)
+            }
+            .navigationTitle("PulseType")
+        } detail: {
+            Group {
+                switch controlCenterState.selectedSection {
+                case .home:
+                    legacyConsolePage
+                case .memory:
+                    PlaceholderPageView(
+                        title: "记忆",
+                        subtitle: "下一步会在这里展示可筛选的时间线与管理操作。"
+                    )
+                case .skills:
+                    PlaceholderPageView(
+                        title: "技能",
+                        subtitle: "下一步会在这里提供可开关的技能中心。"
+                    )
+                case .model:
+                    PlaceholderPageView(
+                        title: "模型",
+                        subtitle: "下一步会在这里固定展示 ASR 与文本处理两张模型卡片。"
+                    )
+                case .settings:
+                    PlaceholderPageView(
+                        title: "设置",
+                        subtitle: "下一步会在这里展示热键、权限、场景策略与关于信息。"
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color(nsColor: .windowBackgroundColor))
+        }
+    }
+
+    private var legacyConsolePage: some View {
         VStack(alignment: .leading, spacing: 14) {
             headerSection
             Form {
@@ -32,8 +73,6 @@ struct SettingsView: View {
             }
         }
         .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             permissionsCenter.refreshStatuses()
             providerSettingsStore.refreshCredentialState()
@@ -356,6 +395,24 @@ struct SettingsView: View {
                 textTesting = false
             }
         }
+    }
+}
+
+private struct PlaceholderPageView: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.title2.weight(.bold))
+            Text(subtitle)
+                .font(.body)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 

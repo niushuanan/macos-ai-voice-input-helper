@@ -4,6 +4,7 @@ import Foundation
 
 @MainActor
 final class AppModel: ObservableObject {
+    let controlCenterState: ControlCenterState
     let sessionStore: SessionStore
     let hotkeyCoordinator: HotkeyCoordinator
     let globalHotkeyService: GlobalHotkeyService
@@ -23,6 +24,7 @@ final class AppModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     init(
+        controlCenterState: ControlCenterState,
         sessionStore: SessionStore,
         hotkeyCoordinator: HotkeyCoordinator,
         globalHotkeyService: GlobalHotkeyService,
@@ -40,6 +42,7 @@ final class AppModel: ObservableObject {
         diagnosticsCenter: DiagnosticsCenter,
         statusPulseHUDController: StatusPulseHUDController
     ) {
+        self.controlCenterState = controlCenterState
         self.sessionStore = sessionStore
         self.hotkeyCoordinator = hotkeyCoordinator
         self.globalHotkeyService = globalHotkeyService
@@ -65,6 +68,7 @@ final class AppModel: ObservableObject {
 
     static func bootstrap() -> AppModel {
         let store = LocalStore.bootstrap()
+        let controlCenterState = ControlCenterState()
         let sessionStore = SessionStore()
         let permissionsCenter = PermissionsCenter()
         let audioCaptureService = AVAudioRecorderCaptureService(temporaryDirectory: store.temporaryAudioDirectory)
@@ -96,6 +100,7 @@ final class AppModel: ObservableObject {
             localHistoryStore: localHistoryStore
         )
         return AppModel(
+            controlCenterState: controlCenterState,
             sessionStore: sessionStore,
             hotkeyCoordinator: HotkeyCoordinator.defaultConfiguration,
             globalHotkeyService: GlobalHotkeyService(interactionCoordinator: interactionCoordinator),
