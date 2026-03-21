@@ -5,12 +5,14 @@ import SwiftUI
 struct MenuBarMenuView: View {
     let model: AppModel
     @ObservedObject private var permissionsCenter: PermissionsCenter
+    @ObservedObject private var providerSettingsStore: ProviderSettingsStore
 
     @Environment(\.openWindow) private var openWindow
 
     init(model: AppModel) {
         self.model = model
         _permissionsCenter = ObservedObject(wrappedValue: model.permissionsCenter)
+        _providerSettingsStore = ObservedObject(wrappedValue: model.providerSettingsStore)
     }
 
     var body: some View {
@@ -18,6 +20,12 @@ struct MenuBarMenuView: View {
             .font(.caption)
         Text("Lane: \(model.sessionStore.activeLane.title)")
             .font(.caption)
+        Text("ASR: \(providerSettingsStore.selectedTranscriptionProviderName)")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        Text("Rewrite: \(providerSettingsStore.selectedRewriteProviderName)")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
 
         if permissionsCenter.snapshot.hasBlockingIssue {
             Divider()

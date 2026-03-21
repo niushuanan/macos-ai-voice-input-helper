@@ -606,7 +606,7 @@ final class InteractionCoordinator {
         case let .networkFailure(description):
             return "Network issue while transcribing. Check connection and retry. (\(description))"
         case let .providerFailure(description):
-            return "Transcription provider rejected the request. Verify key, model, and quota. (\(description))"
+            return "Transcription request failed. \(providerFailureHint(from: description)) (\(description))"
         case let .audioFormatUnsupported(fileExtension):
             return "Recorded audio format \(fileExtension) is unsupported. Restart recording and try again."
         case .invalidResponse:
@@ -647,10 +647,30 @@ final class InteractionCoordinator {
         case .emptyInstruction:
             return "Instruction is empty. Try a command like translate, polish, condense, or structure."
         case let .generationFailed(description):
-            return "Rewrite model request failed. Check model/key/quota. (\(description))"
+            return "Rewrite request failed. \(providerFailureHint(from: description)) (\(description))"
         case .invalidGeneratedText:
             return "Rewrite model returned empty text. Please try a clearer command."
         }
+    }
+
+    private func providerFailureHint(from description: String) -> String {
+        let lowered = description.lowercased()
+        if lowered.contains("401") || lowered.contains("unauthorized") || lowered.contains("invalid api key") {
+            return "Verify API key and provider type."
+        }
+        if lowered.contains("403") || lowered.contains("forbidden") {
+            return "Check provider account permission for this model."
+        }
+        if lowered.contains("404") || lowered.contains("model") {
+            return "Verify model name and endpoint base URL."
+        }
+        if lowered.contains("429") || lowered.contains("rate limit") {
+            return "Provider rate limit reached. Retry shortly or switch model/provider."
+        }
+        if lowered.contains("500") || lowered.contains("502") || lowered.contains("503") || lowered.contains("504") {
+            return "Provider service is unstable. Retry later."
+        }
+        return "Verify key, model, endpoint, and provider quota."
     }
 
     private func resolvedLane(context: WakeInvocationContext) -> InputLane {

@@ -172,26 +172,26 @@ final class PermissionsCenter: ObservableObject {
         case .microphone:
             switch snapshot.microphone {
             case .granted:
-                return "Voice session can start."
+                return "Ready. Voice sessions can start immediately."
             case .notRequested:
-                return "Voice session is blocked until microphone access is allowed."
+                return "Missing. Voice sessions cannot start until microphone access is granted."
             case .pending:
-                return "Waiting for system authorization result."
+                return "System prompt is in progress. Confirm microphone access to continue."
             case .denied:
-                return "Microphone access is denied or restricted."
+                return "Denied. PulseType cannot capture speech."
             case .notRequired:
                 return "Not required."
             }
         case .accessibility:
             switch snapshot.accessibility {
             case .granted:
-                return "Selection rewrite and insertion bridges can be enabled."
+                return "Ready. Cross-app selection rewrite and direct insertion are available."
             case .notRequested:
-                return "Needed for cross-app text rewriting and insertion."
+                return "Optional for dictation fallback, required for stable rewrite and direct insertion."
             case .pending:
-                return "Waiting for system authorization result."
+                return "Authorization request has been opened. Finish it in System Settings."
             case .denied:
-                return "Accessibility access is missing."
+                return "Denied. Selection rewrite and AX insertion are not available."
             case .notRequired:
                 return "Not required."
             }
@@ -203,11 +203,11 @@ final class PermissionsCenter: ObservableObject {
     private func guidanceText(for kind: PermissionKind) -> String {
         switch kind {
         case .microphone:
-            return "Open request dialog first. If denied, open System Settings > Privacy & Security > Microphone."
+            return "Tap Request first. If denied, open System Settings > Privacy & Security > Microphone and enable PulseType."
         case .accessibility:
-            return "Open request dialog first. Then allow PulseType in System Settings > Privacy & Security > Accessibility."
+            return "Tap Request first. Then enable PulseType in System Settings > Privacy & Security > Accessibility."
         case .globalHotkeys:
-            return "If a shortcut conflicts with macOS defaults, adjust it in this app or in System Settings > Keyboard > Keyboard Shortcuts."
+            return "If shortcuts conflict with macOS defaults, change them in PulseType settings or System Settings > Keyboard > Keyboard Shortcuts."
         }
     }
 }

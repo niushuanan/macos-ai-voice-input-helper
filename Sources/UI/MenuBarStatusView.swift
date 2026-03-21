@@ -12,9 +12,12 @@ struct MenuBarStatusView: View {
             if sessionStore.phase == .listening {
                 ListeningLevelPips(level: sessionStore.listeningLevel)
                     .transition(.opacity)
+            } else if sessionStore.phase.isBusyPhase {
+                BusyPhaseDots(tint: menuBarColor)
+                    .transition(.opacity)
             }
         }
-        .animation(.easeOut(duration: 0.12), value: sessionStore.phase)
+        .animation(.easeOut(duration: 0.14), value: sessionStore.phase)
         .help(helpText)
     }
 
@@ -41,6 +44,9 @@ struct MenuBarStatusView: View {
         if sessionStore.phase == .listening {
             let levelPercent = Int((sessionStore.listeningLevel * 100).rounded())
             return "PulseType: Listening (\(levelPercent)%)"
+        }
+        if sessionStore.phase.isBusyPhase {
+            return "PulseType: \(sessionStore.phase.title) in progress"
         }
         return "PulseType: \(sessionStore.phase.title)"
     }
@@ -72,5 +78,41 @@ private struct ListeningLevelPips: View {
         let normalized = max(0, min(1, level))
         let baseline: [Double] = [0.35, 0.45, 0.35]
         return min(1, baseline[index] + (normalized * 0.6))
+    }
+}
+
+private struct BusyPhaseDots: View {
+    let tint: Color
+    @State private var activeIndex: Int = 0
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(tint.opacity(activeIndex == index ? 1 : 0.35))
+                    .frame(width: 3, height: 3)
+            }
+        }
+        .frame(width: 15, height: 13, alignment: .center)
+        .onAppear {
+            activeIndex = 0
+        }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(180))
+                activeIndex = (activeIndex + 1) % 3
+            }
+        }
+    }
+}
+
+private extension SessionPhase {
+    var isBusyPhase: Bool {
+        switch self {
+        case .transcribing, .rewriting, .inserting:
+            return true
+        case .idle, .listening, .cancelled, .error:
+            return false
+        }
     }
 }

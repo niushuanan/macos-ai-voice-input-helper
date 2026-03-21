@@ -10,6 +10,10 @@ struct SettingsView: View {
     @State private var focusedAppContext: FocusedAppContext
     @State private var focusedAppOutputBias: AppOutputBias
     @State private var focusedAppPreferSelectionRewrite: Bool
+    @State private var historyModeFilter: HistoryModeFilter = .all
+    @State private var historyStatusFilter: HistoryStatusFilter = .all
+    @State private var historyAppQuery: String = ""
+    @State private var historyOnlyFocusedApp: Bool = false
 
     init(model: AppModel) {
         self.model = model
@@ -359,13 +363,38 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        if recentHistoryEntries.isEmpty {
+                        HStack(spacing: 10) {
+                            Picker("Mode", selection: $historyModeFilter) {
+                                ForEach(HistoryModeFilter.allCases) { filter in
+                                    Text(filter.displayName).tag(filter)
+                                }
+                            }
+                            .pickerStyle(.menu)
+
+                            Picker("Status", selection: $historyStatusFilter) {
+                                ForEach(HistoryStatusFilter.allCases) { filter in
+                                    Text(filter.displayName).tag(filter)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
+
+                        TextField("Filter by app name or bundle id", text: $historyAppQuery)
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled()
+
+                        Toggle(
+                            "Only show focused app (\(focusedAppContext.appName))",
+                            isOn: $historyOnlyFocusedApp
+                        )
+
+                        if filteredHistoryEntries.isEmpty {
                             Text("No history entries yet.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
                             VStack(alignment: .leading, spacing: 10) {
-                                ForEach(recentHistoryEntries) { entry in
+                                ForEach(filteredHistoryEntries) { entry in
                                     HistoryEntryRowView(
                                         entry: entry,
                                         onDelete: {
@@ -377,7 +406,7 @@ struct SettingsView: View {
                         }
 
                         HStack {
-                            Text("Total entries: \(localHistoryStore.entries.count)")
+                            Text("Showing \(filteredHistoryEntries.count) / \(localHistoryStore.entries.count)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
@@ -510,8 +539,30 @@ struct SettingsView: View {
         }
     }
 
-    private var recentHistoryEntries: [SessionHistoryEntry] {
-        Array(localHistoryStore.entries.prefix(20))
+    private var filteredHistoryEntries: [SessionHistoryEntry] {
+        localHistoryStore.entries
+            .filter { entry in
+                historyModeFilter.matches(entry.mode)
+            }
+            .filter { entry in
+                historyStatusFilter.matches(entry.status)
+            }
+            .filter { entry in
+                guard historyOnlyFocusedApp else {
+                    return true
+                }
+                return entry.bundleID == focusedAppContext.bundleID
+            }
+            .filter { entry in
+                let query = historyAppQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !query.isEmpty else {
+                    return true
+                }
+                let lowered = query.lowercased()
+                return entry.appName.lowercased().contains(lowered) || entry.bundleID.lowercased().contains(lowered)
+            }
+            .prefix(50)
+            .map { $0 }
     }
 
     private func refreshFocusedAppPolicyEditor() {
@@ -588,6 +639,71 @@ struct SettingsView: View {
             return .red
         }
         return .secondary
+    }
+}
+
+private enum HistoryModeFilter: String, CaseIterable, Identifiable {
+    case all
+    case dictation
+    case selectionRewrite
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .all:
+            return "All modes"
+        case .dictation:
+            return "Dictation"
+        case .selectionRewrite:
+            return "Selection rewrite"
+        }
+    }
+
+    func matches(_ mode: SessionHistoryMode) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .dictation:
+            return mode == .dictation
+        case .selectionRewrite:
+            return mode == .selectionRewrite
+        }
+    }
+}
+
+private enum HistoryStatusFilter: String, CaseIterable, Identifiable {
+    case all
+    case success
+    case failed
+    case cancelled
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .all:
+            return "All status"
+        case .success:
+            return "Success"
+        case .failed:
+            return "Failed"
+        case .cancelled:
+            return "Cancelled"
+        }
+    }
+
+    func matches(_ status: SessionHistoryStatus) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .success:
+            return status == .success
+        case .failed:
+            return status == .failed
+        case .cancelled:
+            return status == .cancelled
+        }
     }
 }
 
