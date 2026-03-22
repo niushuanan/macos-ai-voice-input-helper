@@ -13,7 +13,7 @@ final class StatusPulseHUDController {
         progress: Double,
         listeningLevel: Double
     ) {
-        let size = NSSize(width: 198, height: 38)
+        let size = NSSize(width: 184, height: 34)
         let panel = ensurePanel(size: size)
         panel.contentView = NSHostingView(
             rootView: StatusPulseHUDView(
@@ -118,7 +118,7 @@ final class StatusPulseHUDController {
         case .transcribing, .rewriting, .inserting:
             return 0.62
         case .cancelled:
-            return 0.08
+            return 0.56
         case .error:
             return 1.1
         case .idle, .listening:
@@ -136,16 +136,21 @@ private struct StatusPulseHUDView: View {
 
     var body: some View {
         Group {
-            if phase == .listening {
+            switch phase {
+            case .listening:
                 listeningCapsule
-            } else if isThinkingPhase {
+            case .transcribing, .rewriting, .inserting:
                 thinkingCapsule
-            } else {
+            case .cancelled:
+                cancelledCapsule
+            case .error:
+                errorCapsule
+            case .idle:
                 feedbackCapsule
             }
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 3)
+        .padding(.vertical, 3)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
@@ -157,53 +162,59 @@ private struct StatusPulseHUDView: View {
         max(0, min(1, progress))
     }
 
-    private var isThinkingPhase: Bool {
-        switch phase {
-        case .transcribing, .rewriting, .inserting:
-            return true
-        case .idle, .listening, .cancelled, .error:
-            return false
-        }
-    }
-
     private var phaseAccentColor: Color {
         switch phase {
         case .idle:
-            return Color.primary.opacity(0.55)
+            return Color.primary.opacity(0.56)
         case .listening:
             return Color.primary.opacity(0.62)
         case .transcribing, .rewriting:
             return Color.primary.opacity(0.58)
         case .inserting:
             return Color.primary.opacity(0.60)
-        case .cancelled, .error:
-            return Color(red: 0.50, green: 0.22, blue: 0.22)
+        case .cancelled:
+            return Color.primary.opacity(0.60)
+        case .error:
+            return Color(red: 0.56, green: 0.26, blue: 0.26)
         }
     }
 
     private var listeningCapsule: some View {
-        HStack(spacing: 8) {
-            Text("语音输入")
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color.primary.opacity(0.86))
-                .lineLimit(1)
-
-            Capsule(style: .continuous)
-                .fill(Color.primary.opacity(0.26))
-                .frame(width: 0.8, height: 10)
-
+        statusSplitCapsule(title: "语音输入") {
             ListeningBars(level: normalizedListeningLevel)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
-        .frame(maxWidth: .infinity, alignment: .center)
-        .background(HUDNativeMaterialCapsule())
+    }
+
+    private var cancelledCapsule: some View {
+        statusSplitCapsule(title: "已取消") {
+            Circle()
+                .stroke(Color.primary.opacity(0.42), lineWidth: 0.8)
+                .frame(width: 11, height: 11)
+                .overlay(
+                    Image(systemName: "xmark")
+                        .font(.system(size: 6.5, weight: .bold))
+                        .foregroundStyle(Color.primary.opacity(0.66))
+                )
+        }
+    }
+
+    private var errorCapsule: some View {
+        statusSplitCapsule(title: "未完成") {
+            Circle()
+                .stroke(Color(red: 0.56, green: 0.26, blue: 0.26).opacity(0.66), lineWidth: 0.9)
+                .frame(width: 11, height: 11)
+                .overlay(
+                    Image(systemName: "exclamationmark")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(Color(red: 0.56, green: 0.26, blue: 0.26).opacity(0.76))
+                )
+        }
     }
 
     private var thinkingCapsule: some View {
         GeometryReader { proxy in
             let width = proxy.size.width
-            let fillWidth = max(16, width * normalizedProgress)
+            let fillWidth = max(20, width * normalizedProgress)
 
             ZStack(alignment: .leading) {
                 HUDNativeMaterialCapsule()
@@ -212,8 +223,8 @@ private struct StatusPulseHUDView: View {
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color.gray.opacity(0.28),
-                                Color.gray.opacity(0.12)
+                                Color.gray.opacity(0.36),
+                                Color.gray.opacity(0.08)
                             ],
                             startPoint: .leading,
                             endPoint: .trailing
@@ -222,31 +233,61 @@ private struct StatusPulseHUDView: View {
                     .frame(width: fillWidth)
                     .animation(.easeOut(duration: 0.18), value: normalizedProgress)
 
-                HStack {
-                    Spacer()
+                HStack(spacing: 7) {
+                    Spacer(minLength: 0)
                     Text("思考中")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color.primary.opacity(0.80))
-                    Spacer()
+                        .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color.primary.opacity(0.82))
+                        .lineLimit(1)
+                    Capsule(style: .continuous)
+                        .fill(Color.primary.opacity(0.24))
+                        .frame(width: 0.7, height: 9)
+                    ThinkingDots(progress: normalizedProgress)
+                    Spacer(minLength: 0)
                 }
+                .padding(.horizontal, 10)
             }
         }
-        .frame(height: 26)
+        .frame(height: 22)
     }
 
     private var feedbackCapsule: some View {
         HStack(spacing: 6) {
             Image(systemName: phase.menuBarSymbol)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 9.5, weight: .semibold))
                 .foregroundStyle(phaseAccentColor)
             Text(message)
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(Color.primary.opacity(0.78))
+                .font(.system(size: 10.2, weight: .medium))
+                .foregroundStyle(Color.primary.opacity(0.80))
                 .lineLimit(1)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4.5)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(HUDNativeMaterialCapsule())
+    }
+
+    @ViewBuilder
+    private func statusSplitCapsule<Indicator: View>(
+        title: String,
+        @ViewBuilder indicator: () -> Indicator
+    ) -> some View {
+        HStack(spacing: 7) {
+            Text(title)
+                .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color.primary.opacity(0.84))
+                .lineLimit(1)
+
+            Capsule(style: .continuous)
+                .fill(Color.primary.opacity(0.24))
+                .frame(width: 0.7, height: 9)
+
+            indicator()
+                .frame(width: 20, height: 10, alignment: .center)
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 4.5)
+        .frame(maxWidth: .infinity, alignment: .center)
         .background(HUDNativeMaterialCapsule())
     }
 }
@@ -263,7 +304,7 @@ private struct ListeningBars: View {
             ForEach(0..<4, id: \.self) { index in
                 Capsule(style: .continuous)
                     .fill(Color.primary.opacity(isActive ? 0.78 : 0.28))
-                    .frame(width: 1.8, height: barHeight(for: index))
+                    .frame(width: 1.6, height: barHeight(for: index))
                     .animation(.easeOut(duration: 0.10), value: level)
             }
         }
@@ -271,11 +312,33 @@ private struct ListeningBars: View {
     }
 
     private func barHeight(for index: Int) -> CGFloat {
-        let base: [CGFloat] = [2.0, 3.2, 2.8, 3.8]
-        let gain: [CGFloat] = [2.5, 3.4, 3.0, 3.8]
+        let base: [CGFloat] = [1.7, 2.7, 2.3, 3.2]
+        let gain: [CGFloat] = [2.4, 3.3, 2.8, 3.7]
         let normalized = CGFloat(max(0, min(1, level)))
         let eased = sqrt(normalized)
         return base[index] + (gain[index] * eased)
+    }
+}
+
+private struct ThinkingDots: View {
+    let progress: Double
+
+    var body: some View {
+        HStack(spacing: 3.0) {
+            ForEach(0..<4, id: \.self) { index in
+                Circle()
+                    .fill(Color.primary.opacity(dotOpacity(for: index)))
+                    .frame(width: 3.8, height: 3.8)
+            }
+        }
+        .frame(width: 22, height: 10, alignment: .center)
+        .animation(.easeOut(duration: 0.16), value: progress)
+    }
+
+    private func dotOpacity(for index: Int) -> Double {
+        let shifted = (progress * 5.8) + (Double(index) * 0.22)
+        let wave = (sin(shifted * .pi) + 1) / 2
+        return 0.25 + (wave * 0.60)
     }
 }
 
@@ -293,21 +356,35 @@ private struct HUDNativeMaterialCapsule: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(0.26),
-                            Color.white.opacity(0.04)
+                            Color.gray.opacity(0.22),
+                            Color.gray.opacity(0.14),
+                            Color.gray.opacity(0.09)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            Capsule(style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.16),
+                            Color.white.opacity(0.02)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
+                .blendMode(.screen)
 
             Capsule(style: .continuous)
-                .stroke(Color.white.opacity(0.28), lineWidth: 0.6)
+                .stroke(Color.white.opacity(0.20), lineWidth: 0.55)
 
             Capsule(style: .continuous)
-                .stroke(Color.black.opacity(0.12), lineWidth: 0.55)
+                .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
         }
-        .shadow(color: Color.black.opacity(0.18), radius: 5, x: 0, y: 2)
+        .shadow(color: Color.black.opacity(0.16), radius: 4, x: 0, y: 1.5)
     }
 }
 
