@@ -42,8 +42,7 @@ struct MenuBarStatusView: View {
 
     private var helpText: String {
         if sessionStore.phase == .listening {
-            let levelPercent = Int((sessionStore.listeningLevel * 100).rounded())
-            return "PulseType：聆听中（\(levelPercent)%）"
+            return "PulseType：聆听中"
         }
         if sessionStore.phase.isBusyPhase {
             return "PulseType：\(sessionStore.phase.title)"

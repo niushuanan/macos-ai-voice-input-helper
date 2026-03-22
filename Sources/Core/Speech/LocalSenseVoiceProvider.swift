@@ -20,8 +20,7 @@ struct LocalSenseVoiceProvider: SpeechTranscriptionProvider {
             throw SpeechTranscriptionError.providerFailure(description: validationError)
         }
 
-        let execution = LocalSenseVoiceRuntime.runWorker(
-            mode: .transcribe,
+        let execution = await LocalSenseVoiceRuntime.runTranscription(
             modelDirectory: modelDirectory,
             audioFileURL: request.clip.fileURL
         )
@@ -90,6 +89,7 @@ enum LocalSenseVoiceHealthChecker {
 private enum LocalSenseVoiceWorkerMode: String {
     case probe
     case transcribe = "transcribe"
+    case daemon
 }
 
 private struct LocalSenseVoiceWorkerExecution {
@@ -101,11 +101,263 @@ private struct LocalSenseVoiceWorkerExecution {
 }
 
 private struct LocalSenseVoiceWorkerPayload: Decodable {
+    let id: String?
     let ok: Bool
     let message: String?
     let hint: String?
     let transcript: String?
     let backend: String?
+}
+
+private struct LocalSenseVoiceDaemonRequest: Encodable {
+    let id: String
+    let action: String
+    let audio: String?
+}
+
+private actor LocalSenseVoiceDaemonClient {
+    static let shared = LocalSenseVoiceDaemonClient()
+
+    private var process: Process?
+    private var stdinHandle: FileHandle?
+    private var stdoutHandle: FileHandle?
+    private var stderrHandle: FileHandle?
+    private var activeModelDirectoryPath: String?
+    private var pendingStdoutBuffer = Data()
+
+    func transcribe(modelDirectory: URL, audioFileURL: URL) -> LocalSenseVoiceWorkerExecution {
+        let runtimeRoot = LocalSenseVoiceRuntimeManager.defaultRuntimeRoot()
+        guard let pythonURL = LocalSenseVoiceRuntime.pythonExecutableURL(runtimeRoot: runtimeRoot) else {
+            return LocalSenseVoiceWorkerExecution(
+                success: false,
+                message: "本地运行环境还没准备。",
+                hint: "请先在模型页点“准备本地环境”，完成后再检测或转写。",
+                transcript: "",
+                backend: nil
+            )
+        }
+
+        guard ensureDaemonReady(modelDirectory: modelDirectory, pythonURL: pythonURL) else {
+            let detail = capturedStderr()
+            return LocalSenseVoiceWorkerExecution(
+                success: false,
+                message: "本地 daemon 启动失败：\(detail.isEmpty ? "无输出" : detail)",
+                hint: "将自动回退到单次 worker，请稍后重试。",
+                transcript: "",
+                backend: nil
+            )
+        }
+
+        guard
+            let stdinHandle,
+            let stdoutHandle
+        else {
+            return LocalSenseVoiceWorkerExecution(
+                success: false,
+                message: "本地 daemon 通道不可用。",
+                hint: "将自动回退到单次 worker，请稍后重试。",
+                transcript: "",
+                backend: nil
+            )
+        }
+
+        let requestID = UUID().uuidString
+        let request = LocalSenseVoiceDaemonRequest(
+            id: requestID,
+            action: "transcribe",
+            audio: audioFileURL.path
+        )
+
+        guard writeJSONLine(request, to: stdinHandle) else {
+            stopDaemon()
+            return LocalSenseVoiceWorkerExecution(
+                success: false,
+                message: "本地 daemon 写入失败。",
+                hint: "将自动回退到单次 worker，请稍后重试。",
+                transcript: "",
+                backend: nil
+            )
+        }
+
+        for _ in 0..<12 {
+            guard let line = readLine(from: stdoutHandle) else {
+                stopDaemon()
+                return LocalSenseVoiceWorkerExecution(
+                    success: false,
+                    message: "本地 daemon 无响应。",
+                    hint: "将自动回退到单次 worker，请稍后重试。",
+                    transcript: "",
+                    backend: nil
+                )
+            }
+
+            guard
+                let data = line.data(using: .utf8),
+                let payload = LocalSenseVoiceRuntime.decodePayload(from: data)
+            else {
+                continue
+            }
+
+            if let payloadID = payload.id, payloadID != requestID {
+                continue
+            }
+
+            let message = payload.message?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? "daemon 未返回消息。"
+            let hint = payload.hint?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? "请检查本地推理环境。"
+            let transcript = payload.transcript?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let backend = payload.backend?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return LocalSenseVoiceWorkerExecution(
+                success: payload.ok,
+                message: message,
+                hint: hint,
+                transcript: transcript,
+                backend: backend
+            )
+        }
+
+        return LocalSenseVoiceWorkerExecution(
+            success: false,
+            message: "本地 daemon 返回格式异常。",
+            hint: "将自动回退到单次 worker，请稍后重试。",
+            transcript: "",
+            backend: nil
+        )
+    }
+
+    private func ensureDaemonReady(modelDirectory: URL, pythonURL: URL) -> Bool {
+        if
+            let process,
+            process.isRunning,
+            activeModelDirectoryPath == modelDirectory.path,
+            stdinHandle != nil,
+            stdoutHandle != nil
+        {
+            return true
+        }
+
+        stopDaemon()
+
+        let process = Process()
+        process.executableURL = pythonURL
+        process.arguments = [
+            "-c",
+            LocalSenseVoiceRuntime.workerScript,
+            "--mode",
+            LocalSenseVoiceWorkerMode.daemon.rawValue,
+            "--model-dir",
+            modelDirectory.path
+        ]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["PYTHONUNBUFFERED"] = "1"
+        process.environment = environment
+
+        let inputPipe = Pipe()
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardInput = inputPipe
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        do {
+            try process.run()
+        } catch {
+            return false
+        }
+
+        self.process = process
+        stdinHandle = inputPipe.fileHandleForWriting
+        stdoutHandle = outputPipe.fileHandleForReading
+        stderrHandle = errorPipe.fileHandleForReading
+        activeModelDirectoryPath = modelDirectory.path
+        pendingStdoutBuffer.removeAll(keepingCapacity: false)
+
+        guard let startupLine = readLine(from: outputPipe.fileHandleForReading) else {
+            stopDaemon()
+            return false
+        }
+        guard
+            let startupData = startupLine.data(using: .utf8),
+            let startupPayload = LocalSenseVoiceRuntime.decodePayload(from: startupData),
+            startupPayload.ok
+        else {
+            stopDaemon()
+            return false
+        }
+        return true
+    }
+
+    private func stopDaemon() {
+        if let process, process.isRunning {
+            process.terminate()
+        }
+        process = nil
+        try? stdinHandle?.close()
+        try? stdoutHandle?.close()
+        try? stderrHandle?.close()
+        stdinHandle = nil
+        stdoutHandle = nil
+        stderrHandle = nil
+        activeModelDirectoryPath = nil
+        pendingStdoutBuffer.removeAll(keepingCapacity: false)
+    }
+
+    private func writeJSONLine<T: Encodable>(_ payload: T, to handle: FileHandle) -> Bool {
+        guard
+            let data = try? JSONEncoder().encode(payload),
+            let newline = "\n".data(using: .utf8)
+        else {
+            return false
+        }
+
+        do {
+            try handle.write(contentsOf: data)
+            try handle.write(contentsOf: newline)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func readLine(from handle: FileHandle) -> String? {
+        while true {
+            if let newlineIndex = pendingStdoutBuffer.firstIndex(of: 0x0A) {
+                let lineData = pendingStdoutBuffer.prefix(upTo: newlineIndex)
+                let nextIndex = pendingStdoutBuffer.index(after: newlineIndex)
+                pendingStdoutBuffer.removeSubrange(pendingStdoutBuffer.startIndex..<nextIndex)
+                return String(data: Data(lineData), encoding: .utf8)
+            }
+
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                guard !pendingStdoutBuffer.isEmpty else {
+                    return nil
+                }
+                defer { pendingStdoutBuffer.removeAll(keepingCapacity: false) }
+                return String(data: pendingStdoutBuffer, encoding: .utf8)
+            }
+
+            pendingStdoutBuffer.append(chunk)
+            if pendingStdoutBuffer.count > 512 * 1024 {
+                let oversized = pendingStdoutBuffer
+                pendingStdoutBuffer.removeAll(keepingCapacity: false)
+                return String(data: oversized, encoding: .utf8)
+            }
+        }
+    }
+
+    private func capturedStderr() -> String {
+        guard let stderrHandle else {
+            return ""
+        }
+        let data = stderrHandle.availableData
+        return String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
 }
 
 enum LocalSenseVoiceRuntime {
@@ -150,14 +402,53 @@ enum LocalSenseVoiceRuntime {
         return nil
     }
 
+    fileprivate static func pythonExecutableURL(runtimeRoot: URL) -> URL? {
+        let pythonURL = LocalSenseVoiceRuntimeManager.managedPythonURL(runtimeRoot: runtimeRoot)
+        return FileManager.default.isExecutableFile(atPath: pythonURL.path)
+            ? pythonURL
+            : nil
+    }
+
+    fileprivate static func runTranscription(
+        modelDirectory: URL,
+        audioFileURL: URL
+    ) async -> LocalSenseVoiceWorkerExecution {
+        let daemonExecution = await LocalSenseVoiceDaemonClient.shared.transcribe(
+            modelDirectory: modelDirectory,
+            audioFileURL: audioFileURL
+        )
+        if daemonExecution.success {
+            return daemonExecution
+        }
+
+        let fallbackExecution = runWorker(
+            mode: .transcribe,
+            modelDirectory: modelDirectory,
+            audioFileURL: audioFileURL
+        )
+        if fallbackExecution.success {
+            return fallbackExecution
+        }
+
+        let combinedMessage = "\(daemonExecution.message)；\(fallbackExecution.message)"
+        let combinedHint = "\(daemonExecution.hint) \(fallbackExecution.hint)"
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return LocalSenseVoiceWorkerExecution(
+            success: false,
+            message: combinedMessage,
+            hint: combinedHint,
+            transcript: "",
+            backend: fallbackExecution.backend ?? daemonExecution.backend
+        )
+    }
+
     fileprivate static func runWorker(
         mode: LocalSenseVoiceWorkerMode,
         modelDirectory: URL,
         audioFileURL: URL?
     ) -> LocalSenseVoiceWorkerExecution {
         let runtimeRoot = LocalSenseVoiceRuntimeManager.defaultRuntimeRoot()
-        let pythonURL = LocalSenseVoiceRuntimeManager.managedPythonURL(runtimeRoot: runtimeRoot)
-        guard FileManager.default.isExecutableFile(atPath: pythonURL.path) else {
+        guard let pythonURL = pythonExecutableURL(runtimeRoot: runtimeRoot) else {
             return LocalSenseVoiceWorkerExecution(
                 success: false,
                 message: "本地运行环境还没准备。",
@@ -239,7 +530,7 @@ enum LocalSenseVoiceRuntime {
         )
     }
 
-    private static func decodePayload(from data: Data) -> LocalSenseVoiceWorkerPayload? {
+    fileprivate static func decodePayload(from data: Data) -> LocalSenseVoiceWorkerPayload? {
         guard !data.isEmpty else {
             return nil
         }
@@ -269,17 +560,19 @@ enum LocalSenseVoiceRuntime {
             return "建议使用 Python 3.11 虚拟环境，并安装 onnxruntime、numpy、torch 与 funasr-onnx。"
         case .transcribe:
             return "请先在模型页通过“检测本地 ASR”，再尝试本地转写。"
+        case .daemon:
+            return "本地常驻进程异常，正在回退到单次 worker。"
         }
     }
 
-    private static let workerScript = """
+    fileprivate static let workerScript = """
 import argparse
 import json
 import pathlib
 import sys
 import traceback
 
-def emit(ok, message, hint="", transcript="", backend=""):
+def emit(ok, message, hint="", transcript="", backend="", request_id=None):
     payload = {
         "ok": bool(ok),
         "message": str(message),
@@ -287,7 +580,9 @@ def emit(ok, message, hint="", transcript="", backend=""):
         "transcript": str(transcript),
         "backend": str(backend),
     }
-    print(json.dumps(payload, ensure_ascii=False))
+    if request_id is not None:
+        payload["id"] = str(request_id)
+    print(json.dumps(payload, ensure_ascii=False), flush=True)
     return 0 if ok else 1
 
 def has_module(name):
@@ -320,19 +615,26 @@ def extract_text(value):
         return "\\n".join(parts)
     return str(value).strip()
 
-def run_funasr(model_dir, audio_path):
-    from funasr import AutoModel
-    model = AutoModel(model=str(model_dir), trust_remote_code=True, disable_update=True)
-    result = model.generate(input=str(audio_path))
-    return extract_text(result)
+def detect_backend():
+    if has_module("funasr_onnx") and has_module("torch"):
+        return "funasr_onnx"
+    if has_module("funasr") and has_module("torch"):
+        return "funasr"
+    return ""
 
-def run_funasr_onnx(model_dir, audio_path):
+def load_model(backend, model_dir):
+    if backend == "funasr":
+        from funasr import AutoModel
+        return AutoModel(model=str(model_dir), trust_remote_code=True, disable_update=True)
     from funasr_onnx import SenseVoiceSmall
     try:
-        model = SenseVoiceSmall(model_dir=str(model_dir), quantize=False)
+        return SenseVoiceSmall(model_dir=str(model_dir), quantize=False)
     except TypeError:
-        model = SenseVoiceSmall(str(model_dir))
+        return SenseVoiceSmall(str(model_dir))
 
+def infer_text(backend, model, audio_path):
+    if backend == "funasr":
+        return extract_text(model.generate(input=str(audio_path)))
     try:
         result = model(str(audio_path))
     except TypeError:
@@ -341,7 +643,7 @@ def run_funasr_onnx(model_dir, audio_path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["probe", "transcribe"], required=True)
+    parser.add_argument("--mode", choices=["probe", "transcribe", "daemon"], required=True)
     parser.add_argument("--model-dir", required=True)
     parser.add_argument("--audio", default="")
     args = parser.parse_args()
@@ -363,11 +665,7 @@ def main():
                 "建议使用 Python 3.11 虚拟环境并执行：pip install onnxruntime numpy torch"
             )
 
-    backend = ""
-    if has_module("funasr_onnx") and has_module("torch"):
-        backend = "funasr_onnx"
-    elif has_module("funasr") and has_module("torch"):
-        backend = "funasr"
+    backend = detect_backend()
 
     if args.mode == "probe":
         if not backend:
@@ -378,10 +676,6 @@ def main():
             )
         return emit(True, "本地环境可用。", "可切换到本地 SenseVoice。", backend=backend)
 
-    audio_path = pathlib.Path(args.audio).expanduser()
-    if not audio_path.exists():
-        return emit(False, "录音文件不存在。", "请重新开始语音会话后再试。", backend=backend)
-
     if not backend:
         return emit(
             False,
@@ -390,10 +684,83 @@ def main():
         )
 
     try:
-        if backend == "funasr":
-            text = run_funasr(model_dir, audio_path)
-        else:
-            text = run_funasr_onnx(model_dir, audio_path)
+        model = load_model(backend, model_dir)
+    except Exception as error:
+        debug = traceback.format_exc(limit=2)
+        return emit(
+            False,
+            "模型加载失败：" + str(error),
+            "请检查 Python 依赖、模型版本与运行权限。\\n" + debug,
+            backend=backend
+        )
+
+    if args.mode == "daemon":
+        emit(True, "daemon-ready", "常驻转写已就绪。", backend=backend)
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+            request_id = None
+            try:
+                payload = json.loads(line)
+                request_id = payload.get("id")
+            except Exception:
+                emit(False, "请求解析失败。", "请检查 daemon 输入格式。", backend=backend, request_id=request_id)
+                continue
+
+            action = str(payload.get("action", "transcribe"))
+            if action == "ping":
+                emit(True, "pong", "daemon 活跃。", backend=backend, request_id=request_id)
+                continue
+            if action != "transcribe":
+                emit(False, "不支持的 action。", "仅支持 transcribe。", backend=backend, request_id=request_id)
+                continue
+
+            audio_path = pathlib.Path(str(payload.get("audio", ""))).expanduser()
+            if not audio_path.exists():
+                emit(False, "录音文件不存在。", "请重新开始语音会话后再试。", backend=backend, request_id=request_id)
+                continue
+
+            try:
+                text = infer_text(backend, model, audio_path)
+            except Exception as error:
+                debug = traceback.format_exc(limit=2)
+                emit(
+                    False,
+                    "本地推理执行失败：" + str(error),
+                    "请检查 Python 依赖、模型版本与运行权限。\\n" + debug,
+                    backend=backend,
+                    request_id=request_id
+                )
+                continue
+
+            normalized = text.strip()
+            if not normalized:
+                emit(
+                    False,
+                    "本地推理返回空文本。",
+                    "请确认音频内容有效，或切回云端 ASR。",
+                    backend=backend,
+                    request_id=request_id
+                )
+                continue
+
+            emit(
+                True,
+                "本地推理完成。",
+                "识别成功。",
+                transcript=normalized,
+                backend=backend,
+                request_id=request_id
+            )
+        return 0
+
+    audio_path = pathlib.Path(args.audio).expanduser()
+    if not audio_path.exists():
+        return emit(False, "录音文件不存在。", "请重新开始语音会话后再试。", backend=backend)
+
+    try:
+        text = infer_text(backend, model, audio_path)
     except Exception as error:
         debug = traceback.format_exc(limit=2)
         return emit(

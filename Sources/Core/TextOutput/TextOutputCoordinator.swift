@@ -161,6 +161,7 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         guard !trimmedText.isEmpty else {
             throw TextOutputError.emptyText
         }
+        let writeStartedAt = Date()
 
         if let preferredTarget = request.preferredTarget {
             logger.log(
@@ -210,6 +211,7 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         }
 
         do {
+            let axStartedAt = Date()
             try performAccessibilityPath(text: request.text, operation: request.operation)
             let result = TextOutputResult(
                 appName: resolvedFocusContext.appName,
@@ -219,13 +221,17 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
                 didInsertIntoEditor: true,
                 operation: request.operation
             )
-            logger.log("[write] success path=\(result.path.rawValue)")
+            let totalMs = elapsedMilliseconds(since: writeStartedAt)
+            let axMs = elapsedMilliseconds(since: axStartedAt)
+            logger.log("[write] success path=\(result.path.rawValue) ax_ms=\(axMs) total_ms=\(totalMs)")
             return result
         } catch {
             let primaryReason = error.localizedDescription
-            logger.log("[write] primary-failed reason=\(primaryReason)")
+            let axMs = elapsedMilliseconds(since: writeStartedAt)
+            logger.log("[write] primary-failed reason=\(primaryReason) ax_ms=\(axMs)")
 
             do {
+                let fallbackStartedAt = Date()
                 let targetProcessIdentifier = resolvedTargetProcessIdentifier(
                     preferredTarget: request.preferredTarget,
                     resolvedFocusContext: resolvedFocusContext,
@@ -243,10 +249,13 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
                     didInsertIntoEditor: true,
                     operation: request.operation
                 )
-                logger.log("[write] fallback-success path=\(result.path.rawValue)")
+                let fallbackMs = elapsedMilliseconds(since: fallbackStartedAt)
+                let totalMs = elapsedMilliseconds(since: writeStartedAt)
+                logger.log("[write] fallback-success path=\(result.path.rawValue) fallback_ms=\(fallbackMs) total_ms=\(totalMs)")
                 return result
             } catch {
-                logger.log("[write] fallback-failed reason=\(error.localizedDescription)")
+                let totalMs = elapsedMilliseconds(since: writeStartedAt)
+                logger.log("[write] fallback-failed reason=\(error.localizedDescription) total_ms=\(totalMs)")
                 throw TextOutputError.fallbackFailed(primaryReason: primaryReason)
             }
         }
@@ -365,7 +374,7 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         }
 
         try triggerCommandV(targetProcessIdentifier: targetProcessIdentifier)
-        try await Task.sleep(nanoseconds: 220_000_000)
+        try await Task.sleep(nanoseconds: 80_000_000)
     }
 
     @discardableResult
@@ -537,11 +546,11 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
     }
 
     func activationPauseNanoseconds() async {
-        try? await Task.sleep(nanoseconds: 320_000_000)
+        try? await Task.sleep(nanoseconds: 60_000_000)
     }
 
     func focusRetryIntervalNanoseconds() async {
-        try? await Task.sleep(nanoseconds: 180_000_000)
+        try? await Task.sleep(nanoseconds: 70_000_000)
     }
 
     func resolvedFocusContext(
@@ -597,12 +606,12 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
 
         let activated = activateApplication(targetApplication)
         logger.log("[write] target-activate bundle=\(preferredTarget.bundleID) ok=\(activated)")
-        if activated {
-            await activationPauseNanoseconds()
-        }
-        let frontmost = currentFrontmostApplication()
-        let reached = frontmost?.processIdentifier == targetApplication.processIdentifier
-            || frontmost?.bundleIdentifier == targetApplication.bundleIdentifier
+        let reached = activated
+            ? await waitUntilFrontmost(
+                bundleID: preferredTarget.bundleID,
+                processIdentifier: targetApplication.processIdentifier
+            )
+            : false
         logger.log("[write] target-frontmost bundle=\(preferredTarget.bundleID) pid=\(targetApplication.processIdentifier) ok=\(reached)")
         return reached
     }
@@ -617,12 +626,12 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
 
         let activated = activateApplication(targetApplication)
         logger.log("[write] target-activate bundle=\(bundleID) ok=\(activated)")
-        if activated {
-            await activationPauseNanoseconds()
-        }
-        let frontmost = currentFrontmostApplication()
-        let reached = frontmost?.processIdentifier == targetApplication.processIdentifier
-            || frontmost?.bundleIdentifier == targetApplication.bundleIdentifier
+        let reached = activated
+            ? await waitUntilFrontmost(
+                bundleID: bundleID,
+                processIdentifier: targetApplication.processIdentifier
+            )
+            : false
         logger.log("[write] target-frontmost bundle=\(bundleID) pid=\(targetApplication.processIdentifier) ok=\(reached)")
         return reached
     }
@@ -639,7 +648,7 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         preferredTarget: WritebackTargetSnapshot?,
         fallback: FocusedAppContext
     ) async -> FocusedAppContext {
-        let maxAttempts = 6
+        let maxAttempts = 4
         for attempt in 1...maxAttempts {
             let context = resolvedFocusContext(
                 preferredTarget: preferredTarget,
@@ -710,6 +719,52 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         }
 
         return nil
+    }
+
+    func prepareForWrite(
+        preferredTarget: WritebackTargetSnapshot?,
+        fallbackFocusContext: FocusedAppContext
+    ) async {
+        if let preferredTarget {
+            _ = await activatePreferredTargetIfNeeded(preferredTarget)
+            _ = await resolvedEditableFocusContext(
+                preferredTarget: preferredTarget,
+                fallback: fallbackFocusContext
+            )
+            return
+        }
+
+        if
+            let bundleID = candidateExternalBundleID(
+                resolvedFocusContext: fallbackFocusContext,
+                fallbackFocusContext: fallbackFocusContext
+            )
+        {
+            _ = await activateApplication(bundleID: bundleID)
+        }
+    }
+
+    private func waitUntilFrontmost(
+        bundleID: String,
+        processIdentifier: pid_t
+    ) async -> Bool {
+        let attempts = 5
+        for attempt in 1...attempts {
+            let frontmost = currentFrontmostApplication()
+            let reached = frontmost?.processIdentifier == processIdentifier
+                || frontmost?.bundleIdentifier == bundleID
+            if reached {
+                return true
+            }
+            if attempt < attempts {
+                await activationPauseNanoseconds()
+            }
+        }
+        return false
+    }
+
+    private func elapsedMilliseconds(since start: Date) -> Int {
+        Int((Date().timeIntervalSince(start) * 1000).rounded())
     }
 }
 

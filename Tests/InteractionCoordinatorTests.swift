@@ -33,9 +33,12 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .cancelled)
     }
 
-    func testDictationUsesPostProcessedTextWhenSystemPromptEnabled() async throws {
+    func testDictationUsesPostProcessedTextWhenHeuristicRequiresTextProcessing() async throws {
         let postProcessor = FakeDictationPostProcessor(result: .success("整理后的听写"))
-        let fixture = try makeFixture(dictationPostProcessor: postProcessor)
+        let fixture = try makeFixture(
+            dictationPostProcessor: postProcessor,
+            transcriptionText: "<|zh|><|NEUTRAL|><|Speech|><|woitn|>请帮我整理这段文字"
+        )
         defer { fixture.cleanUp() }
 
         fixture.skillRuleStore.setEnabled(true, for: .systemPrompt)
@@ -51,8 +54,12 @@ final class InteractionCoordinatorTests: XCTestCase {
     }
 
     func testDictationFallsBackToLocalTextWhenPostProcessorFails() async throws {
+        let rawTranscript = "<|zh|><|NEUTRAL|><|Speech|><|woitn|>请帮我整理这段文字"
         let postProcessor = FakeDictationPostProcessor(result: .failure(RewriteProviderError.invalidGeneratedText))
-        let fixture = try makeFixture(dictationPostProcessor: postProcessor)
+        let fixture = try makeFixture(
+            dictationPostProcessor: postProcessor,
+            transcriptionText: rawTranscript
+        )
         defer { fixture.cleanUp() }
 
         fixture.skillRuleStore.setEnabled(true, for: .systemPrompt)
@@ -62,9 +69,9 @@ final class InteractionCoordinatorTests: XCTestCase {
         fixture.coordinator.handleStopInput()
         await waitForPipeline(using: fixture.sessionStore)
 
-        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "hello world")
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, rawTranscript)
         XCTAssertTrue(fixture.sessionStore.statusMessage.contains("已退回本地结果"))
-        XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "hello world")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, rawTranscript)
     }
 
     func testDisabledAppPreferenceBoostDoesNotAutoEnterRewrite() throws {
@@ -106,7 +113,10 @@ final class InteractionCoordinatorTests: XCTestCase {
 
     func testDictationPostProcessIncludesAppPromptWhenMatched() async throws {
         let postProcessor = CapturingDictationPostProcessor(outputText: "处理后文本")
-        let fixture = try makeFixture(dictationPostProcessor: postProcessor)
+        let fixture = try makeFixture(
+            dictationPostProcessor: postProcessor,
+            transcriptionText: "<|zh|><|NEUTRAL|><|Speech|><|woitn|>应用提示词测试"
+        )
         defer { fixture.cleanUp() }
 
         fixture.skillRuleStore.setEnabled(true, for: .appPreferenceBoost)
@@ -126,7 +136,10 @@ final class InteractionCoordinatorTests: XCTestCase {
 
     func testDisabledAppPreferenceBoostRemovesAppPromptFromPostProcess() async throws {
         let postProcessor = CapturingDictationPostProcessor(outputText: "处理后文本")
-        let fixture = try makeFixture(dictationPostProcessor: postProcessor)
+        let fixture = try makeFixture(
+            dictationPostProcessor: postProcessor,
+            transcriptionText: "<|zh|><|NEUTRAL|><|Speech|><|woitn|>应用提示词测试"
+        )
         defer { fixture.cleanUp() }
 
         fixture.skillRuleStore.setEnabled(true, for: .systemPrompt)
@@ -146,9 +159,29 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(postProcessor.lastRequest?.userSystemPrompt, "保留重点。")
     }
 
+    func testDictationSkipsTextProcessingForShortCleanTranscript() async throws {
+        let postProcessor = CountingDictationPostProcessor(outputText: "不该被用到")
+        let fixture = try makeFixture(
+            dictationPostProcessor: postProcessor,
+            transcriptionText: "hello world"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.skillRuleStore.setEnabled(true, for: .systemPrompt)
+        fixture.skillRuleStore.setParameter("默认更简洁，保留重点。", for: .systemPrompt)
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(postProcessor.callCount, 0)
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "hello world")
+    }
+
     private func makeFixture(
         textOutputCoordinator: FakeTextOutputCoordinator? = nil,
-        dictationPostProcessor: DictationPostProcessor = FakeDictationPostProcessor(result: .success("hello world"))
+        dictationPostProcessor: DictationPostProcessor = FakeDictationPostProcessor(result: .success("hello world")),
+        transcriptionText: String = "hello world"
     ) throws -> InteractionFixture {
         let defaultsSuiteName = "InteractionCoordinatorTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: defaultsSuiteName) else {
@@ -191,7 +224,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         let localHistoryStore = LocalHistoryStore(historyDirectory: historyDirectory)
         let appScenePolicyStore = AppScenePolicyStore(defaults: defaults)
         let skillRuleStore = SkillRuleStore(defaults: defaults, storageKey: "skill.rules.interaction.tests")
-        let transcriptionProvider = FakeTranscriptionProvider()
+        let transcriptionProvider = FakeTranscriptionProvider(transcript: transcriptionText)
         let resolvedTextOutputCoordinator = textOutputCoordinator ?? FakeTextOutputCoordinator()
 
         let coordinator = InteractionCoordinator(
@@ -366,6 +399,7 @@ private final class MemoryCredentialStoreForInteractionTests: ProviderCredential
 
 private struct FakeTranscriptionProvider: SpeechTranscriptionProvider {
     let supportedProviderTypes: [ProviderType] = [.localSenseVoice]
+    let transcript: String
 
     func transcribe(
         request: SpeechTranscriptionRequest,
@@ -376,7 +410,7 @@ private struct FakeTranscriptionProvider: SpeechTranscriptionProvider {
             providerType: .localSenseVoice,
             providerName: "Fake Local",
             modelName: "sensevoice-small",
-            transcript: "hello world"
+            transcript: transcript
         )
     }
 }

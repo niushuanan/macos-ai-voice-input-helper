@@ -26,9 +26,15 @@ struct DictationWritebackTarget: Equatable {
 }
 
 private struct DictationPostProcessOutcome {
+    let route: DictationRoute
     let text: String
     let appliedSkills: [SkillRuleID]
     let nonBlockingNotice: String?
+}
+
+private enum DictationRoute {
+    case asrOnly
+    case asrAndTextProcessing
 }
 
 @MainActor
@@ -333,6 +339,18 @@ final class InteractionCoordinator {
     ) async {
         let writebackTarget = currentDictationTarget
         let focusContext = writebackTarget?.focusContext ?? contextDetector.focusedAppContext()
+        let writebackWarmupTask = Task { [weak self] in
+            guard
+                let self,
+                let warmableCoordinator = self.textOutputCoordinator as? AccessibilityTextOutputCoordinator
+            else {
+                return
+            }
+            await warmableCoordinator.prepareForWrite(
+                preferredTarget: writebackTarget?.snapshot,
+                fallbackFocusContext: focusContext
+            )
+        }
         let scenePolicy = effectiveScenePolicy(for: focusContext)
         let skillApplyResult = skillRuleStore.applyDictation(
             transcription.transcript,
@@ -344,6 +362,7 @@ final class InteractionCoordinator {
             focusContext: focusContext,
             appPrompt: scenePolicy.appPrompt
         )
+        _ = await writebackWarmupTask.value
         let finalText = postProcessResult.text
         let finalTranscription = SpeechTranscriptionResult(
             providerType: transcription.providerType,
@@ -887,6 +906,20 @@ final class InteractionCoordinator {
         let normalizedAppPrompt = appPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !userSystemPrompt.isEmpty || !normalizedAppPrompt.isEmpty else {
             return DictationPostProcessOutcome(
+                route: .asrOnly,
+                text: text,
+                appliedSkills: [],
+                nonBlockingNotice: nil
+            )
+        }
+
+        guard shouldUseTextProcessing(
+            text: text,
+            userSystemPrompt: userSystemPrompt,
+            appPrompt: normalizedAppPrompt
+        ) else {
+            return DictationPostProcessOutcome(
+                route: .asrOnly,
                 text: text,
                 appliedSkills: [],
                 nonBlockingNotice: nil
@@ -897,6 +930,7 @@ final class InteractionCoordinator {
             let message = providerSettingsStore.rewriteConfigurationValidationMessage
                 ?? "文本模型配置无效。"
             return DictationPostProcessOutcome(
+                route: .asrAndTextProcessing,
                 text: text,
                 appliedSkills: [],
                 nonBlockingNotice: "文本处理模型暂未生效（\(message)），已退回本地结果。"
@@ -907,6 +941,7 @@ final class InteractionCoordinator {
         let apiKey = loadedKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !apiKey.isEmpty else {
             return DictationPostProcessOutcome(
+                route: .asrAndTextProcessing,
                 text: text,
                 appliedSkills: [],
                 nonBlockingNotice: "文本处理模型暂未生效（缺少密钥），已退回本地结果。"
@@ -932,17 +967,58 @@ final class InteractionCoordinator {
                 applied.append(.appPreferenceBoost)
             }
             return DictationPostProcessOutcome(
+                route: .asrAndTextProcessing,
                 text: result.outputText,
                 appliedSkills: applied,
                 nonBlockingNotice: nil
             )
         } catch {
             return DictationPostProcessOutcome(
+                route: .asrAndTextProcessing,
                 text: text,
                 appliedSkills: [],
                 nonBlockingNotice: "文本处理模型调用失败，已退回本地结果。"
             )
         }
+    }
+
+    private func shouldUseTextProcessing(
+        text: String,
+        userSystemPrompt: String,
+        appPrompt: String
+    ) -> Bool {
+        _ = userSystemPrompt
+        _ = appPrompt
+
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return false
+        }
+
+        if normalized.contains("<|") || normalized.contains("|>") {
+            return true
+        }
+
+        if normalized.contains("  ") || normalized.contains("。。") || normalized.contains("，，") {
+            return true
+        }
+
+        if normalized.count >= 80 {
+            return true
+        }
+
+        let punctuationSet = CharacterSet(charactersIn: "。！？.!?,，；;：:")
+        let punctuationCount = normalized.unicodeScalars.filter { punctuationSet.contains($0) }.count
+        if punctuationCount == 0, normalized.count >= 24 {
+            return true
+        }
+
+        let lineCount = normalized.split(whereSeparator: \.isNewline).count
+        if lineCount > 1 {
+            return true
+        }
+
+        return false
     }
 
     private func resolvedLane(context: WakeInvocationContext) -> InputLane {

@@ -471,12 +471,14 @@ struct LLMDictationPostProcessor: DictationPostProcessor {
             )
         )
 
+        let dynamicTokenBudget = max(120, min(420, normalizedTranscript.count * 2))
+
         let generation = try await generationProvider.generateText(
             request: TextGenerationRequest(
                 systemPrompt: template.systemPrompt,
                 userPrompt: template.userPrompt,
                 temperature: 0.2,
-                maxOutputTokens: 900
+                maxOutputTokens: dynamicTokenBudget
             ),
             configuration: configuration,
             apiKey: apiKey
