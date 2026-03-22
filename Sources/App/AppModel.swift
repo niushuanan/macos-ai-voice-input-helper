@@ -189,13 +189,58 @@ final class AppModel: ObservableObject {
 
     private func bindStatusPulse() {
         sessionStore.$phase
-            .combineLatest(sessionStore.$activeLane, sessionStore.$statusMessage)
-            .removeDuplicates(by: ==)
+            .combineLatest(
+                sessionStore.$activeLane,
+                sessionStore.$statusMessage,
+                sessionStore.$listeningLevel
+            )
+            .map { phase, lane, message, listeningLevel in
+                StatusPulsePayload(
+                    phase: phase,
+                    lane: lane,
+                    message: message,
+                    progress: Self.statusProgress(
+                        for: phase,
+                        listeningLevel: listeningLevel
+                    )
+                )
+            }
+            .removeDuplicates()
             .dropFirst()
-            .sink { [weak self] phase, lane, message in
-                self?.statusPulseHUDController.show(phase: phase, lane: lane, message: message)
+            .sink { [weak self] payload in
+                self?.statusPulseHUDController.show(
+                    phase: payload.phase,
+                    lane: payload.lane,
+                    message: payload.message,
+                    progress: payload.progress
+                )
             }
             .store(in: &cancellables)
+    }
+
+    private static func statusProgress(
+        for phase: SessionPhase,
+        listeningLevel: Double
+    ) -> Double {
+        let value: Double
+        switch phase {
+        case .listening:
+            let meter = max(0, min(1, listeningLevel))
+            value = 0.08 + meter * 0.30
+        case .transcribing:
+            value = 0.52
+        case .rewriting:
+            value = 0.76
+        case .inserting:
+            value = 0.92
+        case .idle:
+            value = 1.0
+        case .cancelled:
+            value = 0
+        case .error:
+            value = 0.04
+        }
+        return (value * 100).rounded() / 100
     }
 
     private func activateGlobalHotkeys() {
@@ -227,6 +272,8 @@ final class AppModel: ObservableObject {
             return
         }
 
+        purgeDerivedDataDebugAppCopies()
+
         if
             let fingerprint = defaults.string(forKey: "permissions.accessibilityPromptFingerprint"),
             !fingerprint.contains("/Applications/PulseType.app")
@@ -235,4 +282,69 @@ final class AppModel: ObservableObject {
             defaults.removeObject(forKey: "permissions.accessibilityPromptFingerprint")
         }
     }
+
+    private func purgeDerivedDataDebugAppCopies() {
+        let derivedRoot = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Developer/Xcode/DerivedData", isDirectory: true)
+
+        DispatchQueue.global(qos: .utility).async {
+            let fileManager = FileManager.default
+            guard let enumerator = fileManager.enumerator(
+                at: derivedRoot,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) else {
+                return
+            }
+
+            var removedPaths: [String] = []
+            for case let url as URL in enumerator {
+                guard
+                    url.lastPathComponent == "PulseType.app",
+                    url.path.contains("/Build/Products/"),
+                    url.path != "/Applications/PulseType.app"
+                else {
+                    continue
+                }
+
+                do {
+                    try fileManager.removeItem(at: url)
+                    removedPaths.append(url.path)
+                } catch {
+                    continue
+                }
+            }
+
+            guard
+                !removedPaths.isEmpty,
+                fileManager.isExecutableFile(
+                    atPath: "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
+                )
+            else {
+                return
+            }
+
+            let lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
+            for path in removedPaths {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: lsregister)
+                process.arguments = ["-u", path]
+                try? process.run()
+                process.waitUntilExit()
+            }
+
+            let gcProcess = Process()
+            gcProcess.executableURL = URL(fileURLWithPath: lsregister)
+            gcProcess.arguments = ["-gc"]
+            try? gcProcess.run()
+            gcProcess.waitUntilExit()
+        }
+    }
+}
+
+private struct StatusPulsePayload: Equatable {
+    let phase: SessionPhase
+    let lane: InputLane
+    let message: String
+    let progress: Double
 }

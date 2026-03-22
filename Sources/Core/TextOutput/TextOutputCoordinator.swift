@@ -174,11 +174,17 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         let startLine = "[write] app=\(resolvedFocusContext.appName) bundle=\(resolvedFocusContext.bundleID) op=\(request.operation)"
         logger.log(startLine)
 
+        let externalTargetReady = await shouldAttemptExternalTargetWrite(
+            preferredTarget: request.preferredTarget,
+            resolvedFocusContext: resolvedFocusContext,
+            fallbackFocusContext: request.focusContext,
+            preferredTargetReachable: preferredTargetReachable
+        )
         let hasPreferredTarget = request.preferredTarget != nil
         let shouldAttemptEditorWrite =
             resolvedFocusContext.hasEditableTarget
+            || externalTargetReady
             || (!hasPreferredTarget && request.focusContext.hasEditableTarget)
-            || (hasPreferredTarget && preferredTargetReachable)
 
         guard shouldAttemptEditorWrite else {
             if !didPersistToClipboard {
@@ -291,6 +297,30 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
                 rangeValue
             )
         }
+    }
+
+    func shouldAttemptExternalTargetWrite(
+        preferredTarget: WritebackTargetSnapshot?,
+        resolvedFocusContext: FocusedAppContext,
+        fallbackFocusContext: FocusedAppContext,
+        preferredTargetReachable: Bool
+    ) async -> Bool {
+        if preferredTarget != nil {
+            return preferredTargetReachable
+        }
+
+        guard let bundleID = candidateExternalBundleID(
+            resolvedFocusContext: resolvedFocusContext,
+            fallbackFocusContext: fallbackFocusContext
+        ) else {
+            return false
+        }
+
+        if currentFrontmostApplication()?.bundleIdentifier == bundleID {
+            return true
+        }
+
+        return await activateApplication(bundleID: bundleID)
     }
 
     func performPasteFallback(text: String) async throws {
@@ -427,7 +457,7 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
     }
 
     func activateApplication(_ application: NSRunningApplication) -> Bool {
-        application.activate(options: [.activateIgnoringOtherApps])
+        application.activate(options: [.activateAllWindows])
     }
 
     func activationPauseNanoseconds() async {
@@ -493,6 +523,22 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         return activated
     }
 
+    func activateApplication(bundleID: String) async -> Bool {
+        guard
+            let targetApplication = runningApplications(withBundleIdentifier: bundleID).first
+        else {
+            logger.log("[write] target-missing bundle=\(bundleID)")
+            return false
+        }
+
+        let activated = activateApplication(targetApplication)
+        logger.log("[write] target-activate bundle=\(bundleID) ok=\(activated)")
+        if activated {
+            await activationPauseNanoseconds()
+        }
+        return activated
+    }
+
     func resolveTargetApplication(_ preferredTarget: WritebackTargetSnapshot) -> NSRunningApplication? {
         let candidates = runningApplications(withBundleIdentifier: preferredTarget.bundleID)
         if let processIdentifier = preferredTarget.processIdentifier {
@@ -522,6 +568,27 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             preferredTarget: preferredTarget,
             fallback: fallback
         )
+    }
+
+    private func candidateExternalBundleID(
+        resolvedFocusContext: FocusedAppContext,
+        fallbackFocusContext: FocusedAppContext
+    ) -> String? {
+        if isExternalApplicationBundle(resolvedFocusContext.bundleID) {
+            return resolvedFocusContext.bundleID
+        }
+        if isExternalApplicationBundle(fallbackFocusContext.bundleID) {
+            return fallbackFocusContext.bundleID
+        }
+        return nil
+    }
+
+    private func isExternalApplicationBundle(_ bundleID: String) -> Bool {
+        guard !bundleID.isEmpty, bundleID != "unknown.bundle" else {
+            return false
+        }
+        let selfBundleID = Bundle.main.bundleIdentifier
+        return bundleID != selfBundleID
     }
 }
 

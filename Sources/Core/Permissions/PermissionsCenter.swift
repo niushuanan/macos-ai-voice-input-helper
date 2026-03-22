@@ -313,13 +313,13 @@ final class PermissionsCenter: ObservableObject {
         case .accessibility:
             switch snapshot.accessibility {
             case .granted:
-                return "已允许，可进行跨应用改写与直写。"
+                return "已允许，可读取选区并把文本直接写进其他应用输入框。"
             case .notRequested:
-                return "普通听写可运行，但改写与稳定直写建议开启。"
+                return "未允许时只能走剪贴板兜底，无法稳定直写到目标输入框。"
             case .pending:
                 return "权限向导已打开，请在系统设置里完成。"
             case .denied:
-                return "已拒绝，选区改写与 AX 直写不可用。"
+                return "已拒绝，读取选区与 AX 直写不可用。"
             case .notRequired:
                 return "不需要。"
             }
@@ -329,7 +329,7 @@ final class PermissionsCenter: ObservableObject {
     private func guidanceText(for kind: PermissionKind) -> String {
         switch kind {
         case .microphone:
-            return "先点“请求”，如果被拒绝，请到 系统设置 > 隐私与安全性 > 麦克风 开启 PulseType。"
+            return "先点“请求”，如果被拒绝，请到 系统设置 > 隐私与安全性 > 麦克风 开启 PulseType。若每次启动都重复弹窗，通常是系统里仍存在 Debug 副本，请只保留 /Applications/PulseType.app。"
         case .accessibility:
             return "先点“请求”，再到 系统设置 > 隐私与安全性 > 辅助功能 开启 PulseType。若列表里有多个同名项，只保留当前正在运行的 PulseType。"
         }

@@ -251,6 +251,68 @@ final class TextOutputCoordinatorTests: XCTestCase {
         XCTAssertEqual(result.path, .clipboardOnly)
         XCTAssertEqual(result.appName, "TextEdit")
     }
+
+    func testExternalTargetUsesPasteFallbackWhenAccessibilityPathFails() async throws {
+        let focusContext = FocusedAppContext(
+            appName: "Codex",
+            bundleID: "com.openai.codex",
+            focusedRole: nil,
+            hasEditableTarget: false,
+            strategyHint: "test"
+        )
+        let coordinator = TestAccessibilityTextOutputCoordinator(
+            contextDetector: StaticContextDetector(focusContext: focusContext)
+        )
+        coordinator.accessibilityError = .noEditableTarget
+        coordinator.forcedExternalTargetReady = true
+
+        let result = try await coordinator.write(
+            request: TextOutputRequest(
+                text: "hello",
+                operation: .insertText,
+                focusContext: focusContext
+            )
+        )
+
+        XCTAssertEqual(result.path, .pasteFallbackCommandV)
+        XCTAssertTrue(result.didInsertIntoEditor)
+        XCTAssertEqual(coordinator.accessibilityWriteCount, 1)
+        XCTAssertEqual(coordinator.pasteFallbackCount, 1)
+    }
+
+    func testClipboardOnlyPathThrowsWhenClipboardUnavailable() async {
+        let focusContext = FocusedAppContext(
+            appName: "PulseType",
+            bundleID: Bundle.main.bundleIdentifier ?? "tests.bundle",
+            focusedRole: nil,
+            hasEditableTarget: false,
+            strategyHint: "test"
+        )
+        let coordinator = TestAccessibilityTextOutputCoordinator(
+            contextDetector: StaticContextDetector(focusContext: focusContext)
+        )
+        coordinator.clipboardWriteSucceeded = false
+
+        do {
+            _ = try await coordinator.write(
+                request: TextOutputRequest(
+                    text: "hello",
+                    operation: .insertText,
+                    focusContext: focusContext
+                )
+            )
+            XCTFail("Expected pasteboardUnavailable")
+        } catch let error as TextOutputError {
+            switch error {
+            case .pasteboardUnavailable:
+                break
+            default:
+                XCTFail("Expected pasteboardUnavailable, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
 }
 
 private struct StaticContextDetector: ContextDetector {
@@ -274,6 +336,9 @@ private final class TestAccessibilityTextOutputCoordinator: AccessibilityTextOut
     var accessibilityWriteCount = 0
     var pasteFallbackCount = 0
     var availableTargetBundleIDs: [String] = []
+    var accessibilityError: TextOutputError?
+    var forcedExternalTargetReady: Bool?
+    var clipboardWriteSucceeded: Bool = true
 
     init(contextDetector: ContextDetector) {
         let diagnosticsDirectory = FileManager.default.temporaryDirectory
@@ -290,6 +355,9 @@ private final class TestAccessibilityTextOutputCoordinator: AccessibilityTextOut
         operation: TextOutputOperation
     ) throws {
         accessibilityWriteCount += 1
+        if let accessibilityError {
+            throw accessibilityError
+        }
     }
 
     override func performPasteFallback(text: String) async throws {
@@ -297,7 +365,7 @@ private final class TestAccessibilityTextOutputCoordinator: AccessibilityTextOut
     }
 
     override func persistToClipboard(_ text: String) -> Bool {
-        true
+        clipboardWriteSucceeded
     }
 
     override func runningApplications(withBundleIdentifier bundleID: String) -> [NSRunningApplication] {
@@ -305,5 +373,22 @@ private final class TestAccessibilityTextOutputCoordinator: AccessibilityTextOut
             return []
         }
         return super.runningApplications(withBundleIdentifier: bundleID)
+    }
+
+    override func shouldAttemptExternalTargetWrite(
+        preferredTarget: WritebackTargetSnapshot?,
+        resolvedFocusContext: FocusedAppContext,
+        fallbackFocusContext: FocusedAppContext,
+        preferredTargetReachable: Bool
+    ) async -> Bool {
+        if let forcedExternalTargetReady {
+            return forcedExternalTargetReady
+        }
+        return await super.shouldAttemptExternalTargetWrite(
+            preferredTarget: preferredTarget,
+            resolvedFocusContext: resolvedFocusContext,
+            fallbackFocusContext: fallbackFocusContext,
+            preferredTargetReachable: preferredTargetReachable
+        )
     }
 }

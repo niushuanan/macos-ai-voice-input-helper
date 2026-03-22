@@ -6,14 +6,20 @@ final class StatusPulseHUDController {
     private var panel: NSPanel?
     private var hideWorkItem: DispatchWorkItem?
 
-    func show(phase: SessionPhase, lane: InputLane, message: String) {
-        let size = NSSize(width: 430, height: 96)
+    func show(
+        phase: SessionPhase,
+        lane: InputLane,
+        message: String,
+        progress: Double
+    ) {
+        let size = NSSize(width: 430, height: 112)
         let panel = ensurePanel(size: size)
         panel.contentView = NSHostingView(
             rootView: StatusPulseHUDView(
                 phase: phase,
                 lane: lane,
-                message: message
+                message: message,
+                progress: progress
             )
         )
 
@@ -72,7 +78,7 @@ final class StatusPulseHUDController {
     private func scheduleHide(for phase: SessionPhase) {
         hideWorkItem?.cancel()
 
-        if phase == .listening {
+        if shouldKeepVisible(for: phase) {
             return
         }
 
@@ -96,16 +102,25 @@ final class StatusPulseHUDController {
         )
     }
 
+    private func shouldKeepVisible(for phase: SessionPhase) -> Bool {
+        switch phase {
+        case .listening, .transcribing, .rewriting, .inserting:
+            return true
+        case .idle, .cancelled, .error:
+            return false
+        }
+    }
+
     private func hideDelay(for phase: SessionPhase) -> TimeInterval {
         switch phase {
         case .transcribing, .rewriting, .inserting:
-            return 1.0
+            return 0.8
         case .cancelled:
-            return 0.22
+            return 0.16
         case .error:
-            return 1.6
+            return 1.4
         case .idle, .listening:
-            return 0.9
+            return 0.72
         }
     }
 }
@@ -114,6 +129,7 @@ private struct StatusPulseHUDView: View {
     let phase: SessionPhase
     let lane: InputLane
     let message: String
+    let progress: Double
 
     var body: some View {
         HStack(spacing: 12) {
@@ -129,7 +145,16 @@ private struct StatusPulseHUDView: View {
                 Text(message)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(1)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    ProgressView(value: normalizedProgress)
+                        .progressViewStyle(.linear)
+                        .tint(phaseColor)
+                    Text(progressCaption)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Spacer(minLength: 0)
@@ -145,6 +170,29 @@ private struct StatusPulseHUDView: View {
                         .stroke(phaseColor.opacity(0.30), lineWidth: 1)
                 )
         )
+    }
+
+    private var normalizedProgress: Double {
+        max(0, min(1, progress))
+    }
+
+    private var progressCaption: String {
+        switch phase {
+        case .listening:
+            return "输入强度 \(Int(normalizedProgress * 100))%"
+        case .transcribing:
+            return "语音转文字中"
+        case .rewriting:
+            return "文本处理中"
+        case .inserting:
+            return "写回输入框中"
+        case .idle:
+            return "已完成"
+        case .cancelled:
+            return "已取消"
+        case .error:
+            return "处理失败"
+        }
     }
 
     private var phaseColor: Color {
