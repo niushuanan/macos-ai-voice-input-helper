@@ -164,8 +164,7 @@ final class SkillRuleStore: ObservableObject {
         applyPipeline(
             text,
             outputBias: outputBias,
-            allowSpokenFilter: true,
-            allowStructure: true
+            allowSpokenFilter: true
         )
     }
 
@@ -173,8 +172,7 @@ final class SkillRuleStore: ObservableObject {
         applyPipeline(
             instruction,
             outputBias: .neutral,
-            allowSpokenFilter: true,
-            allowStructure: false
+            allowSpokenFilter: true
         )
     }
 
@@ -182,8 +180,7 @@ final class SkillRuleStore: ObservableObject {
         applyPipeline(
             text,
             outputBias: outputBias,
-            allowSpokenFilter: false,
-            allowStructure: true
+            allowSpokenFilter: false
         )
     }
 
@@ -203,8 +200,7 @@ final class SkillRuleStore: ObservableObject {
     private func applyPipeline(
         _ original: String,
         outputBias: AppOutputBias,
-        allowSpokenFilter: Bool,
-        allowStructure: Bool
+        allowSpokenFilter: Bool
     ) -> SkillApplyResult {
         let base = original.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !base.isEmpty else {

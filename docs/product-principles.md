@@ -228,7 +228,7 @@ Selected implementation in this round:
   - provider type
   - optional base URL
   - model
-  - Keychain-backed API key
+  - locally persisted API key (explicit save)
   - one-click connectivity test
 - OpenAI official + OpenAI-compatible are both available in v1
 

@@ -132,7 +132,7 @@ final class AppScenePolicyStore: ObservableObject {
                 appName: context.appName,
                 bundleID: context.bundleID,
                 outputBias: .formal,
-                preferSelectionRewrite: true
+                preferSelectionRewrite: false
             )
         }
 
@@ -150,7 +150,7 @@ final class AppScenePolicyStore: ObservableObject {
                 appName: context.appName,
                 bundleID: context.bundleID,
                 outputBias: .structured,
-                preferSelectionRewrite: true
+                preferSelectionRewrite: false
             )
         }
 
@@ -158,7 +158,7 @@ final class AppScenePolicyStore: ObservableObject {
             appName: context.appName,
             bundleID: context.bundleID,
             outputBias: .neutral,
-            preferSelectionRewrite: true
+            preferSelectionRewrite: false
         )
     }
 

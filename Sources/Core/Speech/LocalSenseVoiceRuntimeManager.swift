@@ -133,8 +133,14 @@ final class LocalSenseVoiceRuntimeManager: ObservableObject {
             return
         }
 
+        guard let preferredPython = Self.preferredPythonCommand(fileManager: fileManager) else {
+            state = .failed(message: "没有找到可用的 Python 解释器。请先安装 Python 3.11。")
+            lastCheckedAt = now()
+            return
+        }
+
         lastCheckedAt = now()
-        state = .preparing(step: "正在创建本地 Python 环境…")
+        state = .preparing(step: "正在创建本地 Python 环境（\(preferredPython.displayName)）…")
         do {
             try fileManager.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
         } catch {
@@ -143,10 +149,13 @@ final class LocalSenseVoiceRuntimeManager: ObservableObject {
         }
 
         let venvDirectory = Self.venvDirectory(runtimeRoot: runtimeRoot)
+        if Self.shouldRecreateEnvironment(at: venvDirectory, fileManager: fileManager) {
+            try? fileManager.removeItem(at: venvDirectory)
+        }
         if !fileManager.fileExists(atPath: venvDirectory.path) {
             let createResult = Self.runProcess(
-                executableURL: URL(fileURLWithPath: "/usr/bin/env"),
-                arguments: ["python3", "-m", "venv", venvDirectory.path]
+                executableURL: preferredPython.executableURL,
+                arguments: preferredPython.arguments + ["-m", "venv", venvDirectory.path]
             )
             guard createResult.exitCode == 0 else {
                 state = .failed(message: "无法创建本地 Python 环境：\(createResult.stderr.isEmpty ? createResult.stdout : createResult.stderr)")
@@ -177,7 +186,9 @@ final class LocalSenseVoiceRuntimeManager: ObservableObject {
                 "-m", "pip", "install",
                 "numpy",
                 "onnxruntime",
-                "funasr",
+                "torch",
+                "funasr-onnx",
+                "jieba",
                 "modelscope"
             ]
         )
@@ -211,6 +222,56 @@ final class LocalSenseVoiceRuntimeManager: ObservableObject {
         runtimeRoot.appendingPathComponent("manifest.json", isDirectory: false)
     }
 
+    nonisolated private static func preferredPythonCommand(
+        fileManager: FileManager = .default
+    ) -> PythonCommand? {
+        let directCandidates = [
+            "/opt/homebrew/bin/python3.11",
+            "/usr/local/bin/python3.11",
+            "/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11",
+            "/opt/homebrew/bin/python3.12",
+            "/usr/local/bin/python3.12",
+            "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12",
+        ]
+
+        if let path = directCandidates.first(where: { fileManager.isExecutableFile(atPath: $0) }) {
+            return PythonCommand(
+                executableURL: URL(fileURLWithPath: path),
+                arguments: [],
+                displayName: URL(fileURLWithPath: path).lastPathComponent
+            )
+        }
+
+        if fileManager.isExecutableFile(atPath: "/usr/bin/env") {
+            return PythonCommand(
+                executableURL: URL(fileURLWithPath: "/usr/bin/env"),
+                arguments: ["python3"],
+                displayName: "python3"
+            )
+        }
+
+        return nil
+    }
+
+    nonisolated private static func shouldRecreateEnvironment(
+        at venvDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        let pythonURL = venvDirectory
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("python3", isDirectory: false)
+        guard fileManager.isExecutableFile(atPath: pythonURL.path) else {
+            return false
+        }
+
+        let result = runProcess(
+            executableURL: pythonURL,
+            arguments: ["-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"]
+        )
+        let version = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return version.hasPrefix("3.14")
+    }
+
     private static func loadManifest(from runtimeRoot: URL) -> LocalSenseVoiceRuntimeManifest? {
         guard
             let data = try? Data(contentsOf: manifestURL(runtimeRoot: runtimeRoot)),
@@ -235,7 +296,7 @@ final class LocalSenseVoiceRuntimeManager: ObservableObject {
         }
     }
 
-    private static func runProcess(
+    nonisolated private static func runProcess(
         executableURL: URL,
         arguments: [String]
     ) -> ProcessResult {
@@ -281,6 +342,12 @@ final class LocalSenseVoiceRuntimeManager: ObservableObject {
         let stderr: String
     }
 
+    private struct PythonCommand {
+        let executableURL: URL
+        let arguments: [String]
+        let displayName: String
+    }
+
     private struct ProbePayload: Decodable {
         let ok: Bool
         let backend: String
@@ -299,10 +366,10 @@ def has_module(name):
     return importlib.util.find_spec(name) is not None
 
 backend = ""
-if has_module("funasr"):
-    backend = "funasr"
-elif has_module("funasr_onnx"):
+if has_module("funasr_onnx") and has_module("torch"):
     backend = "funasr_onnx"
+elif has_module("funasr") and has_module("torch"):
+    backend = "funasr"
 
 versions = {}
 for name in modules:
@@ -319,11 +386,18 @@ if not has_module("numpy") or not has_module("onnxruntime"):
         "message": "本地运行环境缺少 numpy 或 onnxruntime，请重新准备本地环境。",
         "versions": versions,
     }, ensure_ascii=False))
+elif not has_module("torch"):
+    print(json.dumps({
+        "ok": False,
+        "backend": "",
+        "message": "本地运行环境缺少 torch，请重新准备本地环境。",
+        "versions": versions,
+    }, ensure_ascii=False))
 elif not backend:
     print(json.dumps({
         "ok": False,
         "backend": "",
-        "message": "本地运行环境缺少 funasr 或 funasr_onnx，请重新准备本地环境。",
+        "message": "本地运行环境缺少 funasr_onnx 或 funasr，请重新准备本地环境。",
         "versions": versions,
     }, ensure_ascii=False))
 else:

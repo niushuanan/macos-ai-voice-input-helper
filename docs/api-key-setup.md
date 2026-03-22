@@ -2,7 +2,7 @@
 
 ## 安全基线（长期可用）
 
-- API 密钥只写入 macOS 钥匙串（Keychain），不会写入仓库文件。
+- API 密钥写入本地应用目录（`~/Library/Application Support/PulseType/Credentials/credentials.v1.json`），不会写入仓库文件。
 - `UserDefaults` 仅保存非敏感配置（Provider、地址、模型、测试结果）。
 - 本地历史记录不会保存密钥明文。
 - 仓库内提供密钥扫描脚本与 pre-commit 检查，降低误提交风险。
@@ -25,7 +25,7 @@
 ## 本地初始化密钥（两种方式）
 
 推荐方式（更稳定）：先用 `./scripts/install-local-app.sh` 安装到 `/Applications/PulseType.app`，再直接在 App 的 `模型` 页面输入并保存。  
-兼容方式：运行脚本批量写入 Keychain。
+兼容方式：运行脚本把旧环境密钥写入 Keychain，应用启动后会自动迁移到本地凭据文件。
 
 在项目根目录执行：
 
@@ -33,7 +33,7 @@
 ./scripts/setup-local-keys.sh
 ```
 
-脚本会交互录入两把密钥，并写入 Keychain v4 服务：
+脚本会交互录入两把密钥，并写入 Keychain v4 服务（仅作兼容迁移入口）：
 
 - 服务名：`com.niushuanan.PulseType.provider-profile.v4`
 - ASR key：`asr.primary`

@@ -1,6 +1,58 @@
+import AppKit
 import Combine
 import Foundation
 import KeyboardShortcuts
+
+enum HotkeyTriggerMode: String, CaseIterable, Identifiable {
+    case shortcut
+    case modifierTap
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .shortcut:
+            return "组合键"
+        case .modifierTap:
+            return "修饰键单击"
+        }
+    }
+}
+
+enum HotkeyModifier: String, CaseIterable, Identifiable {
+    case command
+    case option
+    case control
+    case shift
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .command:
+            return "Command"
+        case .option:
+            return "Option"
+        case .control:
+            return "Control"
+        case .shift:
+            return "Shift"
+        }
+    }
+
+    var modifierFlags: NSEvent.ModifierFlags {
+        switch self {
+        case .command:
+            return .command
+        case .option:
+            return .option
+        case .control:
+            return .control
+        case .shift:
+            return .shift
+        }
+    }
+}
 
 @MainActor
 final class HotkeyStateStore: ObservableObject {
@@ -16,24 +68,58 @@ final class HotkeyStateStore: ObservableObject {
     @Published private(set) var cancelShortcutRegistered: Bool
     @Published private(set) var lastUpdatedAt: Date
     @Published private(set) var latestChangeMessage: String?
+    @Published private(set) var wakeTriggerMode: HotkeyTriggerMode
+    @Published private(set) var cancelTriggerMode: HotkeyTriggerMode
+    @Published private(set) var wakeModifier: HotkeyModifier
+    @Published private(set) var cancelModifier: HotkeyModifier
 
     private let notificationCenter: NotificationCenter
+    private let defaults: UserDefaults
     private let now: () -> Date
     private var cancellables = Set<AnyCancellable>()
     private var hasCompletedInitialRefresh = false
 
+    private let wakeModeStorageKey = "hotkeys.wake.mode.v1"
+    private let cancelModeStorageKey = "hotkeys.cancel.mode.v1"
+    private let wakeModifierStorageKey = "hotkeys.wake.modifier.v1"
+    private let cancelModifierStorageKey = "hotkeys.cancel.modifier.v1"
+
     init(
         notificationCenter: NotificationCenter = .default,
+        defaults: UserDefaults = .standard,
         now: @escaping () -> Date = Date.init
     ) {
         self.notificationCenter = notificationCenter
+        self.defaults = defaults
         self.now = now
-        self.wakeShortcutText = Self.describeShortcut(KeyboardShortcuts.getShortcut(for: .wakeSession))
-        self.cancelShortcutText = Self.describeShortcut(KeyboardShortcuts.getShortcut(for: .cancelSession))
+
+        self.wakeTriggerMode = Self.loadTriggerMode(
+            defaults: defaults,
+            key: wakeModeStorageKey,
+            fallback: .shortcut
+        )
+        self.cancelTriggerMode = Self.loadTriggerMode(
+            defaults: defaults,
+            key: cancelModeStorageKey,
+            fallback: .shortcut
+        )
+        self.wakeModifier = Self.loadModifier(
+            defaults: defaults,
+            key: wakeModifierStorageKey,
+            fallback: .command
+        )
+        self.cancelModifier = Self.loadModifier(
+            defaults: defaults,
+            key: cancelModifierStorageKey,
+            fallback: .option
+        )
+
+        self.wakeShortcutText = "未设置"
+        self.cancelShortcutText = "未设置"
         self.hasConflict = false
         self.conflictMessage = nil
-        self.wakeShortcutRegistered = KeyboardShortcuts.isEnabled(for: .wakeSession)
-        self.cancelShortcutRegistered = KeyboardShortcuts.isEnabled(for: .cancelSession)
+        self.wakeShortcutRegistered = false
+        self.cancelShortcutRegistered = false
         self.lastUpdatedAt = now()
 
         refresh()
@@ -53,6 +139,34 @@ final class HotkeyStateStore: ObservableObject {
             .store(in: &cancellables)
     }
 
+    func setTriggerMode(_ mode: HotkeyTriggerMode, for name: KeyboardShortcuts.Name) {
+        switch name {
+        case .wakeSession:
+            wakeTriggerMode = mode
+            defaults.set(mode.rawValue, forKey: wakeModeStorageKey)
+        case .cancelSession:
+            cancelTriggerMode = mode
+            defaults.set(mode.rawValue, forKey: cancelModeStorageKey)
+        default:
+            return
+        }
+        refresh()
+    }
+
+    func setModifier(_ modifier: HotkeyModifier, for name: KeyboardShortcuts.Name) {
+        switch name {
+        case .wakeSession:
+            wakeModifier = modifier
+            defaults.set(modifier.rawValue, forKey: wakeModifierStorageKey)
+        case .cancelSession:
+            cancelModifier = modifier
+            defaults.set(modifier.rawValue, forKey: cancelModifierStorageKey)
+        default:
+            return
+        }
+        refresh()
+    }
+
     func refresh() {
         let previousWakeShortcutText = wakeShortcutText
         let previousCancelShortcutText = cancelShortcutText
@@ -60,15 +174,26 @@ final class HotkeyStateStore: ObservableObject {
         let wakeShortcut = KeyboardShortcuts.getShortcut(for: .wakeSession)
         let cancelShortcut = KeyboardShortcuts.getShortcut(for: .cancelSession)
 
-        wakeShortcutText = Self.describeShortcut(wakeShortcut)
-        cancelShortcutText = Self.describeShortcut(cancelShortcut)
-        wakeShortcutRegistered = KeyboardShortcuts.isEnabled(for: .wakeSession)
-        cancelShortcutRegistered = KeyboardShortcuts.isEnabled(for: .cancelSession)
+        wakeShortcutText = describeBinding(
+            mode: wakeTriggerMode,
+            modifier: wakeModifier,
+            shortcut: wakeShortcut
+        )
+        cancelShortcutText = describeBinding(
+            mode: cancelTriggerMode,
+            modifier: cancelModifier,
+            shortcut: cancelShortcut
+        )
+        wakeShortcutRegistered = registrationState(for: .wakeSession, mode: wakeTriggerMode)
+        cancelShortcutRegistered = registrationState(for: .cancelSession, mode: cancelTriggerMode)
         lastUpdatedAt = now()
 
-        if let wakeShortcut, let cancelShortcut, wakeShortcut == cancelShortcut {
+        if let conflict = resolveConflictMessage(
+            wakeShortcut: wakeShortcut,
+            cancelShortcut: cancelShortcut
+        ) {
             hasConflict = true
-            conflictMessage = "主键与取消键重复，会导致会话行为不明确。"
+            conflictMessage = conflict
         } else {
             hasConflict = false
             conflictMessage = nil
@@ -92,15 +217,33 @@ final class HotkeyStateStore: ObservableObject {
 
     func resetToDefaults() {
         KeyboardShortcuts.reset(.wakeSession, .cancelSession)
+        wakeTriggerMode = .shortcut
+        cancelTriggerMode = .shortcut
+        wakeModifier = .command
+        cancelModifier = .option
+        defaults.set(wakeTriggerMode.rawValue, forKey: wakeModeStorageKey)
+        defaults.set(cancelTriggerMode.rawValue, forKey: cancelModeStorageKey)
+        defaults.set(wakeModifier.rawValue, forKey: wakeModifierStorageKey)
+        defaults.set(cancelModifier.rawValue, forKey: cancelModifierStorageKey)
         refresh()
     }
 
     func registrationText(for name: KeyboardShortcuts.Name) -> String {
         switch name {
         case .wakeSession:
-            return wakeShortcutRegistered ? "主键监听已生效" : "主键还没有生效"
+            switch wakeTriggerMode {
+            case .shortcut:
+                return wakeShortcutRegistered ? "主键监听已生效（组合键）" : "主键还没有生效"
+            case .modifierTap:
+                return wakeShortcutRegistered ? "主键监听已生效（修饰键单击）" : "主键还没有生效"
+            }
         case .cancelSession:
-            return cancelShortcutRegistered ? "取消键监听已生效" : "取消键还没有生效"
+            switch cancelTriggerMode {
+            case .shortcut:
+                return cancelShortcutRegistered ? "取消键监听已生效（组合键）" : "取消键还没有生效"
+            case .modifierTap:
+                return cancelShortcutRegistered ? "取消键监听已生效（修饰键单击）" : "取消键还没有生效"
+            }
         default:
             return "监听状态未知"
         }
@@ -110,10 +253,81 @@ final class HotkeyStateStore: ObservableObject {
         latestChangeMessage = nil
     }
 
-    private static func describeShortcut(_ shortcut: KeyboardShortcuts.Shortcut?) -> String {
+    private func resolveConflictMessage(
+        wakeShortcut: KeyboardShortcuts.Shortcut?,
+        cancelShortcut: KeyboardShortcuts.Shortcut?
+    ) -> String? {
+        if wakeTriggerMode == .modifierTap, cancelTriggerMode == .modifierTap, wakeModifier == cancelModifier {
+            return "主键与取消键使用了同一个修饰键，会导致会话行为不明确。"
+        }
+
+        if
+            wakeTriggerMode == .shortcut,
+            cancelTriggerMode == .shortcut,
+            let wakeShortcut,
+            let cancelShortcut,
+            wakeShortcut == cancelShortcut
+        {
+            return "主键与取消键重复，会导致会话行为不明确。"
+        }
+
+        return nil
+    }
+
+    private func registrationState(for name: KeyboardShortcuts.Name, mode: HotkeyTriggerMode) -> Bool {
+        switch mode {
+        case .shortcut:
+            return KeyboardShortcuts.isEnabled(for: name)
+        case .modifierTap:
+            return true
+        }
+    }
+
+    private func describeBinding(
+        mode: HotkeyTriggerMode,
+        modifier: HotkeyModifier,
+        shortcut: KeyboardShortcuts.Shortcut?
+    ) -> String {
+        switch mode {
+        case .shortcut:
+            return describeShortcut(shortcut)
+        case .modifierTap:
+            return "单击 \(modifier.displayName)"
+        }
+    }
+
+    private func describeShortcut(_ shortcut: KeyboardShortcuts.Shortcut?) -> String {
         shortcut?
             .description
             .replacingOccurrences(of: "-", with: " + ")
             ?? "未设置"
+    }
+
+    private static func loadTriggerMode(
+        defaults: UserDefaults,
+        key: String,
+        fallback: HotkeyTriggerMode
+    ) -> HotkeyTriggerMode {
+        guard
+            let raw = defaults.string(forKey: key),
+            let mode = HotkeyTriggerMode(rawValue: raw)
+        else {
+            return fallback
+        }
+        return mode
+    }
+
+    private static func loadModifier(
+        defaults: UserDefaults,
+        key: String,
+        fallback: HotkeyModifier
+    ) -> HotkeyModifier {
+        guard
+            let raw = defaults.string(forKey: key),
+            let modifier = HotkeyModifier(rawValue: raw)
+        else {
+            return fallback
+        }
+        return modifier
     }
 }

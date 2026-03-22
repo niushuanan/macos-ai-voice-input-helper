@@ -25,7 +25,7 @@ struct MenuBarMenuView: View {
         Text("转写：\(providerSettingsStore.selectedTranscriptionProviderName)")
             .font(.caption2)
             .foregroundStyle(.secondary)
-        Text("改写：\(providerSettingsStore.selectedRewriteProviderName)")
+        Text("文本处理：\(providerSettingsStore.selectedRewriteProviderName)")
             .font(.caption2)
             .foregroundStyle(.secondary)
         Text("主键：\(hotkeyStateStore.wakeShortcutText)")
@@ -54,16 +54,6 @@ struct MenuBarMenuView: View {
         }
         .disabled(!canToggleSession)
         .globalKeyboardShortcut(.wakeSession)
-
-        Button("开始改写") {
-            model.interactionCoordinator.handleWakeInput(
-                context: WakeInvocationContext(
-                    rewriteModifierHeld: true,
-                    selectionAvailable: true
-                )
-            )
-        }
-        .disabled(!canStartRewrite)
 
         Button("取消会话") {
             model.interactionCoordinator.handleCancelInput()
@@ -104,10 +94,6 @@ struct MenuBarMenuView: View {
         case .transcribing, .rewriting, .inserting:
             return false
         }
-    }
-
-    private var canStartRewrite: Bool {
-        canStartSession && permissionsCenter.snapshot.accessibility == .granted
     }
 
     private var primaryToggleTitle: String {

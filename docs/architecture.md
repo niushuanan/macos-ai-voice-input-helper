@@ -14,7 +14,7 @@ The repository already contains these concrete building blocks:
   - `Audio`: native `AVAudioRecorder` capture service with live level metering
   - `Speech`: provider protocol, provider registry, OpenAI transcription client, provider settings
   - `History`: local session history persistence with delete controls
-  - `Security`: Keychain-backed API key credential store
+  - `Security`: local credential store with legacy Keychain migration
   - `TextOutput`: insertion abstraction placeholder
   - `Context`: frontmost-app detection plus per-app scene policy store
   - `Permissions`: permission snapshot placeholder
@@ -53,7 +53,8 @@ Planned:
 Selected model: `tap-tap dual-lane session`
 
 - Wake:
-  - `Control + Option + Space`
+  - user-defined hotkey
+  - supports both shortcut combo and single-modifier tap mode
   - if app state is `idle`, `cancelled`, or `error`, start a new session
 - Stop:
   - tap `Control + Option + Space` again when in `listening`
@@ -63,8 +64,8 @@ Selected model: `tap-tap dual-lane session`
   - `Escape` at any active phase
   - this transitions to `cancelled`
 - Lane split:
-  - default wake -> `directDictation`
-  - wake with valid text selection -> `selectionRewrite`
+  - current default wake -> `directDictation`
+  - selection rewrite requires explicit path, no automatic lane hijack
 - Status cue:
   - menu bar icon reflects phase in real time
   - a short non-blocking HUD pulse appears on phase change
@@ -202,7 +203,7 @@ Current implementation:
 - `ProviderSettingsStore` is role-fixed:
   - `ASRConfig { providerType, baseURL, model, keyRef }`
   - `TextConfig { providerType, baseURL, model, keyRef }`
-- API keys are loaded from Keychain via role keyRef.
+- API keys are loaded from local credential file via role keyRef.
 - built-in connection testers:
   - ASR real request with short bundled WAV sample
   - text model real request with fixed prompt
@@ -359,7 +360,7 @@ Current implementation:
   - provider type
   - base URL
   - model
-  - API key save/delete (Keychain)
+  - API key save/delete (local credential file)
   - one-click connectivity test
 
 ### Diagnostics
@@ -420,5 +421,5 @@ These are known missing pieces, not accidents:
 - Which hotkey pair gives the best balance of reach and conflict avoidance?
 - Should selection rewrite rely on Accessibility first, pasteboard fallback
   second, or the reverse?
-- Where should provider keys live: Keychain only, or Keychain plus local
-  metadata for multi-provider configs?
+- Should provider keys remain local-file only, or introduce optional secure
+  enclave style storage in a later stage?

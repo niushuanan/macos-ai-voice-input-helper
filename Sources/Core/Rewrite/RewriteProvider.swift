@@ -269,13 +269,19 @@ struct DictationPostProcessPromptBuilder {
             styleInstruction = "Organize the text into a clear structured format when appropriate."
         }
 
+        let normalizedUserSystemPrompt = request.userSystemPrompt
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let preferenceBlock = normalizedUserSystemPrompt.isEmpty
+            ? "（无）"
+            : normalizedUserSystemPrompt
+
         let systemPrompt = """
         You are a precise dictation cleanup engine.
         Return only the final text with no explanations.
         Preserve the user's meaning.
 
         User preference system instruction:
-        \(request.userSystemPrompt)
+        \(preferenceBlock)
         """
 
         let userPrompt = """
@@ -446,12 +452,8 @@ struct LLMDictationPostProcessor: DictationPostProcessor {
         apiKey: String
     ) async throws -> DictationPostProcessResult {
         let normalizedTranscript = request.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPrompt = request.userSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTranscript.isEmpty else {
             throw RewriteProviderError.invalidGeneratedText
-        }
-        guard !normalizedPrompt.isEmpty else {
-            throw RewriteProviderError.emptyInstruction
         }
 
         let template = promptBuilder.build(
@@ -459,7 +461,7 @@ struct LLMDictationPostProcessor: DictationPostProcessor {
                 transcript: normalizedTranscript,
                 focusContext: request.focusContext,
                 outputBias: request.outputBias,
-                userSystemPrompt: normalizedPrompt
+                userSystemPrompt: request.userSystemPrompt
             )
         )
 

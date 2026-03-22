@@ -112,7 +112,9 @@ enum LocalSenseVoiceRuntime {
     private static let requiredFiles = [
         "model.onnx",
         "tokens.json",
-        "config.yaml"
+        "config.yaml",
+        "am.mvn",
+        "chn_jpn_yue_eng_ko_spectok.bpe.model"
     ]
 
     static func modelDirectory(rawPath: String?) -> URL {
@@ -264,7 +266,7 @@ enum LocalSenseVoiceRuntime {
     private static func defaultHint(for mode: LocalSenseVoiceWorkerMode) -> String {
         switch mode {
         case .probe:
-            return "建议使用 Python 3.11 虚拟环境，并安装 onnxruntime、numpy 与 funasr。"
+            return "建议使用 Python 3.11 虚拟环境，并安装 onnxruntime、numpy、torch 与 funasr-onnx。"
         case .transcribe:
             return "请先在模型页通过“检测本地 ASR”，再尝试本地转写。"
         }
@@ -355,24 +357,24 @@ def main():
         )
 
     if not has_module("onnxruntime") or not has_module("numpy"):
-        return emit(
-            False,
-            "缺少基础依赖 onnxruntime 或 numpy。",
-            "建议使用 Python 3.11 虚拟环境并执行：pip install onnxruntime numpy"
-        )
+            return emit(
+                False,
+                "缺少基础依赖 onnxruntime 或 numpy。",
+                "建议使用 Python 3.11 虚拟环境并执行：pip install onnxruntime numpy torch"
+            )
 
     backend = ""
-    if has_module("funasr"):
-        backend = "funasr"
-    elif has_module("funasr_onnx"):
+    if has_module("funasr_onnx") and has_module("torch"):
         backend = "funasr_onnx"
+    elif has_module("funasr") and has_module("torch"):
+        backend = "funasr"
 
     if args.mode == "probe":
         if not backend:
             return emit(
                 False,
                 "缺少 SenseVoice 推理后端。",
-                "请安装 funasr（推荐）或 funasr-onnx。示例：pip install funasr modelscope"
+                "请安装 funasr-onnx（推荐），并补全 torch。示例：pip install torch funasr-onnx modelscope"
             )
         return emit(True, "本地环境可用。", "可切换到本地 SenseVoice。", backend=backend)
 
@@ -384,7 +386,7 @@ def main():
         return emit(
             False,
             "缺少 SenseVoice 推理后端。",
-            "请安装 funasr（推荐）或 funasr-onnx。示例：pip install funasr modelscope"
+            "请安装 funasr-onnx（推荐），并补全 torch。示例：pip install torch funasr-onnx modelscope"
         )
 
     try:

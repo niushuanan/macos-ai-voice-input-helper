@@ -41,9 +41,9 @@ DashScope Qwen ASR（官方）：
 
 ## 密钥存储策略
 
-- API 密钥只保存在 macOS 钥匙串（Keychain）。
+- API 密钥保存在本地应用目录（`~/Library/Application Support/PulseType/Credentials/credentials.v1.json`）。
 - `UserDefaults` 仅保存非敏感元数据（provider 类型、base URL、model、keyRef）。
-- 兼容旧版本 profile 配置时，会自动迁移可用密钥到新 keyRef。
+- 兼容旧版本 profile 配置时，会自动尝试迁移旧密钥；迁移后统一走本地存储。
 
 ## 前端测试能力
 

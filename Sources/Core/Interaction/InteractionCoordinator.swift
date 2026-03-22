@@ -27,8 +27,8 @@ struct DictationWritebackTarget: Equatable {
 
 private struct DictationPostProcessOutcome {
     let text: String
-    let note: String?
     let appliedSkills: [SkillRuleID]
+    let nonBlockingNotice: String?
 }
 
 @MainActor
@@ -93,10 +93,6 @@ final class InteractionCoordinator {
             }
 
             let lane = resolvedLane(context: context)
-            if lane == .selectionRewrite && permissionsCenter.snapshot.accessibility != .granted {
-                sessionStore.fail(message: "选区改写需要辅助功能权限。")
-                return
-            }
             startRecordingAndTransition(lane: lane)
         case .listening:
             handleStopInput()
@@ -376,7 +372,7 @@ final class InteractionCoordinator {
             let outputResult = try await textOutputCoordinator.write(request: request)
             sessionStore.completeInsertion(
                 outputResult: outputResult,
-                note: postProcessResult.note
+                note: postProcessResult.nonBlockingNotice
             )
             localHistoryStore.append(
                 SessionHistoryEntry(
@@ -387,6 +383,7 @@ final class InteractionCoordinator {
                     outputText: finalTranscription.transcript,
                     transcriptionProvider: finalTranscription.providerName,
                     transcriptionModel: finalTranscription.modelName,
+                    outputPath: outputResult.path,
                     status: .success,
                     audioDurationSeconds: audioDurationSeconds,
                     appliedSkills: appliedSkills
@@ -646,6 +643,7 @@ final class InteractionCoordinator {
                     transcriptionModel: transcription.modelName,
                     rewriteProvider: rewriteResult.providerName,
                     rewriteModel: rewriteResult.modelName,
+                    outputPath: outputResult.path,
                     status: .success,
                     audioDurationSeconds: audioDurationSeconds,
                     appliedSkills: finalAppliedSkills
@@ -884,22 +882,23 @@ final class InteractionCoordinator {
         focusContext: FocusedAppContext,
         outputBias: AppOutputBias
     ) async -> DictationPostProcessOutcome {
-        guard
-            let userSystemPrompt = skillRuleStore.activeSystemPrompt(),
-            !userSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
+        let userSystemPrompt = skillRuleStore.activeSystemPrompt()?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !userSystemPrompt.isEmpty else {
             return DictationPostProcessOutcome(
                 text: text,
-                note: nil,
-                appliedSkills: []
+                appliedSkills: [],
+                nonBlockingNotice: nil
             )
         }
 
         guard providerSettingsStore.isRewriteConfigurationValid else {
+            let message = providerSettingsStore.rewriteConfigurationValidationMessage
+                ?? "文本模型配置无效。"
             return DictationPostProcessOutcome(
                 text: text,
-                note: "个性提示词暂时没用上，已直接使用当前听写结果。",
-                appliedSkills: []
+                appliedSkills: [],
+                nonBlockingNotice: "个性提示词暂未生效（\(message)），已回退到本地处理结果。"
             )
         }
 
@@ -908,8 +907,8 @@ final class InteractionCoordinator {
         guard !apiKey.isEmpty else {
             return DictationPostProcessOutcome(
                 text: text,
-                note: "个性提示词暂时没用上，已直接使用当前听写结果。",
-                appliedSkills: []
+                appliedSkills: [],
+                nonBlockingNotice: "个性提示词暂未生效（缺少文本模型密钥），已回退到本地处理结果。"
             )
         }
 
@@ -926,30 +925,20 @@ final class InteractionCoordinator {
             )
             return DictationPostProcessOutcome(
                 text: result.outputText,
-                note: nil,
-                appliedSkills: [.systemPrompt]
+                appliedSkills: [.systemPrompt],
+                nonBlockingNotice: nil
             )
         } catch {
             return DictationPostProcessOutcome(
                 text: text,
-                note: "个性提示词暂时没用上，已直接使用当前听写结果。",
-                appliedSkills: []
+                appliedSkills: [],
+                nonBlockingNotice: "个性提示词暂未生效（文本模型调用失败），已回退到本地处理结果。"
             )
         }
     }
 
     private func resolvedLane(context: WakeInvocationContext) -> InputLane {
-        let focusContext = contextDetector.focusedAppContext()
-        let scenePolicy = effectiveScenePolicy(for: focusContext)
-
-        if context.rewriteModifierHeld && context.selectionAvailable {
-            return .selectionRewrite
-        }
-
-        if scenePolicy.preferSelectionRewrite && textOutputCoordinator.currentSelectionSnapshot() != nil {
-            return .selectionRewrite
-        }
-
+        _ = context
         return .directDictation
     }
 

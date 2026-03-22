@@ -12,7 +12,7 @@ keyboard replacement. PulseType takes a different path:
 
 - stay outside the text system as a helper app
 - make keyboard invocation and cancellation the main interaction
-- treat direct dictation and selection rewrite as two first-class lanes
+- make direct dictation the primary lane, with optional rewrite extensions
 - tune output by context without forcing users into a chat window
 
 ## What works now
@@ -24,11 +24,11 @@ Core product loop:
 - Dictation writeback into focused app
 - Selection rewrite (`translate`, `polish`, `condense`, `structure`)
 - Dual-role model config (`ASR` + `Text`) with one-click connectivity test
-- API key input in settings, stored in Keychain
+- API key input in settings, explicit save button, stored locally in app support directory
 - Default cloud model pair: `Qwen3-ASR-Flash` (ASR) + `deepseek-chat` (text)
 - Experimental local ASR option: `SenseVoice Small`
 - Local history with delete operations and app/mode/status filters
-- App-aware policy (`output bias` + rewrite-lane preference)
+- App-aware policy (`output bias`) with skill-page management
 - Permission center for microphone and accessibility
 - Status feedback in menu bar, desktop control center, and HUD pulse
 

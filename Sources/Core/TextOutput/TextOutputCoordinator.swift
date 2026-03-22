@@ -38,7 +38,7 @@ struct FocusedSelectionSnapshot: Equatable {
     let selectedText: String
 }
 
-enum TextOutputPath: String, Equatable {
+enum TextOutputPath: String, Codable, Equatable {
     case accessibilitySelectionReplacement
     case pasteFallbackCommandV
     case clipboardOnly
@@ -167,7 +167,7 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
 
         await activatePreferredTargetIfNeeded(request.preferredTarget)
 
-        let resolvedFocusContext = resolvedFocusContext(
+        let resolvedFocusContext = await resolvedEditableFocusContext(
             preferredTarget: request.preferredTarget,
             fallback: request.focusContext
         )
@@ -175,10 +175,11 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         logger.log(startLine)
 
         guard resolvedFocusContext.hasEditableTarget else {
-            guard didPersistToClipboard else {
+            if !didPersistToClipboard {
                 throw TextOutputError.pasteboardUnavailable
             }
-            let result = TextOutputResult(
+            logger.log("[write] no-editable-target app=\(resolvedFocusContext.appName) bundle=\(resolvedFocusContext.bundleID)")
+            return TextOutputResult(
                 appName: resolvedFocusContext.appName,
                 bundleID: resolvedFocusContext.bundleID,
                 path: .clipboardOnly,
@@ -186,8 +187,6 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
                 didInsertIntoEditor: false,
                 operation: request.operation
             )
-            logger.log("[write] clipboard-only app=\(result.appName) bundle=\(result.bundleID)")
-            return result
         }
 
         do {
@@ -429,6 +428,10 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         try? await Task.sleep(nanoseconds: 180_000_000)
     }
 
+    func focusRetryIntervalNanoseconds() async {
+        try? await Task.sleep(nanoseconds: 120_000_000)
+    }
+
     func resolvedFocusContext(
         preferredTarget: WritebackTargetSnapshot?,
         fallback: FocusedAppContext
@@ -489,6 +492,29 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             return candidates.first(where: { $0.processIdentifier == processIdentifier }) ?? candidates.first
         }
         return candidates.first
+    }
+
+    func resolvedEditableFocusContext(
+        preferredTarget: WritebackTargetSnapshot?,
+        fallback: FocusedAppContext
+    ) async -> FocusedAppContext {
+        let maxAttempts = 4
+        for attempt in 1...maxAttempts {
+            let context = resolvedFocusContext(
+                preferredTarget: preferredTarget,
+                fallback: fallback
+            )
+            if context.hasEditableTarget {
+                return context
+            }
+            if attempt < maxAttempts {
+                await focusRetryIntervalNanoseconds()
+            }
+        }
+        return resolvedFocusContext(
+            preferredTarget: preferredTarget,
+            fallback: fallback
+        )
     }
 }
 

@@ -7,7 +7,7 @@
 - frontmost app detection exposes:
   - app name
   - bundle id
-- app-level strategy can be configured in settings
+- app-level strategy can be configured in skills page
 
 ## Local storage structure
 
@@ -51,7 +51,7 @@ Local-first defaults in current implementation:
 - session history stays on device
 - scene policy stays on device
 - diagnostics and temporary audio files stay on device
-- API keys are stored in macOS Keychain (not plain text files)
+- API keys are stored in local app directory (`~/Library/Application Support/PulseType/Credentials/`)
 
 Remote-only operations:
 
@@ -79,11 +79,11 @@ This keeps behavior explainable and reduces incorrect assumptions.
 Each app policy stores:
 
 - `outputBias`: `neutral | formal | casual | structured`
-- `preferSelectionRewrite`: `true | false`
+- `preferSelectionRewrite`: legacy field (kept for compatibility, runtime ignored)
 
 Runtime effects:
 
-- lane resolution can prefer selection rewrite when text selection exists
+- dictation output style is adjusted by `outputBias`
 - rewrite intent parser can map generic polish commands using scene output bias
   - example: if bias is `structured`, generic polish commands route to structure action
 

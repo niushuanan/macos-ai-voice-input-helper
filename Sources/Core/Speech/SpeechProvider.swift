@@ -238,11 +238,11 @@ enum ProviderCredentialStoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case let .unexpectedStatus(status):
-            return "钥匙串操作失败，状态码：\(status)。"
+            return "密钥存储操作失败，状态码：\(status)。"
         case .invalidCredentialEncoding:
             return "已存凭证无法解析。"
         case .interactionRequired:
-            return "钥匙串访问需要用户交互。"
+            return "密钥访问需要用户交互。"
         }
     }
 }
@@ -745,10 +745,10 @@ final class ProviderSettingsStore: ObservableObject {
             onSuccess()
             return true
         } catch ProviderCredentialStoreError.interactionRequired {
-            onFailure(.inaccessible, "当前钥匙串条目不可直接访问，请删除后重新保存。")
+            onFailure(.inaccessible, "当前密钥存储不可直接访问，请删除后重新保存。")
             return false
         } catch ProviderCredentialStoreError.invalidCredentialEncoding {
-            onFailure(.failed(nil), "钥匙串中的 \(roleName) API 密钥无法解析，请删除后重新保存。")
+            onFailure(.failed(nil), "已保存的 \(roleName) API 密钥无法解析，请删除后重新保存。")
             return false
         } catch let ProviderCredentialStoreError.unexpectedStatus(status) {
             onFailure(.failed(status), "无法保存 \(roleName) API 密钥（OSStatus \(status)）。")
@@ -795,9 +795,9 @@ final class ProviderSettingsStore: ObservableObject {
             switch error {
             case .interactionRequired:
                 if roleName == "语音识别" {
-                    asrFeedbackMessage = "当前钥匙串条目不可直接访问，请在 App 内重新保存一次密钥。"
+                    asrFeedbackMessage = "当前密钥存储不可直接访问，请在 App 内重新保存一次密钥。"
                 } else {
-                    textFeedbackMessage = "当前钥匙串条目不可直接访问，请在 App 内重新保存一次密钥。"
+                    textFeedbackMessage = "当前密钥存储不可直接访问，请在 App 内重新保存一次密钥。"
                 }
                 return .inaccessible
             case let .unexpectedStatus(status):
@@ -817,9 +817,9 @@ final class ProviderSettingsStore: ObservableObject {
             }
         } catch {
             if roleName == "语音识别" {
-                asrFeedbackMessage = "无法从钥匙串读取语音识别 API 密钥。"
+                asrFeedbackMessage = "无法读取语音识别 API 密钥。"
             } else {
-                textFeedbackMessage = "无法从钥匙串读取文本模型 API 密钥。"
+                textFeedbackMessage = "无法读取文本模型 API 密钥。"
             }
             return .failed(nil)
         }

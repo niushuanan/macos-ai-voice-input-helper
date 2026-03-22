@@ -49,6 +49,8 @@ final class LocalSenseVoiceRuntimeManagerTests: XCTestCase {
         try Data("onnx".utf8).write(to: directory.appendingPathComponent("model.onnx"))
         try Data("{}".utf8).write(to: directory.appendingPathComponent("tokens.json"))
         try Data("frontend: default".utf8).write(to: directory.appendingPathComponent("config.yaml"))
+        try Data("0 0".utf8).write(to: directory.appendingPathComponent("am.mvn"))
+        try Data("bpe".utf8).write(to: directory.appendingPathComponent("chn_jpn_yue_eng_ko_spectok.bpe.model"))
         return directory
     }
 }

@@ -31,8 +31,8 @@
 - [ ] History entries are saved locally
 - [ ] History entry deletion works
 - [ ] "Delete all history" works
-- [ ] API keys remain in Keychain only
-- [ ] Keychain service is v4 (`com.niushuanan.PulseType.provider-profile.v4`)
+- [ ] API keys are persisted in local credentials file only (`Application Support/PulseType/Credentials`)
+- [ ] Legacy key migration path (v4/v3) works without blocking prompts
 - [ ] Temporary audio files are cleaned by lifecycle and stale purge
 
 ## UX readiness

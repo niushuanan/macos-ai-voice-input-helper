@@ -4,6 +4,7 @@ struct LocalStore {
     let rootDirectory: URL
     let historyDirectory: URL
     let diagnosticsDirectory: URL
+    let credentialsDirectory: URL
     let temporaryAudioDirectory: URL
     let runtimeDirectory: URL
     let senseVoiceRuntimeDirectory: URL
@@ -17,6 +18,7 @@ struct LocalStore {
             rootDirectory: rootDirectory,
             historyDirectory: rootDirectory.appendingPathComponent("History", isDirectory: true),
             diagnosticsDirectory: rootDirectory.appendingPathComponent("Diagnostics", isDirectory: true),
+            credentialsDirectory: rootDirectory.appendingPathComponent("Credentials", isDirectory: true),
             temporaryAudioDirectory: rootDirectory.appendingPathComponent("TemporaryAudio", isDirectory: true),
             runtimeDirectory: runtimeDirectory,
             senseVoiceRuntimeDirectory: runtimeDirectory.appendingPathComponent("SenseVoice", isDirectory: true)
@@ -30,6 +32,7 @@ struct LocalStore {
             rootDirectory,
             historyDirectory,
             diagnosticsDirectory,
+            credentialsDirectory,
             temporaryAudioDirectory,
             runtimeDirectory,
             senseVoiceRuntimeDirectory

@@ -63,7 +63,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         await waitForPipeline(using: fixture.sessionStore)
 
         XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "hello world")
-        XCTAssertTrue(fixture.sessionStore.statusMessage.contains("个性提示词暂时没用上"))
+        XCTAssertTrue(fixture.sessionStore.statusMessage.contains("已回退到本地处理结果"))
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "hello world")
     }
 
@@ -87,6 +87,22 @@ final class InteractionCoordinatorTests: XCTestCase {
         fixture.coordinator.handleWakeInput(context: .dictation)
 
         XCTAssertEqual(fixture.sessionStore.activeLane, .directDictation)
+    }
+
+    func testDictationSkipsPostProcessWhenSystemPromptIsEmpty() async throws {
+        let postProcessor = CountingDictationPostProcessor(outputText: "不该被用到")
+        let fixture = try makeFixture(dictationPostProcessor: postProcessor)
+        defer { fixture.cleanUp() }
+
+        fixture.skillRuleStore.setEnabled(true, for: .systemPrompt)
+        fixture.skillRuleStore.setParameter("   ", for: .systemPrompt)
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(postProcessor.callCount, 0)
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "hello world")
     }
 
     private func makeFixture(
@@ -351,5 +367,27 @@ private final class FakeDictationPostProcessor: DictationPostProcessor {
         case let .failure(error):
             throw error
         }
+    }
+}
+
+private final class CountingDictationPostProcessor: DictationPostProcessor {
+    private(set) var callCount: Int = 0
+    private let outputText: String
+
+    init(outputText: String) {
+        self.outputText = outputText
+    }
+
+    func process(
+        request: DictationPostProcessRequest,
+        configuration: TextGenerationProviderConfiguration,
+        apiKey: String
+    ) async throws -> DictationPostProcessResult {
+        callCount += 1
+        return DictationPostProcessResult(
+            outputText: outputText,
+            providerName: "Fake Text",
+            modelName: "fake-model"
+        )
     }
 }

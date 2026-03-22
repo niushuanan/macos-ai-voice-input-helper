@@ -115,8 +115,15 @@ final class AppModel: ObservableObject {
         let permissionsCenter = PermissionsCenter()
         let audioCaptureService = AVAudioRecorderCaptureService(temporaryDirectory: store.temporaryAudioDirectory)
         let skillRuleStore = SkillRuleStore()
+        let credentialStore = LocalFileProviderCredentialStore(
+            credentialsDirectory: store.credentialsDirectory,
+            legacyStores: [
+                KeychainProviderCredentialStore(service: "com.niushuanan.PulseType.provider-profile.v4"),
+                KeychainProviderCredentialStore(service: "com.niushuanan.PulseType.provider-profile.v3")
+            ]
+        )
         let providerSettingsStore = ProviderSettingsStore(
-            credentialStore: KeychainProviderCredentialStore()
+            credentialStore: credentialStore
         )
         let localSenseVoiceRuntimeManager = LocalSenseVoiceRuntimeManager(
             runtimeRoot: store.senseVoiceRuntimeDirectory
@@ -139,6 +146,7 @@ final class AppModel: ObservableObject {
         )
         let localHistoryStore = LocalHistoryStore(historyDirectory: store.historyDirectory)
         let controlCenterState = ControlCenterState(localHistoryStore: localHistoryStore)
+        let hotkeyStateStore = HotkeyStateStore()
         let interactionCoordinator = InteractionCoordinator(
             sessionStore: sessionStore,
             permissionsCenter: permissionsCenter,
@@ -155,8 +163,11 @@ final class AppModel: ObservableObject {
         return AppModel(
             controlCenterState: controlCenterState,
             sessionStore: sessionStore,
-            hotkeyStateStore: HotkeyStateStore(),
-            globalHotkeyService: GlobalHotkeyService(interactionCoordinator: interactionCoordinator),
+            hotkeyStateStore: hotkeyStateStore,
+            globalHotkeyService: GlobalHotkeyService(
+                interactionCoordinator: interactionCoordinator,
+                hotkeyStateStore: hotkeyStateStore
+            ),
             interactionCoordinator: interactionCoordinator,
             audioCaptureService: audioCaptureService,
             skillRuleStore: skillRuleStore,

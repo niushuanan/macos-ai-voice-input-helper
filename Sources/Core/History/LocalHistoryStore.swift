@@ -46,6 +46,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
     let transcriptionModel: String?
     let rewriteProvider: String?
     let rewriteModel: String?
+    let outputPath: TextOutputPath?
     let status: SessionHistoryStatus
     let errorMessage: String?
     let audioDurationSeconds: Double?
@@ -64,6 +65,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         transcriptionModel: String? = nil,
         rewriteProvider: String? = nil,
         rewriteModel: String? = nil,
+        outputPath: TextOutputPath? = nil,
         status: SessionHistoryStatus,
         errorMessage: String? = nil,
         audioDurationSeconds: Double? = nil,
@@ -81,6 +83,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         self.transcriptionModel = transcriptionModel
         self.rewriteProvider = rewriteProvider
         self.rewriteModel = rewriteModel
+        self.outputPath = outputPath
         self.status = status
         self.errorMessage = errorMessage
         self.audioDurationSeconds = audioDurationSeconds
@@ -100,6 +103,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         case transcriptionModel
         case rewriteProvider
         case rewriteModel
+        case outputPath
         case status
         case errorMessage
         case audioDurationSeconds
@@ -120,6 +124,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         transcriptionModel = try container.decodeIfPresent(String.self, forKey: .transcriptionModel)
         rewriteProvider = try container.decodeIfPresent(String.self, forKey: .rewriteProvider)
         rewriteModel = try container.decodeIfPresent(String.self, forKey: .rewriteModel)
+        outputPath = try container.decodeIfPresent(TextOutputPath.self, forKey: .outputPath)
         status = try container.decode(SessionHistoryStatus.self, forKey: .status)
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         audioDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .audioDurationSeconds)
@@ -140,6 +145,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(transcriptionModel, forKey: .transcriptionModel)
         try container.encodeIfPresent(rewriteProvider, forKey: .rewriteProvider)
         try container.encodeIfPresent(rewriteModel, forKey: .rewriteModel)
+        try container.encodeIfPresent(outputPath, forKey: .outputPath)
         try container.encode(status, forKey: .status)
         try container.encodeIfPresent(errorMessage, forKey: .errorMessage)
         try container.encodeIfPresent(audioDurationSeconds, forKey: .audioDurationSeconds)

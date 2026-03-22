@@ -23,7 +23,6 @@ struct SettingsView: View {
     @State private var sceneAppNameDraft = ""
     @State private var sceneBundleIDDraft = ""
     @State private var sceneOutputBiasDraft: AppOutputBias = .neutral
-    @State private var scenePreferRewriteDraft = true
     @State private var sceneOriginalBundleID: String?
     @State private var isHydratingSceneDraft = false
     @State private var debouncedToastTask: Task<Void, Never>?
@@ -185,7 +184,7 @@ struct SettingsView: View {
 
                 HStack {
                     Picker("过滤", selection: $controlCenterState.memoryFilter) {
-                        ForEach(LocalHistoryFilter.allCases) { filter in
+                        ForEach(memoryFilters) { filter in
                             Text(filter.title).tag(filter)
                         }
                     }
@@ -237,6 +236,11 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
             .padding(.vertical, 22)
+        }
+        .onAppear {
+            if controlCenterState.memoryFilter == .selectionRewrite {
+                controlCenterState.memoryFilter = .all
+            }
         }
     }
 
@@ -556,8 +560,93 @@ struct SettingsView: View {
             Text("快捷键")
                 .font(.headline)
 
-            KeyboardShortcuts.Recorder("主键（开始/停止）", name: .wakeSession)
-            KeyboardShortcuts.Recorder("取消键", name: .cancelSession)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("主键（开始/停止）")
+                    .font(.subheadline.weight(.semibold))
+                Picker(
+                    "主键触发方式",
+                    selection: Binding(
+                        get: { hotkeyStateStore.wakeTriggerMode },
+                        set: { mode in
+                            hotkeyStateStore.setTriggerMode(mode, for: .wakeSession)
+                            showToast("主键触发方式已改为\(mode.displayName)。")
+                        }
+                    )
+                ) {
+                    ForEach(HotkeyTriggerMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if hotkeyStateStore.wakeTriggerMode == .shortcut {
+                    KeyboardShortcuts.Recorder("主键组合键", name: .wakeSession)
+                } else {
+                    Picker(
+                        "主键修饰键",
+                        selection: Binding(
+                            get: { hotkeyStateStore.wakeModifier },
+                            set: { modifier in
+                                hotkeyStateStore.setModifier(modifier, for: .wakeSession)
+                                showToast("主键已改为单击\(modifier.displayName)。")
+                            }
+                        )
+                    ) {
+                        ForEach(HotkeyModifier.allCases) { modifier in
+                            Text(modifier.displayName).tag(modifier)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    Text("当前主键：单击 \(hotkeyStateStore.wakeModifier.displayName)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("取消键")
+                    .font(.subheadline.weight(.semibold))
+                Picker(
+                    "取消键触发方式",
+                    selection: Binding(
+                        get: { hotkeyStateStore.cancelTriggerMode },
+                        set: { mode in
+                            hotkeyStateStore.setTriggerMode(mode, for: .cancelSession)
+                            showToast("取消键触发方式已改为\(mode.displayName)。")
+                        }
+                    )
+                ) {
+                    ForEach(HotkeyTriggerMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if hotkeyStateStore.cancelTriggerMode == .shortcut {
+                    KeyboardShortcuts.Recorder("取消键组合键", name: .cancelSession)
+                } else {
+                    Picker(
+                        "取消键修饰键",
+                        selection: Binding(
+                            get: { hotkeyStateStore.cancelModifier },
+                            set: { modifier in
+                                hotkeyStateStore.setModifier(modifier, for: .cancelSession)
+                                showToast("取消键已改为单击\(modifier.displayName)。")
+                            }
+                        )
+                    ) {
+                        ForEach(HotkeyModifier.allCases) { modifier in
+                            Text(modifier.displayName).tag(modifier)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    Text("当前取消键：单击 \(hotkeyStateStore.cancelModifier.displayName)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("当前主键：\(hotkeyStateStore.wakeShortcutText)")
@@ -600,7 +689,7 @@ struct SettingsView: View {
                 Spacer()
             }
 
-            Text("交互规则：空闲时按主键开始语音；聆听中再按一次主键会停止并进入处理。取消键随时可中断。")
+            Text("快捷键监听：后台持续检测你设定的触发按键。主键用于开始/停止，取消键用于中断当前会话。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -691,9 +780,17 @@ struct SettingsView: View {
                 .labelsHidden()
             }
 
-            Text("应用名和 Bundle ID 填完整后会自动保存。切回目标应用时，新的风格偏好会直接生效。")
+            Text("应用名和 Bundle ID 填完整后会自动保存。这里的策略只作用于普通听写。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            HStack(spacing: 8) {
+                Button("读取当前应用") {
+                    fillSceneDraftWithCurrentApp()
+                }
+                .buttonStyle(.bordered)
+                Spacer()
+            }
 
             TextField("应用名（例如：Notion）", text: $sceneAppNameDraft)
                 .textFieldStyle(.roundedBorder)
@@ -707,8 +804,6 @@ struct SettingsView: View {
                 }
             }
             .pickerStyle(.segmented)
-
-            Toggle("优先选区改写", isOn: $scenePreferRewriteDraft)
 
             HStack {
                 Button("新建空白策略") {
@@ -754,9 +849,6 @@ struct SettingsView: View {
         .onChange(of: sceneOutputBiasDraft) { _, _ in
             scheduleScenePolicyAutosave()
         }
-        .onChange(of: scenePreferRewriteDraft) { _, _ in
-            scheduleScenePolicyAutosave()
-        }
     }
 
     private var aboutSettingsCard: some View {
@@ -768,7 +860,7 @@ struct SettingsView: View {
             LabeledContent("版本", value: appVersionLine)
             LabeledContent("产品定位", value: "macOS 桌面语音输入助手")
             LabeledContent("数据策略", value: "历史、配置、诊断默认保存在本地")
-            LabeledContent("密钥策略", value: "API Key 仅存 macOS 钥匙串")
+            LabeledContent("密钥策略", value: "API Key 仅在本地应用目录保存（不再触发钥匙串弹窗）")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
@@ -1010,12 +1102,15 @@ struct SettingsView: View {
         return "\(shortVersion) (\(build))"
     }
 
+    private var memoryFilters: [LocalHistoryFilter] {
+        LocalHistoryFilter.allCases.filter { $0 != .selectionRewrite }
+    }
+
     private func clearSceneDraft() {
         debouncedSceneSaveTask?.cancel()
         sceneAppNameDraft = ""
         sceneBundleIDDraft = ""
         sceneOutputBiasDraft = .neutral
-        scenePreferRewriteDraft = true
         sceneOriginalBundleID = nil
     }
 
@@ -1024,7 +1119,6 @@ struct SettingsView: View {
         sceneAppNameDraft = policy.appName
         sceneBundleIDDraft = policy.bundleID
         sceneOutputBiasDraft = policy.outputBias
-        scenePreferRewriteDraft = policy.preferSelectionRewrite
         sceneOriginalBundleID = policy.bundleID
         DispatchQueue.main.async {
             isHydratingSceneDraft = false
@@ -1067,10 +1161,26 @@ struct SettingsView: View {
             appName: appName,
             bundleID: bundleID,
             outputBias: sceneOutputBiasDraft,
-            preferSelectionRewrite: scenePreferRewriteDraft
+            preferSelectionRewrite: false
         )
         sceneOriginalBundleID = bundleID
         showToast("\(appName) 的应用风格已更新并生效。")
+    }
+
+    private func fillSceneDraftWithCurrentApp() {
+        let context = model.contextDetector.focusedAppContext()
+        guard context.bundleID != Bundle.main.bundleIdentifier else {
+            showToast("请先把焦点切到目标应用的输入框，再读取。")
+            return
+        }
+        isHydratingSceneDraft = true
+        sceneAppNameDraft = context.appName
+        sceneBundleIDDraft = context.bundleID
+        DispatchQueue.main.async {
+            isHydratingSceneDraft = false
+        }
+        scheduleScenePolicyAutosave()
+        showToast("已读取当前应用：\(context.appName)。")
     }
 
     private func copyHistoryEntry(_ entry: SessionHistoryEntry) {
@@ -1197,6 +1307,11 @@ private struct MemoryRowView: View {
                 Label(statusTitle, systemImage: statusSymbol)
                     .font(.caption)
                     .foregroundStyle(statusColor)
+                if let outputPathTitle {
+                    Label(outputPathTitle, systemImage: outputPathSymbol)
+                        .font(.caption2)
+                        .foregroundStyle(outputPathColor)
+                }
             }
 
             Text(textPreview)
@@ -1302,6 +1417,46 @@ private struct MemoryRowView: View {
         }
         return "无文本内容"
     }
+
+    private var outputPathTitle: String? {
+        guard entry.status == .success, let path = entry.outputPath else {
+            return nil
+        }
+        switch path {
+        case .accessibilitySelectionReplacement:
+            return "已写入输入框"
+        case .pasteFallbackCommandV:
+            return "已粘贴写入"
+        case .clipboardOnly:
+            return "仅剪贴板"
+        }
+    }
+
+    private var outputPathSymbol: String {
+        guard let path = entry.outputPath else {
+            return "questionmark.circle"
+        }
+        switch path {
+        case .accessibilitySelectionReplacement:
+            return "text.cursor"
+        case .pasteFallbackCommandV:
+            return "doc.on.clipboard"
+        case .clipboardOnly:
+            return "clipboard"
+        }
+    }
+
+    private var outputPathColor: Color {
+        guard let path = entry.outputPath else {
+            return .secondary
+        }
+        switch path {
+        case .accessibilitySelectionReplacement, .pasteFallbackCommandV:
+            return .green
+        case .clipboardOnly:
+            return .orange
+        }
+    }
 }
 
 private struct SkillRuleCardView: View {
@@ -1382,8 +1537,8 @@ private struct ScenePolicyRowView: View {
                 Label(policy.outputBias.displayName, systemImage: "textformat")
                     .font(.caption)
                 Label(
-                    policy.preferSelectionRewrite ? "优先改写" : "默认听写",
-                    systemImage: policy.preferSelectionRewrite ? "wand.and.stars" : "mic"
+                    "普通听写",
+                    systemImage: "mic"
                 )
                 .font(.caption)
             }
@@ -1562,9 +1717,9 @@ private struct ModelConfigCard: View {
         case .saving:
             return "正在保存密钥…"
         case .saved:
-            return "密钥已保存（钥匙串）"
+            return "密钥已保存（本地）"
         case .inaccessible:
-            return "当前钥匙串条目不能直接访问"
+            return "当前密钥文件不能直接访问"
         case let .failed(status):
             if let status {
                 return "密钥状态异常（OSStatus \(status)）"

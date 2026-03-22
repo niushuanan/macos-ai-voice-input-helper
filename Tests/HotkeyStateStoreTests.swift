@@ -11,11 +11,17 @@ final class HotkeyStateStoreTests: XCTestCase {
 
     override func tearDown() {
         KeyboardShortcuts.reset(.wakeSession, .cancelSession)
+        UserDefaults.standard.removeObject(forKey: "hotkeys.wake.mode.v1")
+        UserDefaults.standard.removeObject(forKey: "hotkeys.cancel.mode.v1")
+        UserDefaults.standard.removeObject(forKey: "hotkeys.wake.modifier.v1")
+        UserDefaults.standard.removeObject(forKey: "hotkeys.cancel.modifier.v1")
         super.tearDown()
     }
 
     func testRefreshReflectsLatestShortcutValues() {
-        let store = HotkeyStateStore()
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let store = HotkeyStateStore(defaults: defaults)
 
         KeyboardShortcuts.setShortcut(.init(.a, modifiers: [.command, .shift]), for: .wakeSession)
         KeyboardShortcuts.setShortcut(.init(.escape), for: .cancelSession)
@@ -36,7 +42,9 @@ final class HotkeyStateStoreTests: XCTestCase {
     }
 
     func testConflictMessageAppearsWhenTwoHotkeysMatch() {
-        let store = HotkeyStateStore()
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let store = HotkeyStateStore(defaults: defaults)
         let shortcut = KeyboardShortcuts.Shortcut(.space, modifiers: [.command, .option])
 
         KeyboardShortcuts.setShortcut(shortcut, for: .wakeSession)
@@ -48,7 +56,9 @@ final class HotkeyStateStoreTests: XCTestCase {
     }
 
     func testResetToDefaultsRestoresDefaultShortcuts() {
-        let store = HotkeyStateStore()
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let store = HotkeyStateStore(defaults: defaults)
 
         KeyboardShortcuts.setShortcut(.init(.b, modifiers: [.command]), for: .wakeSession)
         KeyboardShortcuts.setShortcut(.init(.c, modifiers: [.option]), for: .cancelSession)
@@ -57,5 +67,47 @@ final class HotkeyStateStoreTests: XCTestCase {
         XCTAssertEqual(store.wakeShortcutText, KeyboardShortcuts.Name.wakeSession.defaultShortcut?.description.replacingOccurrences(of: "-", with: " + "))
         XCTAssertEqual(store.cancelShortcutText, KeyboardShortcuts.Name.cancelSession.defaultShortcut?.description.replacingOccurrences(of: "-", with: " + "))
         XCTAssertFalse(store.hasConflict)
+    }
+
+    func testModifierTapModeSupportsCommandAndPersists() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let store = HotkeyStateStore(defaults: defaults)
+
+        store.setTriggerMode(.modifierTap, for: .wakeSession)
+        store.setModifier(.command, for: .wakeSession)
+        store.refresh()
+
+        XCTAssertEqual(store.wakeTriggerMode, .modifierTap)
+        XCTAssertEqual(store.wakeModifier, .command)
+        XCTAssertEqual(store.wakeShortcutText, "单击 Command")
+        XCTAssertTrue(store.registrationText(for: .wakeSession).contains("修饰键单击"))
+    }
+
+    func testModifierTapConflictAppearsWhenTwoKeysUseSameModifier() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let store = HotkeyStateStore(defaults: defaults)
+
+        store.setTriggerMode(.modifierTap, for: .wakeSession)
+        store.setTriggerMode(.modifierTap, for: .cancelSession)
+        store.setModifier(.command, for: .wakeSession)
+        store.setModifier(.command, for: .cancelSession)
+        store.refresh()
+
+        XCTAssertTrue(store.hasConflict)
+        XCTAssertTrue(store.conflictMessage?.contains("同一个修饰键") == true)
+    }
+
+    private var defaultsSuiteName: String {
+        "HotkeyStateStoreTests.\(name)"
+    }
+
+    private func makeDefaults() -> UserDefaults {
+        guard let defaults = UserDefaults(suiteName: defaultsSuiteName) else {
+            fatalError("Unable to create isolated UserDefaults for hotkey tests.")
+        }
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        return defaults
     }
 }

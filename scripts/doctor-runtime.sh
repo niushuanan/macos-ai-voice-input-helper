@@ -4,6 +4,7 @@ set -euo pipefail
 APP_ID="com.niushuanan.PulseType"
 APP_NAME="PulseType"
 APP_INSTALL_PATH="/Applications/PulseType.app"
+CREDENTIAL_FILE="$HOME/Library/Application Support/PulseType/Credentials/credentials.v1.json"
 KEYCHAIN_SERVICE_V1="com.niushuanan.PulseType.provider-profile"
 KEYCHAIN_SERVICE_V2="com.niushuanan.PulseType.provider-profile.v2"
 KEYCHAIN_SERVICE_V3="com.niushuanan.PulseType.provider-profile.v3"
@@ -75,7 +76,21 @@ print_header "App 偏好摘要"
 defaults read "$APP_ID" 2>/dev/null \
   | rg "permissions\.|providers\.asr\.config|providers\.text\.config|KeyboardShortcuts_" || echo "未发现偏好数据。"
 
-print_header "钥匙串条目摘要"
+print_header "本地凭据文件摘要"
+if [[ -f "$CREDENTIAL_FILE" ]]; then
+  echo "存在：$CREDENTIAL_FILE"
+  for acc in asr.primary text.primary; do
+    if rg -q "\"$acc\"\\s*:\\s*\"[^\"]+\"" "$CREDENTIAL_FILE"; then
+      echo "  $acc: found"
+    else
+      echo "  $acc: missing"
+    fi
+  done
+else
+  echo "不存在：$CREDENTIAL_FILE"
+fi
+
+print_header "兼容钥匙串条目摘要（仅迁移用途）"
 for svc in "$KEYCHAIN_SERVICE_V1" "$KEYCHAIN_SERVICE_V2" "$KEYCHAIN_SERVICE_V3" "$KEYCHAIN_SERVICE_V4"; do
   echo "-- service: $svc"
   for acc in asr.primary text.primary; do
