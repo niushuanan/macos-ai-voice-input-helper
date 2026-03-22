@@ -33,7 +33,66 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .cancelled)
     }
 
-    private func makeFixture() throws -> InteractionFixture {
+    func testDictationUsesPostProcessedTextWhenSystemPromptEnabled() async throws {
+        let postProcessor = FakeDictationPostProcessor(result: .success("整理后的听写"))
+        let fixture = try makeFixture(dictationPostProcessor: postProcessor)
+        defer { fixture.cleanUp() }
+
+        fixture.skillRuleStore.setEnabled(true, for: .systemPrompt)
+        fixture.skillRuleStore.setParameter("默认更简洁，保留重点。", for: .systemPrompt)
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "整理后的听写")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "整理后的听写")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.appliedSkills, [.systemPrompt])
+    }
+
+    func testDictationFallsBackToLocalTextWhenPostProcessorFails() async throws {
+        let postProcessor = FakeDictationPostProcessor(result: .failure(RewriteProviderError.invalidGeneratedText))
+        let fixture = try makeFixture(dictationPostProcessor: postProcessor)
+        defer { fixture.cleanUp() }
+
+        fixture.skillRuleStore.setEnabled(true, for: .systemPrompt)
+        fixture.skillRuleStore.setParameter("默认更简洁，保留重点。", for: .systemPrompt)
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "hello world")
+        XCTAssertTrue(fixture.sessionStore.statusMessage.contains("个性提示词暂时没用上"))
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "hello world")
+    }
+
+    func testDisabledAppPreferenceBoostDoesNotAutoEnterRewrite() throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
+            focusContext: FixedContextDetector().focusedAppContext(),
+            selectedText: "selected"
+        )
+        let fixture = try makeFixture(textOutputCoordinator: textOutputCoordinator)
+        defer { fixture.cleanUp() }
+
+        fixture.appScenePolicyStore.upsertPolicy(
+            appName: "TextEdit",
+            bundleID: "com.apple.TextEdit",
+            outputBias: .formal,
+            preferSelectionRewrite: true
+        )
+        fixture.skillRuleStore.setEnabled(false, for: .appPreferenceBoost)
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+
+        XCTAssertEqual(fixture.sessionStore.activeLane, .directDictation)
+    }
+
+    private func makeFixture(
+        textOutputCoordinator: FakeTextOutputCoordinator? = nil,
+        dictationPostProcessor: DictationPostProcessor = FakeDictationPostProcessor(result: .success("hello world"))
+    ) throws -> InteractionFixture {
         let defaultsSuiteName = "InteractionCoordinatorTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: defaultsSuiteName) else {
             throw NSError(domain: "InteractionCoordinatorTests", code: 1)
@@ -64,33 +123,43 @@ final class InteractionCoordinatorTests: XCTestCase {
                 createdAt: Date()
             )
         )
+        let credentialStore = MemoryCredentialStoreForInteractionTests(
+            storage: ["text.primary": "sk-test-000000"]
+        )
         let providerSettingsStore = ProviderSettingsStore(
             defaults: defaults,
-            credentialStore: MemoryCredentialStoreForInteractionTests()
+            credentialStore: credentialStore
         )
+        providerSettingsStore.updateASRProviderType(.localSenseVoice)
         let localHistoryStore = LocalHistoryStore(historyDirectory: historyDirectory)
         let appScenePolicyStore = AppScenePolicyStore(defaults: defaults)
         let skillRuleStore = SkillRuleStore(defaults: defaults, storageKey: "skill.rules.interaction.tests")
+        let transcriptionProvider = FakeTranscriptionProvider()
+        let resolvedTextOutputCoordinator = textOutputCoordinator ?? FakeTextOutputCoordinator()
 
         let coordinator = InteractionCoordinator(
             sessionStore: sessionStore,
             permissionsCenter: permissionsCenter,
             audioCaptureService: audioCapture,
             providerSettingsStore: providerSettingsStore,
-            providerRegistry: SpeechProviderRegistry(providers: []),
+            providerRegistry: SpeechProviderRegistry(providers: [transcriptionProvider]),
             rewriteProviderRegistry: RewriteProviderRegistry(providers: []),
-            textOutputCoordinator: FakeTextOutputCoordinator(),
+            textOutputCoordinator: resolvedTextOutputCoordinator,
             contextDetector: FixedContextDetector(),
             appScenePolicyStore: appScenePolicyStore,
             localHistoryStore: localHistoryStore,
-            skillRuleStore: skillRuleStore
+            skillRuleStore: skillRuleStore,
+            dictationPostProcessor: dictationPostProcessor
         )
 
         return InteractionFixture(
             coordinator: coordinator,
             sessionStore: sessionStore,
             audioCapture: audioCapture,
+            textOutputCoordinator: resolvedTextOutputCoordinator,
             localHistoryStore: localHistoryStore,
+            skillRuleStore: skillRuleStore,
+            appScenePolicyStore: appScenePolicyStore,
             cleanUp: {
                 try? FileManager.default.removeItem(at: historyDirectory)
                 try? FileManager.default.removeItem(at: clipURL)
@@ -98,13 +167,29 @@ final class InteractionCoordinatorTests: XCTestCase {
             }
         )
     }
+
+    private func waitForPipeline(
+        using sessionStore: SessionStore,
+        timeoutNanoseconds: UInt64 = 2_000_000_000
+    ) async {
+        let start = DispatchTime.now().uptimeNanoseconds
+        while DispatchTime.now().uptimeNanoseconds - start < timeoutNanoseconds {
+            if sessionStore.phase == .idle || sessionStore.phase == .error || sessionStore.phase == .cancelled {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 30_000_000)
+        }
+    }
 }
 
 private struct InteractionFixture {
     let coordinator: InteractionCoordinator
     let sessionStore: SessionStore
     let audioCapture: FakeAudioCaptureService
+    let textOutputCoordinator: FakeTextOutputCoordinator
     let localHistoryStore: LocalHistoryStore
+    let skillRuleStore: SkillRuleStore
+    let appScenePolicyStore: AppScenePolicyStore
     let cleanUp: () -> Void
 }
 
@@ -158,17 +243,21 @@ private final class FakeAudioCaptureService: AudioCaptureService {
 @MainActor
 private final class FakeTextOutputCoordinator: TextOutputCoordinator {
     var insertionStrategy: String = "test"
+    var selectionSnapshot: FocusedSelectionSnapshot?
+    private(set) var lastRequest: TextOutputRequest?
 
     func currentSelectionSnapshot() -> FocusedSelectionSnapshot? {
-        nil
+        selectionSnapshot
     }
 
     func write(request: TextOutputRequest) async throws -> TextOutputResult {
-        TextOutputResult(
+        lastRequest = request
+        return TextOutputResult(
             appName: request.focusContext.appName,
             bundleID: request.focusContext.bundleID,
             path: .accessibilitySelectionReplacement,
             usedFallback: false,
+            didInsertIntoEditor: true,
             operation: request.operation
         )
     }
@@ -195,15 +284,72 @@ private struct FixedContextDetector: ContextDetector {
 }
 
 private final class MemoryCredentialStoreForInteractionTests: ProviderCredentialStore {
-    func loadAPIKey(for profileID: String) throws -> String? {
-        nil
+    private var storage: [String: String]
+
+    init(storage: [String: String] = [:]) {
+        self.storage = storage
     }
 
-    func saveAPIKey(_ value: String, for profileID: String) throws {}
+    func loadAPIKey(for profileID: String) throws -> String? {
+        storage[profileID]
+    }
 
-    func deleteAPIKey(for profileID: String) throws {}
+    func saveAPIKey(_ value: String, for profileID: String) throws {
+        storage[profileID] = value
+    }
+
+    func deleteAPIKey(for profileID: String) throws {
+        storage.removeValue(forKey: profileID)
+    }
 
     func containsAPIKey(for profileID: String, allowUserInteraction: Bool) throws -> Bool {
-        false
+        storage[profileID]?.isEmpty == false
+    }
+}
+
+private struct FakeTranscriptionProvider: SpeechTranscriptionProvider {
+    let supportedProviderTypes: [ProviderType] = [.localSenseVoice]
+
+    func transcribe(
+        request: SpeechTranscriptionRequest,
+        configuration: SpeechProviderConfiguration,
+        apiKey: String
+    ) async throws -> SpeechTranscriptionResult {
+        SpeechTranscriptionResult(
+            providerType: .localSenseVoice,
+            providerName: "Fake Local",
+            modelName: "sensevoice-small",
+            transcript: "hello world"
+        )
+    }
+}
+
+private final class FakeDictationPostProcessor: DictationPostProcessor {
+    enum Result {
+        case success(String)
+        case failure(Error)
+    }
+
+    private let result: Result
+
+    init(result: Result) {
+        self.result = result
+    }
+
+    func process(
+        request: DictationPostProcessRequest,
+        configuration: TextGenerationProviderConfiguration,
+        apiKey: String
+    ) async throws -> DictationPostProcessResult {
+        switch result {
+        case let .success(text):
+            return DictationPostProcessResult(
+                outputText: text,
+                providerName: "Fake Text",
+                modelName: "fake-model"
+            )
+        case let .failure(error):
+            throw error
+        }
     }
 }

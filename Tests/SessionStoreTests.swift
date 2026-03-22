@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import PulseType
 
@@ -68,6 +69,29 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.latestTranscription?.transcript, transcription.transcript)
     }
 
+    func testClipboardOnlyInsertionUsesClipboardStatusMessage() {
+        let store = SessionStore()
+        let transcription = makeTranscription()
+        let focusContext = makeFocusContext()
+
+        store.startDictation()
+        store.markTranscribing(audioSummary: "0.6 秒，44100Hz")
+        store.markInserting(transcription: transcription, focusContext: focusContext)
+        store.completeInsertion(
+            outputResult: TextOutputResult(
+                appName: "TextEdit",
+                bundleID: "com.apple.TextEdit",
+                path: .clipboardOnly,
+                usedFallback: false,
+                didInsertIntoEditor: false,
+                operation: .insertText
+            )
+        )
+
+        XCTAssertEqual(store.phase, .idle)
+        XCTAssertTrue(store.statusMessage.contains("复制到剪贴板"))
+    }
+
     func testListeningToTranscribingReflectsToggleStopStage() {
         let store = SessionStore()
 
@@ -123,7 +147,163 @@ final class SessionStoreTests: XCTestCase {
             bundleID: "com.apple.TextEdit",
             path: .accessibilitySelectionReplacement,
             usedFallback: false,
+            didInsertIntoEditor: true,
             operation: .insertText
         )
+    }
+}
+
+@MainActor
+final class TextOutputCoordinatorTests: XCTestCase {
+    func testEditableTargetUsesDirectInsertionPath() async throws {
+        let coordinator = TestAccessibilityTextOutputCoordinator(
+            contextDetector: StaticContextDetector(
+                focusContext: FocusedAppContext(
+                    appName: "TextEdit",
+                    bundleID: "com.apple.TextEdit",
+                    focusedRole: "AXTextArea",
+                    hasEditableTarget: true,
+                    strategyHint: "test"
+                )
+            )
+        )
+
+        let result = try await coordinator.write(
+            request: TextOutputRequest(
+                text: "hello",
+                operation: .insertText,
+                focusContext: FocusedAppContext(
+                    appName: "TextEdit",
+                    bundleID: "com.apple.TextEdit",
+                    focusedRole: "AXTextArea",
+                    hasEditableTarget: true,
+                    strategyHint: "test"
+                )
+            )
+        )
+
+        XCTAssertEqual(result.path, .accessibilitySelectionReplacement)
+        XCTAssertTrue(result.didInsertIntoEditor)
+        XCTAssertEqual(coordinator.accessibilityWriteCount, 1)
+        XCTAssertEqual(coordinator.pasteFallbackCount, 0)
+    }
+
+    func testNoEditableTargetReturnsClipboardOnly() async throws {
+        let focusContext = FocusedAppContext(
+            appName: "Finder",
+            bundleID: "com.apple.finder",
+            focusedRole: nil,
+            hasEditableTarget: false,
+            strategyHint: "test"
+        )
+        let coordinator = TestAccessibilityTextOutputCoordinator(
+            contextDetector: StaticContextDetector(focusContext: focusContext)
+        )
+
+        let result = try await coordinator.write(
+            request: TextOutputRequest(
+                text: "hello",
+                operation: .insertText,
+                focusContext: focusContext
+            )
+        )
+
+        XCTAssertEqual(result.path, .clipboardOnly)
+        XCTAssertFalse(result.didInsertIntoEditor)
+        XCTAssertEqual(coordinator.accessibilityWriteCount, 0)
+        XCTAssertEqual(coordinator.pasteFallbackCount, 0)
+    }
+
+    func testMissingTargetAppFallsBackToClipboardOnlyInsteadOfError() async throws {
+        let preferredFocusContext = FocusedAppContext(
+            appName: "TextEdit",
+            bundleID: "com.apple.TextEdit",
+            focusedRole: "AXTextArea",
+            hasEditableTarget: true,
+            strategyHint: "test"
+        )
+        let coordinator = TestAccessibilityTextOutputCoordinator(
+            contextDetector: StaticContextDetector(
+                focusContext: FocusedAppContext(
+                    appName: "PulseType",
+                    bundleID: Bundle.main.bundleIdentifier ?? "tests.bundle",
+                    focusedRole: nil,
+                    hasEditableTarget: false,
+                    strategyHint: "test"
+                )
+            )
+        )
+        coordinator.availableTargetBundleIDs = []
+
+        let result = try await coordinator.write(
+            request: TextOutputRequest(
+                text: "hello",
+                operation: .insertText,
+                focusContext: preferredFocusContext,
+                preferredTarget: WritebackTargetSnapshot(
+                    appName: "TextEdit",
+                    bundleID: "com.apple.TextEdit",
+                    processIdentifier: 42
+                )
+            )
+        )
+
+        XCTAssertEqual(result.path, .clipboardOnly)
+        XCTAssertEqual(result.appName, "TextEdit")
+    }
+}
+
+private struct StaticContextDetector: ContextDetector {
+    let focusContext: FocusedAppContext
+
+    func currentSnapshot() -> ContextSnapshot {
+        ContextSnapshot(
+            focusContext: focusContext,
+            rewriteAvailable: focusContext.hasEditableTarget,
+            styleHint: "test"
+        )
+    }
+
+    func focusedAppContext() -> FocusedAppContext {
+        focusContext
+    }
+}
+
+@MainActor
+private final class TestAccessibilityTextOutputCoordinator: AccessibilityTextOutputCoordinator {
+    var accessibilityWriteCount = 0
+    var pasteFallbackCount = 0
+    var availableTargetBundleIDs: [String] = []
+
+    init(contextDetector: ContextDetector) {
+        let diagnosticsDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("text-output-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: diagnosticsDirectory, withIntermediateDirectories: true)
+        super.init(
+            logger: TextOutputLogger(diagnosticsDirectory: diagnosticsDirectory),
+            contextDetector: contextDetector
+        )
+    }
+
+    override func performAccessibilityPath(
+        text: String,
+        operation: TextOutputOperation
+    ) throws {
+        accessibilityWriteCount += 1
+    }
+
+    override func performPasteFallback(text: String) async throws {
+        pasteFallbackCount += 1
+    }
+
+    override func persistToClipboard(_ text: String) -> Bool {
+        true
+    }
+
+    override func runningApplications(withBundleIdentifier bundleID: String) -> [NSRunningApplication] {
+        guard availableTargetBundleIDs.contains(bundleID) else {
+            return []
+        }
+        return super.runningApplications(withBundleIdentifier: bundleID)
     }
 }

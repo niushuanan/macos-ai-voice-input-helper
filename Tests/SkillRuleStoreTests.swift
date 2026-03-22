@@ -43,14 +43,46 @@ final class SkillRuleStoreTests: XCTestCase {
         let store = SkillRuleStore(defaults: defaults, storageKey: "skill.rules.tests")
         store.setEnabled(true, for: .spokenFilter)
         store.setParameter("嗯", for: .spokenFilter)
-        store.setEnabled(true, for: .autoPolish)
         store.setEnabled(false, for: .autoStructure)
         store.setEnabled(false, for: .appPreferenceBoost)
 
         let output = store.applyDictation("嗯 你好  。", outputBias: .neutral)
 
-        XCTAssertEqual(output.text, "你好。")
-        XCTAssertEqual(output.appliedSkills, [.spokenFilter, .autoPolish])
+        XCTAssertEqual(output.text, "你好 。")
+        XCTAssertEqual(output.appliedSkills, [.spokenFilter])
+    }
+
+    func testLegacyRulesRemainDecodableButNoLongerAffectPipeline() throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let legacyRules = [
+            SkillRule(id: .autoPolish, isEnabled: true, parameter: "标准"),
+            SkillRule(id: .spokenFilter, isEnabled: false, parameter: "嗯"),
+            SkillRule(id: .autoStructure, isEnabled: true, parameter: "要点列表"),
+            SkillRule(id: .appPreferenceBoost, isEnabled: false, parameter: "自动"),
+            SkillRule(id: .systemPrompt, isEnabled: true, parameter: "保留重点")
+        ]
+        let data = try JSONEncoder().encode(legacyRules)
+        defaults.set(data, forKey: "skill.rules.tests")
+
+        let store = SkillRuleStore(defaults: defaults, storageKey: "skill.rules.tests")
+        let output = store.applyDictation("嗯 你好  。再见。", outputBias: .structured)
+
+        XCTAssertTrue(store.rule(for: .autoPolish).isEnabled)
+        XCTAssertTrue(store.rule(for: .autoStructure).isEnabled)
+        XCTAssertEqual(output.text, "嗯 你好  。再见。")
+        XCTAssertTrue(output.appliedSkills.isEmpty)
+    }
+
+    func testVisibleRulesHideLegacyAndAppStyleRows() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let store = SkillRuleStore(defaults: defaults, storageKey: "skill.rules.tests")
+        let visibleRuleIDs = store.visibleRules().map(\.id)
+
+        XCTAssertEqual(visibleRuleIDs, [.spokenFilter, .systemPrompt])
     }
 
     private var defaultsSuiteName: String {

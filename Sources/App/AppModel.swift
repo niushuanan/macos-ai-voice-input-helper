@@ -2,6 +2,38 @@ import AppKit
 import Combine
 import Foundation
 
+struct ToastMessage: Equatable, Identifiable {
+    let id = UUID()
+    let text: String
+}
+
+@MainActor
+final class ToastPresenter: ObservableObject {
+    @Published private(set) var message: ToastMessage?
+    private var hideTask: Task<Void, Never>?
+
+    func show(_ text: String, duration: TimeInterval = 1.8) {
+        hideTask?.cancel()
+        message = ToastMessage(text: text)
+
+        hideTask = Task { [weak self] in
+            let nanoseconds = UInt64(max(0.2, duration) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            guard !Task.isCancelled else {
+                return
+            }
+            await MainActor.run {
+                self?.message = nil
+            }
+        }
+    }
+
+    func clear() {
+        hideTask?.cancel()
+        message = nil
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     let controlCenterState: ControlCenterState
@@ -23,6 +55,7 @@ final class AppModel: ObservableObject {
     let localHistoryStore: LocalHistoryStore
     let diagnosticsCenter: DiagnosticsCenter
     let statusPulseHUDController: StatusPulseHUDController
+    let toastPresenter: ToastPresenter
     private var cancellables = Set<AnyCancellable>()
 
     init(
@@ -44,7 +77,8 @@ final class AppModel: ObservableObject {
         localStore: LocalStore,
         localHistoryStore: LocalHistoryStore,
         diagnosticsCenter: DiagnosticsCenter,
-        statusPulseHUDController: StatusPulseHUDController
+        statusPulseHUDController: StatusPulseHUDController,
+        toastPresenter: ToastPresenter
     ) {
         self.controlCenterState = controlCenterState
         self.sessionStore = sessionStore
@@ -65,6 +99,7 @@ final class AppModel: ObservableObject {
         self.localHistoryStore = localHistoryStore
         self.diagnosticsCenter = diagnosticsCenter
         self.statusPulseHUDController = statusPulseHUDController
+        self.toastPresenter = toastPresenter
 
         migrateLegacyLocalState()
         permissionsCenter.refreshStatuses()
@@ -99,7 +134,8 @@ final class AppModel: ObservableObject {
         let contextDetector = AccessibilityContextDetector()
         let appScenePolicyStore = AppScenePolicyStore()
         let textOutputCoordinator = AccessibilityTextOutputCoordinator(
-            logger: TextOutputLogger(diagnosticsDirectory: store.diagnosticsDirectory)
+            logger: TextOutputLogger(diagnosticsDirectory: store.diagnosticsDirectory),
+            contextDetector: contextDetector
         )
         let localHistoryStore = LocalHistoryStore(historyDirectory: store.historyDirectory)
         let controlCenterState = ControlCenterState(localHistoryStore: localHistoryStore)
@@ -135,7 +171,8 @@ final class AppModel: ObservableObject {
             localStore: store,
             localHistoryStore: localHistoryStore,
             diagnosticsCenter: DiagnosticsCenter(),
-            statusPulseHUDController: StatusPulseHUDController()
+            statusPulseHUDController: StatusPulseHUDController(),
+            toastPresenter: ToastPresenter()
         )
     }
 

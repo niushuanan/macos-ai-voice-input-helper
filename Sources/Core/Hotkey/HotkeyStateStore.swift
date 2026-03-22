@@ -15,10 +15,12 @@ final class HotkeyStateStore: ObservableObject {
     @Published private(set) var wakeShortcutRegistered: Bool
     @Published private(set) var cancelShortcutRegistered: Bool
     @Published private(set) var lastUpdatedAt: Date
+    @Published private(set) var latestChangeMessage: String?
 
     private let notificationCenter: NotificationCenter
     private let now: () -> Date
     private var cancellables = Set<AnyCancellable>()
+    private var hasCompletedInitialRefresh = false
 
     init(
         notificationCenter: NotificationCenter = .default,
@@ -52,6 +54,9 @@ final class HotkeyStateStore: ObservableObject {
     }
 
     func refresh() {
+        let previousWakeShortcutText = wakeShortcutText
+        let previousCancelShortcutText = cancelShortcutText
+
         let wakeShortcut = KeyboardShortcuts.getShortcut(for: .wakeSession)
         let cancelShortcut = KeyboardShortcuts.getShortcut(for: .cancelSession)
 
@@ -67,6 +72,21 @@ final class HotkeyStateStore: ObservableObject {
         } else {
             hasConflict = false
             conflictMessage = nil
+        }
+
+        if hasCompletedInitialRefresh {
+            var changes: [String] = []
+            if previousWakeShortcutText != wakeShortcutText {
+                changes.append("主键已更新")
+            }
+            if previousCancelShortcutText != cancelShortcutText {
+                changes.append("取消键已更新")
+            }
+            if !changes.isEmpty {
+                latestChangeMessage = changes.joined(separator: "，") + "，现在已经生效。"
+            }
+        } else {
+            hasCompletedInitialRefresh = true
         }
     }
 
@@ -84,6 +104,10 @@ final class HotkeyStateStore: ObservableObject {
         default:
             return "监听状态未知"
         }
+    }
+
+    func clearLatestChangeMessage() {
+        latestChangeMessage = nil
     }
 
     private static func describeShortcut(_ shortcut: KeyboardShortcuts.Shortcut?) -> String {

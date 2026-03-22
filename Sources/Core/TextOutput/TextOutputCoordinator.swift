@@ -12,6 +12,25 @@ struct TextOutputRequest: Equatable {
     let text: String
     let operation: TextOutputOperation
     let focusContext: FocusedAppContext
+    let preferredTarget: WritebackTargetSnapshot?
+
+    init(
+        text: String,
+        operation: TextOutputOperation,
+        focusContext: FocusedAppContext,
+        preferredTarget: WritebackTargetSnapshot? = nil
+    ) {
+        self.text = text
+        self.operation = operation
+        self.focusContext = focusContext
+        self.preferredTarget = preferredTarget
+    }
+}
+
+struct WritebackTargetSnapshot: Equatable {
+    let appName: String
+    let bundleID: String
+    let processIdentifier: pid_t?
 }
 
 struct FocusedSelectionSnapshot: Equatable {
@@ -22,6 +41,7 @@ struct FocusedSelectionSnapshot: Equatable {
 enum TextOutputPath: String, Equatable {
     case accessibilitySelectionReplacement
     case pasteFallbackCommandV
+    case clipboardOnly
 }
 
 struct TextOutputResult: Equatable {
@@ -29,6 +49,7 @@ struct TextOutputResult: Equatable {
     let bundleID: String
     let path: TextOutputPath
     let usedFallback: Bool
+    let didInsertIntoEditor: Bool
     let operation: TextOutputOperation
 }
 
@@ -72,13 +93,18 @@ protocol TextOutputCoordinator {
 }
 
 @MainActor
-final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
+class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
     let insertionStrategy: String = "主路径：AX 直写；兜底：剪贴板 + Command+V。"
 
-    private let logger: TextOutputLogger
+    let logger: TextOutputLogger
+    let contextDetector: ContextDetector
 
-    init(logger: TextOutputLogger) {
+    init(
+        logger: TextOutputLogger,
+        contextDetector: ContextDetector = AccessibilityContextDetector()
+    ) {
         self.logger = logger
+        self.contextDetector = contextDetector
     }
 
     func currentSelectionSnapshot() -> FocusedSelectionSnapshot? {
@@ -137,18 +163,41 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         }
 
         // Keep the final text in clipboard so user can reuse it after writeback.
-        _ = persistToClipboard(trimmedText)
+        let didPersistToClipboard = persistToClipboard(trimmedText)
 
-        let startLine = "[write] app=\(request.focusContext.appName) bundle=\(request.focusContext.bundleID) op=\(request.operation)"
+        await activatePreferredTargetIfNeeded(request.preferredTarget)
+
+        let resolvedFocusContext = resolvedFocusContext(
+            preferredTarget: request.preferredTarget,
+            fallback: request.focusContext
+        )
+        let startLine = "[write] app=\(resolvedFocusContext.appName) bundle=\(resolvedFocusContext.bundleID) op=\(request.operation)"
         logger.log(startLine)
+
+        guard resolvedFocusContext.hasEditableTarget else {
+            guard didPersistToClipboard else {
+                throw TextOutputError.pasteboardUnavailable
+            }
+            let result = TextOutputResult(
+                appName: resolvedFocusContext.appName,
+                bundleID: resolvedFocusContext.bundleID,
+                path: .clipboardOnly,
+                usedFallback: false,
+                didInsertIntoEditor: false,
+                operation: request.operation
+            )
+            logger.log("[write] clipboard-only app=\(result.appName) bundle=\(result.bundleID)")
+            return result
+        }
 
         do {
             try performAccessibilityPath(text: request.text, operation: request.operation)
             let result = TextOutputResult(
-                appName: request.focusContext.appName,
-                bundleID: request.focusContext.bundleID,
+                appName: resolvedFocusContext.appName,
+                bundleID: resolvedFocusContext.bundleID,
                 path: .accessibilitySelectionReplacement,
                 usedFallback: false,
+                didInsertIntoEditor: true,
                 operation: request.operation
             )
             logger.log("[write] success path=\(result.path.rawValue)")
@@ -160,10 +209,11 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             do {
                 try await performPasteFallback(text: request.text)
                 let result = TextOutputResult(
-                    appName: request.focusContext.appName,
-                    bundleID: request.focusContext.bundleID,
+                    appName: resolvedFocusContext.appName,
+                    bundleID: resolvedFocusContext.bundleID,
                     path: .pasteFallbackCommandV,
                     usedFallback: true,
+                    didInsertIntoEditor: true,
                     operation: request.operation
                 )
                 logger.log("[write] fallback-success path=\(result.path.rawValue)")
@@ -175,7 +225,7 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         }
     }
 
-    private func performAccessibilityPath(
+    func performAccessibilityPath(
         text: String,
         operation: TextOutputOperation
     ) throws {
@@ -196,7 +246,7 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         }
     }
 
-    private func replaceSelectedRange(in element: AXUIElement, with text: String) throws {
+    func replaceSelectedRange(in element: AXUIElement, with text: String) throws {
         guard let originalValue = stringAttribute(kAXValueAttribute, on: element) else {
             let status = AXUIElementSetAttributeValue(
                 element,
@@ -238,7 +288,7 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         }
     }
 
-    private func performPasteFallback(text: String) async throws {
+    func performPasteFallback(text: String) async throws {
         guard persistToClipboard(text) else {
             throw TextOutputError.pasteboardUnavailable
         }
@@ -248,13 +298,13 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
     }
 
     @discardableResult
-    private func persistToClipboard(_ text: String) -> Bool {
+    func persistToClipboard(_ text: String) -> Bool {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         return pasteboard.setString(text, forType: .string)
     }
 
-    private func triggerCommandV() throws {
+    func triggerCommandV() throws {
         guard
             let source = CGEventSource(stateID: .combinedSessionState),
             let keyDown = CGEvent(
@@ -278,7 +328,7 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         keyUp.post(tap: .cghidEventTap)
     }
 
-    private func focusedElement() -> AXUIElement? {
+    func focusedElement() -> AXUIElement? {
         let systemWide = AXUIElementCreateSystemWide()
         var focused: CFTypeRef?
         let status = AXUIElementCopyAttributeValue(
@@ -292,7 +342,7 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         return unsafeBitCast(focused, to: AXUIElement.self)
     }
 
-    private func isEditable(element: AXUIElement) -> Bool {
+    func isEditable(element: AXUIElement) -> Bool {
         if let editable = boolAttribute("AXEditable", on: element), editable {
             return true
         }
@@ -312,7 +362,7 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         return hasAttribute(kAXSelectedTextRangeAttribute, on: element)
     }
 
-    private func selectedTextRange(for element: AXUIElement) -> CFRange? {
+    func selectedTextRange(for element: AXUIElement) -> CFRange? {
         var value: CFTypeRef?
         let status = AXUIElementCopyAttributeValue(
             element,
@@ -335,7 +385,7 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         return ok ? range : nil
     }
 
-    private func stringAttribute(_ attribute: String, on element: AXUIElement) -> String? {
+    func stringAttribute(_ attribute: String, on element: AXUIElement) -> String? {
         var value: CFTypeRef?
         let status = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
         guard status == .success else {
@@ -344,7 +394,7 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         return value as? String
     }
 
-    private func boolAttribute(_ attribute: String, on element: AXUIElement) -> Bool? {
+    func boolAttribute(_ attribute: String, on element: AXUIElement) -> Bool? {
         var value: CFTypeRef?
         let status = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
         guard status == .success else {
@@ -353,7 +403,7 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         return value as? Bool
     }
 
-    private func hasAttribute(_ attribute: String, on element: AXUIElement) -> Bool {
+    func hasAttribute(_ attribute: String, on element: AXUIElement) -> Bool {
         var names: CFArray?
         let status = AXUIElementCopyAttributeNames(element, &names)
         guard status == .success, let names else {
@@ -361,6 +411,84 @@ final class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         }
         let allNames = names as [AnyObject]
         return allNames.contains { ($0 as? String) == attribute }
+    }
+
+    func currentFrontmostApplication() -> NSRunningApplication? {
+        NSWorkspace.shared.frontmostApplication
+    }
+
+    func runningApplications(withBundleIdentifier bundleID: String) -> [NSRunningApplication] {
+        NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+    }
+
+    func activateApplication(_ application: NSRunningApplication) -> Bool {
+        application.activate()
+    }
+
+    func activationPauseNanoseconds() async {
+        try? await Task.sleep(nanoseconds: 180_000_000)
+    }
+
+    func resolvedFocusContext(
+        preferredTarget: WritebackTargetSnapshot?,
+        fallback: FocusedAppContext
+    ) -> FocusedAppContext {
+        let current = contextDetector.focusedAppContext()
+        let selfBundleID = Bundle.main.bundleIdentifier
+
+        if
+            let preferredTarget,
+            current.bundleID == preferredTarget.bundleID
+        {
+            return current
+        }
+
+        if current.bundleID != selfBundleID {
+            return current
+        }
+
+        if let preferredTarget {
+            return FocusedAppContext(
+                appName: preferredTarget.appName,
+                bundleID: preferredTarget.bundleID,
+                focusedRole: fallback.focusedRole,
+                hasEditableTarget: false,
+                strategyHint: fallback.strategyHint
+            )
+        }
+
+        return fallback
+    }
+
+    func activatePreferredTargetIfNeeded(_ preferredTarget: WritebackTargetSnapshot?) async {
+        guard let preferredTarget else {
+            return
+        }
+
+        if currentFrontmostApplication()?.bundleIdentifier == preferredTarget.bundleID {
+            return
+        }
+
+        guard
+            let targetApplication = resolveTargetApplication(preferredTarget)
+        else {
+            logger.log("[write] target-missing bundle=\(preferredTarget.bundleID)")
+            return
+        }
+
+        let activated = activateApplication(targetApplication)
+        logger.log("[write] target-activate bundle=\(preferredTarget.bundleID) ok=\(activated)")
+        if activated {
+            await activationPauseNanoseconds()
+        }
+    }
+
+    func resolveTargetApplication(_ preferredTarget: WritebackTargetSnapshot) -> NSRunningApplication? {
+        let candidates = runningApplications(withBundleIdentifier: preferredTarget.bundleID)
+        if let processIdentifier = preferredTarget.processIdentifier {
+            return candidates.first(where: { $0.processIdentifier == processIdentifier }) ?? candidates.first
+        }
+        return candidates.first
     }
 }
 

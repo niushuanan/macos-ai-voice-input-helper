@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -9,6 +10,25 @@ struct WakeInvocationContext: Equatable {
         rewriteModifierHeld: false,
         selectionAvailable: false
     )
+}
+
+struct DictationWritebackTarget: Equatable {
+    let focusContext: FocusedAppContext
+    let processIdentifier: pid_t?
+
+    var snapshot: WritebackTargetSnapshot {
+        WritebackTargetSnapshot(
+            appName: focusContext.appName,
+            bundleID: focusContext.bundleID,
+            processIdentifier: processIdentifier
+        )
+    }
+}
+
+private struct DictationPostProcessOutcome {
+    let text: String
+    let note: String?
+    let appliedSkills: [SkillRuleID]
 }
 
 @MainActor
@@ -24,8 +44,11 @@ final class InteractionCoordinator {
     private let appScenePolicyStore: AppScenePolicyStore
     private let localHistoryStore: LocalHistoryStore
     private let skillRuleStore: SkillRuleStore
+    private let dictationPostProcessor: DictationPostProcessor
     private var cancellables = Set<AnyCancellable>()
     private var transcriptionTask: Task<Void, Never>?
+    private var currentDictationTarget: DictationWritebackTarget?
+    private var lastExternalDictationTarget: DictationWritebackTarget?
 
     init(
         sessionStore: SessionStore,
@@ -38,7 +61,8 @@ final class InteractionCoordinator {
         contextDetector: ContextDetector,
         appScenePolicyStore: AppScenePolicyStore,
         localHistoryStore: LocalHistoryStore,
-        skillRuleStore: SkillRuleStore
+        skillRuleStore: SkillRuleStore,
+        dictationPostProcessor: DictationPostProcessor = LLMDictationPostProcessor()
     ) {
         self.sessionStore = sessionStore
         self.permissionsCenter = permissionsCenter
@@ -51,7 +75,9 @@ final class InteractionCoordinator {
         self.appScenePolicyStore = appScenePolicyStore
         self.localHistoryStore = localHistoryStore
         self.skillRuleStore = skillRuleStore
+        self.dictationPostProcessor = dictationPostProcessor
         bindListeningLevel()
+        bindExternalAppTracking()
     }
 
     func handleWakeInput(context: WakeInvocationContext = .dictation) {
@@ -112,6 +138,7 @@ final class InteractionCoordinator {
 
         transcriptionTask?.cancel()
         transcriptionTask = nil
+        currentDictationTarget = nil
 
         if audioCaptureService.isRecording {
             audioCaptureService.cancelRecording()
@@ -137,6 +164,7 @@ final class InteractionCoordinator {
         guard sessionStore.phase == .inserting else {
             return
         }
+        currentDictationTarget = nil
         discardPendingClipIfNeeded()
         sessionStore.completeInsertion()
     }
@@ -144,6 +172,7 @@ final class InteractionCoordinator {
     func handleResetInput() {
         transcriptionTask?.cancel()
         transcriptionTask = nil
+        currentDictationTarget = nil
 
         if audioCaptureService.isRecording {
             audioCaptureService.cancelRecording()
@@ -154,6 +183,11 @@ final class InteractionCoordinator {
 
     private func startRecordingAndTransition(lane: InputLane) {
         do {
+            if lane == .directDictation {
+                currentDictationTarget = resolveDictationWritebackTarget()
+            } else {
+                currentDictationTarget = nil
+            }
             try audioCaptureService.startRecording()
             switch lane {
             case .directDictation:
@@ -162,6 +196,7 @@ final class InteractionCoordinator {
                 sessionStore.startRewrite()
             }
         } catch {
+            currentDictationTarget = nil
             sessionStore.fail(message: "无法开始录音：\(error.localizedDescription)")
         }
     }
@@ -230,6 +265,7 @@ final class InteractionCoordinator {
                 guard !Task.isCancelled else {
                     return
                 }
+                currentDictationTarget = nil
                 audioCaptureService.removeClip(at: clip.fileURL)
                 sessionStore.clearPendingClipReference()
                 let focusContext = contextDetector.focusedAppContext()
@@ -252,6 +288,7 @@ final class InteractionCoordinator {
                 guard !Task.isCancelled else {
                     return
                 }
+                currentDictationTarget = nil
                 audioCaptureService.removeClip(at: clip.fileURL)
                 sessionStore.clearPendingClipReference()
                 let message = actionableMessage(for: .providerFailure(description: error.localizedDescription))
@@ -298,23 +335,36 @@ final class InteractionCoordinator {
         _ transcription: SpeechTranscriptionResult,
         audioDurationSeconds: TimeInterval
     ) async {
-        let focusContext = contextDetector.focusedAppContext()
-        let scenePolicy = appScenePolicyStore.policy(for: focusContext)
+        let writebackTarget = currentDictationTarget
+        let focusContext = writebackTarget?.focusContext ?? contextDetector.focusedAppContext()
+        let scenePolicy = effectiveScenePolicy(for: focusContext)
         let skillApplyResult = skillRuleStore.applyDictation(
             transcription.transcript,
             outputBias: scenePolicy.outputBias
         )
+        let localProcessedText = skillApplyResult.text
+        let postProcessResult = await postProcessDictationIfNeeded(
+            text: localProcessedText,
+            focusContext: focusContext,
+            outputBias: scenePolicy.outputBias
+        )
+        let finalText = postProcessResult.text
         let finalTranscription = SpeechTranscriptionResult(
             providerType: transcription.providerType,
             providerName: transcription.providerName,
             modelName: transcription.modelName,
-            transcript: skillApplyResult.text
+            transcript: finalText
+        )
+        let appliedSkills = mergedSkills(
+            lhs: skillApplyResult.appliedSkills,
+            rhs: postProcessResult.appliedSkills
         )
 
         let request = TextOutputRequest(
             text: finalTranscription.transcript,
             operation: .insertText,
-            focusContext: focusContext
+            focusContext: focusContext,
+            preferredTarget: writebackTarget?.snapshot
         )
 
         sessionStore.markInserting(
@@ -324,7 +374,10 @@ final class InteractionCoordinator {
 
         do {
             let outputResult = try await textOutputCoordinator.write(request: request)
-            sessionStore.completeInsertion(outputResult: outputResult)
+            sessionStore.completeInsertion(
+                outputResult: outputResult,
+                note: postProcessResult.note
+            )
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .dictation,
@@ -336,9 +389,10 @@ final class InteractionCoordinator {
                     transcriptionModel: finalTranscription.modelName,
                     status: .success,
                     audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: skillApplyResult.appliedSkills
+                    appliedSkills: appliedSkills
                 )
             )
+            currentDictationTarget = nil
         } catch let outputError as TextOutputError {
             let message = actionableOutputMessage(for: outputError, focusContext: focusContext)
             localHistoryStore.append(
@@ -353,9 +407,10 @@ final class InteractionCoordinator {
                     status: .failed,
                     errorMessage: message,
                     audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: skillApplyResult.appliedSkills
+                    appliedSkills: appliedSkills
                 )
             )
+            currentDictationTarget = nil
             sessionStore.fail(message: message)
         } catch {
             let message = actionableOutputMessage(
@@ -374,9 +429,10 @@ final class InteractionCoordinator {
                     status: .failed,
                     errorMessage: message,
                     audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: skillApplyResult.appliedSkills
+                    appliedSkills: appliedSkills
                 )
             )
+            currentDictationTarget = nil
             sessionStore.fail(message: message)
         }
     }
@@ -391,7 +447,8 @@ final class InteractionCoordinator {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let spokenInstruction = processedInstruction.isEmpty ? rawInstruction : processedInstruction
         let initialFocusContext = contextDetector.focusedAppContext()
-        let scenePolicy = appScenePolicyStore.policy(for: initialFocusContext)
+        let scenePolicy = effectiveScenePolicy(for: initialFocusContext)
+        let activeSystemPrompt = skillRuleStore.activeSystemPrompt()
         guard !spokenInstruction.isEmpty else {
             let message = "改写指令为空，请重试并说出明确命令。"
             localHistoryStore.append(
@@ -543,7 +600,7 @@ final class InteractionCoordinator {
                     spokenInstruction: spokenInstruction,
                     focusContext: snapshot.focusContext,
                     outputBias: scenePolicy.outputBias,
-                    userSystemPrompt: skillRuleStore.activeSystemPrompt()
+                    userSystemPrompt: activeSystemPrompt
                 ),
                 configuration: rewriteConfiguration,
                 apiKey: normalizedKey
@@ -556,6 +613,9 @@ final class InteractionCoordinator {
                 lhs: instructionApplyResult.appliedSkills,
                 rhs: outputApplyResult.appliedSkills
             )
+            let finalAppliedSkills = activeSystemPrompt == nil
+                ? combinedSkills
+                : mergedSkills(lhs: combinedSkills, rhs: [.systemPrompt])
             let finalRewriteText: String = {
                 let normalized = outputApplyResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 return normalized.isEmpty ? rewriteResult.rewrittenText : normalized
@@ -588,7 +648,7 @@ final class InteractionCoordinator {
                     rewriteModel: rewriteResult.modelName,
                     status: .success,
                     audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: combinedSkills
+                    appliedSkills: finalAppliedSkills
                 )
             )
         } catch let rewriteError as RewriteProviderError {
@@ -685,6 +745,29 @@ final class InteractionCoordinator {
             .store(in: &cancellables)
     }
 
+    private func bindExternalAppTracking() {
+        NSWorkspace.shared.notificationCenter.publisher(
+            for: NSWorkspace.didActivateApplicationNotification
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] notification in
+            guard
+                let self,
+                let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                app.bundleIdentifier != Bundle.main.bundleIdentifier
+            else {
+                return
+            }
+
+            let focusContext = self.contextDetector.focusedAppContext()
+            self.lastExternalDictationTarget = DictationWritebackTarget(
+                focusContext: focusContext,
+                processIdentifier: app.processIdentifier
+            )
+        }
+        .store(in: &cancellables)
+    }
+
     private func discardPendingClipIfNeeded() {
         guard let clip = sessionStore.pendingClip else {
             return
@@ -767,9 +850,97 @@ final class InteractionCoordinator {
         return "请检查 Key、模型、接口地址与额度。"
     }
 
+    private func effectiveScenePolicy(for context: FocusedAppContext) -> AppScenePolicy {
+        guard skillRuleStore.isEnabled(.appPreferenceBoost) else {
+            return AppScenePolicy(
+                appName: context.appName,
+                bundleID: context.bundleID,
+                outputBias: .neutral,
+                preferSelectionRewrite: false
+            )
+        }
+        return appScenePolicyStore.policy(for: context)
+    }
+
+    private func resolveDictationWritebackTarget() -> DictationWritebackTarget? {
+        let focusContext = contextDetector.focusedAppContext()
+        let currentApp = NSWorkspace.shared.frontmostApplication
+        let isCurrentAppSelf = currentApp?.bundleIdentifier == Bundle.main.bundleIdentifier
+
+        if !isCurrentAppSelf {
+            let target = DictationWritebackTarget(
+                focusContext: focusContext,
+                processIdentifier: currentApp?.processIdentifier
+            )
+            lastExternalDictationTarget = target
+            return target
+        }
+
+        return lastExternalDictationTarget
+    }
+
+    private func postProcessDictationIfNeeded(
+        text: String,
+        focusContext: FocusedAppContext,
+        outputBias: AppOutputBias
+    ) async -> DictationPostProcessOutcome {
+        guard
+            let userSystemPrompt = skillRuleStore.activeSystemPrompt(),
+            !userSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return DictationPostProcessOutcome(
+                text: text,
+                note: nil,
+                appliedSkills: []
+            )
+        }
+
+        guard providerSettingsStore.isRewriteConfigurationValid else {
+            return DictationPostProcessOutcome(
+                text: text,
+                note: "个性提示词暂时没用上，已直接使用当前听写结果。",
+                appliedSkills: []
+            )
+        }
+
+        let loadedKey = try? providerSettingsStore.loadAPIKeyForRewriteProvider()
+        let apiKey = loadedKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !apiKey.isEmpty else {
+            return DictationPostProcessOutcome(
+                text: text,
+                note: "个性提示词暂时没用上，已直接使用当前听写结果。",
+                appliedSkills: []
+            )
+        }
+
+        do {
+            let result = try await dictationPostProcessor.process(
+                request: DictationPostProcessRequest(
+                    transcript: text,
+                    focusContext: focusContext,
+                    outputBias: outputBias,
+                    userSystemPrompt: userSystemPrompt
+                ),
+                configuration: providerSettingsStore.rewriteConfiguration,
+                apiKey: apiKey
+            )
+            return DictationPostProcessOutcome(
+                text: result.outputText,
+                note: nil,
+                appliedSkills: [.systemPrompt]
+            )
+        } catch {
+            return DictationPostProcessOutcome(
+                text: text,
+                note: "个性提示词暂时没用上，已直接使用当前听写结果。",
+                appliedSkills: []
+            )
+        }
+    }
+
     private func resolvedLane(context: WakeInvocationContext) -> InputLane {
         let focusContext = contextDetector.focusedAppContext()
-        let scenePolicy = appScenePolicyStore.policy(for: focusContext)
+        let scenePolicy = effectiveScenePolicy(for: focusContext)
 
         if context.rewriteModifierHeld && context.selectionAvailable {
             return .selectionRewrite

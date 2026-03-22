@@ -49,6 +49,19 @@ struct SelectionRewriteResult: Equatable {
     let modelName: String
 }
 
+struct DictationPostProcessRequest: Equatable {
+    let transcript: String
+    let focusContext: FocusedAppContext
+    let outputBias: AppOutputBias
+    let userSystemPrompt: String
+}
+
+struct DictationPostProcessResult: Equatable {
+    let outputText: String
+    let providerName: String
+    let modelName: String
+}
+
 enum RewriteProviderError: LocalizedError {
     case noSelectedText
     case emptyInstruction
@@ -99,6 +112,14 @@ protocol RewriteProvider {
         configuration: TextGenerationProviderConfiguration,
         apiKey: String
     ) async throws -> SelectionRewriteResult
+}
+
+protocol DictationPostProcessor {
+    func process(
+        request: DictationPostProcessRequest,
+        configuration: TextGenerationProviderConfiguration,
+        apiKey: String
+    ) async throws -> DictationPostProcessResult
 }
 
 struct RewriteProviderRegistry {
@@ -234,6 +255,50 @@ struct RewritePromptTemplate {
     let userPrompt: String
 }
 
+struct DictationPostProcessPromptBuilder {
+    func build(request: DictationPostProcessRequest) -> RewritePromptTemplate {
+        let styleInstruction: String
+        switch request.outputBias {
+        case .neutral:
+            styleInstruction = "Keep the tone neutral."
+        case .formal:
+            styleInstruction = "Make the tone formal and polished."
+        case .casual:
+            styleInstruction = "Make the tone natural and conversational."
+        case .structured:
+            styleInstruction = "Organize the text into a clear structured format when appropriate."
+        }
+
+        let systemPrompt = """
+        You are a precise dictation cleanup engine.
+        Return only the final text with no explanations.
+        Preserve the user's meaning.
+
+        User preference system instruction:
+        \(request.userSystemPrompt)
+        """
+
+        let userPrompt = """
+        App context:
+        - appName: \(request.focusContext.appName)
+        - bundleID: \(request.focusContext.bundleID)
+
+        Style guidance:
+        \(styleInstruction)
+
+        Raw transcript:
+        <<<TEXT
+        \(request.transcript)
+        TEXT>>>
+        """
+
+        return RewritePromptTemplate(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt
+        )
+    }
+}
+
 struct RewritePromptBuilder {
     func build(
         intent: RewriteIntent,
@@ -357,6 +422,65 @@ struct OpenAIRewriteProvider: RewriteProvider {
         return SelectionRewriteResult(
             rewrittenText: output,
             actionLabel: intent.action.label,
+            providerName: generation.providerName,
+            modelName: generation.modelName
+        )
+    }
+}
+
+struct LLMDictationPostProcessor: DictationPostProcessor {
+    private let generationProvider: any TextGenerationProvider
+    private let promptBuilder: DictationPostProcessPromptBuilder
+
+    init(
+        generationProvider: any TextGenerationProvider = OpenAITextGenerationProvider(),
+        promptBuilder: DictationPostProcessPromptBuilder = DictationPostProcessPromptBuilder()
+    ) {
+        self.generationProvider = generationProvider
+        self.promptBuilder = promptBuilder
+    }
+
+    func process(
+        request: DictationPostProcessRequest,
+        configuration: TextGenerationProviderConfiguration,
+        apiKey: String
+    ) async throws -> DictationPostProcessResult {
+        let normalizedTranscript = request.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPrompt = request.userSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTranscript.isEmpty else {
+            throw RewriteProviderError.invalidGeneratedText
+        }
+        guard !normalizedPrompt.isEmpty else {
+            throw RewriteProviderError.emptyInstruction
+        }
+
+        let template = promptBuilder.build(
+            request: DictationPostProcessRequest(
+                transcript: normalizedTranscript,
+                focusContext: request.focusContext,
+                outputBias: request.outputBias,
+                userSystemPrompt: normalizedPrompt
+            )
+        )
+
+        let generation = try await generationProvider.generateText(
+            request: TextGenerationRequest(
+                systemPrompt: template.systemPrompt,
+                userPrompt: template.userPrompt,
+                temperature: 0.2,
+                maxOutputTokens: 900
+            ),
+            configuration: configuration,
+            apiKey: apiKey
+        )
+
+        let output = generation.outputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !output.isEmpty else {
+            throw RewriteProviderError.invalidGeneratedText
+        }
+
+        return DictationPostProcessResult(
+            outputText: output,
             providerName: generation.providerName,
             modelName: generation.modelName
         )

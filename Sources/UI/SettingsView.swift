@@ -1,5 +1,6 @@
 import KeyboardShortcuts
 import AppKit
+import Combine
 import SwiftUI
 
 struct SettingsView: View {
@@ -14,15 +15,19 @@ struct SettingsView: View {
     @ObservedObject private var skillRuleStore: SkillRuleStore
     @ObservedObject private var appScenePolicyStore: AppScenePolicyStore
     @ObservedObject private var localHistoryStore: LocalHistoryStore
+    @ObservedObject private var toastPresenter: ToastPresenter
 
     @State private var asrTesting = false
     @State private var textTesting = false
     @State private var memoryFeedback: String?
-    @State private var settingsFeedback: String?
     @State private var sceneAppNameDraft = ""
     @State private var sceneBundleIDDraft = ""
     @State private var sceneOutputBiasDraft: AppOutputBias = .neutral
     @State private var scenePreferRewriteDraft = true
+    @State private var sceneOriginalBundleID: String?
+    @State private var isHydratingSceneDraft = false
+    @State private var debouncedToastTask: Task<Void, Never>?
+    @State private var debouncedSceneSaveTask: Task<Void, Never>?
 
     init(model: AppModel) {
         self.model = model
@@ -35,6 +40,7 @@ struct SettingsView: View {
         _skillRuleStore = ObservedObject(wrappedValue: model.skillRuleStore)
         _appScenePolicyStore = ObservedObject(wrappedValue: model.appScenePolicyStore)
         _localHistoryStore = ObservedObject(wrappedValue: model.localHistoryStore)
+        _toastPresenter = ObservedObject(wrappedValue: model.toastPresenter)
     }
 
     var body: some View {
@@ -64,7 +70,22 @@ struct SettingsView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                if let toast = toastPresenter.message {
+                    VStack {
+                        Spacer()
+                        PulseToastView(text: toast.text)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                            .padding(.bottom, 20)
+                    }
+                    .padding(.horizontal, 24)
+                    .animation(.spring(response: 0.28, dampingFraction: 0.86), value: toast.id)
+                }
             }
+        }
+        .onReceive(hotkeyStateStore.$latestChangeMessage.compactMap { $0 }) { message in
+            showToast(message)
+            hotkeyStateStore.clearLatestChangeMessage()
         }
     }
 
@@ -224,22 +245,33 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 pageHeader(
                     title: "技能",
-                    subtitle: "技能默认本地生效。发生异常时会自动退回原始流程，不会卡住主链路。"
+                    subtitle: "这里的偏好改完就会立刻生效。发生异常时会自动退回原始流程，不会卡住主链路。"
                 )
 
-                ForEach(skillRuleStore.rules) { rule in
+                scenePolicySkillsCard
+
+                ForEach(skillRuleStore.visibleRules()) { rule in
                     SkillRuleCardView(
                         ruleID: rule.id,
                         title: rule.id.title,
                         subtitle: rule.id.subtitle,
                         isEnabled: Binding(
                             get: { skillRuleStore.rule(for: rule.id).isEnabled },
-                            set: { skillRuleStore.setEnabled($0, for: rule.id) }
+                            set: { enabled in
+                                skillRuleStore.setEnabled(enabled, for: rule.id)
+                                showToast("\(rule.id.title)现在已经\(enabled ? "开启" : "关闭")。")
+                            }
                         ),
                         parameter: Binding(
                             get: { skillRuleStore.rule(for: rule.id).parameter },
-                            set: { skillRuleStore.setParameter($0, for: rule.id) }
-                        )
+                            set: { parameter in
+                                skillRuleStore.setParameter(parameter, for: rule.id)
+                                scheduleDebouncedToast("\(rule.id.title)已更新并生效。")
+                            }
+                        ),
+                        parameterPlaceholder: rule.id == .systemPrompt
+                            ? "例如：默认更简洁、保留重点、避免过度客套"
+                            : "例如：嗯,啊,就是,那个,然后"
                     )
                 }
             }
@@ -276,8 +308,8 @@ struct SettingsView: View {
                     credentialState: providerSettingsStore.asrCredentialState,
                     validationMessage: providerSettingsStore.asrConfigurationValidationMessage,
                     feedbackMessage: providerSettingsStore.asrFeedbackMessage,
-                    onSaveKey: { providerSettingsStore.saveASRAPIKeyDraft() },
-                    onDeleteKey: { providerSettingsStore.clearASRAPIKey() },
+                    onSaveKey: saveASRKey,
+                    onDeleteKey: deleteASRKey,
                     isTesting: asrTesting,
                     testButtonTitle: "测试 ASR",
                     latestResult: providerSettingsStore.latestASRTestResult,
@@ -309,8 +341,8 @@ struct SettingsView: View {
                     credentialState: providerSettingsStore.textCredentialState,
                     validationMessage: providerSettingsStore.textConfigurationValidationMessage,
                     feedbackMessage: providerSettingsStore.textFeedbackMessage,
-                    onSaveKey: { providerSettingsStore.saveTextAPIKeyDraft() },
-                    onDeleteKey: { providerSettingsStore.clearTextAPIKey() },
+                    onSaveKey: saveTextKey,
+                    onDeleteKey: deleteTextKey,
                     isTesting: textTesting,
                     testButtonTitle: "测试文本模型",
                     latestResult: providerSettingsStore.latestTextTestResult,
@@ -417,8 +449,8 @@ struct SettingsView: View {
         credentialState: ProviderSettingsStore.CredentialState,
         validationMessage: String?,
         feedbackMessage: String?,
-        onSaveKey: @escaping () -> Bool,
-        onDeleteKey: @escaping () -> Bool,
+        onSaveKey: @escaping () -> Void,
+        onDeleteKey: @escaping () -> Void,
         isTesting: Bool,
         testButtonTitle: String,
         latestResult: ConnectionTestResult?,
@@ -501,12 +533,11 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 pageHeader(
                     title: "设置",
-                    subtitle: "在这里管理快捷键、权限、按应用风格以及基础信息。"
+                    subtitle: "在这里管理快捷键、权限和基础信息。"
                 )
 
                 hotkeySettingsCard
                 permissionSettingsCard
-                scenePolicySettingsCard
                 aboutSettingsCard
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -539,13 +570,13 @@ struct SettingsView: View {
             HStack(spacing: 8) {
                 Button("检测主键监听") {
                     hotkeyStateStore.refresh()
-                    settingsFeedback = hotkeyStateStore.registrationText(for: .wakeSession)
+                    showToast(hotkeyStateStore.registrationText(for: .wakeSession))
                 }
                 .buttonStyle(.bordered)
 
                 Button("检测取消键监听") {
                     hotkeyStateStore.refresh()
-                    settingsFeedback = hotkeyStateStore.registrationText(for: .cancelSession)
+                    showToast(hotkeyStateStore.registrationText(for: .cancelSession))
                 }
                 .buttonStyle(.bordered)
             }
@@ -563,7 +594,7 @@ struct SettingsView: View {
             HStack {
                 Button("恢复默认") {
                     hotkeyStateStore.resetToDefaults()
-                    settingsFeedback = "已恢复默认快捷键。"
+                    showToast("已恢复默认快捷键。")
                 }
                 .buttonStyle(.bordered)
                 Spacer()
@@ -636,12 +667,31 @@ struct SettingsView: View {
         .pulseCard(cornerRadius: 12)
     }
 
-    private var scenePolicySettingsCard: some View {
+    private var scenePolicySkillsCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("按应用风格")
-                .font(.headline)
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("按应用风格")
+                        .font(.headline)
+                    Text("把应用风格总开关和策略编辑放在一起。这里的改动会自动保存并立刻生效。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { skillRuleStore.rule(for: .appPreferenceBoost).isEnabled },
+                        set: { enabled in
+                            skillRuleStore.setEnabled(enabled, for: .appPreferenceBoost)
+                            showToast("按应用风格现在已经\(enabled ? "开启" : "关闭")。")
+                        }
+                    )
+                )
+                .labelsHidden()
+            }
 
-            Text("按应用设置文风偏好与改写偏好。只有“技能 > 按应用风格”开启时，这些偏好才会参与处理。")
+            Text("应用名和 Bundle ID 填完整后会自动保存。切回目标应用时，新的风格偏好会直接生效。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -661,23 +711,13 @@ struct SettingsView: View {
             Toggle("优先选区改写", isOn: $scenePreferRewriteDraft)
 
             HStack {
-                Button("保存策略") {
-                    saveScenePolicy()
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button("清空输入") {
+                Button("新建空白策略") {
                     clearSceneDraft()
+                    showToast("可以直接新建一条应用风格策略了。")
                 }
                 .buttonStyle(.bordered)
 
                 Spacer()
-            }
-
-            if let settingsFeedback {
-                Text(settingsFeedback)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             if appScenePolicyStore.policies.isEmpty {
@@ -693,7 +733,10 @@ struct SettingsView: View {
                         onLoad: { loadSceneDraft(policy) },
                         onDelete: {
                             appScenePolicyStore.removePolicy(bundleID: policy.bundleID)
-                            settingsFeedback = "已删除 \(policy.appName) 的策略。"
+                            if sceneOriginalBundleID == policy.bundleID {
+                                clearSceneDraft()
+                            }
+                            showToast("已删除 \(policy.appName) 的策略。")
                         }
                     )
                 }
@@ -702,6 +745,18 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .pulseCard(cornerRadius: 12)
+        .onChange(of: sceneAppNameDraft) { _, _ in
+            scheduleScenePolicyAutosave()
+        }
+        .onChange(of: sceneBundleIDDraft) { _, _ in
+            scheduleScenePolicyAutosave()
+        }
+        .onChange(of: sceneOutputBiasDraft) { _, _ in
+            scheduleScenePolicyAutosave()
+        }
+        .onChange(of: scenePreferRewriteDraft) { _, _ in
+            scheduleScenePolicyAutosave()
+        }
     }
 
     private var aboutSettingsCard: some View {
@@ -723,49 +778,70 @@ struct SettingsView: View {
     private var asrProviderTypeBinding: Binding<ProviderType> {
         Binding(
             get: { providerSettingsStore.asrConfig.providerType },
-            set: { providerSettingsStore.updateASRProviderType($0) }
+            set: {
+                providerSettingsStore.updateASRProviderType($0)
+                showToast("语音识别服务商已切换，现在已经生效。")
+            }
         )
     }
 
     private var textProviderTypeBinding: Binding<ProviderType> {
         Binding(
             get: { providerSettingsStore.textConfig.providerType },
-            set: { providerSettingsStore.updateTextProviderType($0) }
+            set: {
+                providerSettingsStore.updateTextProviderType($0)
+                showToast("文本处理服务商已切换，现在已经生效。")
+            }
         )
     }
 
     private var asrBaseURLBinding: Binding<String> {
         Binding(
             get: { providerSettingsStore.asrConfig.baseURLString },
-            set: { providerSettingsStore.updateASRBaseURL($0) }
+            set: {
+                providerSettingsStore.updateASRBaseURL($0)
+                scheduleDebouncedToast("语音识别地址已更新并生效。")
+            }
         )
     }
 
     private var textBaseURLBinding: Binding<String> {
         Binding(
             get: { providerSettingsStore.textConfig.baseURLString },
-            set: { providerSettingsStore.updateTextBaseURL($0) }
+            set: {
+                providerSettingsStore.updateTextBaseURL($0)
+                scheduleDebouncedToast("文本处理地址已更新并生效。")
+            }
         )
     }
 
     private var asrModelBinding: Binding<String> {
         Binding(
             get: { providerSettingsStore.asrConfig.modelName },
-            set: { providerSettingsStore.updateASRModel($0) }
+            set: {
+                providerSettingsStore.updateASRModel($0)
+                scheduleDebouncedToast("语音识别模型已更新并生效。")
+            }
         )
     }
 
     private var asrLocalModelPathBinding: Binding<String> {
         Binding(
             get: { providerSettingsStore.asrConfig.localModelPath ?? defaultSenseVoiceModelPath },
-            set: { providerSettingsStore.updateASRLocalModelPath($0) }
+            set: {
+                providerSettingsStore.updateASRLocalModelPath($0)
+                scheduleDebouncedToast("本地模型目录已更新并生效。")
+            }
         )
     }
 
     private var textModelBinding: Binding<String> {
         Binding(
             get: { providerSettingsStore.textConfig.modelName },
-            set: { providerSettingsStore.updateTextModel($0) }
+            set: {
+                providerSettingsStore.updateTextModel($0)
+                scheduleDebouncedToast("文本处理模型已更新并生效。")
+            }
         )
     }
 
@@ -846,19 +922,6 @@ struct SettingsView: View {
 
     private var primaryToggleTitle: String {
         sessionStore.phase == .listening ? "停止并处理" : "开始语音输入"
-    }
-
-    private var latestResult: ConnectionTestResult? {
-        switch (providerSettingsStore.latestASRTestResult, providerSettingsStore.latestTextTestResult) {
-        case let (.some(asr), .some(text)):
-            return asr.timestamp >= text.timestamp ? asr : text
-        case let (.some(asr), .none):
-            return asr
-        case let (.none, .some(text)):
-            return text
-        case (.none, .none):
-            return nil
-        }
     }
 
     private var filteredHistoryEntries: [SessionHistoryEntry] {
@@ -947,12 +1010,57 @@ struct SettingsView: View {
         return "\(shortVersion) (\(build))"
     }
 
-    private func saveScenePolicy() {
+    private func clearSceneDraft() {
+        debouncedSceneSaveTask?.cancel()
+        sceneAppNameDraft = ""
+        sceneBundleIDDraft = ""
+        sceneOutputBiasDraft = .neutral
+        scenePreferRewriteDraft = true
+        sceneOriginalBundleID = nil
+    }
+
+    private func loadSceneDraft(_ policy: AppScenePolicy) {
+        isHydratingSceneDraft = true
+        sceneAppNameDraft = policy.appName
+        sceneBundleIDDraft = policy.bundleID
+        sceneOutputBiasDraft = policy.outputBias
+        scenePreferRewriteDraft = policy.preferSelectionRewrite
+        sceneOriginalBundleID = policy.bundleID
+        DispatchQueue.main.async {
+            isHydratingSceneDraft = false
+        }
+        showToast("已载入 \(policy.appName) 的策略。")
+    }
+
+    private func scheduleScenePolicyAutosave() {
+        guard !isHydratingSceneDraft else {
+            return
+        }
+
+        debouncedSceneSaveTask?.cancel()
+        debouncedSceneSaveTask = Task {
+            try? await Task.sleep(nanoseconds: 520_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            await MainActor.run {
+                autoSaveScenePolicyIfPossible()
+            }
+        }
+    }
+
+    private func autoSaveScenePolicyIfPossible() {
         let appName = sceneAppNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let bundleID = sceneBundleIDDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !appName.isEmpty, !bundleID.isEmpty else {
-            settingsFeedback = "请先填写应用名和 Bundle ID。"
             return
+        }
+
+        if
+            let originalBundleID = sceneOriginalBundleID,
+            originalBundleID != bundleID
+        {
+            appScenePolicyStore.removePolicy(bundleID: originalBundleID)
         }
 
         appScenePolicyStore.upsertPolicy(
@@ -961,22 +1069,8 @@ struct SettingsView: View {
             outputBias: sceneOutputBiasDraft,
             preferSelectionRewrite: scenePreferRewriteDraft
         )
-        settingsFeedback = "已保存 \(appName) 的策略。"
-    }
-
-    private func clearSceneDraft() {
-        sceneAppNameDraft = ""
-        sceneBundleIDDraft = ""
-        sceneOutputBiasDraft = .neutral
-        scenePreferRewriteDraft = true
-    }
-
-    private func loadSceneDraft(_ policy: AppScenePolicy) {
-        sceneAppNameDraft = policy.appName
-        sceneBundleIDDraft = policy.bundleID
-        sceneOutputBiasDraft = policy.outputBias
-        scenePreferRewriteDraft = policy.preferSelectionRewrite
-        settingsFeedback = "已载入 \(policy.appName) 策略，可直接修改后保存。"
+        sceneOriginalBundleID = bundleID
+        showToast("\(appName) 的应用风格已更新并生效。")
     }
 
     private func copyHistoryEntry(_ entry: SessionHistoryEntry) {
@@ -990,6 +1084,55 @@ struct SettingsView: View {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         memoryFeedback = "已复制文本。"
+    }
+
+    private func showToast(_ message: String) {
+        toastPresenter.show(message)
+    }
+
+    private func scheduleDebouncedToast(_ message: String) {
+        debouncedToastTask?.cancel()
+        debouncedToastTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            await MainActor.run {
+                toastPresenter.show(message)
+            }
+        }
+    }
+
+    private func saveASRKey() {
+        let isSuccess = providerSettingsStore.saveASRAPIKeyDraft()
+        if let message = providerSettingsStore.asrFeedbackMessage {
+            showToast(message)
+        } else if isSuccess {
+            showToast("语音识别 API 密钥已保存。")
+        }
+    }
+
+    private func deleteASRKey() {
+        providerSettingsStore.clearASRAPIKey()
+        if let message = providerSettingsStore.asrFeedbackMessage {
+            showToast(message)
+        }
+    }
+
+    private func saveTextKey() {
+        let isSuccess = providerSettingsStore.saveTextAPIKeyDraft()
+        if let message = providerSettingsStore.textFeedbackMessage {
+            showToast(message)
+        } else if isSuccess {
+            showToast("文本模型 API 密钥已保存。")
+        }
+    }
+
+    private func deleteTextKey() {
+        providerSettingsStore.clearTextAPIKey()
+        if let message = providerSettingsStore.textFeedbackMessage {
+            showToast(message)
+        }
     }
 
     private func runASRTest() {
@@ -1167,6 +1310,7 @@ private struct SkillRuleCardView: View {
     let subtitle: String
     @Binding var isEnabled: Bool
     @Binding var parameter: String
+    let parameterPlaceholder: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1198,7 +1342,7 @@ private struct SkillRuleCardView: View {
                     )
                     .disabled(!isEnabled)
             } else {
-                TextField("参数", text: $parameter)
+                TextField(parameterPlaceholder, text: $parameter)
                     .textFieldStyle(.roundedBorder)
                     .disabled(!isEnabled)
             }
@@ -1273,6 +1417,33 @@ private struct HomeMetricCard: View {
     }
 }
 
+private struct PulseToastView: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+            Text(text)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: 420, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.white.opacity(0.75), lineWidth: 1)
+                )
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 18, x: 0, y: 8)
+    }
+}
+
 private struct ModelConfigCard: View {
     let title: String
     let availableProviderTypes: [ProviderType]
@@ -1289,8 +1460,8 @@ private struct ModelConfigCard: View {
     let credentialState: ProviderSettingsStore.CredentialState
     let validationMessage: String?
     let feedbackMessage: String?
-    let onSaveKey: () -> Bool
-    let onDeleteKey: () -> Bool
+    let onSaveKey: () -> Void
+    let onDeleteKey: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1344,7 +1515,7 @@ private struct ModelConfigCard: View {
                         .textFieldStyle(.roundedBorder)
 
                     Button("保存") {
-                        _ = onSaveKey()
+                        onSaveKey()
                     }
                     .disabled(
                         apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1352,7 +1523,7 @@ private struct ModelConfigCard: View {
                     )
 
                     Button("删除", role: .destructive) {
-                        _ = onDeleteKey()
+                        onDeleteKey()
                     }
                     .disabled(isDeleteDisabled)
                 }

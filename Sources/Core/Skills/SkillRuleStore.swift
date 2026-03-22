@@ -24,6 +24,24 @@ enum SkillRuleID: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    var isLegacyOnly: Bool {
+        switch self {
+        case .autoPolish, .autoStructure:
+            return true
+        case .spokenFilter, .appPreferenceBoost, .systemPrompt:
+            return false
+        }
+    }
+
+    var isUserVisibleSkill: Bool {
+        switch self {
+        case .spokenFilter, .systemPrompt:
+            return true
+        case .autoPolish, .autoStructure, .appPreferenceBoost:
+            return false
+        }
+    }
+
     var subtitle: String {
         switch self {
         case .autoPolish:
@@ -122,6 +140,14 @@ final class SkillRuleStore: ObservableObject {
         rules.first(where: { $0.id == id }) ?? SkillRule(id: id, isEnabled: id.defaultEnabled, parameter: id.defaultParameter)
     }
 
+    func visibleRules() -> [SkillRule] {
+        rules.filter { $0.id.isUserVisibleSkill }
+    }
+
+    func isEnabled(_ id: SkillRuleID) -> Bool {
+        rule(for: id).isEnabled
+    }
+
     func setEnabled(_ enabled: Bool, for id: SkillRuleID) {
         updateRule(for: id) { rule in
             rule.isEnabled = enabled
@@ -196,22 +222,6 @@ final class SkillRuleStore: ObservableObject {
             value = transformed
         }
 
-        if rule(for: .autoPolish).isEnabled {
-            let transformed = applyAutoPolish(value)
-            if transformed != value {
-                appliedSkills.append(.autoPolish)
-            }
-            value = transformed
-        }
-
-        if allowStructure, rule(for: .autoStructure).isEnabled {
-            let transformed = applyStructureIfNeeded(value)
-            if transformed != value {
-                appliedSkills.append(.autoStructure)
-            }
-            value = transformed
-        }
-
         if rule(for: .appPreferenceBoost).isEnabled {
             let transformed = applyAppBias(value, outputBias: outputBias)
             if transformed != value {
@@ -249,21 +259,6 @@ final class SkillRuleStore: ObservableObject {
             with: " ",
             options: .regularExpression
         )
-    }
-
-    private func applyAutoPolish(_ text: String) -> String {
-        var value = text
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        value = value.replacingOccurrences(of: " ,", with: ",")
-        value = value.replacingOccurrences(of: " .", with: ".")
-        value = value.replacingOccurrences(of: " ，", with: "，")
-        value = value.replacingOccurrences(of: " 。", with: "。")
-        value = value.replacingOccurrences(of: " ？", with: "？")
-        value = value.replacingOccurrences(of: " ！", with: "！")
-
-        return value
     }
 
     private func applyStructureIfNeeded(_ text: String) -> String {

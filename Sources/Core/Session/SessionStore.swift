@@ -70,12 +70,28 @@ final class SessionStore: ObservableObject {
         )
     }
 
-    func completeInsertion(outputResult: TextOutputResult) {
+    func completeInsertion(
+        outputResult: TextOutputResult,
+        note: String? = nil
+    ) {
         latestOutputResult = outputResult
         pendingClip = nil
         listeningLevel = 0
-        let pathTitle = outputResult.usedFallback ? "粘贴兜底路径" : "AX 直写路径"
-        transition(to: .idle, statusMessage: "文本已写入 \(outputResult.appName)（\(pathTitle)）。")
+        let statusMessage: String
+        switch outputResult.path {
+        case .accessibilitySelectionReplacement:
+            statusMessage = "文本已写入 \(outputResult.appName)（AX 直写路径）。"
+        case .pasteFallbackCommandV:
+            statusMessage = "文本已写入 \(outputResult.appName)（粘贴兜底路径）。"
+        case .clipboardOnly:
+            statusMessage = "当前没有可直接写入的输入框，文本已复制到剪贴板。"
+        }
+
+        if let note, !note.isEmpty {
+            transition(to: .idle, statusMessage: "\(statusMessage) \(note)")
+        } else {
+            transition(to: .idle, statusMessage: statusMessage)
+        }
     }
 
     func markRewriting(actionLabel: String? = nil) {
