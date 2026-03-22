@@ -18,9 +18,9 @@ enum SkillRuleID: String, CaseIterable, Codable, Identifiable {
         case .autoStructure:
             return "自动结构化"
         case .appPreferenceBoost:
-            return "按应用偏好增强"
+            return "按应用风格"
         case .systemPrompt:
-            return "系统提示词"
+            return "个性提示词"
         }
     }
 
@@ -33,9 +33,9 @@ enum SkillRuleID: String, CaseIterable, Codable, Identifiable {
         case .autoStructure:
             return "把长句整理成清晰分点。"
         case .appPreferenceBoost:
-            return "读取“场景策略”并按当前应用风格做微调。"
+            return "根据当前应用的风格偏好做微调。"
         case .systemPrompt:
-            return "每次文本处理都会附加这段提示。"
+            return "文本模型处理时会附加这段偏好说明。"
         }
     }
 

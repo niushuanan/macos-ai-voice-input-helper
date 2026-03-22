@@ -310,8 +310,10 @@ final class ProviderSettingsStore: ObservableObject {
     enum CredentialState: Equatable {
         case unknown
         case missing
+        case saving
         case saved
-        case needsRebind
+        case inaccessible
+        case failed(OSStatus?)
     }
 
     @Published var asrConfig: ASRConfig {
@@ -414,8 +416,6 @@ final class ProviderSettingsStore: ObservableObject {
     private let defaultsTextConfigKey = "providers.text.config.v2"
     private let defaultsLatestASRTestResultKey = "providers.asr.test.result.v1"
     private let defaultsLatestTextTestResultKey = "providers.text.test.result.v1"
-    private let defaultsKeychainRebindRequiredKey = "providers.keychain.rebind.required"
-
     init(
         defaults: UserDefaults = .standard,
         credentialStore: ProviderCredentialStore
@@ -452,14 +452,6 @@ final class ProviderSettingsStore: ObservableObject {
     }
 
     func refreshCredentialState(allowUserInteraction: Bool = false) {
-        if defaults.bool(forKey: defaultsKeychainRebindRequiredKey) {
-            asrCredentialState = .needsRebind
-            textCredentialState = .needsRebind
-            asrFeedbackMessage = "检测到历史钥匙串权限设置，请重新保存语音识别 API 密钥。"
-            textFeedbackMessage = "检测到历史钥匙串权限设置，请重新保存文本模型 API 密钥。"
-            return
-        }
-
         asrCredentialState = resolveCredentialState(
             keyRef: asrConfig.keyRef,
             roleName: "语音识别",
@@ -481,10 +473,10 @@ final class ProviderSettingsStore: ObservableObject {
             onSuccess: { [weak self] in
                 self?.asrAPIKeyDraft = ""
                 self?.asrCredentialState = .saved
-                self?.asrFeedbackMessage = "语音识别 API 密钥已写入钥匙串。"
-                self?.clearKeychainRebindFlagIfPossible(roleKeyRef: self?.asrConfig.keyRef ?? "")
+                self?.asrFeedbackMessage = "语音识别 API 密钥已保存。"
             },
-            onFailure: { [weak self] message in
+            onFailure: { [weak self] state, message in
+                self?.asrCredentialState = state
                 self?.asrFeedbackMessage = message
             }
         )
@@ -499,10 +491,10 @@ final class ProviderSettingsStore: ObservableObject {
             onSuccess: { [weak self] in
                 self?.textAPIKeyDraft = ""
                 self?.textCredentialState = .saved
-                self?.textFeedbackMessage = "文本模型 API 密钥已写入钥匙串。"
-                self?.clearKeychainRebindFlagIfPossible(roleKeyRef: self?.textConfig.keyRef ?? "")
+                self?.textFeedbackMessage = "文本模型 API 密钥已保存。"
             },
-            onFailure: { [weak self] message in
+            onFailure: { [weak self] state, message in
+                self?.textCredentialState = state
                 self?.textFeedbackMessage = message
             }
         )
@@ -724,25 +716,45 @@ final class ProviderSettingsStore: ObservableObject {
         keyRef: String,
         roleName: String,
         onSuccess: () -> Void,
-        onFailure: (String) -> Void
+        onFailure: (CredentialState, String) -> Void
     ) -> Bool {
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
-            onFailure("\(roleName) API 密钥不能为空。")
+            onFailure(.missing, "\(roleName) API 密钥不能为空。")
             return false
         }
 
         guard normalized.count >= 12 else {
-            onFailure("\(roleName) API 密钥长度看起来太短。")
+            onFailure(.failed(nil), "\(roleName) API 密钥长度看起来太短。")
             return false
         }
 
         do {
+            if roleName == "语音识别" {
+                asrCredentialState = .saving
+            } else {
+                textCredentialState = .saving
+            }
             try credentialStore.saveAPIKey(normalized, for: keyRef)
+            let readBack = (try credentialStore.loadAPIKey(for: keyRef) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard readBack == normalized else {
+                onFailure(.failed(nil), "\(roleName) API 密钥保存后校验失败，请重试。")
+                return false
+            }
             onSuccess()
             return true
+        } catch ProviderCredentialStoreError.interactionRequired {
+            onFailure(.inaccessible, "当前钥匙串条目不可直接访问，请删除后重新保存。")
+            return false
+        } catch ProviderCredentialStoreError.invalidCredentialEncoding {
+            onFailure(.failed(nil), "钥匙串中的 \(roleName) API 密钥无法解析，请删除后重新保存。")
+            return false
+        } catch let ProviderCredentialStoreError.unexpectedStatus(status) {
+            onFailure(.failed(status), "无法保存 \(roleName) API 密钥（OSStatus \(status)）。")
+            return false
         } catch {
-            onFailure("无法把 \(roleName) API 密钥写入钥匙串。")
+            onFailure(.failed(nil), "无法保存 \(roleName) API 密钥：\(error.localizedDescription)")
             return false
         }
     }
@@ -783,18 +795,25 @@ final class ProviderSettingsStore: ObservableObject {
             switch error {
             case .interactionRequired:
                 if roleName == "语音识别" {
-                    asrFeedbackMessage = "检测到钥匙串访问需要交互，请重新保存一次语音识别 API 密钥。"
+                    asrFeedbackMessage = "当前钥匙串条目不可直接访问，请在 App 内重新保存一次密钥。"
                 } else {
-                    textFeedbackMessage = "检测到钥匙串访问需要交互，请重新保存一次文本模型 API 密钥。"
+                    textFeedbackMessage = "当前钥匙串条目不可直接访问，请在 App 内重新保存一次密钥。"
                 }
-                return .needsRebind
-            default:
+                return .inaccessible
+            case let .unexpectedStatus(status):
                 if roleName == "语音识别" {
-                    asrFeedbackMessage = "无法从钥匙串读取语音识别 API 密钥。"
+                    asrFeedbackMessage = "读取语音识别 API 密钥失败（OSStatus \(status)）。"
                 } else {
-                    textFeedbackMessage = "无法从钥匙串读取文本模型 API 密钥。"
+                    textFeedbackMessage = "读取文本模型 API 密钥失败（OSStatus \(status)）。"
                 }
-                return .unknown
+                return .failed(status)
+            case .invalidCredentialEncoding:
+                if roleName == "语音识别" {
+                    asrFeedbackMessage = "语音识别 API 密钥无法解析，请删除后重新保存。"
+                } else {
+                    textFeedbackMessage = "文本模型 API 密钥无法解析，请删除后重新保存。"
+                }
+                return .failed(nil)
             }
         } catch {
             if roleName == "语音识别" {
@@ -802,20 +821,8 @@ final class ProviderSettingsStore: ObservableObject {
             } else {
                 textFeedbackMessage = "无法从钥匙串读取文本模型 API 密钥。"
             }
-            return .unknown
+            return .failed(nil)
         }
-    }
-
-    private func clearKeychainRebindFlagIfPossible(roleKeyRef: String) {
-        guard defaults.bool(forKey: defaultsKeychainRebindRequiredKey) else {
-            return
-        }
-        let asrReady = (asrCredentialState == .saved) || roleKeyRef == asrConfig.keyRef
-        let textReady = (textCredentialState == .saved) || roleKeyRef == textConfig.keyRef
-        guard asrReady && textReady else {
-            return
-        }
-        defaults.set(false, forKey: defaultsKeychainRebindRequiredKey)
     }
 
     private func migrateLegacyCredentialsIfNeeded(using migration: LegacyMigration) {

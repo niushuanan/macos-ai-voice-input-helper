@@ -7,8 +7,10 @@ struct SettingsView: View {
 
     @ObservedObject private var controlCenterState: ControlCenterState
     @ObservedObject private var sessionStore: SessionStore
+    @ObservedObject private var hotkeyStateStore: HotkeyStateStore
     @ObservedObject private var permissionsCenter: PermissionsCenter
     @ObservedObject private var providerSettingsStore: ProviderSettingsStore
+    @ObservedObject private var localSenseVoiceRuntimeManager: LocalSenseVoiceRuntimeManager
     @ObservedObject private var skillRuleStore: SkillRuleStore
     @ObservedObject private var appScenePolicyStore: AppScenePolicyStore
     @ObservedObject private var localHistoryStore: LocalHistoryStore
@@ -26,8 +28,10 @@ struct SettingsView: View {
         self.model = model
         _controlCenterState = ObservedObject(wrappedValue: model.controlCenterState)
         _sessionStore = ObservedObject(wrappedValue: model.sessionStore)
+        _hotkeyStateStore = ObservedObject(wrappedValue: model.hotkeyStateStore)
         _permissionsCenter = ObservedObject(wrappedValue: model.permissionsCenter)
         _providerSettingsStore = ObservedObject(wrappedValue: model.providerSettingsStore)
+        _localSenseVoiceRuntimeManager = ObservedObject(wrappedValue: model.localSenseVoiceRuntimeManager)
         _skillRuleStore = ObservedObject(wrappedValue: model.skillRuleStore)
         _appScenePolicyStore = ObservedObject(wrappedValue: model.appScenePolicyStore)
         _localHistoryStore = ObservedObject(wrappedValue: model.localHistoryStore)
@@ -73,7 +77,7 @@ struct SettingsView: View {
                 )
 
                 HStack(spacing: 16) {
-                    Label("主键：\(wakeShortcutText)", systemImage: "keyboard")
+                    Label("主键：\(hotkeyStateStore.wakeShortcutText)", systemImage: "keyboard")
                     Label("模式：\(sessionStore.activeLane.title)", systemImage: "slider.horizontal.3")
                     Label("阶段：\(sessionStore.phase.title)", systemImage: sessionStore.phase.menuBarSymbol)
                 }
@@ -286,6 +290,8 @@ struct SettingsView: View {
                     onTest: runASRTest
                 )
 
+                localSenseVoicePreparationCard
+
                 modelRoleSection(
                     roleTitle: "文本处理",
                     cardTitle: "文本处理",
@@ -322,7 +328,75 @@ struct SettingsView: View {
         }
         .onAppear {
             providerSettingsStore.refreshCredentialState()
+            Task {
+                await localSenseVoiceRuntimeManager.detect(
+                    modelDirectoryPath: providerSettingsStore.asrConfig.localModelPath
+                )
+            }
         }
+    }
+
+    private var localSenseVoicePreparationCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("本地 SenseVoice")
+                    .font(.headline)
+                Text("实验")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Capsule(style: .continuous).fill(Color.orange.opacity(0.15)))
+                    .foregroundStyle(.orange)
+                Spacer()
+            }
+
+            Text("只有本地运行环境准备完成后，ASR 列表里才会出现 SenseVoice。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 6) {
+                LabeledContent("模型目录", value: providerSettingsStore.asrConfig.localModelPath ?? defaultSenseVoiceModelPath)
+                LabeledContent("运行环境", value: localSenseVoiceRuntimeManager.runtimeRootPath)
+                LabeledContent("当前状态", value: localSenseVoiceRuntimeManager.currentStatusText)
+                if let manifest = localSenseVoiceRuntimeManager.manifest {
+                    LabeledContent("当前后端", value: manifest.backend)
+                    LabeledContent("Python", value: manifest.pythonPath)
+                }
+                if let lastCheckedAt = localSenseVoiceRuntimeManager.lastCheckedAt {
+                    LabeledContent(
+                        "最近检测",
+                        value: lastCheckedAt.formatted(date: .omitted, time: .standard)
+                    )
+                }
+            }
+            .font(.caption)
+
+            HStack {
+                Button("准备本地环境") {
+                    Task {
+                        await localSenseVoiceRuntimeManager.prepare(
+                            modelDirectoryPath: providerSettingsStore.asrConfig.localModelPath
+                        )
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isPreparingLocalSenseVoice)
+
+                Button("重新检测") {
+                    Task {
+                        await localSenseVoiceRuntimeManager.detect(
+                            modelDirectoryPath: providerSettingsStore.asrConfig.localModelPath
+                        )
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isPreparingLocalSenseVoice)
+
+                Spacer()
+            }
+        }
+        .padding(14)
+        .pulseCard(cornerRadius: 12)
     }
 
     @ViewBuilder
@@ -427,7 +501,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 pageHeader(
                     title: "设置",
-                    subtitle: "在这里管理热键、权限、场景策略以及基础信息。"
+                    subtitle: "在这里管理快捷键、权限、按应用风格以及基础信息。"
                 )
 
                 hotkeySettingsCard
@@ -442,73 +516,54 @@ struct SettingsView: View {
         .onAppear {
             permissionsCenter.refreshStatuses()
             providerSettingsStore.refreshCredentialState()
+            hotkeyStateStore.refresh()
         }
     }
 
     private var hotkeySettingsCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("热键设置")
+            Text("快捷键")
                 .font(.headline)
 
             KeyboardShortcuts.Recorder("主键（开始/停止）", name: .wakeSession)
             KeyboardShortcuts.Recorder("取消键", name: .cancelSession)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("当前主键：\(wakeShortcutText)")
-                Text("当前取消键：\(cancelShortcutText)")
+                Text("当前主键：\(hotkeyStateStore.wakeShortcutText)")
+                Text("当前取消键：\(hotkeyStateStore.cancelShortcutText)")
+                Text("最近更新：\(hotkeyStateStore.lastUpdatedAt.formatted(date: .omitted, time: .standard))")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
 
             HStack(spacing: 8) {
-                Button("主键设为 Control + Option + Space") {
-                    KeyboardShortcuts.setShortcut(
-                        .init(.space, modifiers: [.control, .option]),
-                        for: .wakeSession
-                    )
+                Button("检测主键监听") {
+                    hotkeyStateStore.refresh()
+                    settingsFeedback = hotkeyStateStore.registrationText(for: .wakeSession)
                 }
                 .buttonStyle(.bordered)
 
-                Button("主键设为 Option + Space") {
-                    KeyboardShortcuts.setShortcut(
-                        .init(.space, modifiers: [.option]),
-                        for: .wakeSession
-                    )
+                Button("检测取消键监听") {
+                    hotkeyStateStore.refresh()
+                    settingsFeedback = hotkeyStateStore.registrationText(for: .cancelSession)
                 }
                 .buttonStyle(.bordered)
             }
 
-            HStack(spacing: 8) {
-                Button("取消键设为 Escape") {
-                    KeyboardShortcuts.setShortcut(
-                        .init(.escape),
-                        for: .cancelSession
-                    )
-                }
-                .buttonStyle(.bordered)
-
-                Button("取消键设为 Command + .") {
-                    KeyboardShortcuts.setShortcut(
-                        .init(.period, modifiers: [.command]),
-                        for: .cancelSession
-                    )
-                }
-                .buttonStyle(.bordered)
-            }
-
-            if let conflict = shortcutConflictWarning {
+            if let conflict = hotkeyStateStore.conflictMessage {
                 Label(conflict, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
             } else {
-                Label("两个热键没有冲突。", systemImage: "checkmark.circle.fill")
+                Label("两个快捷键没有冲突，且会实时同步到监听器。", systemImage: "checkmark.circle.fill")
                     .font(.caption)
                     .foregroundStyle(.green)
             }
 
             HStack {
                 Button("恢复默认") {
-                    KeyboardShortcuts.reset(.wakeSession, .cancelSession)
+                    hotkeyStateStore.resetToDefaults()
+                    settingsFeedback = "已恢复默认快捷键。"
                 }
                 .buttonStyle(.bordered)
                 Spacer()
@@ -583,10 +638,10 @@ struct SettingsView: View {
 
     private var scenePolicySettingsCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("场景策略")
+            Text("按应用风格")
                 .font(.headline)
 
-            Text("按应用设置文风偏好与改写偏好。仅当“技能 > 按应用偏好增强”开启时才会实际生效。")
+            Text("按应用设置文风偏好与改写偏好。只有“技能 > 按应用风格”开启时，这些偏好才会参与处理。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -665,241 +720,6 @@ struct SettingsView: View {
         .pulseCard(cornerRadius: 12)
     }
 
-    private var legacyConsolePage: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            headerSection
-            Form {
-                sessionControlSection
-                modelConfigurationSection
-                permissionsSection
-                diagnosticsSection
-                sessionSnapshotSection
-            }
-        }
-        .padding(20)
-        .onAppear {
-            permissionsCenter.refreshStatuses()
-            providerSettingsStore.refreshCredentialState()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-            permissionsCenter.refreshStatuses()
-        }
-    }
-
-    private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("PulseType 主界面")
-                .font(.title.weight(.bold))
-            Text("一个页面完成会话控制、模型配置、权限与诊断。")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var sessionSnapshotSection: some View {
-        Section("会话动态") {
-            LabeledContent("阶段", value: sessionStore.phase.title)
-            LabeledContent("模式", value: sessionStore.activeLane.title)
-            LabeledContent("状态", value: sessionStore.statusMessage)
-
-            if let latest = sessionStore.latestTranscription {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("最近转写")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(latest.transcript)
-                        .font(.callout)
-                        .lineLimit(4)
-                        .textSelection(.enabled)
-                }
-            }
-
-            if let output = sessionStore.latestOutputResult {
-                LabeledContent(
-                    "写回路径",
-                    value: output.usedFallback ? "粘贴兜底" : "AX 直写"
-                )
-            }
-
-            if let error = sessionStore.errorMessage {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
-        }
-    }
-
-    private var sessionControlSection: some View {
-        Section("会话控制") {
-            Label("当前阶段：\(sessionStore.phase.title)", systemImage: sessionStore.phase.menuBarSymbol)
-                .font(.subheadline.weight(.semibold))
-
-            Text(sessionStore.statusMessage)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            KeyboardShortcuts.Recorder("语音输入主快捷键（开始/停止）", name: .wakeSession)
-            KeyboardShortcuts.Recorder("取消当前会话快捷键", name: .cancelSession)
-
-            if let conflict = shortcutConflictWarning {
-                Label(conflict, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            } else {
-                Label("快捷键冲突检查通过。", systemImage: "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-            }
-
-            HStack {
-                Button(primaryToggleTitle) {
-                    model.interactionCoordinator.handleWakeInput(context: .dictation)
-                }
-                .disabled(!canToggleSession)
-
-                Button("取消当前会话", role: .destructive) {
-                    model.interactionCoordinator.handleCancelInput()
-                }
-                .disabled(sessionStore.phase == .idle)
-
-                Spacer()
-
-                Button("恢复默认快捷键") {
-                    KeyboardShortcuts.reset(.wakeSession, .cancelSession)
-                }
-            }
-            .buttonStyle(.bordered)
-
-            Text("交互规则：主快捷键在空闲时开始录音，聆听中再次按下会停止并进入后续处理。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var modelConfigurationSection: some View {
-        Section("模型配置") {
-            ModelConfigCard(
-                title: "语音识别（ASR）",
-                availableProviderTypes: asrProviderOptions,
-                providerType: asrProviderTypeBinding,
-                baseURL: asrBaseURLBinding,
-                modelName: asrModelBinding,
-                localModelPath: providerSettingsStore.asrConfig.providerType == .localSenseVoice
-                    ? asrLocalModelPathBinding
-                    : nil,
-                showsBaseURL: providerSettingsStore.asrConfig.providerType != .localSenseVoice,
-                showsAPIKey: providerSettingsStore.asrConfig.providerType.requiresAPIKey,
-                allowsCustomBaseURL: providerSettingsStore.asrConfig.providerType.allowsCustomBaseURL,
-                baseURLPlaceholder: baseURLPlaceholder(for: providerSettingsStore.asrConfig.providerType),
-                modelPlaceholder: providerSettingsStore.asrConfig.providerType.defaultTranscriptionModelName,
-                apiKeyDraft: $providerSettingsStore.asrAPIKeyDraft,
-                credentialState: providerSettingsStore.asrCredentialState,
-                validationMessage: providerSettingsStore.asrConfigurationValidationMessage,
-                feedbackMessage: providerSettingsStore.asrFeedbackMessage,
-                onSaveKey: { providerSettingsStore.saveASRAPIKeyDraft() },
-                onDeleteKey: { providerSettingsStore.clearASRAPIKey() }
-            )
-
-            ModelConfigCard(
-                title: "文本处理",
-                availableProviderTypes: textProviderOptions,
-                providerType: textProviderTypeBinding,
-                baseURL: textBaseURLBinding,
-                modelName: textModelBinding,
-                localModelPath: nil,
-                showsBaseURL: true,
-                showsAPIKey: true,
-                allowsCustomBaseURL: providerSettingsStore.textConfig.providerType.allowsCustomBaseURL,
-                baseURLPlaceholder: baseURLPlaceholder(for: providerSettingsStore.textConfig.providerType),
-                modelPlaceholder: providerSettingsStore.textConfig.providerType.defaultRewriteModelName,
-                apiKeyDraft: $providerSettingsStore.textAPIKeyDraft,
-                credentialState: providerSettingsStore.textCredentialState,
-                validationMessage: providerSettingsStore.textConfigurationValidationMessage,
-                feedbackMessage: providerSettingsStore.textFeedbackMessage,
-                onSaveKey: { providerSettingsStore.saveTextAPIKeyDraft() },
-                onDeleteKey: { providerSettingsStore.clearTextAPIKey() }
-            )
-
-            Text("安全策略：密钥仅写入 macOS 钥匙串，不写入明文配置。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var permissionsSection: some View {
-        Section("权限中心") {
-            ForEach(permissionsCenter.presentationItems()) { item in
-                PermissionRowView(
-                    item: item,
-                    onRequest: { permissionsCenter.requestAccess(for: item.id) },
-                    onOpenSettings: { permissionsCenter.openSystemSettings(for: item.id) }
-                )
-            }
-
-            if permissionsCenter.snapshot.microphone != .granted {
-                Label("缺少麦克风权限，无法开始录音。", systemImage: "xmark.octagon.fill")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            } else {
-                Label("麦克风权限已就绪。", systemImage: "checkmark.seal.fill")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-            }
-
-            if permissionsCenter.snapshot.accessibility != .granted {
-                Label("辅助功能未允许：选区改写不可用；普通听写可继续，但写回成功率会下降。", systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            } else {
-                Label("辅助功能权限已就绪。", systemImage: "checkmark.seal.fill")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-            }
-
-            Button("重新检测权限") {
-                permissionsCenter.refreshStatuses()
-            }
-            .buttonStyle(.bordered)
-        }
-    }
-
-    private var diagnosticsSection: some View {
-        Section("诊断与测试") {
-            Text("可点击按钮发起真实请求，验证接口地址、模型名、密钥与额度。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            HStack {
-                Button(asrTesting ? "测试ASR中..." : "测试ASR") {
-                    runASRTest()
-                }
-                .disabled(asrTesting)
-
-                Button(textTesting ? "测试文本模型中..." : "测试文本模型") {
-                    runTextTest()
-                }
-                .disabled(textTesting)
-            }
-            .buttonStyle(.bordered)
-
-            if let latestResult {
-                ConnectionTestSummaryView(title: "最近一次测试结果", result: latestResult)
-            } else {
-                Text("还没有测试记录。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if let asrTestResult = providerSettingsStore.latestASRTestResult {
-                ConnectionTestSummaryView(title: "ASR 最近结果", result: asrTestResult)
-            }
-
-            if let textTestResult = providerSettingsStore.latestTextTestResult {
-                ConnectionTestSummaryView(title: "文本模型最近结果", result: textTestResult)
-            }
-        }
-    }
-
     private var asrProviderTypeBinding: Binding<ProviderType> {
         Binding(
             get: { providerSettingsStore.asrConfig.providerType },
@@ -950,7 +770,21 @@ struct SettingsView: View {
     }
 
     private var asrProviderOptions: [ProviderType] {
-        ProviderType.allCases.filter(\.supportsTranscription)
+        ProviderType.allCases.filter { type in
+            guard type.supportsTranscription else {
+                return false
+            }
+            if type != .localSenseVoice {
+                return true
+            }
+            if providerSettingsStore.asrConfig.providerType == .localSenseVoice {
+                return true
+            }
+            if case .ready = localSenseVoiceRuntimeManager.state {
+                return true
+            }
+            return false
+        }
     }
 
     private var textProviderOptions: [ProviderType] {
@@ -992,15 +826,6 @@ struct SettingsView: View {
         return "\(type.fixedBaseURL?.absoluteString ?? "https://api.openai.com")（固定）"
     }
 
-    private var shortcutConflictWarning: String? {
-        let wake = KeyboardShortcuts.getShortcut(for: .wakeSession)
-        let cancel = KeyboardShortcuts.getShortcut(for: .cancelSession)
-        if wake != nil && wake == cancel {
-            return "主快捷键与取消键重复，会导致会话行为不明确。"
-        }
-        return nil
-    }
-
     private var canToggleSession: Bool {
         switch sessionStore.phase {
         case .idle, .cancelled, .error:
@@ -1010,6 +835,13 @@ struct SettingsView: View {
         case .transcribing, .rewriting, .inserting:
             return false
         }
+    }
+
+    private var isPreparingLocalSenseVoice: Bool {
+        if case .preparing = localSenseVoiceRuntimeManager.state {
+            return true
+        }
+        return false
     }
 
     private var primaryToggleTitle: String {
@@ -1031,20 +863,6 @@ struct SettingsView: View {
 
     private var filteredHistoryEntries: [SessionHistoryEntry] {
         localHistoryStore.entries(matching: controlCenterState.memoryFilter)
-    }
-
-    private var wakeShortcutText: String {
-        KeyboardShortcuts.getShortcut(for: .wakeSession)?
-            .description
-            .replacingOccurrences(of: "-", with: " + ")
-            ?? "Control + Option + Space"
-    }
-
-    private var cancelShortcutText: String {
-        KeyboardShortcuts.getShortcut(for: .cancelSession)?
-            .description
-            .replacingOccurrences(of: "-", with: " + ")
-            ?? "Escape"
     }
 
     private func durationText(_ seconds: Double) -> String {
@@ -1528,12 +1346,15 @@ private struct ModelConfigCard: View {
                     Button("保存") {
                         _ = onSaveKey()
                     }
-                    .disabled(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(
+                        apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || credentialState == .saving
+                    )
 
                     Button("删除", role: .destructive) {
                         _ = onDeleteKey()
                     }
-                    .disabled(credentialState == .missing || credentialState == .unknown)
+                    .disabled(isDeleteDisabled)
                 }
                 .buttonStyle(.bordered)
 
@@ -1567,10 +1388,17 @@ private struct ModelConfigCard: View {
 
     private var credentialStateTitle: String {
         switch credentialState {
+        case .saving:
+            return "正在保存密钥…"
         case .saved:
             return "密钥已保存（钥匙串）"
-        case .needsRebind:
-            return "需要重绑：请重新保存一次密钥"
+        case .inaccessible:
+            return "当前钥匙串条目不能直接访问"
+        case let .failed(status):
+            if let status {
+                return "密钥状态异常（OSStatus \(status)）"
+            }
+            return "密钥状态异常"
         case .unknown:
             return "密钥状态未检测"
         case .missing:
@@ -1580,10 +1408,14 @@ private struct ModelConfigCard: View {
 
     private var credentialStateIcon: String {
         switch credentialState {
+        case .saving:
+            return "arrow.triangle.2.circlepath"
         case .saved:
             return "lock.shield.fill"
-        case .needsRebind:
-            return "key.fill"
+        case .inaccessible:
+            return "lock.trianglebadge.exclamationmark.fill"
+        case .failed:
+            return "xmark.shield.fill"
         case .unknown:
             return "questionmark.shield.fill"
         case .missing:
@@ -1593,14 +1425,27 @@ private struct ModelConfigCard: View {
 
     private var credentialStateColor: Color {
         switch credentialState {
+        case .saving:
+            return .secondary
         case .saved:
             return .secondary
-        case .needsRebind:
+        case .inaccessible:
             return .orange
+        case .failed:
+            return .red
         case .unknown:
             return .secondary
         case .missing:
             return .secondary
+        }
+    }
+
+    private var isDeleteDisabled: Bool {
+        switch credentialState {
+        case .missing, .unknown, .saving:
+            return true
+        case .saved, .inaccessible, .failed:
+            return false
         }
     }
 }

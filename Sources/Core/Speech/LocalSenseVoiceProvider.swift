@@ -108,7 +108,7 @@ private struct LocalSenseVoiceWorkerPayload: Decodable {
     let backend: String?
 }
 
-private enum LocalSenseVoiceRuntime {
+enum LocalSenseVoiceRuntime {
     private static let requiredFiles = [
         "model.onnx",
         "tokens.json",
@@ -125,8 +125,10 @@ private enum LocalSenseVoiceRuntime {
         return URL(fileURLWithPath: expanded, isDirectory: true)
     }
 
-    static func validateModelDirectory(_ directory: URL) -> String? {
-        let fileManager = FileManager.default
+    static func validateModelDirectory(
+        _ directory: URL,
+        fileManager: FileManager = .default
+    ) -> String? {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: directory.path, isDirectory: &isDirectory) else {
             return "模型目录不存在：\(directory.path)"
@@ -146,16 +148,27 @@ private enum LocalSenseVoiceRuntime {
         return nil
     }
 
-    static func runWorker(
+    fileprivate static func runWorker(
         mode: LocalSenseVoiceWorkerMode,
         modelDirectory: URL,
         audioFileURL: URL?
     ) -> LocalSenseVoiceWorkerExecution {
+        let runtimeRoot = LocalSenseVoiceRuntimeManager.defaultRuntimeRoot()
+        let pythonURL = LocalSenseVoiceRuntimeManager.managedPythonURL(runtimeRoot: runtimeRoot)
+        guard FileManager.default.isExecutableFile(atPath: pythonURL.path) else {
+            return LocalSenseVoiceWorkerExecution(
+                success: false,
+                message: "本地运行环境还没准备。",
+                hint: "请先在模型页点“准备本地环境”，完成后再检测或转写。",
+                transcript: "",
+                backend: nil
+            )
+        }
+
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.executableURL = pythonURL
 
         var arguments = [
-            "python3",
             "-c",
             workerScript,
             "--mode",
@@ -179,7 +192,7 @@ private enum LocalSenseVoiceRuntime {
             return LocalSenseVoiceWorkerExecution(
                 success: false,
                 message: "无法启动本地 SenseVoice worker。",
-                hint: "请确认本机已安装 python3，并可在终端执行。",
+                hint: "请先在模型页准备本地运行环境，再重试。",
                 transcript: "",
                 backend: nil
             )

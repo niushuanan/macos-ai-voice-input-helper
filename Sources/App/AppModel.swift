@@ -6,12 +6,13 @@ import Foundation
 final class AppModel: ObservableObject {
     let controlCenterState: ControlCenterState
     let sessionStore: SessionStore
-    let hotkeyCoordinator: HotkeyCoordinator
+    let hotkeyStateStore: HotkeyStateStore
     let globalHotkeyService: GlobalHotkeyService
     let interactionCoordinator: InteractionCoordinator
     let audioCaptureService: AudioCaptureService
     let skillRuleStore: SkillRuleStore
     let providerSettingsStore: ProviderSettingsStore
+    let localSenseVoiceRuntimeManager: LocalSenseVoiceRuntimeManager
     let speechProviderRegistry: SpeechProviderRegistry
     let rewriteProviderRegistry: RewriteProviderRegistry
     let textOutputCoordinator: TextOutputCoordinator
@@ -27,12 +28,13 @@ final class AppModel: ObservableObject {
     init(
         controlCenterState: ControlCenterState,
         sessionStore: SessionStore,
-        hotkeyCoordinator: HotkeyCoordinator,
+        hotkeyStateStore: HotkeyStateStore,
         globalHotkeyService: GlobalHotkeyService,
         interactionCoordinator: InteractionCoordinator,
         audioCaptureService: AudioCaptureService,
         skillRuleStore: SkillRuleStore,
         providerSettingsStore: ProviderSettingsStore,
+        localSenseVoiceRuntimeManager: LocalSenseVoiceRuntimeManager,
         speechProviderRegistry: SpeechProviderRegistry,
         rewriteProviderRegistry: RewriteProviderRegistry,
         textOutputCoordinator: TextOutputCoordinator,
@@ -46,12 +48,13 @@ final class AppModel: ObservableObject {
     ) {
         self.controlCenterState = controlCenterState
         self.sessionStore = sessionStore
-        self.hotkeyCoordinator = hotkeyCoordinator
+        self.hotkeyStateStore = hotkeyStateStore
         self.globalHotkeyService = globalHotkeyService
         self.interactionCoordinator = interactionCoordinator
         self.audioCaptureService = audioCaptureService
         self.skillRuleStore = skillRuleStore
         self.providerSettingsStore = providerSettingsStore
+        self.localSenseVoiceRuntimeManager = localSenseVoiceRuntimeManager
         self.speechProviderRegistry = speechProviderRegistry
         self.rewriteProviderRegistry = rewriteProviderRegistry
         self.textOutputCoordinator = textOutputCoordinator
@@ -68,6 +71,7 @@ final class AppModel: ObservableObject {
         bindStatusPulse()
         bindAppLifecycle()
         activateGlobalHotkeys()
+        probeLocalSenseVoiceRuntime()
     }
 
     static func bootstrap() -> AppModel {
@@ -77,9 +81,10 @@ final class AppModel: ObservableObject {
         let audioCaptureService = AVAudioRecorderCaptureService(temporaryDirectory: store.temporaryAudioDirectory)
         let skillRuleStore = SkillRuleStore()
         let providerSettingsStore = ProviderSettingsStore(
-            credentialStore: CachedProviderCredentialStore(
-                upstream: KeychainProviderCredentialStore()
-            )
+            credentialStore: KeychainProviderCredentialStore()
+        )
+        let localSenseVoiceRuntimeManager = LocalSenseVoiceRuntimeManager(
+            runtimeRoot: store.senseVoiceRuntimeDirectory
         )
         let speechProviderRegistry = SpeechProviderRegistry(
             providers: [
@@ -114,12 +119,13 @@ final class AppModel: ObservableObject {
         return AppModel(
             controlCenterState: controlCenterState,
             sessionStore: sessionStore,
-            hotkeyCoordinator: HotkeyCoordinator.defaultConfiguration,
+            hotkeyStateStore: HotkeyStateStore(),
             globalHotkeyService: GlobalHotkeyService(interactionCoordinator: interactionCoordinator),
             interactionCoordinator: interactionCoordinator,
             audioCaptureService: audioCaptureService,
             skillRuleStore: skillRuleStore,
             providerSettingsStore: providerSettingsStore,
+            localSenseVoiceRuntimeManager: localSenseVoiceRuntimeManager,
             speechProviderRegistry: speechProviderRegistry,
             rewriteProviderRegistry: rewriteProviderRegistry,
             textOutputCoordinator: textOutputCoordinator,
@@ -155,6 +161,14 @@ final class AppModel: ObservableObject {
                 self?.permissionsCenter.refreshStatuses()
             }
             .store(in: &cancellables)
+    }
+
+    private func probeLocalSenseVoiceRuntime() {
+        Task {
+            await localSenseVoiceRuntimeManager.detect(
+                modelDirectoryPath: providerSettingsStore.asrConfig.localModelPath
+            )
+        }
     }
 
     private func migrateLegacyLocalState() {

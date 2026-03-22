@@ -6,6 +6,7 @@ struct MenuBarMenuView: View {
     let model: AppModel
     @ObservedObject private var permissionsCenter: PermissionsCenter
     @ObservedObject private var providerSettingsStore: ProviderSettingsStore
+    @ObservedObject private var hotkeyStateStore: HotkeyStateStore
 
     @Environment(\.openWindow) private var openWindow
 
@@ -13,6 +14,7 @@ struct MenuBarMenuView: View {
         self.model = model
         _permissionsCenter = ObservedObject(wrappedValue: model.permissionsCenter)
         _providerSettingsStore = ObservedObject(wrappedValue: model.providerSettingsStore)
+        _hotkeyStateStore = ObservedObject(wrappedValue: model.hotkeyStateStore)
     }
 
     var body: some View {
@@ -24,6 +26,12 @@ struct MenuBarMenuView: View {
             .font(.caption2)
             .foregroundStyle(.secondary)
         Text("改写：\(providerSettingsStore.selectedRewriteProviderName)")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        Text("主键：\(hotkeyStateStore.wakeShortcutText)")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        Text("取消键：\(hotkeyStateStore.cancelShortcutText)")
             .font(.caption2)
             .foregroundStyle(.secondary)
 
@@ -74,6 +82,7 @@ struct MenuBarMenuView: View {
         }
         .onAppear {
             permissionsCenter.refreshStatuses()
+            hotkeyStateStore.refresh()
         }
     }
 
