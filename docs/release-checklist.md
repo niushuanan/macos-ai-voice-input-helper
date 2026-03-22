@@ -32,7 +32,7 @@
 - [ ] History entry deletion works
 - [ ] "Delete all history" works
 - [ ] API keys remain in Keychain only
-- [ ] Keychain service is v3 (`com.niushuanan.PulseType.provider-profile.v3`)
+- [ ] Keychain service is v4 (`com.niushuanan.PulseType.provider-profile.v4`)
 - [ ] Temporary audio files are cleaned by lifecycle and stale purge
 
 ## UX readiness
@@ -47,6 +47,7 @@
 - [ ] README reflects current capabilities and limits
 - [ ] Installation steps validated on a clean machine
 - [ ] Single-version local update steps validated
+- [ ] In-app key entry validated on `/Applications/PulseType.app`
 - [ ] Usage guide validated
 - [ ] API key setup guide validated
 - [ ] Known compatibility limits are documented

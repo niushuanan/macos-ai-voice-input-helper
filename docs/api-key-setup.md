@@ -24,7 +24,7 @@
 
 ## 本地初始化密钥（两种方式）
 
-推荐方式（更稳定）：直接在 App 的 `模型` 页面输入并保存。  
+推荐方式（更稳定）：先用 `./scripts/install-local-app.sh` 安装到 `/Applications/PulseType.app`，再直接在 App 的 `模型` 页面输入并保存。  
 兼容方式：运行脚本批量写入 Keychain。
 
 在项目根目录执行：
@@ -33,13 +33,13 @@
 ./scripts/setup-local-keys.sh
 ```
 
-脚本会交互录入两把密钥，并写入 Keychain v3 服务：
+脚本会交互录入两把密钥，并写入 Keychain v4 服务：
 
-- 服务名：`com.niushuanan.PulseType.provider-profile.v3`
+- 服务名：`com.niushuanan.PulseType.provider-profile.v4`
 - ASR key：`asr.primary`
 - 文本 key：`text.primary`
 
-如果脚本写入后仍出现访问提示，可在模型页再点一次“保存”，让当前 App 进程重绑权限。
+如果脚本写入后状态仍异常，以 App 内重新保存为准。
 
 可选：安装提交前密钥扫描钩子：
 
@@ -88,4 +88,4 @@
 - 401：密钥错误、未保存或额度策略不允许。
 - 404：地址或路径不对。
 - 429：额度不足或触发限流。
-- 本地 SenseVoice 失败：模型目录不完整，或本机 Python 依赖缺失。
+- 本地 SenseVoice 失败：模型目录不完整，或本地运行环境还没准备完成。

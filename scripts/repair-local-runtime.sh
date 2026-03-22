@@ -5,7 +5,11 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_ID="com.niushuanan.PulseType"
 APP_NAME="PulseType"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
-REPAIR_FLAG_KEY="providers.keychain.rebind.required"
+declare -a LEGACY_KEYCHAIN_SERVICES=(
+  "com.niushuanan.PulseType.provider-profile"
+  "com.niushuanan.PulseType.provider-profile.v2"
+  "com.niushuanan.PulseType.provider-profile.v3"
+)
 
 echo "PulseType 一次性修复开始..."
 
@@ -59,9 +63,15 @@ tccutil reset Microphone "$APP_ID" || true
 echo "  - 已执行 tcc reset"
 
 echo
-echo "5) 标记密钥需要重绑（只影响本机）"
-defaults write "$APP_ID" "$REPAIR_FLAG_KEY" -bool YES
-echo "  - defaults write $APP_ID $REPAIR_FLAG_KEY = YES"
+echo "5) 清理旧钥匙串条目与废弃偏好"
+for svc in "${LEGACY_KEYCHAIN_SERVICES[@]}"; do
+  for acc in asr.primary text.primary; do
+    security delete-generic-password -s "$svc" -a "$acc" >/dev/null 2>&1 || true
+  done
+done
+defaults delete "$APP_ID" "providers.keychain.rebind.required" >/dev/null 2>&1 || true
+defaults delete "$APP_ID" "KeyboardShortcuts_stopSession" >/dev/null 2>&1 || true
+echo "  - 旧钥匙串服务与废弃本地标记已清理"
 
 echo
 echo "修复步骤已执行。下一步："

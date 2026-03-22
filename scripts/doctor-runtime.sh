@@ -7,6 +7,7 @@ APP_INSTALL_PATH="/Applications/PulseType.app"
 KEYCHAIN_SERVICE_V1="com.niushuanan.PulseType.provider-profile"
 KEYCHAIN_SERVICE_V2="com.niushuanan.PulseType.provider-profile.v2"
 KEYCHAIN_SERVICE_V3="com.niushuanan.PulseType.provider-profile.v3"
+KEYCHAIN_SERVICE_V4="com.niushuanan.PulseType.provider-profile.v4"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
 
 print_header() {
@@ -33,6 +34,14 @@ if [[ -d "$APP_INSTALL_PATH" ]]; then
     | awk '/Executable=|Identifier=|Signature=|TeamIdentifier=|CDHash=/{print}'
 else
   echo "不存在：$APP_INSTALL_PATH"
+fi
+
+print_header "Xcode 工具链"
+echo "xcode-select: $(xcode-select -p 2>/dev/null || echo '未设置')"
+if [[ -d "/Applications/Xcode.app/Contents/Developer" ]]; then
+  echo "完整 Xcode: /Applications/Xcode.app/Contents/Developer"
+else
+  echo "完整 Xcode: 未找到"
 fi
 
 print_header "LaunchServices 记录（裁剪）"
@@ -67,7 +76,7 @@ defaults read "$APP_ID" 2>/dev/null \
   | rg "permissions\.|providers\.asr\.config|providers\.text\.config|KeyboardShortcuts_" || echo "未发现偏好数据。"
 
 print_header "钥匙串条目摘要"
-for svc in "$KEYCHAIN_SERVICE_V1" "$KEYCHAIN_SERVICE_V2" "$KEYCHAIN_SERVICE_V3"; do
+for svc in "$KEYCHAIN_SERVICE_V1" "$KEYCHAIN_SERVICE_V2" "$KEYCHAIN_SERVICE_V3" "$KEYCHAIN_SERVICE_V4"; do
   echo "-- service: $svc"
   for acc in asr.primary text.primary; do
     if security find-generic-password -s "$svc" -a "$acc" >/dev/null 2>&1; then

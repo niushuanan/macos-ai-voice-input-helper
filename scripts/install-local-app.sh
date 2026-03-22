@@ -79,6 +79,7 @@ rsync -a --delete "$SOURCE_APP/" "$DEST_APP/"
 
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
 if [[ -x "$LSREGISTER" ]]; then
+  "$LSREGISTER" -u "$SOURCE_APP" >/dev/null 2>&1 || true
   for stale in "$ROOT_DIR/build/Debug/PulseType.app" "$ROOT_DIR/build/Release/PulseType.app"; do
     if [[ -e "$stale" ]]; then
       "$LSREGISTER" -u "$stale" >/dev/null 2>&1 || true

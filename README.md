@@ -36,9 +36,9 @@ Desktop information architecture:
 
 - `首页`：会话控制、阶段状态、最近结果、今日统计
 - `记忆`：时间线、筛选（全部/普通听写/选区改写/失败）、复制/删除/清空
-- `技能`：四个可开关技能（自动润色、口语过滤、自动结构化、按应用偏好增强）
+- `技能`：四个可开关技能（自动润色、口语过滤、自动结构化、按应用风格）
 - `模型`：固定两卡（ASR/文本处理），含地址/模型/密钥/测试/最近测试结果
-- `设置`：两键热键、权限中心、场景策略、关于
+- `设置`：两键热键、权限中心、按应用风格、关于
 
 Engineering baseline:
 
@@ -72,13 +72,14 @@ Generate project:
 xcodegen generate
 ```
 
-Initialize local API keys (saved to macOS Keychain, not repo files):
+Install single local runtime first:
 
 ```bash
-./scripts/setup-local-keys.sh
+./scripts/install-local-app.sh
 ```
 
-Note: this script is a compatibility helper. For fewer keychain prompts, the recommended path is entering keys inside `模型` page.
+Then open `/Applications/PulseType.app` and enter the two API keys inside `模型` page.
+If you really need a script path, `./scripts/setup-local-keys.sh` still exists as a compatibility helper.
 
 Install local secret pre-check (optional but recommended):
 
@@ -108,19 +109,13 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   test
 ```
 
-Install single local runtime (recommended for stable permissions/keychain):
-
-```bash
-./scripts/install-local-app.sh
-```
-
 Runtime doctor:
 
 ```bash
 ./scripts/doctor-runtime.sh
 ```
 
-One-time local cleanup when permission state is stale:
+One-time local cleanup when permission or old app-path state is stale:
 
 ```bash
 ./scripts/repair-local-runtime.sh

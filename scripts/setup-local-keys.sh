@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KEYCHAIN_SERVICE="com.niushuanan.PulseType.provider-profile.v3"
+KEYCHAIN_SERVICE="com.niushuanan.PulseType.provider-profile.v4"
 ASR_ACCOUNT="asr.primary"
 TEXT_ACCOUNT="text.primary"
 TRUSTED_APP="/Applications/PulseType.app"
@@ -38,7 +38,7 @@ echo "PulseType 本地密钥初始化"
 echo "服务名：$KEYCHAIN_SERVICE"
 echo "账号位：$ASR_ACCOUNT / $TEXT_ACCOUNT"
 echo
-echo "提示：这个脚本是兼容入口，推荐优先在 App 的“模型”页保存密钥。"
+echo "提示：这个脚本仅作兼容入口，日常使用更推荐在 App 的“模型”页保存密钥。"
 echo "提示：直接回车可跳过该项。"
 echo
 

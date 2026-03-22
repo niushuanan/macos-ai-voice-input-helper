@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import Security
 
 final class KeychainProviderCredentialStore: ProviderCredentialStore {
@@ -96,7 +97,9 @@ final class KeychainProviderCredentialStore: ProviderCredentialStore {
     ) -> (OSStatus, CFTypeRef?) {
         var adjustedQuery = query
         if !allowUserInteraction {
-            adjustedQuery[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
+            let context = LAContext()
+            context.interactionNotAllowed = true
+            adjustedQuery[kSecUseAuthenticationContext as String] = context
         }
 
         var item: CFTypeRef?
