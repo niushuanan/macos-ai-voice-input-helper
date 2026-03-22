@@ -19,7 +19,7 @@ ASR 支持：
 - `DashScope Qwen ASR`
 - `OpenAI（官方）`
 - `OpenAI 兼容`
-- `本地 SenseVoice（实验）`
+- `本地 SenseVoice`
 
 文本处理支持：
 
@@ -74,6 +74,6 @@ DashScope Qwen ASR（官方）：
 ## 当前限制
 
 - DashScope Qwen ASR 已支持官方协议；其它厂商仍以 OpenAI 兼容为主线。
-- 本地 SenseVoice 处于实验阶段，依赖与模型准备由本机环境决定。
+- 本地 SenseVoice 依赖与模型准备由本机环境决定。
 - 暂未开放温度、top_p 等高级参数。
 - 测试按钮验证的是“接口可用性”，不代表业务结果质量上限。

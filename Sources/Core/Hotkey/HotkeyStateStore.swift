@@ -96,7 +96,7 @@ final class HotkeyStateStore: ObservableObject {
         self.wakeTriggerMode = Self.loadTriggerMode(
             defaults: defaults,
             key: wakeModeStorageKey,
-            fallback: .shortcut
+            fallback: .modifierTap
         )
         self.cancelTriggerMode = Self.loadTriggerMode(
             defaults: defaults,
@@ -106,7 +106,7 @@ final class HotkeyStateStore: ObservableObject {
         self.wakeModifier = Self.loadModifier(
             defaults: defaults,
             key: wakeModifierStorageKey,
-            fallback: .command
+            fallback: .option
         )
         self.cancelModifier = Self.loadModifier(
             defaults: defaults,
@@ -217,9 +217,9 @@ final class HotkeyStateStore: ObservableObject {
 
     func resetToDefaults() {
         KeyboardShortcuts.reset(.wakeSession, .cancelSession)
-        wakeTriggerMode = .shortcut
+        wakeTriggerMode = .modifierTap
         cancelTriggerMode = .shortcut
-        wakeModifier = .command
+        wakeModifier = .option
         cancelModifier = .option
         defaults.set(wakeTriggerMode.rawValue, forKey: wakeModeStorageKey)
         defaults.set(cancelTriggerMode.rawValue, forKey: cancelModeStorageKey)

@@ -39,6 +39,7 @@ struct SelectionRewriteRequest {
     let spokenInstruction: String
     let focusContext: FocusedAppContext
     let outputBias: AppOutputBias
+    let appPrompt: String?
     let userSystemPrompt: String?
 }
 
@@ -52,7 +53,7 @@ struct SelectionRewriteResult: Equatable {
 struct DictationPostProcessRequest: Equatable {
     let transcript: String
     let focusContext: FocusedAppContext
-    let outputBias: AppOutputBias
+    let appPrompt: String?
     let userSystemPrompt: String
 }
 
@@ -257,23 +258,16 @@ struct RewritePromptTemplate {
 
 struct DictationPostProcessPromptBuilder {
     func build(request: DictationPostProcessRequest) -> RewritePromptTemplate {
-        let styleInstruction: String
-        switch request.outputBias {
-        case .neutral:
-            styleInstruction = "Keep the tone neutral."
-        case .formal:
-            styleInstruction = "Make the tone formal and polished."
-        case .casual:
-            styleInstruction = "Make the tone natural and conversational."
-        case .structured:
-            styleInstruction = "Organize the text into a clear structured format when appropriate."
-        }
-
         let normalizedUserSystemPrompt = request.userSystemPrompt
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedAppPrompt = request.appPrompt?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let preferenceBlock = normalizedUserSystemPrompt.isEmpty
             ? "（无）"
             : normalizedUserSystemPrompt
+        let appPromptBlock = normalizedAppPrompt.isEmpty
+            ? "（无）"
+            : normalizedAppPrompt
 
         let systemPrompt = """
         You are a precise dictation cleanup engine.
@@ -282,15 +276,15 @@ struct DictationPostProcessPromptBuilder {
 
         User preference system instruction:
         \(preferenceBlock)
+
+        App-specific instruction:
+        \(appPromptBlock)
         """
 
         let userPrompt = """
         App context:
         - appName: \(request.focusContext.appName)
         - bundleID: \(request.focusContext.bundleID)
-
-        Style guidance:
-        \(styleInstruction)
 
         Raw transcript:
         <<<TEXT
@@ -325,6 +319,18 @@ struct RewritePromptBuilder {
 
             User preference system instruction:
             \(userSystemPrompt)
+            """
+        }
+
+        if
+            let appPrompt = request.appPrompt?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !appPrompt.isEmpty
+        {
+            systemPrompt += """
+
+            App-specific instruction:
+            \(appPrompt)
             """
         }
 
@@ -460,7 +466,7 @@ struct LLMDictationPostProcessor: DictationPostProcessor {
             request: DictationPostProcessRequest(
                 transcript: normalizedTranscript,
                 focusContext: request.focusContext,
-                outputBias: request.outputBias,
+                appPrompt: request.appPrompt,
                 userSystemPrompt: request.userSystemPrompt
             )
         )

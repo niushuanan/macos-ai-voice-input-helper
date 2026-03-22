@@ -103,6 +103,7 @@ final class AppModel: ObservableObject {
 
         migrateLegacyLocalState()
         permissionsCenter.refreshStatuses()
+        permissionsCenter.autoRequestOnLaunchIfNeeded()
         bindStatusPulse()
         bindAppLifecycle()
         activateGlobalHotkeys()
@@ -222,17 +223,17 @@ final class AppModel: ObservableObject {
         for phase: SessionPhase,
         listeningLevel: Double
     ) -> Double {
+        _ = listeningLevel
         let value: Double
         switch phase {
         case .listening:
-            let meter = max(0, min(1, listeningLevel))
-            value = 0.08 + meter * 0.30
+            value = 0.25
         case .transcribing:
-            value = 0.52
+            value = 0.50
         case .rewriting:
-            value = 0.76
+            value = 0.75
         case .inserting:
-            value = 0.92
+            value = 1.0
         case .idle:
             value = 1.0
         case .cancelled:

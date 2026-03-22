@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func presentSingleRuntimeAlert() {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "当前是 Debug 实例，已禁止继续运行"
+        alert.messageText = "当前不是 /Applications 版本，已禁止继续运行"
         alert.informativeText = """
         现在只允许 /Applications/PulseType.app 作为正式运行实例。
         可以直接同步当前版本到 /Applications 并重启。

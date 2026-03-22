@@ -22,6 +22,8 @@ final class HotkeyStateStoreTests: XCTestCase {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
         let store = HotkeyStateStore(defaults: defaults)
+        store.setTriggerMode(.shortcut, for: .wakeSession)
+        store.setTriggerMode(.shortcut, for: .cancelSession)
 
         KeyboardShortcuts.setShortcut(.init(.a, modifiers: [.command, .shift]), for: .wakeSession)
         KeyboardShortcuts.setShortcut(.init(.escape), for: .cancelSession)
@@ -45,6 +47,8 @@ final class HotkeyStateStoreTests: XCTestCase {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
         let store = HotkeyStateStore(defaults: defaults)
+        store.setTriggerMode(.shortcut, for: .wakeSession)
+        store.setTriggerMode(.shortcut, for: .cancelSession)
         let shortcut = KeyboardShortcuts.Shortcut(.space, modifiers: [.command, .option])
 
         KeyboardShortcuts.setShortcut(shortcut, for: .wakeSession)
@@ -64,9 +68,21 @@ final class HotkeyStateStoreTests: XCTestCase {
         KeyboardShortcuts.setShortcut(.init(.c, modifiers: [.option]), for: .cancelSession)
         store.resetToDefaults()
 
-        XCTAssertEqual(store.wakeShortcutText, KeyboardShortcuts.Name.wakeSession.defaultShortcut?.description.replacingOccurrences(of: "-", with: " + "))
+        XCTAssertEqual(store.wakeTriggerMode, .modifierTap)
+        XCTAssertEqual(store.wakeModifier, .option)
+        XCTAssertEqual(store.wakeShortcutText, "单击 Option")
         XCTAssertEqual(store.cancelShortcutText, KeyboardShortcuts.Name.cancelSession.defaultShortcut?.description.replacingOccurrences(of: "-", with: " + "))
         XCTAssertFalse(store.hasConflict)
+    }
+
+    func testDefaultWakeHotkeyUsesOptionModifierTap() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let store = HotkeyStateStore(defaults: defaults)
+
+        XCTAssertEqual(store.wakeTriggerMode, .modifierTap)
+        XCTAssertEqual(store.wakeModifier, .option)
+        XCTAssertEqual(store.wakeShortcutText, "单击 Option")
     }
 
     func testModifierTapModeSupportsCommandAndPersists() {

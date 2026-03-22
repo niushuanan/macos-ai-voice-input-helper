@@ -136,7 +136,10 @@ final class PermissionsCenter: ObservableObject {
     private let defaults: UserDefaults
     private let didPromptAccessibilityKey = "permissions.didPromptAccessibility"
     private let accessibilityPromptFingerprintKey = "permissions.accessibilityPromptFingerprint"
+    private let autoPromptedMicrophoneOnLaunchKey = "permissions.autoPromptedMicrophoneOnLaunch.v1"
+    private let autoPromptedAccessibilityOnLaunchKey = "permissions.autoPromptedAccessibilityOnLaunch.v1"
     private let microphoneStateResolver: (() -> PermissionState)?
+    private let microphonePromptRequester: (() -> Void)?
     private let accessibilityStateResolver: (() -> PermissionState)?
     private let isAccessibilityTrusted: (() -> Bool)?
     private let accessibilityPromptFingerprintProvider: (() -> String)?
@@ -150,6 +153,7 @@ final class PermissionsCenter: ObservableObject {
     init(
         defaults: UserDefaults = .standard,
         microphoneStateResolver: (() -> PermissionState)? = nil,
+        microphonePromptRequester: (() -> Void)? = nil,
         accessibilityStateResolver: (() -> PermissionState)? = nil,
         isAccessibilityTrusted: (() -> Bool)? = nil,
         accessibilityPromptFingerprintProvider: (() -> String)? = nil,
@@ -165,6 +169,7 @@ final class PermissionsCenter: ObservableObject {
     ) {
         self.defaults = defaults
         self.microphoneStateResolver = microphoneStateResolver
+        self.microphonePromptRequester = microphonePromptRequester
         self.accessibilityStateResolver = accessibilityStateResolver
         self.isAccessibilityTrusted = isAccessibilityTrusted
         self.accessibilityPromptFingerprintProvider = accessibilityPromptFingerprintProvider
@@ -201,6 +206,26 @@ final class PermissionsCenter: ObservableObject {
         }
     }
 
+    func autoRequestOnLaunchIfNeeded() {
+        refreshStatuses()
+
+        if
+            snapshot.microphone == .notRequested,
+            !defaults.bool(forKey: autoPromptedMicrophoneOnLaunchKey)
+        {
+            defaults.set(true, forKey: autoPromptedMicrophoneOnLaunchKey)
+            requestMicrophoneAccess()
+        }
+
+        if
+            snapshot.accessibility == .notRequested,
+            !defaults.bool(forKey: autoPromptedAccessibilityOnLaunchKey)
+        {
+            defaults.set(true, forKey: autoPromptedAccessibilityOnLaunchKey)
+            requestAccessibilityAccess()
+        }
+    }
+
     func openSystemSettings(for kind: PermissionKind) {
         let urlString: String
         switch kind {
@@ -230,6 +255,11 @@ final class PermissionsCenter: ObservableObject {
 
     private func requestMicrophoneAccess() {
         snapshot.microphone = .pending
+        if let microphonePromptRequester {
+            microphonePromptRequester()
+            refreshStatuses()
+            return
+        }
         AVCaptureDevice.requestAccess(for: .audio) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.refreshStatuses()
@@ -329,7 +359,7 @@ final class PermissionsCenter: ObservableObject {
     private func guidanceText(for kind: PermissionKind) -> String {
         switch kind {
         case .microphone:
-            return "先点“请求”，如果被拒绝，请到 系统设置 > 隐私与安全性 > 麦克风 开启 PulseType。若每次启动都重复弹窗，通常是系统里仍存在 Debug 副本，请只保留 /Applications/PulseType.app。"
+            return "先点“请求”，如果被拒绝，请到 系统设置 > 隐私与安全性 > 麦克风 开启 PulseType。若每次启动都重复弹窗，请确认只保留 /Applications/PulseType.app。"
         case .accessibility:
             return "先点“请求”，再到 系统设置 > 隐私与安全性 > 辅助功能 开启 PulseType。若列表里有多个同名项，只保留当前正在运行的 PulseType。"
         }

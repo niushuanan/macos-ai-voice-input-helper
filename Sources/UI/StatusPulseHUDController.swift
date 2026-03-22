@@ -116,7 +116,7 @@ final class StatusPulseHUDController {
         case .transcribing, .rewriting, .inserting:
             return 0.8
         case .cancelled:
-            return 0.16
+            return 0.08
         case .error:
             return 1.4
         case .idle, .listening:
@@ -148,12 +148,22 @@ private struct StatusPulseHUDView: View {
                     .lineLimit(1)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    ProgressView(value: normalizedProgress)
-                        .progressViewStyle(.linear)
-                        .tint(phaseColor)
-                    Text(progressCaption)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        ForEach(0..<4, id: \.self) { index in
+                            Capsule(style: .continuous)
+                                .fill(index <= currentStageIndex ? phaseColor : Color.secondary.opacity(0.22))
+                                .frame(height: 7)
+                        }
+                    }
+
+                    HStack(spacing: 6) {
+                        ForEach(Array(stageLabels.enumerated()), id: \.offset) { index, label in
+                            Text(label)
+                                .font(.system(size: 10, weight: index == currentStageIndex ? .semibold : .regular))
+                                .foregroundStyle(index <= currentStageIndex ? Color.primary : Color.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
                 }
             }
 
@@ -176,23 +186,23 @@ private struct StatusPulseHUDView: View {
         max(0, min(1, progress))
     }
 
-    private var progressCaption: String {
+    private var currentStageIndex: Int {
         switch phase {
         case .listening:
-            return "输入强度 \(Int(normalizedProgress * 100))%"
+            return 0
         case .transcribing:
-            return "语音转文字中"
+            return 1
         case .rewriting:
-            return "文本处理中"
-        case .inserting:
-            return "写回输入框中"
-        case .idle:
-            return "已完成"
-        case .cancelled:
-            return "已取消"
-        case .error:
-            return "处理失败"
+            return 2
+        case .inserting, .idle:
+            return 3
+        case .cancelled, .error:
+            return min(3, max(0, Int((normalizedProgress * 4).rounded(.down))))
         }
+    }
+
+    private var stageLabels: [String] {
+        ["聆听", "转写", "文本处理", "写入"]
     }
 
     private var phaseColor: Color {

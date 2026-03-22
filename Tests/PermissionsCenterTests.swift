@@ -122,6 +122,71 @@ final class PermissionsCenterTests: XCTestCase {
         XCTAssertEqual(center.runtimeDiagnostics.bundleIdentifier, "com.test.bundle")
     }
 
+    func testAutoRequestOnLaunchTriggersMicrophoneAndAccessibilityOnlyOnce() async {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        var microphoneState: PermissionState = .notRequested
+        var accessibilityState: PermissionState = .notRequested
+        var microphonePromptCount = 0
+        var accessibilityPromptCount = 0
+
+        let center = PermissionsCenter(
+            defaults: defaults,
+            microphoneStateResolver: { microphoneState },
+            microphonePromptRequester: {
+                microphonePromptCount += 1
+                microphoneState = .granted
+            },
+            accessibilityStateResolver: { accessibilityState },
+            accessibilityPromptFingerprintProvider: { "fp.current" },
+            accessibilityPromptRequester: {
+                accessibilityPromptCount += 1
+                accessibilityState = .granted
+            },
+            accessibilityPollingAttemptCount: 3,
+            accessibilityPollingIntervalNanoseconds: 1,
+            pollingSleep: { _ in }
+        )
+
+        center.autoRequestOnLaunchIfNeeded()
+        await Task.yield()
+
+        XCTAssertEqual(microphonePromptCount, 1)
+        XCTAssertEqual(accessibilityPromptCount, 1)
+
+        center.autoRequestOnLaunchIfNeeded()
+        await Task.yield()
+
+        XCTAssertEqual(microphonePromptCount, 1)
+        XCTAssertEqual(accessibilityPromptCount, 1)
+    }
+
+    func testAutoRequestOnLaunchDoesNotRetryAfterUserDenied() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        var microphoneState: PermissionState = .notRequested
+        var microphonePromptCount = 0
+
+        let center = PermissionsCenter(
+            defaults: defaults,
+            microphoneStateResolver: { microphoneState },
+            microphonePromptRequester: {
+                microphonePromptCount += 1
+                microphoneState = .denied
+            },
+            accessibilityStateResolver: { .denied },
+            accessibilityPromptFingerprintProvider: { "fp.current" }
+        )
+
+        center.autoRequestOnLaunchIfNeeded()
+        center.autoRequestOnLaunchIfNeeded()
+
+        XCTAssertEqual(microphonePromptCount, 1)
+        XCTAssertEqual(center.snapshot.microphone, .denied)
+    }
+
     private var defaultsSuiteName: String {
         "PermissionsCenterTests.\(name)"
     }

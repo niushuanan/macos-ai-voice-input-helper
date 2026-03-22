@@ -274,7 +274,7 @@ final class DashScopeAndLocalASRTests: XCTestCase {
                 configuration: SpeechProviderConfiguration(
                     profileID: "local-asr",
                     providerType: .localSenseVoice,
-                    providerName: "本地 SenseVoice（实验）",
+                    providerName: "本地 SenseVoice",
                     modelName: "sensevoice-small",
                     baseURL: URL(string: "https://local.sensevoice")!,
                     localModelPath: "/tmp/pulsetype-missing-\(UUID().uuidString)"

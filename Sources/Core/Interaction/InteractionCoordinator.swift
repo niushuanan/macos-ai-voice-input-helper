@@ -336,13 +336,13 @@ final class InteractionCoordinator {
         let scenePolicy = effectiveScenePolicy(for: focusContext)
         let skillApplyResult = skillRuleStore.applyDictation(
             transcription.transcript,
-            outputBias: scenePolicy.outputBias
+            outputBias: .neutral
         )
         let localProcessedText = skillApplyResult.text
         let postProcessResult = await postProcessDictationIfNeeded(
             text: localProcessedText,
             focusContext: focusContext,
-            outputBias: scenePolicy.outputBias
+            appPrompt: scenePolicy.appPrompt
         )
         let finalText = postProcessResult.text
         let finalTranscription = SpeechTranscriptionResult(
@@ -470,7 +470,7 @@ final class InteractionCoordinator {
 
         let quickActionLabel = (try? RewriteIntentParser().parse(
             instruction: spokenInstruction,
-            defaultOutputBias: scenePolicy.outputBias
+            defaultOutputBias: .neutral
         ).action.label)
 
         guard let snapshot = textOutputCoordinator.currentSelectionSnapshot() else {
@@ -596,7 +596,8 @@ final class InteractionCoordinator {
                     selectedText: snapshot.selectedText,
                     spokenInstruction: spokenInstruction,
                     focusContext: snapshot.focusContext,
-                    outputBias: scenePolicy.outputBias,
+                    outputBias: .neutral,
+                    appPrompt: scenePolicy.appPrompt,
                     userSystemPrompt: activeSystemPrompt
                 ),
                 configuration: rewriteConfiguration,
@@ -604,7 +605,7 @@ final class InteractionCoordinator {
             )
             let outputApplyResult = skillRuleStore.applyRewriteOutput(
                 rewriteResult.rewrittenText,
-                outputBias: scenePolicy.outputBias
+                outputBias: .neutral
             )
             let combinedSkills = mergedSkills(
                 lhs: instructionApplyResult.appliedSkills,
@@ -853,8 +854,7 @@ final class InteractionCoordinator {
             return AppScenePolicy(
                 appName: context.appName,
                 bundleID: context.bundleID,
-                outputBias: .neutral,
-                preferSelectionRewrite: false
+                appPrompt: ""
             )
         }
         return appScenePolicyStore.policy(for: context)
@@ -880,11 +880,12 @@ final class InteractionCoordinator {
     private func postProcessDictationIfNeeded(
         text: String,
         focusContext: FocusedAppContext,
-        outputBias: AppOutputBias
+        appPrompt: String
     ) async -> DictationPostProcessOutcome {
         let userSystemPrompt = skillRuleStore.activeSystemPrompt()?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !userSystemPrompt.isEmpty else {
+        let normalizedAppPrompt = appPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !userSystemPrompt.isEmpty || !normalizedAppPrompt.isEmpty else {
             return DictationPostProcessOutcome(
                 text: text,
                 appliedSkills: [],
@@ -898,7 +899,7 @@ final class InteractionCoordinator {
             return DictationPostProcessOutcome(
                 text: text,
                 appliedSkills: [],
-                nonBlockingNotice: "个性提示词暂未生效（\(message)），已回退到本地处理结果。"
+                nonBlockingNotice: "文本处理模型暂未生效（\(message)），已退回本地结果。"
             )
         }
 
@@ -908,7 +909,7 @@ final class InteractionCoordinator {
             return DictationPostProcessOutcome(
                 text: text,
                 appliedSkills: [],
-                nonBlockingNotice: "个性提示词暂未生效（缺少文本模型密钥），已回退到本地处理结果。"
+                nonBlockingNotice: "文本处理模型暂未生效（缺少密钥），已退回本地结果。"
             )
         }
 
@@ -917,22 +918,29 @@ final class InteractionCoordinator {
                 request: DictationPostProcessRequest(
                     transcript: text,
                     focusContext: focusContext,
-                    outputBias: outputBias,
+                    appPrompt: normalizedAppPrompt.isEmpty ? nil : normalizedAppPrompt,
                     userSystemPrompt: userSystemPrompt
                 ),
                 configuration: providerSettingsStore.rewriteConfiguration,
                 apiKey: apiKey
             )
+            var applied: [SkillRuleID] = []
+            if !userSystemPrompt.isEmpty {
+                applied.append(.systemPrompt)
+            }
+            if !normalizedAppPrompt.isEmpty {
+                applied.append(.appPreferenceBoost)
+            }
             return DictationPostProcessOutcome(
                 text: result.outputText,
-                appliedSkills: [.systemPrompt],
+                appliedSkills: applied,
                 nonBlockingNotice: nil
             )
         } catch {
             return DictationPostProcessOutcome(
                 text: text,
                 appliedSkills: [],
-                nonBlockingNotice: "个性提示词暂未生效（文本模型调用失败），已回退到本地处理结果。"
+                nonBlockingNotice: "文本处理模型调用失败，已退回本地结果。"
             )
         }
     }

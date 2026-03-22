@@ -63,7 +63,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         await waitForPipeline(using: fixture.sessionStore)
 
         XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "hello world")
-        XCTAssertTrue(fixture.sessionStore.statusMessage.contains("已回退到本地处理结果"))
+        XCTAssertTrue(fixture.sessionStore.statusMessage.contains("已退回本地结果"))
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "hello world")
     }
 
@@ -79,8 +79,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         fixture.appScenePolicyStore.upsertPolicy(
             appName: "TextEdit",
             bundleID: "com.apple.TextEdit",
-            outputBias: .formal,
-            preferSelectionRewrite: true
+            appPrompt: "请更正式一些。"
         )
         fixture.skillRuleStore.setEnabled(false, for: .appPreferenceBoost)
 
@@ -103,6 +102,48 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(postProcessor.callCount, 0)
         XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "hello world")
+    }
+
+    func testDictationPostProcessIncludesAppPromptWhenMatched() async throws {
+        let postProcessor = CapturingDictationPostProcessor(outputText: "处理后文本")
+        let fixture = try makeFixture(dictationPostProcessor: postProcessor)
+        defer { fixture.cleanUp() }
+
+        fixture.skillRuleStore.setEnabled(true, for: .appPreferenceBoost)
+        fixture.appScenePolicyStore.upsertPolicy(
+            appName: "TextEdit",
+            bundleID: "com.apple.TextEdit",
+            appPrompt: "请优先输出清晰结论。"
+        )
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(postProcessor.lastRequest?.appPrompt, "请优先输出清晰结论。")
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "处理后文本")
+    }
+
+    func testDisabledAppPreferenceBoostRemovesAppPromptFromPostProcess() async throws {
+        let postProcessor = CapturingDictationPostProcessor(outputText: "处理后文本")
+        let fixture = try makeFixture(dictationPostProcessor: postProcessor)
+        defer { fixture.cleanUp() }
+
+        fixture.skillRuleStore.setEnabled(true, for: .systemPrompt)
+        fixture.skillRuleStore.setParameter("保留重点。", for: .systemPrompt)
+        fixture.appScenePolicyStore.upsertPolicy(
+            appName: "TextEdit",
+            bundleID: "com.apple.TextEdit",
+            appPrompt: "请优先输出清晰结论。"
+        )
+        fixture.skillRuleStore.setEnabled(false, for: .appPreferenceBoost)
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertNil(postProcessor.lastRequest?.appPrompt)
+        XCTAssertEqual(postProcessor.lastRequest?.userSystemPrompt, "保留重点。")
     }
 
     private func makeFixture(
@@ -384,6 +425,28 @@ private final class CountingDictationPostProcessor: DictationPostProcessor {
         apiKey: String
     ) async throws -> DictationPostProcessResult {
         callCount += 1
+        return DictationPostProcessResult(
+            outputText: outputText,
+            providerName: "Fake Text",
+            modelName: "fake-model"
+        )
+    }
+}
+
+private final class CapturingDictationPostProcessor: DictationPostProcessor {
+    private(set) var lastRequest: DictationPostProcessRequest?
+    private let outputText: String
+
+    init(outputText: String) {
+        self.outputText = outputText
+    }
+
+    func process(
+        request: DictationPostProcessRequest,
+        configuration: TextGenerationProviderConfiguration,
+        apiKey: String
+    ) async throws -> DictationPostProcessResult {
+        lastRequest = request
         return DictationPostProcessResult(
             outputText: outputText,
             providerName: "Fake Text",

@@ -280,6 +280,37 @@ final class TextOutputCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.pasteFallbackCount, 1)
     }
 
+    func testPasteFallbackUsesPreferredTargetProcessIdentifier() async throws {
+        let focusContext = FocusedAppContext(
+            appName: "TextEdit",
+            bundleID: "com.apple.TextEdit",
+            focusedRole: nil,
+            hasEditableTarget: false,
+            strategyHint: "test"
+        )
+        let coordinator = TestAccessibilityTextOutputCoordinator(
+            contextDetector: StaticContextDetector(focusContext: focusContext)
+        )
+        coordinator.accessibilityError = .noEditableTarget
+        coordinator.forcedExternalTargetReady = true
+
+        let result = try await coordinator.write(
+            request: TextOutputRequest(
+                text: "hello",
+                operation: .insertText,
+                focusContext: focusContext,
+                preferredTarget: WritebackTargetSnapshot(
+                    appName: "TextEdit",
+                    bundleID: "com.apple.TextEdit",
+                    processIdentifier: 3456
+                )
+            )
+        )
+
+        XCTAssertEqual(result.path, .pasteFallbackCommandV)
+        XCTAssertEqual(coordinator.lastPasteTargetProcessIdentifier, 3456)
+    }
+
     func testClipboardOnlyPathThrowsWhenClipboardUnavailable() async {
         let focusContext = FocusedAppContext(
             appName: "PulseType",
@@ -335,6 +366,7 @@ private struct StaticContextDetector: ContextDetector {
 private final class TestAccessibilityTextOutputCoordinator: AccessibilityTextOutputCoordinator {
     var accessibilityWriteCount = 0
     var pasteFallbackCount = 0
+    var lastPasteTargetProcessIdentifier: pid_t?
     var availableTargetBundleIDs: [String] = []
     var accessibilityError: TextOutputError?
     var forcedExternalTargetReady: Bool?
@@ -360,8 +392,12 @@ private final class TestAccessibilityTextOutputCoordinator: AccessibilityTextOut
         }
     }
 
-    override func performPasteFallback(text: String) async throws {
+    override func performPasteFallback(
+        text: String,
+        targetProcessIdentifier: pid_t?
+    ) async throws {
         pasteFallbackCount += 1
+        lastPasteTargetProcessIdentifier = targetProcessIdentifier
     }
 
     override func persistToClipboard(_ text: String) -> Bool {

@@ -33,26 +33,70 @@ enum AppOutputBias: String, Codable, CaseIterable, Identifiable {
             return .neutral
         }
     }
+
+    var legacyPromptHint: String {
+        switch self {
+        case .neutral:
+            return ""
+        case .formal:
+            return "请使用更正式、专业的语气。"
+        case .casual:
+            return "请使用更自然、口语化的表达。"
+        case .structured:
+            return "请优先按清晰结构组织内容，必要时分点表达。"
+        }
+    }
 }
 
 struct AppScenePolicy: Identifiable, Codable, Equatable {
     let id: String
     var appName: String
     var bundleID: String
-    var outputBias: AppOutputBias
-    var preferSelectionRewrite: Bool
+    var appPrompt: String
 
     init(
         appName: String,
         bundleID: String,
-        outputBias: AppOutputBias,
-        preferSelectionRewrite: Bool
+        appPrompt: String
     ) {
         self.id = bundleID
         self.appName = appName
         self.bundleID = bundleID
-        self.outputBias = outputBias
-        self.preferSelectionRewrite = preferSelectionRewrite
+        self.appPrompt = appPrompt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case appName
+        case bundleID
+        case appPrompt
+        case outputBias
+        case preferSelectionRewrite
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedBundleID = try container.decode(String.self, forKey: .bundleID)
+        let decodedName = try container.decode(String.self, forKey: .appName)
+        let decodedID = try container.decodeIfPresent(String.self, forKey: .id) ?? decodedBundleID
+
+        let promptFromStorage = try container.decodeIfPresent(String.self, forKey: .appPrompt)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let legacyBias = try container.decodeIfPresent(AppOutputBias.self, forKey: .outputBias) ?? .neutral
+        let migratedPrompt = promptFromStorage.isEmpty ? legacyBias.legacyPromptHint : promptFromStorage
+
+        self.id = decodedID
+        self.appName = decodedName
+        self.bundleID = decodedBundleID
+        self.appPrompt = migratedPrompt
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(appName, forKey: .appName)
+        try container.encode(bundleID, forKey: .bundleID)
+        try container.encode(appPrompt.trimmingCharacters(in: .whitespacesAndNewlines), forKey: .appPrompt)
     }
 }
 
@@ -81,14 +125,12 @@ final class AppScenePolicyStore: ObservableObject {
 
     func upsertPolicy(
         for context: FocusedAppContext,
-        outputBias: AppOutputBias,
-        preferSelectionRewrite: Bool
+        appPrompt: String
     ) {
         let next = AppScenePolicy(
             appName: context.appName,
             bundleID: context.bundleID,
-            outputBias: outputBias,
-            preferSelectionRewrite: preferSelectionRewrite
+            appPrompt: appPrompt
         )
 
         if let index = policies.firstIndex(where: { $0.bundleID == context.bundleID }) {
@@ -102,8 +144,7 @@ final class AppScenePolicyStore: ObservableObject {
     func upsertPolicy(
         appName: String,
         bundleID: String,
-        outputBias: AppOutputBias,
-        preferSelectionRewrite: Bool
+        appPrompt: String
     ) {
         let context = FocusedAppContext(
             appName: appName,
@@ -114,8 +155,7 @@ final class AppScenePolicyStore: ObservableObject {
         )
         upsertPolicy(
             for: context,
-            outputBias: outputBias,
-            preferSelectionRewrite: preferSelectionRewrite
+            appPrompt: appPrompt
         )
     }
 
@@ -125,40 +165,10 @@ final class AppScenePolicyStore: ObservableObject {
     }
 
     private func heuristicPolicy(for context: FocusedAppContext) -> AppScenePolicy {
-        let bundleID = context.bundleID.lowercased()
-
-        if bundleID.contains("mail") || bundleID.contains("pages") {
-            return AppScenePolicy(
-                appName: context.appName,
-                bundleID: context.bundleID,
-                outputBias: .formal,
-                preferSelectionRewrite: false
-            )
-        }
-
-        if bundleID.contains("slack") || bundleID.contains("discord") || bundleID.contains("wechat") {
-            return AppScenePolicy(
-                appName: context.appName,
-                bundleID: context.bundleID,
-                outputBias: .casual,
-                preferSelectionRewrite: false
-            )
-        }
-
-        if bundleID.contains("notion") || bundleID.contains("obsidian") || bundleID.contains("notes") {
-            return AppScenePolicy(
-                appName: context.appName,
-                bundleID: context.bundleID,
-                outputBias: .structured,
-                preferSelectionRewrite: false
-            )
-        }
-
         return AppScenePolicy(
             appName: context.appName,
             bundleID: context.bundleID,
-            outputBias: .neutral,
-            preferSelectionRewrite: false
+            appPrompt: ""
         )
     }
 

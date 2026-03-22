@@ -285,14 +285,14 @@ Responsibility:
 Current implementation:
 
 - policy fields:
-  - `outputBias` (`neutral`, `formal`, `casual`, `structured`)
-  - `preferSelectionRewrite` (`Bool`)
+  - `appPrompt` (per-app prompt text)
+  - legacy decode fields retained: `outputBias`, `preferSelectionRewrite`
 - runtime usage:
-  - lane resolver can prefer rewrite lane when selection exists
-  - rewrite parser can map generic polish commands using the app policy bias
+  - when app-style toggle is on, app prompt is appended to text-model system prompt
+  - when toggle is off, scene prompt injection is skipped
 - settings surface:
-  - edit focused-app policy
-  - list and edit saved custom app policies
+  - search/select apps from installed + running list
+  - list and edit saved app prompt policies
   - remove custom policies
 
 ### History

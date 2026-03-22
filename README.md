@@ -26,9 +26,9 @@ Core product loop:
 - Dual-role model config (`ASR` + `Text`) with one-click connectivity test
 - API key input in settings, explicit save button, stored locally in app support directory
 - Default cloud model pair: `Qwen3-ASR-Flash` (ASR) + `deepseek-chat` (text)
-- Experimental local ASR option: `SenseVoice Small`
+- Local ASR option: `SenseVoice Small`
 - Local history with delete operations and app/mode/status filters
-- App-aware policy (`output bias`) with skill-page management
+- App-aware policy (`per-app prompt`) with skill-page management
 - Permission center for microphone and accessibility
 - Status feedback in menu bar, desktop control center, and HUD pulse
 
@@ -36,7 +36,7 @@ Desktop information architecture:
 
 - `首页`：会话控制、阶段状态、最近结果、今日统计
 - `记忆`：时间线、筛选（全部/普通听写/选区改写/失败）、复制/删除/清空
-- `技能`：口语过滤、个性提示词、按应用风格总开关与策略编辑
+- `技能`：口语过滤、个性提示词、按应用风格总开关与每应用提示词策略
 - `模型`：固定两卡（ASR/文本处理），含地址/模型/密钥/测试/最近测试结果
 - `设置`：两键热键、权限中心、关于
 
@@ -59,7 +59,7 @@ These tracks are documented in
 
 - Compatibility is validated on a limited app set; broad editor coverage is not complete yet.
 - AX direct insertion can still vary across target apps and app versions.
-- Local SenseVoice path is experimental and depends on local runtime/model files.
+- Local SenseVoice path depends on local runtime/model files.
 - No signed/notarized distributable package in this stage.
 
 See [docs/compatibility-matrix-v1.md](docs/compatibility-matrix-v1.md) for tested targets and known unstable scenarios.

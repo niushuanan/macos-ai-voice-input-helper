@@ -20,11 +20,12 @@ struct SettingsView: View {
     @State private var asrTesting = false
     @State private var textTesting = false
     @State private var memoryFeedback: String?
-    @State private var sceneAppNameDraft = ""
-    @State private var sceneBundleIDDraft = ""
-    @State private var sceneOutputBiasDraft: AppOutputBias = .neutral
-    @State private var sceneOriginalBundleID: String?
-    @State private var isHydratingSceneDraft = false
+    @State private var sceneSearchQuery = ""
+    @State private var scenePromptDraft = ""
+    @State private var sceneEditingBundleID: String?
+    @State private var sceneEditingAppName = ""
+    @State private var discoveredApps: [SceneAppOption] = []
+    @State private var isDiscoveringApps = false
     @State private var debouncedToastTask: Task<Void, Never>?
     @State private var debouncedSceneSaveTask: Task<Void, Never>?
 
@@ -252,8 +253,6 @@ struct SettingsView: View {
                     subtitle: "这里的偏好改完就会立刻生效。发生异常时会自动退回原始流程，不会卡住主链路。"
                 )
 
-                scenePolicySkillsCard
-
                 ForEach(skillRuleStore.visibleRules()) { rule in
                     SkillRuleCardView(
                         ruleID: rule.id,
@@ -278,6 +277,8 @@ struct SettingsView: View {
                             : "例如：嗯,啊,就是,那个,然后"
                     )
                 }
+
+                scenePolicySkillsCard
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
@@ -290,12 +291,12 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 pageHeader(
                     title: "模型",
-                    subtitle: "先配置语音识别与文本处理，再点击测试。每次测试记录会持续显示。"
+                    subtitle: "页面固定两块：语音识别、文本处理。非密钥改动会立刻生效。"
                 )
 
                 modelRoleSection(
-                    roleTitle: "ASR（语音识别）",
-                    cardTitle: "语音识别（ASR）",
+                    roleTitle: "语音识别",
+                    cardTitle: "语音识别",
                     availableProviderTypes: asrProviderOptions,
                     providerType: asrProviderTypeBinding,
                     baseURL: asrBaseURLBinding,
@@ -323,10 +324,9 @@ struct SettingsView: View {
                         modelName: providerSettingsStore.asrConfig.modelName,
                         localModelPath: providerSettingsStore.asrConfig.localModelPath
                     ),
+                    showsLocalSenseVoiceRuntimeDetails: true,
                     onTest: runASRTest
                 )
-
-                localSenseVoicePreparationCard
 
                 modelRoleSection(
                     roleTitle: "文本处理",
@@ -355,6 +355,7 @@ struct SettingsView: View {
                         baseURLString: providerSettingsStore.textConfig.baseURLString,
                         modelName: providerSettingsStore.textConfig.modelName
                     ),
+                    showsLocalSenseVoiceRuntimeDetails: false,
                     onTest: runTextTest
                 )
             }
@@ -370,69 +371,6 @@ struct SettingsView: View {
                 )
             }
         }
-    }
-
-    private var localSenseVoicePreparationCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("本地 SenseVoice")
-                    .font(.headline)
-                Text("实验")
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Capsule(style: .continuous).fill(Color.orange.opacity(0.15)))
-                    .foregroundStyle(.orange)
-                Spacer()
-            }
-
-            Text("只有本地运行环境准备完成后，ASR 列表里才会出现 SenseVoice。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 6) {
-                LabeledContent("模型目录", value: providerSettingsStore.asrConfig.localModelPath ?? defaultSenseVoiceModelPath)
-                LabeledContent("运行环境", value: localSenseVoiceRuntimeManager.runtimeRootPath)
-                LabeledContent("当前状态", value: localSenseVoiceRuntimeManager.currentStatusText)
-                if let manifest = localSenseVoiceRuntimeManager.manifest {
-                    LabeledContent("当前后端", value: manifest.backend)
-                    LabeledContent("Python", value: manifest.pythonPath)
-                }
-                if let lastCheckedAt = localSenseVoiceRuntimeManager.lastCheckedAt {
-                    LabeledContent(
-                        "最近检测",
-                        value: lastCheckedAt.formatted(date: .omitted, time: .standard)
-                    )
-                }
-            }
-            .font(.caption)
-
-            HStack {
-                Button("准备本地环境") {
-                    Task {
-                        await localSenseVoiceRuntimeManager.prepare(
-                            modelDirectoryPath: providerSettingsStore.asrConfig.localModelPath
-                        )
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isPreparingLocalSenseVoice)
-
-                Button("重新检测") {
-                    Task {
-                        await localSenseVoiceRuntimeManager.detect(
-                            modelDirectoryPath: providerSettingsStore.asrConfig.localModelPath
-                        )
-                    }
-                }
-                .buttonStyle(.bordered)
-                .disabled(isPreparingLocalSenseVoice)
-
-                Spacer()
-            }
-        }
-        .padding(14)
-        .pulseCard(cornerRadius: 12)
     }
 
     @ViewBuilder
@@ -459,6 +397,7 @@ struct SettingsView: View {
         testButtonTitle: String,
         latestResult: ConnectionTestResult?,
         activeConfigLine: String,
+        showsLocalSenseVoiceRuntimeDetails: Bool,
         onTest: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -500,6 +439,13 @@ struct SettingsView: View {
                 onDeleteKey: onDeleteKey
             )
 
+            if
+                showsLocalSenseVoiceRuntimeDetails,
+                providerType.wrappedValue == .localSenseVoice
+            {
+                localSenseVoiceRuntimeInlineSection
+            }
+
             LabeledContent("当前生效配置", value: activeConfigLine)
                 .font(.caption)
 
@@ -530,6 +476,59 @@ struct SettingsView: View {
         }
         .padding(14)
         .pulseCard(cornerRadius: 12)
+    }
+
+    private var localSenseVoiceRuntimeInlineSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("本地运行信息")
+                .font(.subheadline.weight(.semibold))
+
+            VStack(alignment: .leading, spacing: 6) {
+                LabeledContent("模型目录", value: providerSettingsStore.asrConfig.localModelPath ?? defaultSenseVoiceModelPath)
+                LabeledContent("运行环境", value: localSenseVoiceRuntimeManager.runtimeRootPath)
+                LabeledContent("当前状态", value: localSenseVoiceRuntimeManager.currentStatusText)
+                if let manifest = localSenseVoiceRuntimeManager.manifest {
+                    LabeledContent("当前后端", value: manifest.backend)
+                    LabeledContent("Python", value: manifest.pythonPath)
+                }
+                if let lastCheckedAt = localSenseVoiceRuntimeManager.lastCheckedAt {
+                    LabeledContent(
+                        "最近检测",
+                        value: lastCheckedAt.formatted(date: .omitted, time: .standard)
+                    )
+                }
+            }
+            .font(.caption)
+
+            HStack {
+                Button("准备环境") {
+                    Task {
+                        await localSenseVoiceRuntimeManager.prepare(
+                            modelDirectoryPath: providerSettingsStore.asrConfig.localModelPath
+                        )
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isPreparingLocalSenseVoice)
+
+                Button("重新检测") {
+                    Task {
+                        await localSenseVoiceRuntimeManager.detect(
+                            modelDirectoryPath: providerSettingsStore.asrConfig.localModelPath
+                        )
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isPreparingLocalSenseVoice)
+
+                Spacer()
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.accentColor.opacity(0.06))
+        )
     }
 
     private var settingsPage: some View {
@@ -762,7 +761,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("按应用风格")
                         .font(.headline)
-                    Text("把应用风格总开关和策略编辑放在一起。这里的改动会自动保存并立刻生效。")
+                    Text("在这里按应用配置独立提示词。命中策略时会拼到文本模型 system prompt。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -780,73 +779,105 @@ struct SettingsView: View {
                 .labelsHidden()
             }
 
-            Text("应用名和 Bundle ID 填完整后会自动保存。这里的策略只作用于普通听写。")
+            Text("总开关关闭后，不再拼接任何应用提示词。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 8) {
-                Button("读取当前应用") {
-                    fillSceneDraftWithCurrentApp()
+                TextField("搜索应用名或 Bundle ID（来源：已安装 + 运行中）", text: $sceneSearchQuery)
+                    .textFieldStyle(.roundedBorder)
+                Button("刷新应用列表") {
+                    loadDiscoveredApps(forceReload: true)
                 }
                 .buttonStyle(.bordered)
-                Spacer()
             }
 
-            TextField("应用名（例如：Notion）", text: $sceneAppNameDraft)
-                .textFieldStyle(.roundedBorder)
-            TextField("Bundle ID（例如：notion.id）", text: $sceneBundleIDDraft)
-                .textFieldStyle(.roundedBorder)
-                .autocorrectionDisabled()
-
-            Picker("文风偏好", selection: $sceneOutputBiasDraft) {
-                ForEach(AppOutputBias.allCases) { bias in
-                    Text(bias.displayName).tag(bias)
+            if isDiscoveringApps {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                    Text("正在拉取应用列表…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .pickerStyle(.segmented)
 
-            HStack {
-                Button("新建空白策略") {
-                    clearSceneDraft()
-                    showToast("可以直接新建一条应用风格策略了。")
+            if !filteredDiscoveredApps.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(filteredDiscoveredApps.prefix(8))) { app in
+                        SceneAppCandidateRowView(
+                            app: app,
+                            onAdd: {
+                                addScenePolicy(from: app)
+                            }
+                        )
+                    }
                 }
-                .buttonStyle(.bordered)
-
-                Spacer()
+            } else if !sceneSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("没有匹配结果，请换个关键词。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
-            if appScenePolicyStore.policies.isEmpty {
-                Text("还没有手动策略，系统会按应用类型使用默认偏好。")
+            Divider()
+
+            if sortedScenePolicies.isEmpty {
+                Text("还没有策略。先在上面搜索应用并添加。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(appScenePolicyStore.policies.sorted { lhs, rhs in
-                    lhs.appName.localizedCompare(rhs.appName) == .orderedAscending
-                }) { policy in
+                ForEach(sortedScenePolicies) { policy in
                     ScenePolicyRowView(
                         policy: policy,
-                        onLoad: { loadSceneDraft(policy) },
-                        onDelete: {
-                            appScenePolicyStore.removePolicy(bundleID: policy.bundleID)
-                            if sceneOriginalBundleID == policy.bundleID {
-                                clearSceneDraft()
-                            }
-                            showToast("已删除 \(policy.appName) 的策略。")
-                        }
+                        isEditing: sceneEditingBundleID == policy.bundleID,
+                        onEdit: { beginEditingScenePolicy(policy) },
+                        onDelete: { removeScenePolicy(policy) }
                     )
                 }
+            }
+
+            if let editingPolicy = currentEditingScenePolicy {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("编辑提示词：\(editingPolicy.appName)")
+                        .font(.subheadline.weight(.semibold))
+                    Text(editingPolicy.bundleID)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                    TextEditor(text: $scenePromptDraft)
+                        .font(.system(size: 13))
+                        .frame(minHeight: 88, maxHeight: 130)
+                        .padding(6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(Color(nsColor: .textBackgroundColor))
+                                )
+                        )
+                    HStack {
+                        Button("完成编辑") {
+                            autoSaveScenePolicyIfPossible()
+                            sceneEditingBundleID = nil
+                            sceneEditingAppName = ""
+                        }
+                        .buttonStyle(.bordered)
+                        Spacer()
+                    }
+                }
+            } else {
+                Text("点“编辑”后即可输入该应用专属提示词，保存会自动生效。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .pulseCard(cornerRadius: 12)
-        .onChange(of: sceneAppNameDraft) { _, _ in
-            scheduleScenePolicyAutosave()
+        .onAppear {
+            loadDiscoveredApps(forceReload: false)
         }
-        .onChange(of: sceneBundleIDDraft) { _, _ in
-            scheduleScenePolicyAutosave()
-        }
-        .onChange(of: sceneOutputBiasDraft) { _, _ in
+        .onChange(of: scenePromptDraft) { _, _ in
             scheduleScenePolicyAutosave()
         }
     }
@@ -938,21 +969,7 @@ struct SettingsView: View {
     }
 
     private var asrProviderOptions: [ProviderType] {
-        ProviderType.allCases.filter { type in
-            guard type.supportsTranscription else {
-                return false
-            }
-            if type != .localSenseVoice {
-                return true
-            }
-            if providerSettingsStore.asrConfig.providerType == .localSenseVoice {
-                return true
-            }
-            if case .ready = localSenseVoiceRuntimeManager.state {
-                return true
-            }
-            return false
-        }
+        ProviderType.allCases.filter(\.supportsTranscription)
     }
 
     private var textProviderOptions: [ProviderType] {
@@ -1106,28 +1123,66 @@ struct SettingsView: View {
         LocalHistoryFilter.allCases.filter { $0 != .selectionRewrite }
     }
 
-    private func clearSceneDraft() {
-        debouncedSceneSaveTask?.cancel()
-        sceneAppNameDraft = ""
-        sceneBundleIDDraft = ""
-        sceneOutputBiasDraft = .neutral
-        sceneOriginalBundleID = nil
+    private var sortedScenePolicies: [AppScenePolicy] {
+        appScenePolicyStore.policies.sorted {
+            $0.appName.localizedCompare($1.appName) == .orderedAscending
+        }
     }
 
-    private func loadSceneDraft(_ policy: AppScenePolicy) {
-        isHydratingSceneDraft = true
-        sceneAppNameDraft = policy.appName
-        sceneBundleIDDraft = policy.bundleID
-        sceneOutputBiasDraft = policy.outputBias
-        sceneOriginalBundleID = policy.bundleID
-        DispatchQueue.main.async {
-            isHydratingSceneDraft = false
+    private var filteredDiscoveredApps: [SceneAppOption] {
+        let keyword = sceneSearchQuery
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !keyword.isEmpty else {
+            return []
         }
-        showToast("已载入 \(policy.appName) 的策略。")
+
+        return discoveredApps.filter { app in
+            app.appName.lowercased().contains(keyword)
+                || app.bundleID.lowercased().contains(keyword)
+        }
+    }
+
+    private var currentEditingScenePolicy: AppScenePolicy? {
+        guard let bundleID = sceneEditingBundleID else {
+            return nil
+        }
+        return appScenePolicyStore.policies.first(where: { $0.bundleID == bundleID })
+    }
+
+    private func beginEditingScenePolicy(_ policy: AppScenePolicy) {
+        debouncedSceneSaveTask?.cancel()
+        sceneEditingBundleID = policy.bundleID
+        sceneEditingAppName = policy.appName
+        scenePromptDraft = policy.appPrompt
+        showToast("已进入 \(policy.appName) 的提示词编辑。")
+    }
+
+    private func removeScenePolicy(_ policy: AppScenePolicy) {
+        appScenePolicyStore.removePolicy(bundleID: policy.bundleID)
+        if sceneEditingBundleID == policy.bundleID {
+            sceneEditingBundleID = nil
+            sceneEditingAppName = ""
+            scenePromptDraft = ""
+        }
+        showToast("已删除 \(policy.appName) 的策略。")
+    }
+
+    private func addScenePolicy(from app: SceneAppOption) {
+        let existing = appScenePolicyStore.policies.first(where: { $0.bundleID == app.bundleID })
+        appScenePolicyStore.upsertPolicy(
+            appName: app.appName,
+            bundleID: app.bundleID,
+            appPrompt: existing?.appPrompt ?? ""
+        )
+        if let latest = appScenePolicyStore.policies.first(where: { $0.bundleID == app.bundleID }) {
+            beginEditingScenePolicy(latest)
+        }
+        showToast("已添加 \(app.appName)，现在可编辑提示词。")
     }
 
     private func scheduleScenePolicyAutosave() {
-        guard !isHydratingSceneDraft else {
+        guard sceneEditingBundleID != nil else {
             return
         }
 
@@ -1144,43 +1199,131 @@ struct SettingsView: View {
     }
 
     private func autoSaveScenePolicyIfPossible() {
-        let appName = sceneAppNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let bundleID = sceneBundleIDDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !appName.isEmpty, !bundleID.isEmpty else {
+        guard let bundleID = sceneEditingBundleID else {
             return
         }
 
-        if
-            let originalBundleID = sceneOriginalBundleID,
-            originalBundleID != bundleID
-        {
-            appScenePolicyStore.removePolicy(bundleID: originalBundleID)
+        let appName = sceneEditingAppName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let appPrompt = scenePromptDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !appName.isEmpty, !bundleID.isEmpty else {
+            return
         }
 
         appScenePolicyStore.upsertPolicy(
             appName: appName,
             bundleID: bundleID,
-            outputBias: sceneOutputBiasDraft,
-            preferSelectionRewrite: false
+            appPrompt: appPrompt
         )
-        sceneOriginalBundleID = bundleID
-        showToast("\(appName) 的应用风格已更新并生效。")
+        scheduleDebouncedToast("\(appName) 的应用提示词已更新并生效。")
     }
 
-    private func fillSceneDraftWithCurrentApp() {
-        let context = model.contextDetector.focusedAppContext()
-        guard context.bundleID != Bundle.main.bundleIdentifier else {
-            showToast("请先把焦点切到目标应用的输入框，再读取。")
+    private func loadDiscoveredApps(forceReload: Bool) {
+        if isDiscoveringApps {
             return
         }
-        isHydratingSceneDraft = true
-        sceneAppNameDraft = context.appName
-        sceneBundleIDDraft = context.bundleID
-        DispatchQueue.main.async {
-            isHydratingSceneDraft = false
+        if !forceReload, !discoveredApps.isEmpty {
+            return
         }
-        scheduleScenePolicyAutosave()
-        showToast("已读取当前应用：\(context.appName)。")
+        isDiscoveringApps = true
+        Task {
+            let apps = await Task.detached(priority: .utility) {
+                Self.discoverSceneApps()
+            }.value
+            let sorted = apps.sorted {
+                $0.appName.localizedCompare($1.appName) == .orderedAscending
+            }
+            discoveredApps = Array(sorted.prefix(600))
+            isDiscoveringApps = false
+        }
+    }
+
+    nonisolated private static func discoverSceneApps() -> [SceneAppOption] {
+        var map: [String: SceneAppOption] = [:]
+
+        for app in NSWorkspace.shared.runningApplications {
+            guard
+                let bundleID = app.bundleIdentifier,
+                !bundleID.isEmpty,
+                bundleID != Bundle.main.bundleIdentifier
+            else {
+                continue
+            }
+
+            let appName = app.localizedName ?? bundleID
+            map[bundleID] = SceneAppOption(appName: appName, bundleID: bundleID)
+        }
+
+        let scanDirectories = [
+            URL(fileURLWithPath: "/Applications", isDirectory: true),
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true),
+            URL(fileURLWithPath: "/System/Applications", isDirectory: true)
+        ]
+
+        for directory in scanDirectories {
+            scanApplications(
+                in: directory,
+                depth: 0,
+                maxDepth: 2,
+                map: &map
+            )
+        }
+
+        return Array(map.values)
+    }
+
+    nonisolated private static func scanApplications(
+        in directory: URL,
+        depth: Int,
+        maxDepth: Int,
+        map: inout [String: SceneAppOption]
+    ) {
+        guard depth <= maxDepth else {
+            return
+        }
+
+        let fileManager = FileManager.default
+        guard
+            let children = try? fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+        else {
+            return
+        }
+
+        for child in children {
+            let isAppBundle = child.pathExtension.lowercased() == "app"
+            if isAppBundle {
+                guard
+                    let bundle = Bundle(url: child),
+                    let bundleID = bundle.bundleIdentifier,
+                    !bundleID.isEmpty
+                else {
+                    continue
+                }
+
+                let appName = (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+                    ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
+                    ?? child.deletingPathExtension().lastPathComponent
+                map[bundleID] = SceneAppOption(appName: appName, bundleID: bundleID)
+                continue
+            }
+
+            guard depth < maxDepth else {
+                continue
+            }
+
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: child.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                scanApplications(
+                    in: child,
+                    depth: depth + 1,
+                    maxDepth: maxDepth,
+                    map: &map
+                )
+            }
+        }
     }
 
     private func copyHistoryEntry(_ entry: SessionHistoryEntry) {
@@ -1510,7 +1653,8 @@ private struct SkillRuleCardView: View {
 
 private struct ScenePolicyRowView: View {
     let policy: AppScenePolicy
-    let onLoad: () -> Void
+    let isEditing: Bool
+    let onEdit: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -1518,9 +1662,16 @@ private struct ScenePolicyRowView: View {
             HStack {
                 Text(policy.appName)
                     .font(.subheadline.weight(.semibold))
+                if isEditing {
+                    Text("编辑中")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Capsule(style: .continuous).fill(Color.accentColor.opacity(0.14)))
+                }
                 Spacer()
-                Button("载入") {
-                    onLoad()
+                Button("编辑") {
+                    onEdit()
                 }
                 .buttonStyle(.bordered)
                 Button("删除", role: .destructive) {
@@ -1533,14 +1684,16 @@ private struct ScenePolicyRowView: View {
                 .font(.caption2.monospaced())
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 10) {
-                Label(policy.outputBias.displayName, systemImage: "textformat")
-                    .font(.caption)
-                Label(
-                    "普通听写",
-                    systemImage: "mic"
-                )
+            Text(promptPreview)
                 .font(.caption)
+                .foregroundStyle(promptPreview == "还没有专属提示词。" ? .secondary : .primary)
+                .lineLimit(2)
+
+            HStack(spacing: 8) {
+                Label("应用提示词", systemImage: "text.bubble")
+                    .font(.caption2)
+                Label("普通听写/改写", systemImage: "wand.and.stars")
+                    .font(.caption2)
             }
             .foregroundStyle(.secondary)
         }
@@ -1548,6 +1701,49 @@ private struct ScenePolicyRowView: View {
         .padding(10)
         .pulseCard(cornerRadius: 10)
     }
+
+    private var promptPreview: String {
+        let value = policy.appPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty {
+            return "还没有专属提示词。"
+        }
+        return value
+    }
+}
+
+private struct SceneAppCandidateRowView: View {
+    let app: SceneAppOption
+    let onAdd: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(app.appName)
+                    .font(.subheadline.weight(.semibold))
+                Text(app.bundleID)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button("添加") {
+                onAdd()
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white.opacity(0.65))
+        )
+    }
+}
+
+private struct SceneAppOption: Identifiable, Hashable {
+    let appName: String
+    let bundleID: String
+
+    var id: String { bundleID }
 }
 
 private struct HomeMetricCard: View {

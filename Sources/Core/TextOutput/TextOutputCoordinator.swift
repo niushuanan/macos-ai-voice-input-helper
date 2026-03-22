@@ -162,6 +162,14 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             throw TextOutputError.emptyText
         }
 
+        if let preferredTarget = request.preferredTarget {
+            logger.log(
+                "[write] preferred-target app=\(preferredTarget.appName) bundle=\(preferredTarget.bundleID) pid=\(preferredTarget.processIdentifier ?? -1)"
+            )
+        } else {
+            logger.log("[write] preferred-target none")
+        }
+
         // Keep the final text in clipboard so user can reuse it after writeback.
         let didPersistToClipboard = persistToClipboard(trimmedText)
 
@@ -218,7 +226,15 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             logger.log("[write] primary-failed reason=\(primaryReason)")
 
             do {
-                try await performPasteFallback(text: request.text)
+                let targetProcessIdentifier = resolvedTargetProcessIdentifier(
+                    preferredTarget: request.preferredTarget,
+                    resolvedFocusContext: resolvedFocusContext,
+                    fallbackFocusContext: request.focusContext
+                )
+                try await performPasteFallback(
+                    text: request.text,
+                    targetProcessIdentifier: targetProcessIdentifier
+                )
                 let result = TextOutputResult(
                     appName: resolvedFocusContext.appName,
                     bundleID: resolvedFocusContext.bundleID,
@@ -258,16 +274,17 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
     }
 
     func replaceSelectedRange(in element: AXUIElement, with text: String) throws {
-        guard let originalValue = stringAttribute(kAXValueAttribute, on: element) else {
-            let status = AXUIElementSetAttributeValue(
-                element,
-                kAXSelectedTextAttribute as CFString,
-                text as CFTypeRef
-            )
-            guard status == .success else {
-                throw TextOutputError.accessibilityPathFailed(reason: "无法直接写入选中文本。")
-            }
+        let selectedTextStatus = AXUIElementSetAttributeValue(
+            element,
+            kAXSelectedTextAttribute as CFString,
+            text as CFTypeRef
+        )
+        if selectedTextStatus == .success {
             return
+        }
+
+        guard let originalValue = stringAttribute(kAXValueAttribute, on: element) else {
+            throw TextOutputError.accessibilityPathFailed(reason: "无法写入选区文本或更新当前焦点内容。")
         }
 
         let selectedRange = selectedTextRange(for: element) ?? CFRange(location: originalValue.utf16.count, length: 0)
@@ -324,11 +341,30 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
     }
 
     func performPasteFallback(text: String) async throws {
+        try await performPasteFallback(
+            text: text,
+            targetProcessIdentifier: nil
+        )
+    }
+
+    func performPasteFallback(
+        text: String,
+        targetProcessIdentifier: pid_t?
+    ) async throws {
         guard persistToClipboard(text) else {
             throw TextOutputError.pasteboardUnavailable
         }
 
-        try triggerCommandV()
+        if
+            let targetProcessIdentifier,
+            targetProcessIdentifier > 0
+        {
+            logger.log("[write] paste-fallback target-pid=\(targetProcessIdentifier)")
+        } else {
+            logger.log("[write] paste-fallback global")
+        }
+
+        try triggerCommandV(targetProcessIdentifier: targetProcessIdentifier)
         try await Task.sleep(nanoseconds: 220_000_000)
     }
 
@@ -339,7 +375,47 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         return pasteboard.setString(text, forType: .string)
     }
 
-    func triggerCommandV() throws {
+    func triggerCommandV(targetProcessIdentifier: pid_t?) throws {
+        if
+            let targetProcessIdentifier,
+            targetProcessIdentifier > 0
+        {
+            do {
+                try postCommandV(to: targetProcessIdentifier)
+                return
+            } catch {
+                logger.log("[write] target-paste-failed pid=\(targetProcessIdentifier) reason=\(error.localizedDescription)")
+            }
+        }
+
+        try postGlobalCommandV()
+    }
+
+    func postCommandV(to processIdentifier: pid_t) throws {
+        guard
+            let source = CGEventSource(stateID: .combinedSessionState),
+            let keyDown = CGEvent(
+                keyboardEventSource: source,
+                virtualKey: CGKeyCode(kVK_ANSI_V),
+                keyDown: true
+            ),
+            let keyUp = CGEvent(
+                keyboardEventSource: source,
+                virtualKey: CGKeyCode(kVK_ANSI_V),
+                keyDown: false
+            )
+        else {
+            throw TextOutputError.pasteShortcutInjectionFailed
+        }
+
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+
+        keyDown.postToPid(processIdentifier)
+        keyUp.postToPid(processIdentifier)
+    }
+
+    func postGlobalCommandV() throws {
         guard
             let source = CGEventSource(stateID: .combinedSessionState),
             let keyDown = CGEvent(
@@ -504,7 +580,11 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             return true
         }
 
-        if currentFrontmostApplication()?.bundleIdentifier == preferredTarget.bundleID {
+        if
+            let frontmost = currentFrontmostApplication(),
+            frontmost.bundleIdentifier == preferredTarget.bundleID,
+            preferredTarget.processIdentifier == nil || frontmost.processIdentifier == preferredTarget.processIdentifier
+        {
             return true
         }
 
@@ -520,7 +600,11 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         if activated {
             await activationPauseNanoseconds()
         }
-        return activated
+        let frontmost = currentFrontmostApplication()
+        let reached = frontmost?.processIdentifier == targetApplication.processIdentifier
+            || frontmost?.bundleIdentifier == targetApplication.bundleIdentifier
+        logger.log("[write] target-frontmost bundle=\(preferredTarget.bundleID) pid=\(targetApplication.processIdentifier) ok=\(reached)")
+        return reached
     }
 
     func activateApplication(bundleID: String) async -> Bool {
@@ -536,7 +620,11 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         if activated {
             await activationPauseNanoseconds()
         }
-        return activated
+        let frontmost = currentFrontmostApplication()
+        let reached = frontmost?.processIdentifier == targetApplication.processIdentifier
+            || frontmost?.bundleIdentifier == targetApplication.bundleIdentifier
+        logger.log("[write] target-frontmost bundle=\(bundleID) pid=\(targetApplication.processIdentifier) ok=\(reached)")
+        return reached
     }
 
     func resolveTargetApplication(_ preferredTarget: WritebackTargetSnapshot) -> NSRunningApplication? {
@@ -589,6 +677,39 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         }
         let selfBundleID = Bundle.main.bundleIdentifier
         return bundleID != selfBundleID
+    }
+
+    func resolvedTargetProcessIdentifier(
+        preferredTarget: WritebackTargetSnapshot?,
+        resolvedFocusContext: FocusedAppContext,
+        fallbackFocusContext: FocusedAppContext
+    ) -> pid_t? {
+        if let processIdentifier = preferredTarget?.processIdentifier {
+            return processIdentifier
+        }
+
+        if
+            let preferredTarget,
+            let targetApplication = resolveTargetApplication(preferredTarget)
+        {
+            return targetApplication.processIdentifier
+        }
+
+        if let frontmost = currentFrontmostApplication() {
+            return frontmost.processIdentifier
+        }
+
+        if
+            let bundleID = candidateExternalBundleID(
+                resolvedFocusContext: resolvedFocusContext,
+                fallbackFocusContext: fallbackFocusContext
+            ),
+            let targetApplication = runningApplications(withBundleIdentifier: bundleID).first
+        {
+            return targetApplication.processIdentifier
+        }
+
+        return nil
     }
 }
 

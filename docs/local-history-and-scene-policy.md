@@ -78,14 +78,13 @@ This keeps behavior explainable and reduces incorrect assumptions.
 
 Each app policy stores:
 
-- `outputBias`: `neutral | formal | casual | structured`
-- `preferSelectionRewrite`: legacy field (kept for compatibility, runtime ignored)
+- `appPrompt`: per-app text instruction appended to text-model system prompt
+- legacy fields (`outputBias`, `preferSelectionRewrite`) are kept only for backward decode compatibility
 
 Runtime effects:
 
-- dictation output style is adjusted by `outputBias`
-- rewrite intent parser can map generic polish commands using scene output bias
-  - example: if bias is `structured`, generic polish commands route to structure action
+- when app-style toggle is on and policy matches, dictation/rewrite both append that app prompt
+- when app-style toggle is off, scene policy prompt injection is skipped
 
 ## Future extension path
 

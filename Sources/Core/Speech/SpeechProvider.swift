@@ -24,7 +24,7 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
         case .dashScopeQwenASR:
             return "阿里云 Qwen ASR"
         case .localSenseVoice:
-            return "本地 SenseVoice（实验）"
+            return "本地 SenseVoice"
         }
     }
 

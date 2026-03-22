@@ -51,7 +51,7 @@ enum SkillRuleID: String, CaseIterable, Codable, Identifiable {
         case .autoStructure:
             return "把长句整理成清晰分点。"
         case .appPreferenceBoost:
-            return "根据当前应用的风格偏好做微调。"
+            return "按应用附加独立提示词到文本模型。"
         case .systemPrompt:
             return "文本模型处理时会附加这段偏好说明。"
         }
@@ -202,6 +202,7 @@ final class SkillRuleStore: ObservableObject {
         outputBias: AppOutputBias,
         allowSpokenFilter: Bool
     ) -> SkillApplyResult {
+        _ = outputBias
         let base = original.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !base.isEmpty else {
             return SkillApplyResult(text: original, appliedSkills: [])
@@ -214,14 +215,6 @@ final class SkillRuleStore: ObservableObject {
             let transformed = applySpokenFilter(value, parameter: rule(for: .spokenFilter).parameter)
             if transformed != value {
                 appliedSkills.append(.spokenFilter)
-            }
-            value = transformed
-        }
-
-        if rule(for: .appPreferenceBoost).isEnabled {
-            let transformed = applyAppBias(value, outputBias: outputBias)
-            if transformed != value {
-                appliedSkills.append(.appPreferenceBoost)
             }
             value = transformed
         }
@@ -255,39 +248,6 @@ final class SkillRuleStore: ObservableObject {
             with: " ",
             options: .regularExpression
         )
-    }
-
-    private func applyStructureIfNeeded(_ text: String) -> String {
-        if text.contains("\n") {
-            return text
-        }
-
-        let separators = CharacterSet(charactersIn: "。！？!?；;.")
-        let lines = text
-            .components(separatedBy: separators)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        guard lines.count >= 2 else {
-            return text
-        }
-
-        return lines.map { "• \($0)" }.joined(separator: "\n")
-    }
-
-    private func applyAppBias(_ text: String, outputBias: AppOutputBias) -> String {
-        switch outputBias {
-        case .structured:
-            return applyStructureIfNeeded(text)
-        case .formal:
-            let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if value.hasSuffix("。") || value.hasSuffix(".") || value.hasSuffix("！") || value.hasSuffix("？") {
-                return value
-            }
-            return value + "。"
-        case .casual, .neutral:
-            return text
-        }
     }
 
     private func updateRule(for id: SkillRuleID, mutate: (inout SkillRule) -> Void) {

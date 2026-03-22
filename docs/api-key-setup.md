@@ -54,13 +54,13 @@
 - ASR 支持：
   - DashScope Qwen ASR（云端）
   - OpenAI / OpenAI 兼容（云端）
-  - 本地 SenseVoice（实验）
+  - 本地 SenseVoice
 - 文本处理支持：
   - OpenAI / OpenAI 兼容（DeepSeek 默认走这条）
 
 每张卡片都可查看“当前生效配置”与“最近测试结果”。
 
-## SenseVoice（实验）配置
+## SenseVoice 配置
 
 如果切换到本地 SenseVoice：
 
