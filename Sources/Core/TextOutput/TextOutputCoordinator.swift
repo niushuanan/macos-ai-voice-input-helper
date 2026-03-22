@@ -165,7 +165,7 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         // Keep the final text in clipboard so user can reuse it after writeback.
         let didPersistToClipboard = persistToClipboard(trimmedText)
 
-        await activatePreferredTargetIfNeeded(request.preferredTarget)
+        let preferredTargetReachable = await activatePreferredTargetIfNeeded(request.preferredTarget)
 
         let resolvedFocusContext = await resolvedEditableFocusContext(
             preferredTarget: request.preferredTarget,
@@ -174,7 +174,13 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         let startLine = "[write] app=\(resolvedFocusContext.appName) bundle=\(resolvedFocusContext.bundleID) op=\(request.operation)"
         logger.log(startLine)
 
-        guard resolvedFocusContext.hasEditableTarget else {
+        let hasPreferredTarget = request.preferredTarget != nil
+        let shouldAttemptEditorWrite =
+            resolvedFocusContext.hasEditableTarget
+            || (!hasPreferredTarget && request.focusContext.hasEditableTarget)
+            || (hasPreferredTarget && preferredTargetReachable)
+
+        guard shouldAttemptEditorWrite else {
             if !didPersistToClipboard {
                 throw TextOutputError.pasteboardUnavailable
             }
@@ -421,15 +427,15 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
     }
 
     func activateApplication(_ application: NSRunningApplication) -> Bool {
-        application.activate()
+        application.activate(options: [.activateIgnoringOtherApps])
     }
 
     func activationPauseNanoseconds() async {
-        try? await Task.sleep(nanoseconds: 180_000_000)
+        try? await Task.sleep(nanoseconds: 320_000_000)
     }
 
     func focusRetryIntervalNanoseconds() async {
-        try? await Task.sleep(nanoseconds: 120_000_000)
+        try? await Task.sleep(nanoseconds: 180_000_000)
     }
 
     func resolvedFocusContext(
@@ -463,20 +469,20 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         return fallback
     }
 
-    func activatePreferredTargetIfNeeded(_ preferredTarget: WritebackTargetSnapshot?) async {
+    func activatePreferredTargetIfNeeded(_ preferredTarget: WritebackTargetSnapshot?) async -> Bool {
         guard let preferredTarget else {
-            return
+            return true
         }
 
         if currentFrontmostApplication()?.bundleIdentifier == preferredTarget.bundleID {
-            return
+            return true
         }
 
         guard
             let targetApplication = resolveTargetApplication(preferredTarget)
         else {
             logger.log("[write] target-missing bundle=\(preferredTarget.bundleID)")
-            return
+            return false
         }
 
         let activated = activateApplication(targetApplication)
@@ -484,6 +490,7 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         if activated {
             await activationPauseNanoseconds()
         }
+        return activated
     }
 
     func resolveTargetApplication(_ preferredTarget: WritebackTargetSnapshot) -> NSRunningApplication? {
@@ -498,7 +505,7 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         preferredTarget: WritebackTargetSnapshot?,
         fallback: FocusedAppContext
     ) async -> FocusedAppContext {
-        let maxAttempts = 4
+        let maxAttempts = 6
         for attempt in 1...maxAttempts {
             let context = resolvedFocusContext(
                 preferredTarget: preferredTarget,

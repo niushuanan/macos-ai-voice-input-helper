@@ -100,7 +100,9 @@ final class StatusPulseHUDController {
         switch phase {
         case .transcribing, .rewriting, .inserting:
             return 1.0
-        case .cancelled, .error:
+        case .cancelled:
+            return 0.22
+        case .error:
             return 1.6
         case .idle, .listening:
             return 0.9
