@@ -96,6 +96,19 @@ if [[ -x "$LSREGISTER" ]]; then
   "$LSREGISTER" -gc >/dev/null 2>&1 || true
 fi
 
+if [[ "$SOURCE_APP" != "$DEST_APP" && -d "$SOURCE_APP" ]]; then
+  rm -rf "$SOURCE_APP" || true
+fi
+
+while IFS= read -r path; do
+  [[ -z "$path" || "$path" == "$DEST_APP" ]] && continue
+  case "$path" in
+    "$HOME"/Library/Developer/Xcode/DerivedData/*/Build/Products/*/PulseType.app)
+      rm -rf "$path" || true
+      ;;
+  esac
+done < <(mdfind "kMDItemCFBundleIdentifier == '$APP_ID'" 2>/dev/null || true)
+
 echo
 echo "已安装：$DEST_APP"
 codesign -dv --verbose=2 "$DEST_APP" 2>&1 | awk '/Identifier=|Signature=|TeamIdentifier=|CDHash=/{print}'
