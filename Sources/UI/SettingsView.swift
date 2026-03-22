@@ -248,7 +248,7 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 pageHeader(
-                    title: "技能",
+                    title: "Skill",
                     subtitle: "这里的偏好改完就会立刻生效。发生异常时会自动退回原始流程，不会卡住主链路。"
                 )
 

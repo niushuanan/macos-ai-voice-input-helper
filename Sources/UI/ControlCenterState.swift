@@ -17,7 +17,7 @@ enum DesktopSection: String, CaseIterable, Identifiable {
         case .memory:
             return "记忆"
         case .skills:
-            return "技能"
+            return "Skill"
         case .model:
             return "模型"
         case .settings:
