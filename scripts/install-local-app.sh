@@ -77,6 +77,15 @@ fi
 
 rsync -a --delete "$SOURCE_APP/" "$DEST_APP/"
 
+echo "应用重签名（稳定权限标识）..."
+codesign \
+  --force \
+  --deep \
+  --sign - \
+  --identifier "$APP_ID" \
+  --requirements "=designated => identifier \"$APP_ID\"" \
+  "$DEST_APP"
+
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
 if [[ -x "$LSREGISTER" ]]; then
   "$LSREGISTER" -u "$SOURCE_APP" >/dev/null 2>&1 || true
@@ -112,6 +121,7 @@ done < <(mdfind "kMDItemCFBundleIdentifier == '$APP_ID'" 2>/dev/null || true)
 echo
 echo "已安装：$DEST_APP"
 codesign -dv --verbose=2 "$DEST_APP" 2>&1 | awk '/Identifier=|Signature=|TeamIdentifier=|CDHash=/{print}'
+codesign -d -r- "$DEST_APP" 2>&1 | awk '/designated/{print}'
 echo
 echo "现在将从 /Applications 启动..."
 open "$DEST_APP"

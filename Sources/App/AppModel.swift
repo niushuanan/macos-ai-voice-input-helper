@@ -105,6 +105,7 @@ final class AppModel: ObservableObject {
         permissionsCenter.refreshStatuses()
         permissionsCenter.autoRequestOnLaunchIfNeeded()
         bindStatusPulse()
+        bindGlobalHotkeyRuntimeState()
         bindAppLifecycle()
         activateGlobalHotkeys()
         probeLocalSenseVoiceRuntime()
@@ -203,7 +204,8 @@ final class AppModel: ObservableObject {
                     progress: Self.statusProgress(
                         for: phase,
                         listeningLevel: listeningLevel
-                    )
+                    ),
+                    listeningLevel: max(0, min(1, listeningLevel))
                 )
             }
             .removeDuplicates()
@@ -213,7 +215,8 @@ final class AppModel: ObservableObject {
                     phase: payload.phase,
                     lane: payload.lane,
                     message: payload.message,
-                    progress: payload.progress
+                    progress: payload.progress,
+                    listeningLevel: payload.listeningLevel
                 )
             }
             .store(in: &cancellables)
@@ -227,13 +230,13 @@ final class AppModel: ObservableObject {
         let value: Double
         switch phase {
         case .listening:
-            value = 0.25
+            value = 0
         case .transcribing:
-            value = 0.50
+            value = 0.34
         case .rewriting:
-            value = 0.75
+            value = 0.67
         case .inserting:
-            value = 1.0
+            value = 0.94
         case .idle:
             value = 1.0
         case .cancelled:
@@ -247,6 +250,22 @@ final class AppModel: ObservableObject {
     private func activateGlobalHotkeys() {
         globalHotkeyService.activate()
         _ = audioCaptureService.purgeStaleTemporaryFiles(olderThan: 24 * 60 * 60)
+    }
+
+    private func bindGlobalHotkeyRuntimeState() {
+        sessionStore.$phase
+            .removeDuplicates()
+            .sink { [weak self] phase in
+                self?.globalHotkeyService.updateSessionPhase(phase)
+            }
+            .store(in: &cancellables)
+
+        hotkeyStateStore.$cancelTriggerMode
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.globalHotkeyService.refreshRuntimeState()
+            }
+            .store(in: &cancellables)
     }
 
     private func bindAppLifecycle() {
@@ -348,4 +367,5 @@ private struct StatusPulsePayload: Equatable {
     let lane: InputLane
     let message: String
     let progress: Double
+    let listeningLevel: Double
 }

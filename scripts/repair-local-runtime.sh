@@ -30,18 +30,13 @@ CANDIDATES+=("$ROOT_DIR/build/Debug/PulseType.app")
 CANDIDATES+=("$ROOT_DIR/build/Release/PulseType.app")
 
 if [[ -x "$LSREGISTER" ]]; then
-  declare -A SEEN=()
-  for path in "${CANDIDATES[@]}"; do
+  while IFS= read -r path; do
     [[ -z "$path" ]] && continue
-    if [[ -n "${SEEN[$path]:-}" ]]; then
-      continue
-    fi
-    SEEN[$path]=1
     if [[ -e "$path" ]]; then
       echo "  - unregister $path"
       "$LSREGISTER" -u "$path" >/dev/null 2>&1 || true
     fi
-  done
+  done < <(printf '%s\n' "${CANDIDATES[@]}" | awk 'NF && !seen[$0]++')
   "$LSREGISTER" -gc >/dev/null 2>&1 || true
 else
   echo "  - 未找到 lsregister，跳过。"

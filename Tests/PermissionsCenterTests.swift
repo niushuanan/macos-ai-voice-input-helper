@@ -6,7 +6,7 @@ final class PermissionsCenterTests: XCTestCase {
     private let didPromptKey = "permissions.didPromptAccessibility"
     private let fingerprintKey = "permissions.accessibilityPromptFingerprint"
 
-    func testAccessibilityDeniedWhenPromptedAndFingerprintMatches() {
+    func testAccessibilityNotRequestedWhenPromptedAndFingerprintMatches() {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
         defaults.set(true, forKey: didPromptKey)
@@ -20,7 +20,7 @@ final class PermissionsCenterTests: XCTestCase {
 
         center.refreshStatuses()
 
-        XCTAssertEqual(center.snapshot.accessibility, .denied)
+        XCTAssertEqual(center.snapshot.accessibility, .notRequested)
     }
 
     func testAccessibilityBecomesNotRequestedAfterBinaryFingerprintChanges() {

@@ -319,10 +319,14 @@ final class PermissionsCenter: ObservableObject {
             let promptedFingerprint = defaults.string(forKey: accessibilityPromptFingerprintKey),
             promptedFingerprint != currentAccessibilityPromptFingerprint()
         {
+            defaults.set(false, forKey: didPromptAccessibilityKey)
+            defaults.removeObject(forKey: accessibilityPromptFingerprintKey)
             return .notRequested
         }
 
-        return .denied
+        // Avoid stale "denied" when the accessibility entry was manually removed.
+        // For untrusted state we let user re-request from UI and system settings.
+        return .notRequested
     }
 
     private func detailText(for kind: PermissionKind) -> String {

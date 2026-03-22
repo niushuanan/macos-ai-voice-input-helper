@@ -10,16 +10,18 @@ final class StatusPulseHUDController {
         phase: SessionPhase,
         lane: InputLane,
         message: String,
-        progress: Double
+        progress: Double,
+        listeningLevel: Double
     ) {
-        let size = NSSize(width: 430, height: 112)
+        let size = NSSize(width: 236, height: 44)
         let panel = ensurePanel(size: size)
         panel.contentView = NSHostingView(
             rootView: StatusPulseHUDView(
                 phase: phase,
                 lane: lane,
                 message: message,
-                progress: progress
+                progress: progress,
+                listeningLevel: listeningLevel
             )
         )
 
@@ -70,7 +72,7 @@ final class StatusPulseHUDController {
 
         let origin = NSPoint(
             x: visibleFrame.midX - (size.width / 2),
-            y: visibleFrame.minY + 34
+            y: visibleFrame.minY + 30
         )
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
     }
@@ -130,95 +132,190 @@ private struct StatusPulseHUDView: View {
     let lane: InputLane
     let message: String
     let progress: Double
+    let listeningLevel: Double
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: phase.menuBarSymbol)
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(phaseColor)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("\(phase.title) · \(lane.title)")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.primary)
-
-                Text(message)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        ForEach(0..<4, id: \.self) { index in
-                            Capsule(style: .continuous)
-                                .fill(index <= currentStageIndex ? phaseColor : Color.secondary.opacity(0.22))
-                                .frame(height: 7)
-                        }
-                    }
-
-                    HStack(spacing: 6) {
-                        ForEach(Array(stageLabels.enumerated()), id: \.offset) { index, label in
-                            Text(label)
-                                .font(.system(size: 10, weight: index == currentStageIndex ? .semibold : .regular))
-                                .foregroundStyle(index <= currentStageIndex ? Color.primary : Color.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }
+        Group {
+            if phase == .listening {
+                listeningCapsule
+            } else if isThinkingPhase {
+                thinkingCapsule
+            } else {
+                feedbackCapsule
             }
-
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(phaseColor.opacity(0.30), lineWidth: 1)
-                )
-        )
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    private var normalizedListeningLevel: Double {
+        max(0, min(1, listeningLevel))
     }
 
     private var normalizedProgress: Double {
         max(0, min(1, progress))
     }
 
-    private var currentStageIndex: Int {
+    private var isThinkingPhase: Bool {
         switch phase {
-        case .listening:
-            return 0
-        case .transcribing:
-            return 1
-        case .rewriting:
-            return 2
-        case .inserting, .idle:
-            return 3
-        case .cancelled, .error:
-            return min(3, max(0, Int((normalizedProgress * 4).rounded(.down))))
+        case .transcribing, .rewriting, .inserting:
+            return true
+        case .idle, .listening, .cancelled, .error:
+            return false
         }
     }
 
-    private var stageLabels: [String] {
-        ["聆听", "转写", "文本处理", "写入"]
-    }
-
-    private var phaseColor: Color {
+    private var phaseAccentColor: Color {
         switch phase {
         case .idle:
-            return .secondary
+            return Color.black.opacity(0.56)
         case .listening:
-            return .blue
+            return Color.black.opacity(0.64)
         case .transcribing:
-            return .purple
+            return Color.black.opacity(0.60)
         case .rewriting:
-            return .orange
+            return Color.black.opacity(0.60)
         case .inserting:
-            return .green
+            return Color.black.opacity(0.64)
         case .cancelled, .error:
-            return .red
+            return Color(red: 0.53, green: 0.27, blue: 0.27)
         }
+    }
+
+    private var listeningCapsule: some View {
+        HStack(spacing: 10) {
+            Text("语音输入")
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color.black.opacity(0.78))
+                .lineLimit(1)
+
+            Capsule(style: .continuous)
+                .fill(Color.black.opacity(0.16))
+                .frame(width: 0.9, height: 13)
+
+            ListeningBars(level: normalizedListeningLevel)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .background(LiquidCapsuleBackground())
+    }
+
+    private var thinkingCapsule: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            let fillWidth = max(24, width * normalizedProgress)
+
+            ZStack(alignment: .leading) {
+                LiquidCapsuleBackground()
+
+                Capsule(style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.black.opacity(0.24),
+                                Color.black.opacity(0.16)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: fillWidth)
+                    .animation(.easeOut(duration: 0.24), value: normalizedProgress)
+
+                HStack {
+                    Spacer()
+                    Text("思考中")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color.black.opacity(0.72))
+                    Spacer()
+                }
+            }
+        }
+        .frame(height: 32)
+    }
+
+    private var feedbackCapsule: some View {
+        HStack(spacing: 8) {
+            Image(systemName: phase.menuBarSymbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(phaseAccentColor)
+            Text(message)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.black.opacity(0.74))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LiquidCapsuleBackground())
+    }
+}
+
+private struct ListeningBars: View {
+    let level: Double
+
+    private var isActive: Bool {
+        level > 0.03
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 3.6) {
+            ForEach(0..<4, id: \.self) { index in
+                Capsule(style: .continuous)
+                    .fill(Color.black.opacity(isActive ? 0.68 : 0.24))
+                    .frame(width: 2.1, height: barHeight(for: index))
+                    .animation(.easeOut(duration: 0.12), value: level)
+            }
+        }
+        .frame(width: 22, height: 14, alignment: .center)
+    }
+
+    private func barHeight(for index: Int) -> CGFloat {
+        let base: [CGFloat] = [2.8, 4.2, 3.5, 5.0]
+        let gain: [CGFloat] = [3.8, 4.8, 4.2, 5.8]
+        let normalized = CGFloat(max(0, min(1, level)))
+        let eased = sqrt(normalized)
+        return base[index] + (gain[index] * eased)
+    }
+}
+
+private struct LiquidCapsuleBackground: View {
+    var body: some View {
+        Capsule(style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.96, green: 0.97, blue: 0.98).opacity(0.94),
+                        Color(red: 0.86, green: 0.88, blue: 0.90).opacity(0.84)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.58),
+                                Color.white.opacity(0.14),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(0.64), lineWidth: 0.8)
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.black.opacity(0.10), lineWidth: 0.6)
+            )
+            .shadow(color: Color.black.opacity(0.14), radius: 8, x: 0, y: 4)
     }
 }
