@@ -191,7 +191,8 @@ struct SettingsView: View {
                         ForEach(filteredHistoryEntries) { entry in
                             MemoryRowView(
                                 entry: entry,
-                                onCopy: { copyHistoryEntry(entry) },
+                                onCopyPrimary: { copyPrimaryMemoryText(entry) },
+                                onCopyRaw: { copyRawMemoryText(entry) },
                                 onDelete: {
                                     localHistoryStore.delete(entryID: entry.id)
                                     memoryFeedback = "已删除一条记录。"
@@ -1275,18 +1276,24 @@ struct SettingsView: View {
 
     nonisolated private static func discoverSceneApps() -> [SceneAppOption] {
         var map: [String: SceneAppOption] = [:]
+        let selfBundleID = Bundle.main.bundleIdentifier
 
         for app in NSWorkspace.shared.runningApplications {
             guard
                 let bundleID = app.bundleIdentifier,
-                !bundleID.isEmpty,
-                bundleID != Bundle.main.bundleIdentifier
+                !bundleID.isEmpty
             else {
                 continue
             }
 
             let appName = app.localizedName ?? bundleID
-            map[bundleID] = SceneAppOption(appName: appName, bundleID: bundleID)
+            SceneAppDiscovery.upsertCandidate(
+                appName: appName,
+                bundleID: bundleID,
+                source: .running(activationPolicy: app.activationPolicy),
+                selfBundleID: selfBundleID,
+                map: &map
+            )
         }
 
         let scanDirectories = [
@@ -1300,6 +1307,7 @@ struct SettingsView: View {
                 in: directory,
                 depth: 0,
                 maxDepth: 2,
+                selfBundleID: selfBundleID,
                 map: &map
             )
         }
@@ -1311,6 +1319,7 @@ struct SettingsView: View {
         in directory: URL,
         depth: Int,
         maxDepth: Int,
+        selfBundleID: String?,
         map: inout [String: SceneAppOption]
     ) {
         guard depth <= maxDepth else {
@@ -1342,7 +1351,13 @@ struct SettingsView: View {
                 let appName = (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
                     ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
                     ?? child.deletingPathExtension().lastPathComponent
-                map[bundleID] = SceneAppOption(appName: appName, bundleID: bundleID)
+                SceneAppDiscovery.upsertCandidate(
+                    appName: appName,
+                    bundleID: bundleID,
+                    source: .installed,
+                    selfBundleID: selfBundleID,
+                    map: &map
+                )
                 continue
             }
 
@@ -1356,23 +1371,56 @@ struct SettingsView: View {
                     in: child,
                     depth: depth + 1,
                     maxDepth: maxDepth,
+                    selfBundleID: selfBundleID,
                     map: &map
                 )
             }
         }
     }
 
-    private func copyHistoryEntry(_ entry: SessionHistoryEntry) {
-        let text = (entry.outputText ?? entry.inputText)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else {
-            memoryFeedback = "这条记录没有可复制的文本。"
+    private func copyPrimaryMemoryText(_ entry: SessionHistoryEntry) {
+        let text: String?
+        let emptyMessage: String
+        let successMessage: String
+
+        if entry.mode == .dictation {
+            text = MemoryEntryTextResolver.primaryText(for: entry)
+            emptyMessage = "这条记录没有主文本可复制。"
+            successMessage = "已复制主文本。"
+        } else {
+            text = MemoryEntryTextResolver.defaultText(for: entry)
+            emptyMessage = "这条记录没有可复制的文本。"
+            successMessage = "已复制文本。"
+        }
+
+        guard let text else {
+            memoryFeedback = emptyMessage
             return
         }
+
+        writeTextToPasteboard(text)
+        memoryFeedback = successMessage
+    }
+
+    private func copyRawMemoryText(_ entry: SessionHistoryEntry) {
+        guard entry.mode == .dictation else {
+            memoryFeedback = "当前模式没有原始识别文本。"
+            return
+        }
+
+        guard let text = MemoryEntryTextResolver.rawText(for: entry) else {
+            memoryFeedback = "这条记录没有原始识别文本可复制。"
+            return
+        }
+
+        writeTextToPasteboard(text)
+        memoryFeedback = "已复制原始识别文本。"
+    }
+
+    private func writeTextToPasteboard(_ text: String) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
-        memoryFeedback = "已复制文本。"
     }
 
     private func showToast(_ message: String) {
@@ -1559,7 +1607,8 @@ private struct PlaceholderPageView: View {
 
 private struct MemoryRowView: View {
     let entry: SessionHistoryEntry
-    let onCopy: () -> Void
+    let onCopyPrimary: () -> Void
+    let onCopyRaw: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -1581,11 +1630,24 @@ private struct MemoryRowView: View {
                 }
             }
 
-            Text(textPreview)
-                .font(.callout)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
+            if entry.mode == .dictation {
+                MemoryTextBlockView(
+                    title: "主文本",
+                    text: primaryText ?? "暂无主文本",
+                    emphasizesPrimary: true
+                )
+                MemoryTextBlockView(
+                    title: "原始识别",
+                    text: rawText ?? "暂无原始识别",
+                    emphasizesPrimary: false
+                )
+            } else {
+                Text(singleTextPreview)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
 
             if !entry.appliedSkills.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -1607,10 +1669,26 @@ private struct MemoryRowView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("复制") {
-                    onCopy()
+
+                if entry.mode == .dictation {
+                    Button("复制主文本") {
+                        onCopyPrimary()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(primaryText == nil)
+
+                    Button("复制原始文本") {
+                        onCopyRaw()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(rawText == nil)
+                } else {
+                    Button("复制") {
+                        onCopyPrimary()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(singleCopyText == nil)
                 }
-                .buttonStyle(.bordered)
 
                 Button("删除", role: .destructive) {
                     onDelete()
@@ -1671,19 +1749,20 @@ private struct MemoryRowView: View {
         }
     }
 
-    private var textPreview: String {
-        let output = (entry.outputText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !output.isEmpty {
-            return output
-        }
-        let input = entry.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !input.isEmpty {
-            return input
-        }
-        if let error = entry.errorMessage, !error.isEmpty {
-            return error
-        }
-        return "无文本内容"
+    private var primaryText: String? {
+        MemoryEntryTextResolver.primaryText(for: entry)
+    }
+
+    private var rawText: String? {
+        MemoryEntryTextResolver.rawText(for: entry)
+    }
+
+    private var singleCopyText: String? {
+        MemoryEntryTextResolver.defaultText(for: entry)
+    }
+
+    private var singleTextPreview: String {
+        MemoryEntryTextResolver.placeholder(for: entry)
     }
 
     private var outputPathTitle: String? {
@@ -1724,6 +1803,58 @@ private struct MemoryRowView: View {
         case .clipboardOnly:
             return .orange
         }
+    }
+}
+
+private struct MemoryTextBlockView: View {
+    let title: String
+    let text: String
+    let emphasizesPrimary: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(emphasizesPrimary ? .caption.weight(.semibold) : .caption2.weight(.semibold))
+                    .foregroundStyle(emphasizesPrimary ? .primary : .secondary)
+                if emphasizesPrimary {
+                    Text("主")
+                        .font(.caption2.weight(.bold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Color.accentColor.opacity(0.14))
+                        )
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+
+            Text(text)
+                .font(emphasizesPrimary ? .callout : .subheadline)
+                .foregroundStyle(emphasizesPrimary ? .primary : .secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(
+                    emphasizesPrimary
+                        ? Color.accentColor.opacity(0.07)
+                        : Color(nsColor: .windowBackgroundColor).opacity(0.75)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(
+                            emphasizesPrimary
+                                ? Color.accentColor.opacity(0.16)
+                                : Color.primary.opacity(0.10),
+                            lineWidth: 1
+                        )
+                )
+        )
     }
 }
 
@@ -1862,13 +1993,6 @@ private struct SceneAppCandidateRowView: View {
                 .fill(Color.white.opacity(0.65))
         )
     }
-}
-
-private struct SceneAppOption: Identifiable, Hashable {
-    let appName: String
-    let bundleID: String
-
-    var id: String { bundleID }
 }
 
 private struct HomeMetricCard: View {
