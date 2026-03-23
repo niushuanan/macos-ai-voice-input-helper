@@ -116,7 +116,7 @@ struct SettingsView: View {
                     HomeMetricCard(
                         title: "总计节省时间",
                         value: durationText(controlCenterState.homeStatsSnapshot.savedTypingSeconds),
-                        subtitle: "相对打字（200 字/分钟）"
+                        subtitle: "相对打字（260 字/分钟）"
                     )
                 }
             }
@@ -848,13 +848,13 @@ struct SettingsView: View {
 
             Divider()
 
-            Label("支持快速听写与稳定写入光标位置。", systemImage: "bolt.fill")
+            Label("本地模型与云端模型可自由切换，按任务灵活选择。", systemImage: "arrow.triangle.2.circlepath.circle")
                 .font(.subheadline)
-            Label("支持按应用配置独立提示词。", systemImage: "app.badge")
+            Label("本地优先处理，隐私数据默认不上传。", systemImage: "lock.shield")
                 .font(.subheadline)
-            Label("语音流程统一 HUD，状态清晰。", systemImage: "waveform")
+            Label("可按应用场景配置独立文本处理 Prompt（如微信、GPT）。", systemImage: "text.bubble")
                 .font(.subheadline)
-            Label("本地优先，隐私数据不上传。", systemImage: "lock.shield")
+            Label("快捷键自由设定，开口即成文，减少键盘输入。", systemImage: "keyboard")
                 .font(.subheadline)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1418,7 +1418,8 @@ private struct MemoryRowView: View {
 
             Text(textPreview)
                 .font(.callout)
-                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
 
             if !entry.appliedSkills.isEmpty {
@@ -1540,7 +1541,7 @@ private struct MemoryRowView: View {
         }
         switch path {
         case .accessibilitySelectionReplacement:
-            return "text.cursor"
+            return "square.and.pencil"
         case .pasteFallbackCommandV:
             return "doc.on.clipboard"
         case .clipboardOnly:

@@ -108,7 +108,27 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertEqual(snapshot.totalInputCharacters, 8)
         XCTAssertEqual(snapshot.totalDialogueDurationSeconds, 2.0, accuracy: 0.001)
         XCTAssertEqual(snapshot.averageCharactersPerMinute, 240, accuracy: 0.001)
-        XCTAssertEqual(snapshot.savedTypingSeconds, 0.4, accuracy: 0.001)
+        XCTAssertEqual(snapshot.savedTypingSeconds, 0, accuracy: 0.001)
+    }
+
+    func testLifetimeStatisticsUsesFullTextWithoutUITruncation() throws {
+        let (store, directory) = makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let longText = String(repeating: "长", count: 600) + String(repeating: "A", count: 400)
+        store.append(
+            makeEntry(
+                mode: .dictation,
+                status: .success,
+                inputText: "ignored",
+                outputText: longText,
+                audioDurationSeconds: 120
+            )
+        )
+
+        let snapshot = store.lifetimeStatistics()
+        XCTAssertEqual(snapshot.totalInputCharacters, longText.count)
+        XCTAssertEqual(snapshot.totalDialogueDurationSeconds, 120, accuracy: 0.001)
     }
 
     func testMigrationRecalculatesLifetimeFromLegacyEntriesFile() throws {
@@ -161,6 +181,48 @@ final class LocalHistoryStoreTests: XCTestCase {
 
         let lifetimeFileURL = directory.appendingPathComponent("lifetime-stats-v1.json", isDirectory: false)
         XCTAssertTrue(FileManager.default.fileExists(atPath: lifetimeFileURL.path))
+    }
+
+    func testLoadingLegacyLifetimeSnapshotRecalculatesSavedSecondsWith260Baseline() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("history-lifetime-baseline-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+        let entries: [SessionHistoryEntry] = [
+            makeEntry(
+                mode: .dictation,
+                status: .success,
+                inputText: "12345678",
+                outputText: nil,
+                audioDurationSeconds: 2
+            )
+        ]
+        try encoder.encode(entries).write(
+            to: directory.appendingPathComponent("session-history-v1.json", isDirectory: false),
+            options: .atomic
+        )
+
+        let oldBaselineSnapshot = HistoryLifetimeSnapshot(
+            totalDialogueDurationSeconds: 2,
+            totalInputCharacters: 8,
+            averageCharactersPerMinute: 240,
+            savedTypingSeconds: 0.4
+        )
+        try encoder.encode(oldBaselineSnapshot).write(
+            to: directory.appendingPathComponent("lifetime-stats-v1.json", isDirectory: false),
+            options: .atomic
+        )
+
+        let store = LocalHistoryStore(historyDirectory: directory)
+        let snapshot = store.lifetimeStatistics()
+        XCTAssertEqual(snapshot.savedTypingSeconds, 0, accuracy: 0.001)
+        XCTAssertEqual(snapshot.totalInputCharacters, 8)
+        XCTAssertEqual(snapshot.totalDialogueDurationSeconds, 2, accuracy: 0.001)
     }
 
     func testDeleteDoesNotChangeLifetimeStatistics() throws {

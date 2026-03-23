@@ -196,7 +196,7 @@ final class LocalHistoryStore: ObservableObject {
         historyDirectory: URL,
         fileManager: FileManager = .default,
         maxEntries: Int = 3000,
-        typingBaselineCPM: Double = 200
+        typingBaselineCPM: Double = 260
     ) {
         self.fileManager = fileManager
         self.entriesFileURL = historyDirectory.appendingPathComponent("session-history-v1.json", isDirectory: false)
@@ -341,7 +341,14 @@ final class LocalHistoryStore: ObservableObject {
             return
         }
 
-        lifetimeSnapshot = decoded
+        let recalculated = makeLifetimeSnapshot(
+            totalDurationSeconds: decoded.totalDialogueDurationSeconds,
+            totalCharacters: decoded.totalInputCharacters
+        )
+        lifetimeSnapshot = recalculated
+        if recalculated != decoded {
+            persistLifetimeSnapshot()
+        }
     }
 
     private func persistLifetimeSnapshot() {
