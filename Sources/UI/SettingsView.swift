@@ -704,10 +704,6 @@ struct SettingsView: View {
             HStack(spacing: 8) {
                 TextField("搜索应用名或 Bundle ID（来源：已安装 + 运行中）", text: $sceneSearchQuery)
                     .textFieldStyle(.roundedBorder)
-                Button("刷新应用列表") {
-                    loadDiscoveredApps(forceReload: true)
-                }
-                .buttonStyle(.bordered)
             }
 
             if isDiscoveringApps {
@@ -793,7 +789,7 @@ struct SettingsView: View {
         .padding(14)
         .pulseCard(cornerRadius: 12)
         .onAppear {
-            loadDiscoveredApps(forceReload: false)
+            loadDiscoveredApps()
         }
         .onChange(of: scenePromptDraft) { _, _ in
             scheduleScenePolicyAutosave()
@@ -1143,11 +1139,11 @@ struct SettingsView: View {
         scheduleDebouncedToast("\(appName) 的应用提示词已更新并生效。")
     }
 
-    private func loadDiscoveredApps(forceReload: Bool) {
+    private func loadDiscoveredApps() {
         if isDiscoveringApps {
             return
         }
-        if !forceReload, !discoveredApps.isEmpty {
+        if !discoveredApps.isEmpty {
             return
         }
         isDiscoveringApps = true
