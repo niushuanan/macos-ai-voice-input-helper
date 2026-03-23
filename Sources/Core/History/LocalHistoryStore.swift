@@ -165,30 +165,51 @@ struct HistoryStatisticsSnapshot: Equatable {
     )
 }
 
+struct HistoryLifetimeSnapshot: Codable, Equatable {
+    let totalDialogueDurationSeconds: Double
+    let totalInputCharacters: Int
+    let averageCharactersPerMinute: Double
+    let savedTypingSeconds: Double
+
+    static let zero = HistoryLifetimeSnapshot(
+        totalDialogueDurationSeconds: 0,
+        totalInputCharacters: 0,
+        averageCharactersPerMinute: 0,
+        savedTypingSeconds: 0
+    )
+}
+
 @MainActor
 final class LocalHistoryStore: ObservableObject {
     @Published private(set) var entries: [SessionHistoryEntry] = []
+    @Published private(set) var lifetimeSnapshot: HistoryLifetimeSnapshot = .zero
 
-    private let fileURL: URL
+    private let entriesFileURL: URL
+    private let lifetimeFileURL: URL
     private let fileManager: FileManager
     private let jsonDecoder: JSONDecoder
     private let jsonEncoder: JSONEncoder
     private let maxEntries: Int
+    private let typingBaselineCPM: Double
 
     init(
         historyDirectory: URL,
         fileManager: FileManager = .default,
-        maxEntries: Int = 3000
+        maxEntries: Int = 3000,
+        typingBaselineCPM: Double = 200
     ) {
         self.fileManager = fileManager
-        self.fileURL = historyDirectory.appendingPathComponent("session-history-v1.json", isDirectory: false)
+        self.entriesFileURL = historyDirectory.appendingPathComponent("session-history-v1.json", isDirectory: false)
+        self.lifetimeFileURL = historyDirectory.appendingPathComponent("lifetime-stats-v1.json", isDirectory: false)
         self.maxEntries = maxEntries
+        self.typingBaselineCPM = typingBaselineCPM
         self.jsonDecoder = JSONDecoder()
         self.jsonDecoder.dateDecodingStrategy = .iso8601
         self.jsonEncoder = JSONEncoder()
         self.jsonEncoder.dateEncodingStrategy = .iso8601
         self.jsonEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        load()
+        loadEntries()
+        loadLifetimeSnapshot()
     }
 
     func append(_ entry: SessionHistoryEntry) {
@@ -196,19 +217,34 @@ final class LocalHistoryStore: ObservableObject {
         if entries.count > maxEntries {
             entries = Array(entries.prefix(maxEntries))
         }
-        persist()
+
+        if let contribution = lifetimeContribution(for: entry) {
+            let nextDuration = lifetimeSnapshot.totalDialogueDurationSeconds + contribution.durationSeconds
+            let nextCharacters = lifetimeSnapshot.totalInputCharacters + contribution.characters
+            lifetimeSnapshot = makeLifetimeSnapshot(
+                totalDurationSeconds: nextDuration,
+                totalCharacters: nextCharacters
+            )
+            persistLifetimeSnapshot()
+        }
+
+        persistEntries()
     }
 
     func delete(entryID: UUID) {
         entries.removeAll { $0.id == entryID }
-        persist()
+        persistEntries()
     }
 
     func clearAll() {
         entries = []
-        if fileManager.fileExists(atPath: fileURL.path) {
-            try? fileManager.removeItem(at: fileURL)
+        if fileManager.fileExists(atPath: entriesFileURL.path) {
+            try? fileManager.removeItem(at: entriesFileURL)
         }
+    }
+
+    func lifetimeStatistics() -> HistoryLifetimeSnapshot {
+        lifetimeSnapshot
     }
 
     func entries(matching filter: LocalHistoryFilter) -> [SessionHistoryEntry] {
@@ -265,14 +301,14 @@ final class LocalHistoryStore: ObservableObject {
         )
     }
 
-    private func load() {
-        guard fileManager.fileExists(atPath: fileURL.path) else {
+    private func loadEntries() {
+        guard fileManager.fileExists(atPath: entriesFileURL.path) else {
             entries = []
             return
         }
 
         guard
-            let data = try? Data(contentsOf: fileURL),
+            let data = try? Data(contentsOf: entriesFileURL),
             let loaded = try? jsonDecoder.decode([SessionHistoryEntry].self, from: data)
         else {
             entries = []
@@ -282,10 +318,106 @@ final class LocalHistoryStore: ObservableObject {
         entries = loaded.sorted(by: { $0.timestamp > $1.timestamp })
     }
 
-    private func persist() {
+    private func persistEntries() {
         guard let data = try? jsonEncoder.encode(entries) else {
             return
         }
-        try? data.write(to: fileURL, options: .atomic)
+        try? data.write(to: entriesFileURL, options: .atomic)
+    }
+
+    private func loadLifetimeSnapshot() {
+        guard fileManager.fileExists(atPath: lifetimeFileURL.path) else {
+            lifetimeSnapshot = recalculateLifetimeSnapshotFromEntries()
+            persistLifetimeSnapshot()
+            return
+        }
+
+        guard
+            let data = try? Data(contentsOf: lifetimeFileURL),
+            let decoded = try? jsonDecoder.decode(HistoryLifetimeSnapshot.self, from: data)
+        else {
+            lifetimeSnapshot = recalculateLifetimeSnapshotFromEntries()
+            persistLifetimeSnapshot()
+            return
+        }
+
+        lifetimeSnapshot = decoded
+    }
+
+    private func persistLifetimeSnapshot() {
+        guard let data = try? jsonEncoder.encode(lifetimeSnapshot) else {
+            return
+        }
+        try? data.write(to: lifetimeFileURL, options: .atomic)
+    }
+
+    private func recalculateLifetimeSnapshotFromEntries() -> HistoryLifetimeSnapshot {
+        var totalDuration: Double = 0
+        var totalCharacters: Int = 0
+
+        for entry in entries {
+            guard let contribution = lifetimeContribution(for: entry) else {
+                continue
+            }
+            totalDuration += contribution.durationSeconds
+            totalCharacters += contribution.characters
+        }
+
+        return makeLifetimeSnapshot(
+            totalDurationSeconds: totalDuration,
+            totalCharacters: totalCharacters
+        )
+    }
+
+    private func lifetimeContribution(
+        for entry: SessionHistoryEntry
+    ) -> (durationSeconds: Double, characters: Int)? {
+        guard
+            entry.mode == .dictation,
+            entry.status == .success
+        else {
+            return nil
+        }
+
+        let text = (entry.outputText ?? entry.inputText).trimmingCharacters(in: .whitespacesAndNewlines)
+        let charCount = text.count
+        guard charCount > 0 else {
+            return nil
+        }
+
+        let rawDuration = max(0, entry.audioDurationSeconds ?? 0)
+        let durationSeconds: Double
+        if rawDuration > 0 {
+            durationSeconds = rawDuration
+        } else {
+            durationSeconds = max(1.2, Double(charCount) / 4.0)
+        }
+
+        return (durationSeconds, charCount)
+    }
+
+    private func makeLifetimeSnapshot(
+        totalDurationSeconds: Double,
+        totalCharacters: Int
+    ) -> HistoryLifetimeSnapshot {
+        let safeDuration = max(0, totalDurationSeconds)
+        let safeCharacters = max(0, totalCharacters)
+
+        let averageCharactersPerMinute: Double
+        if safeDuration > 0 {
+            averageCharactersPerMinute = (Double(safeCharacters) / safeDuration) * 60
+        } else {
+            averageCharactersPerMinute = 0
+        }
+
+        let typingSeconds = (Double(safeCharacters) / max(1, typingBaselineCPM)) * 60
+        let savedTypingSeconds = max(typingSeconds - safeDuration, 0)
+
+        return HistoryLifetimeSnapshot(
+            totalDialogueDurationSeconds: safeDuration,
+            totalInputCharacters: safeCharacters,
+            averageCharactersPerMinute: averageCharactersPerMinute,
+            savedTypingSeconds: savedTypingSeconds
+        )
     }
 }

@@ -45,22 +45,16 @@ enum DesktopSection: String, CaseIterable, Identifiable {
 final class ControlCenterState: ObservableObject {
     @Published var selectedSection: DesktopSection = .home
     @Published var memoryFilter: LocalHistoryFilter = .all
-    @Published private(set) var homeStatsSnapshot: HistoryStatisticsSnapshot = .zero
+    @Published private(set) var homeStatsSnapshot: HistoryLifetimeSnapshot = .zero
 
     private var cancellables = Set<AnyCancellable>()
 
     init(localHistoryStore: LocalHistoryStore) {
-        homeStatsSnapshot = localHistoryStore.todayStatistics()
+        homeStatsSnapshot = localHistoryStore.lifetimeStatistics()
 
-        localHistoryStore.$entries
-            .sink { [weak self, weak localHistoryStore] _ in
-                guard
-                    let self,
-                    let localHistoryStore
-                else {
-                    return
-                }
-                self.homeStatsSnapshot = localHistoryStore.todayStatistics()
+        localHistoryStore.$lifetimeSnapshot
+            .sink { [weak self] snapshot in
+                self?.homeStatsSnapshot = snapshot
             }
             .store(in: &cancellables)
     }

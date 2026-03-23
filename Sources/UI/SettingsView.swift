@@ -7,7 +7,6 @@ struct SettingsView: View {
     let model: AppModel
 
     @ObservedObject private var controlCenterState: ControlCenterState
-    @ObservedObject private var sessionStore: SessionStore
     @ObservedObject private var hotkeyStateStore: HotkeyStateStore
     @ObservedObject private var permissionsCenter: PermissionsCenter
     @ObservedObject private var providerSettingsStore: ProviderSettingsStore
@@ -32,7 +31,6 @@ struct SettingsView: View {
     init(model: AppModel) {
         self.model = model
         _controlCenterState = ObservedObject(wrappedValue: model.controlCenterState)
-        _sessionStore = ObservedObject(wrappedValue: model.sessionStore)
         _hotkeyStateStore = ObservedObject(wrappedValue: model.hotkeyStateStore)
         _permissionsCenter = ObservedObject(wrappedValue: model.permissionsCenter)
         _providerSettingsStore = ObservedObject(wrappedValue: model.providerSettingsStore)
@@ -94,75 +92,31 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 pageHeader(
                     title: "首页",
-                    subtitle: "主键开始语音，聆听中再次触发会停止并进入后续处理。"
+                    subtitle: "产品亮点与累计效率数据。"
                 )
 
-                HStack(spacing: 16) {
-                    Label("主键：\(hotkeyStateStore.wakeShortcutText)", systemImage: "keyboard")
-                    Label("模式：\(sessionStore.activeLane.title)", systemImage: "slider.horizontal.3")
-                    Label("阶段：\(sessionStore.phase.title)", systemImage: sessionStore.phase.menuBarSymbol)
-                }
-                .font(.subheadline.weight(.semibold))
+                homeProductIntroCard
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("开始语音")
-                        .font(.title3.weight(.semibold))
-
-                    Text(sessionStore.statusMessage)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-
-                    if permissionsCenter.snapshot.microphone != .granted {
-                        Label("还没有麦克风权限，先在权限中心点“请求权限”。", systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    }
-
-                    HStack {
-                        Button(primaryToggleTitle) {
-                            model.interactionCoordinator.handleWakeInput(context: .dictation)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!canToggleSession)
-
-                        Button("取消当前会话", role: .destructive) {
-                            model.interactionCoordinator.handleCancelInput()
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(sessionStore.phase == .idle)
-
-                        Spacer()
-                    }
-
-                    if let latest = sessionStore.latestTranscription {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("最近结果")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                            Text(latest.transcript)
-                                .lineLimit(4)
-                                .textSelection(.enabled)
-                        }
-                    }
-                }
-                .padding(16)
-                .pulseCard(cornerRadius: 12)
-
-                HStack(spacing: 12) {
+                LazyVGrid(columns: homeMetricColumns, spacing: 12) {
                     HomeMetricCard(
-                        title: "今日时长",
-                        value: durationText(controlCenterState.homeStatsSnapshot.totalDurationSeconds),
-                        subtitle: "来自本地历史"
+                        title: "历史对话时长",
+                        value: durationText(controlCenterState.homeStatsSnapshot.totalDialogueDurationSeconds),
+                        subtitle: "仅统计成功听写"
                     )
                     HomeMetricCard(
-                        title: "今日字数",
-                        value: "\(controlCenterState.homeStatsSnapshot.totalCharacters)",
-                        subtitle: "输出文本统计"
+                        title: "历史输入字数",
+                        value: "\(controlCenterState.homeStatsSnapshot.totalInputCharacters)",
+                        subtitle: "累计写入字符"
                     )
                     HomeMetricCard(
-                        title: "当前速度",
-                        value: speedText(controlCenterState.homeStatsSnapshot.charactersPerMinute),
-                        subtitle: "字/分钟"
+                        title: "平均速度",
+                        value: speedText(controlCenterState.homeStatsSnapshot.averageCharactersPerMinute),
+                        subtitle: "字/分钟（累计）"
+                    )
+                    HomeMetricCard(
+                        title: "总计节省时间",
+                        value: durationText(controlCenterState.homeStatsSnapshot.savedTypingSeconds),
+                        subtitle: "相对打字（200 字/分钟）"
                     )
                 }
             }
@@ -195,7 +149,7 @@ struct SettingsView: View {
 
                     Button("清空记录", role: .destructive) {
                         localHistoryStore.clearAll()
-                        memoryFeedback = "本地历史已清空。"
+                        memoryFeedback = "会话明细已清空，首页累计指标保持不变。"
                     }
                     .buttonStyle(.bordered)
                     .disabled(localHistoryStore.entries.isEmpty)
@@ -541,7 +495,6 @@ struct SettingsView: View {
 
                 hotkeySettingsCard
                 permissionSettingsCard
-                aboutSettingsCard
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
@@ -882,9 +835,9 @@ struct SettingsView: View {
         }
     }
 
-    private var aboutSettingsCard: some View {
+    private var homeProductIntroCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("关于")
+            Text("产品介绍")
                 .font(.headline)
 
             LabeledContent("应用名", value: "PulseType")
@@ -892,10 +845,31 @@ struct SettingsView: View {
             LabeledContent("产品定位", value: "macOS 桌面语音输入助手")
             LabeledContent("数据策略", value: "历史、配置、诊断默认保存在本地")
             LabeledContent("密钥策略", value: "API Key 仅在本地应用目录保存（不再触发钥匙串弹窗）")
+
+            Divider()
+
+            Label("支持快速听写与稳定写入光标位置。", systemImage: "bolt.fill")
+                .font(.subheadline)
+            Label("支持按应用配置独立提示词。", systemImage: "app.badge")
+                .font(.subheadline)
+            Label("语音流程统一 HUD，状态清晰。", systemImage: "waveform")
+                .font(.subheadline)
+            Label("本地优先，隐私数据不上传。", systemImage: "lock.shield")
+                .font(.subheadline)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .pulseCard(cornerRadius: 12)
+    }
+
+    private var homeMetricColumns: [GridItem] {
+        [
+            GridItem(
+                .adaptive(minimum: 240, maximum: 360),
+                spacing: 12,
+                alignment: .top
+            )
+        ]
     }
 
     private var asrProviderTypeBinding: Binding<ProviderType> {
@@ -1011,26 +985,11 @@ struct SettingsView: View {
         return "\(type.fixedBaseURL?.absoluteString ?? "https://api.openai.com")（固定）"
     }
 
-    private var canToggleSession: Bool {
-        switch sessionStore.phase {
-        case .idle, .cancelled, .error:
-            return true
-        case .listening:
-            return true
-        case .transcribing, .rewriting, .inserting:
-            return false
-        }
-    }
-
     private var isPreparingLocalSenseVoice: Bool {
         if case .preparing = localSenseVoiceRuntimeManager.state {
             return true
         }
         return false
-    }
-
-    private var primaryToggleTitle: String {
-        sessionStore.phase == .listening ? "停止并处理" : "开始语音输入"
     }
 
     private var filteredHistoryEntries: [SessionHistoryEntry] {
