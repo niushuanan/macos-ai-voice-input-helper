@@ -23,10 +23,9 @@ final class HotkeyStateStoreTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
         let store = HotkeyStateStore(defaults: defaults)
         store.setTriggerMode(.shortcut, for: .wakeSession)
-        store.setTriggerMode(.shortcut, for: .cancelSession)
 
         KeyboardShortcuts.setShortcut(.init(.a, modifiers: [.command, .shift]), for: .wakeSession)
-        KeyboardShortcuts.setShortcut(.init(.escape), for: .cancelSession)
+        KeyboardShortcuts.setShortcut(.init(.k, modifiers: [.command]), for: .cancelSession)
         store.refresh()
 
         XCTAssertEqual(
@@ -37,7 +36,7 @@ final class HotkeyStateStoreTests: XCTestCase {
         )
         XCTAssertEqual(
             store.cancelShortcutText,
-            KeyboardShortcuts.getShortcut(for: .cancelSession)?
+            KeyboardShortcuts.Shortcut(.escape)
                 .description
                 .replacingOccurrences(of: "-", with: " + ")
         )
@@ -48,8 +47,7 @@ final class HotkeyStateStoreTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
         let store = HotkeyStateStore(defaults: defaults)
         store.setTriggerMode(.shortcut, for: .wakeSession)
-        store.setTriggerMode(.shortcut, for: .cancelSession)
-        let shortcut = KeyboardShortcuts.Shortcut(.space, modifiers: [.command, .option])
+        let shortcut = KeyboardShortcuts.Shortcut(.escape)
 
         KeyboardShortcuts.setShortcut(shortcut, for: .wakeSession)
         KeyboardShortcuts.setShortcut(shortcut, for: .cancelSession)
@@ -71,7 +69,7 @@ final class HotkeyStateStoreTests: XCTestCase {
         XCTAssertEqual(store.wakeTriggerMode, .modifierTap)
         XCTAssertEqual(store.wakeModifier, .option)
         XCTAssertEqual(store.wakeShortcutText, "单击 Option")
-        XCTAssertEqual(store.cancelShortcutText, KeyboardShortcuts.Name.cancelSession.defaultShortcut?.description.replacingOccurrences(of: "-", with: " + "))
+        XCTAssertEqual(store.cancelShortcutText, KeyboardShortcuts.Shortcut(.escape).description.replacingOccurrences(of: "-", with: " + "))
         XCTAssertFalse(store.hasConflict)
     }
 
@@ -100,19 +98,20 @@ final class HotkeyStateStoreTests: XCTestCase {
         XCTAssertTrue(store.registrationText(for: .wakeSession).contains("修饰键单击"))
     }
 
-    func testModifierTapConflictAppearsWhenTwoKeysUseSameModifier() {
+    func testCancelHotkeyIsAlwaysFixedToEscape() {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
         let store = HotkeyStateStore(defaults: defaults)
 
         store.setTriggerMode(.modifierTap, for: .wakeSession)
-        store.setTriggerMode(.modifierTap, for: .cancelSession)
         store.setModifier(.command, for: .wakeSession)
         store.setModifier(.command, for: .cancelSession)
+        KeyboardShortcuts.setShortcut(.init(.x, modifiers: [.command]), for: .cancelSession)
         store.refresh()
 
-        XCTAssertTrue(store.hasConflict)
-        XCTAssertTrue(store.conflictMessage?.contains("同一个修饰键") == true)
+        XCTAssertEqual(store.cancelTriggerMode, .shortcut)
+        XCTAssertEqual(store.cancelShortcutText, KeyboardShortcuts.Shortcut(.escape).description.replacingOccurrences(of: "-", with: " + "))
+        XCTAssertTrue(store.registrationText(for: .cancelSession).contains("Esc"))
     }
 
     private var defaultsSuiteName: String {

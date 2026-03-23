@@ -78,11 +78,13 @@ final class HotkeyStateStore: ObservableObject {
     private let now: () -> Date
     private var cancellables = Set<AnyCancellable>()
     private var hasCompletedInitialRefresh = false
+    private var isApplyingFixedCancelShortcut = false
 
     private let wakeModeStorageKey = "hotkeys.wake.mode.v1"
     private let cancelModeStorageKey = "hotkeys.cancel.mode.v1"
     private let wakeModifierStorageKey = "hotkeys.wake.modifier.v1"
     private let cancelModifierStorageKey = "hotkeys.cancel.modifier.v1"
+    private let fixedCancelShortcut = KeyboardShortcuts.Shortcut(.escape)
 
     init(
         notificationCenter: NotificationCenter = .default,
@@ -98,21 +100,13 @@ final class HotkeyStateStore: ObservableObject {
             key: wakeModeStorageKey,
             fallback: .modifierTap
         )
-        self.cancelTriggerMode = Self.loadTriggerMode(
-            defaults: defaults,
-            key: cancelModeStorageKey,
-            fallback: .shortcut
-        )
+        self.cancelTriggerMode = .shortcut
         self.wakeModifier = Self.loadModifier(
             defaults: defaults,
             key: wakeModifierStorageKey,
             fallback: .option
         )
-        self.cancelModifier = Self.loadModifier(
-            defaults: defaults,
-            key: cancelModifierStorageKey,
-            fallback: .option
-        )
+        self.cancelModifier = .option
 
         self.wakeShortcutText = "未设置"
         self.cancelShortcutText = "未设置"
@@ -121,12 +115,16 @@ final class HotkeyStateStore: ObservableObject {
         self.wakeShortcutRegistered = false
         self.cancelShortcutRegistered = false
         self.lastUpdatedAt = now()
+        enforceFixedCancelShortcut()
 
         refresh()
 
         notificationCenter.publisher(for: Self.shortcutDidChangeNotification)
             .receive(on: RunLoop.main)
             .sink { [weak self] notification in
+                guard let self else {
+                    return
+                }
                 if
                     let name = notification.userInfo?["name"] as? KeyboardShortcuts.Name,
                     name != .wakeSession,
@@ -134,7 +132,10 @@ final class HotkeyStateStore: ObservableObject {
                 {
                     return
                 }
-                self?.refresh()
+                if self.isApplyingFixedCancelShortcut {
+                    return
+                }
+                self.refresh()
             }
             .store(in: &cancellables)
     }
@@ -145,8 +146,8 @@ final class HotkeyStateStore: ObservableObject {
             wakeTriggerMode = mode
             defaults.set(mode.rawValue, forKey: wakeModeStorageKey)
         case .cancelSession:
-            cancelTriggerMode = mode
-            defaults.set(mode.rawValue, forKey: cancelModeStorageKey)
+            _ = mode
+            enforceFixedCancelShortcut()
         default:
             return
         }
@@ -159,8 +160,8 @@ final class HotkeyStateStore: ObservableObject {
             wakeModifier = modifier
             defaults.set(modifier.rawValue, forKey: wakeModifierStorageKey)
         case .cancelSession:
-            cancelModifier = modifier
-            defaults.set(modifier.rawValue, forKey: cancelModifierStorageKey)
+            _ = modifier
+            enforceFixedCancelShortcut()
         default:
             return
         }
@@ -168,11 +169,12 @@ final class HotkeyStateStore: ObservableObject {
     }
 
     func refresh() {
+        enforceFixedCancelShortcut()
         let previousWakeShortcutText = wakeShortcutText
         let previousCancelShortcutText = cancelShortcutText
 
         let wakeShortcut = KeyboardShortcuts.getShortcut(for: .wakeSession)
-        let cancelShortcut = KeyboardShortcuts.getShortcut(for: .cancelSession)
+        let cancelShortcut = fixedCancelShortcut
 
         wakeShortcutText = describeBinding(
             mode: wakeTriggerMode,
@@ -205,7 +207,7 @@ final class HotkeyStateStore: ObservableObject {
                 changes.append("主键已更新")
             }
             if previousCancelShortcutText != cancelShortcutText {
-                changes.append("取消键已更新")
+                changes.append("取消键已锁定为 Esc")
             }
             if !changes.isEmpty {
                 latestChangeMessage = changes.joined(separator: "，") + "，现在已经生效。"
@@ -216,15 +218,16 @@ final class HotkeyStateStore: ObservableObject {
     }
 
     func resetToDefaults() {
-        KeyboardShortcuts.reset(.wakeSession, .cancelSession)
+        KeyboardShortcuts.reset(.wakeSession)
+        KeyboardShortcuts.setShortcut(fixedCancelShortcut, for: .cancelSession)
         wakeTriggerMode = .modifierTap
         cancelTriggerMode = .shortcut
         wakeModifier = .option
         cancelModifier = .option
         defaults.set(wakeTriggerMode.rawValue, forKey: wakeModeStorageKey)
-        defaults.set(cancelTriggerMode.rawValue, forKey: cancelModeStorageKey)
         defaults.set(wakeModifier.rawValue, forKey: wakeModifierStorageKey)
-        defaults.set(cancelModifier.rawValue, forKey: cancelModifierStorageKey)
+        defaults.removeObject(forKey: cancelModeStorageKey)
+        defaults.removeObject(forKey: cancelModifierStorageKey)
         refresh()
     }
 
@@ -238,12 +241,7 @@ final class HotkeyStateStore: ObservableObject {
                 return wakeShortcutRegistered ? "主键监听已生效（修饰键单击）" : "主键还没有生效"
             }
         case .cancelSession:
-            switch cancelTriggerMode {
-            case .shortcut:
-                return cancelShortcutRegistered ? "取消键监听已生效（组合键）" : "取消键还没有生效"
-            case .modifierTap:
-                return cancelShortcutRegistered ? "取消键监听已生效（修饰键单击）" : "取消键还没有生效"
-            }
+            return cancelShortcutRegistered ? "取消键监听已生效（Esc）" : "取消键还没有生效（Esc）"
         default:
             return "监听状态未知"
         }
@@ -263,10 +261,8 @@ final class HotkeyStateStore: ObservableObject {
 
         if
             wakeTriggerMode == .shortcut,
-            cancelTriggerMode == .shortcut,
             let wakeShortcut,
-            let cancelShortcut,
-            wakeShortcut == cancelShortcut
+            wakeShortcut == fixedCancelShortcut
         {
             return "主键与取消键重复，会导致会话行为不明确。"
         }
@@ -301,6 +297,18 @@ final class HotkeyStateStore: ObservableObject {
             .description
             .replacingOccurrences(of: "-", with: " + ")
             ?? "未设置"
+    }
+
+    private func enforceFixedCancelShortcut() {
+        cancelTriggerMode = .shortcut
+        cancelModifier = .option
+        defaults.removeObject(forKey: cancelModeStorageKey)
+        defaults.removeObject(forKey: cancelModifierStorageKey)
+        if KeyboardShortcuts.getShortcut(for: .cancelSession) != fixedCancelShortcut {
+            isApplyingFixedCancelShortcut = true
+            KeyboardShortcuts.setShortcut(fixedCancelShortcut, for: .cancelSession)
+            isApplyingFixedCancelShortcut = false
+        }
     }
 
     private static func loadTriggerMode(

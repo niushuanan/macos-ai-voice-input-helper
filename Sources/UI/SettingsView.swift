@@ -560,49 +560,14 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("取消键")
                     .font(.subheadline.weight(.semibold))
-                Picker(
-                    "取消键触发方式",
-                    selection: Binding(
-                        get: { hotkeyStateStore.cancelTriggerMode },
-                        set: { mode in
-                            hotkeyStateStore.setTriggerMode(mode, for: .cancelSession)
-                            showToast("取消键触发方式已改为\(mode.displayName)。")
-                        }
-                    )
-                ) {
-                    ForEach(HotkeyTriggerMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                if hotkeyStateStore.cancelTriggerMode == .shortcut {
-                    KeyboardShortcuts.Recorder("取消键组合键", name: .cancelSession)
-                } else {
-                    Picker(
-                        "取消键修饰键",
-                        selection: Binding(
-                            get: { hotkeyStateStore.cancelModifier },
-                            set: { modifier in
-                                hotkeyStateStore.setModifier(modifier, for: .cancelSession)
-                                showToast("取消键已改为单击\(modifier.displayName)。")
-                            }
-                        )
-                    ) {
-                        ForEach(HotkeyModifier.allCases) { modifier in
-                            Text(modifier.displayName).tag(modifier)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    Text("当前取消键：单击 \(hotkeyStateStore.cancelModifier.displayName)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text("取消键固定为 Esc，不支持修改。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("当前主键：\(hotkeyStateStore.wakeShortcutText)")
-                Text("当前取消键：\(hotkeyStateStore.cancelShortcutText)")
+                Text("当前取消键：Esc")
                 Text("最近更新：\(hotkeyStateStore.lastUpdatedAt.formatted(date: .omitted, time: .standard))")
             }
             .font(.caption)
@@ -852,7 +817,7 @@ struct SettingsView: View {
                 .font(.subheadline)
             Label("本地优先处理链路，隐私内容默认不上传，敏感输入更安心。", systemImage: "lock.shield")
                 .font(.subheadline)
-            Label("按应用场景配置独立 Prompt（如微信、GPT），输出风格自动贴合上下文。", systemImage: "text.bubble")
+            Label("面向微信、GPT 等不同场景可配置独立 Prompt，让表达语气与结构自动贴合当前应用。", systemImage: "text.bubble")
                 .font(.subheadline)
             Label("快捷键可自由定义，开口即成文，把重复打字变成一键完成。", systemImage: "keyboard")
                 .font(.subheadline)
