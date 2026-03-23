@@ -5,3 +5,5 @@ build/
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
 *.swiftpm/
+
+tokscale-report-*/
