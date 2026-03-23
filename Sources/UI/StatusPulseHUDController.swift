@@ -1,51 +1,219 @@
 import AppKit
 import SwiftUI
 
+enum HUDPresentationStyle: Equatable {
+    case listening
+    case processing(title: String)
+    case completion
+    case feedback
+    case cancelled
+    case error
+}
+
+struct HUDVisibilityPlan: Equatable {
+    let keepVisible: Bool
+    let hideDelay: TimeInterval
+    let fadeDuration: TimeInterval
+
+    static let keepVisible = HUDVisibilityPlan(
+        keepVisible: true,
+        hideDelay: 0,
+        fadeDuration: 0
+    )
+}
+
+struct HUDProgressFrame: Equatable {
+    let style: HUDPresentationStyle
+    let progress: Double
+    let visibility: HUDVisibilityPlan
+}
+
+struct HUDProgressStateMachine {
+    private(set) var previousPhase: SessionPhase = .idle
+    private(set) var progress: Double = 0
+    private(set) var cap: Double = 0
+
+    mutating func transition(to phase: SessionPhase) -> HUDProgressFrame {
+        let cameFromBusy = previousPhase.isHUDBusyPhase
+
+        let frame: HUDProgressFrame
+        switch phase {
+        case .listening:
+            progress = 0
+            cap = 0
+            frame = HUDProgressFrame(
+                style: .listening,
+                progress: progress,
+                visibility: .keepVisible
+            )
+
+        case .transcribing, .rewriting, .inserting:
+            let plan = busyPlan(for: phase)
+            progress = max(progress, plan.baseline)
+            cap = max(cap, plan.cap)
+            frame = HUDProgressFrame(
+                style: .processing(title: plan.title),
+                progress: progress,
+                visibility: .keepVisible
+            )
+
+        case .idle:
+            if cameFromBusy {
+                progress = 1
+                cap = 1
+                frame = HUDProgressFrame(
+                    style: .completion,
+                    progress: progress,
+                    visibility: HUDVisibilityPlan(
+                        keepVisible: false,
+                        hideDelay: 0.26,
+                        fadeDuration: 0.12
+                    )
+                )
+            } else {
+                progress = 0
+                cap = 0
+                frame = HUDProgressFrame(
+                    style: .feedback,
+                    progress: progress,
+                    visibility: HUDVisibilityPlan(
+                        keepVisible: false,
+                        hideDelay: 0.44,
+                        fadeDuration: 0.12
+                    )
+                )
+            }
+
+        case .cancelled:
+            progress = 0
+            cap = 0
+            frame = HUDProgressFrame(
+                style: .cancelled,
+                progress: progress,
+                visibility: HUDVisibilityPlan(
+                    keepVisible: false,
+                    hideDelay: 0.46,
+                    fadeDuration: 0.12
+                )
+            )
+
+        case .error:
+            progress = 0
+            cap = 0
+            frame = HUDProgressFrame(
+                style: .error,
+                progress: progress,
+                visibility: HUDVisibilityPlan(
+                    keepVisible: false,
+                    hideDelay: 0.90,
+                    fadeDuration: 0.12
+                )
+            )
+        }
+
+        previousPhase = phase
+        return frame
+    }
+
+    mutating func tick() -> Double {
+        guard cap > progress else {
+            return progress
+        }
+
+        let delta = max(0.003, (cap - progress) * 0.14)
+        progress = min(cap, progress + delta)
+        return progress
+    }
+
+    mutating func reset() {
+        previousPhase = .idle
+        progress = 0
+        cap = 0
+    }
+
+    private func busyPlan(for phase: SessionPhase) -> (title: String, baseline: Double, cap: Double) {
+        switch phase {
+        case .transcribing:
+            return ("转写中", 0.12, 0.46)
+        case .rewriting:
+            return ("文本处理", 0.46, 0.78)
+        case .inserting:
+            return ("写入中", 0.78, 0.94)
+        case .idle, .listening, .cancelled, .error:
+            return ("处理中", 0.12, 0.46)
+        }
+    }
+}
+
+extension SessionPhase {
+    var isHUDBusyPhase: Bool {
+        switch self {
+        case .transcribing, .rewriting, .inserting:
+            return true
+        case .idle, .listening, .cancelled, .error:
+            return false
+        }
+    }
+}
+
+@MainActor
+final class StatusPulseHUDViewModel: ObservableObject {
+    @Published var phase: SessionPhase = .idle
+    @Published var message: String = ""
+    @Published var progress: Double = 0
+    @Published var listeningLevel: Double = 0
+    @Published var presentationStyle: HUDPresentationStyle = .feedback
+}
+
 @MainActor
 final class StatusPulseHUDController {
     private var panel: NSPanel?
     private var hideWorkItem: DispatchWorkItem?
-    private var previousPhase: SessionPhase = .idle
+    private var progressTimer: DispatchSourceTimer?
+    private var progressStateMachine = HUDProgressStateMachine()
+    private let viewModel = StatusPulseHUDViewModel()
 
     func show(
         phase: SessionPhase,
-        lane: InputLane,
+        lane _: InputLane,
         message: String,
-        progress: Double,
+        progress _: Double,
         listeningLevel: Double
     ) {
-        let size = NSSize(width: 184, height: 34)
-        let panel = ensurePanel(size: size)
-        let shouldSuppressBusyRefresh = phase.isBusyPhase && previousPhase.isBusyPhase && !panel.isVisible
-        if shouldSuppressBusyRefresh {
-            previousPhase = phase
-            return
+        let frame = progressStateMachine.transition(to: phase)
+
+        viewModel.phase = phase
+        viewModel.message = message
+        viewModel.listeningLevel = max(0, min(1, listeningLevel))
+        viewModel.presentationStyle = frame.style
+        viewModel.progress = max(0, min(1, frame.progress))
+
+        if case .processing = frame.style {
+            startProgressTickerIfNeeded()
+        } else {
+            stopProgressTicker()
         }
 
-        panel.contentView = NSHostingView(
-            rootView: StatusPulseHUDView(
-                phase: phase,
-                lane: lane,
-                message: message,
-                progress: progress,
-                listeningLevel: listeningLevel
+        let size = NSSize(width: 184, height: 34)
+        let panel = ensurePanel(size: size)
+        if panel.contentView == nil {
+            panel.contentView = NSHostingView(
+                rootView: StatusPulseHUDView(viewModel: viewModel)
             )
-        )
+        }
 
         position(panel: panel, size: size)
 
         if !panel.isVisible {
             panel.alphaValue = 0
             panel.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.10
+                panel.animator().alphaValue = 1
+            }
         }
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.10
-            panel.animator().alphaValue = 1
-        }
-
-        previousPhase = phase
-        scheduleHide(for: phase)
+        scheduleHide(using: frame.visibility)
     }
 
     private func ensurePanel(size: NSSize) -> NSPanel {
@@ -85,10 +253,10 @@ final class StatusPulseHUDController {
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
     }
 
-    private func scheduleHide(for phase: SessionPhase) {
+    private func scheduleHide(using visibility: HUDVisibilityPlan) {
         hideWorkItem?.cancel()
 
-        if shouldKeepVisible(for: phase) {
+        guard !visibility.keepVisible else {
             return
         }
 
@@ -98,7 +266,7 @@ final class StatusPulseHUDController {
             }
 
             NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.14
+                context.duration = visibility.fadeDuration
                 panel.animator().alphaValue = 0
             }, completionHandler: {
                 panel.orderOut(nil)
@@ -107,64 +275,61 @@ final class StatusPulseHUDController {
 
         hideWorkItem = work
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + hideDelay(for: phase),
+            deadline: .now() + visibility.hideDelay,
             execute: work
         )
     }
 
-    private func shouldKeepVisible(for phase: SessionPhase) -> Bool {
-        switch phase {
-        case .listening:
-            return true
-        case .idle, .transcribing, .rewriting, .inserting, .cancelled, .error:
-            return false
+    private func startProgressTickerIfNeeded() {
+        guard progressTimer == nil else {
+            return
         }
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 0.04, repeating: 0.04)
+        timer.setEventHandler { [weak self] in
+            self?.handleProgressTick()
+        }
+        progressTimer = timer
+        timer.resume()
     }
 
-    private func hideDelay(for phase: SessionPhase) -> TimeInterval {
-        switch phase {
-        case .transcribing, .rewriting, .inserting:
-            return 0.24
-        case .cancelled:
-            return 0.46
-        case .error:
-            return 0.92
-        case .idle, .listening:
-            return 0.44
-        }
+    private func stopProgressTicker() {
+        progressTimer?.setEventHandler {}
+        progressTimer?.cancel()
+        progressTimer = nil
     }
-}
 
-private extension SessionPhase {
-    var isBusyPhase: Bool {
-        switch self {
-        case .transcribing, .rewriting, .inserting:
-            return true
-        case .idle, .listening, .cancelled, .error:
-            return false
+    private func handleProgressTick() {
+        guard case .processing = viewModel.presentationStyle else {
+            return
         }
+
+        let nextProgress = max(0, min(1, progressStateMachine.tick()))
+        guard abs(nextProgress - viewModel.progress) > 0.0008 else {
+            return
+        }
+        viewModel.progress = nextProgress
     }
 }
 
 private struct StatusPulseHUDView: View {
-    let phase: SessionPhase
-    let lane: InputLane
-    let message: String
-    let progress: Double
-    let listeningLevel: Double
+    @ObservedObject var viewModel: StatusPulseHUDViewModel
 
     var body: some View {
         Group {
-            switch phase {
+            switch viewModel.presentationStyle {
             case .listening:
                 listeningCapsule
-            case .transcribing, .rewriting, .inserting:
-                thinkingCapsule
+            case let .processing(title):
+                processingCapsule(title: title, completion: false)
+            case .completion:
+                processingCapsule(title: "完成", completion: true)
             case .cancelled:
                 cancelledCapsule
             case .error:
                 errorCapsule
-            case .idle:
+            case .feedback:
                 feedbackCapsule
             }
         }
@@ -174,15 +339,15 @@ private struct StatusPulseHUDView: View {
     }
 
     private var normalizedListeningLevel: Double {
-        max(0, min(1, listeningLevel))
+        max(0, min(1, viewModel.listeningLevel))
     }
 
     private var normalizedProgress: Double {
-        max(0, min(1, progress))
+        max(0, min(1, viewModel.progress))
     }
 
     private var phaseAccentColor: Color {
-        switch phase {
+        switch viewModel.phase {
         case .idle:
             return Color.primary.opacity(0.56)
         case .listening:
@@ -230,7 +395,8 @@ private struct StatusPulseHUDView: View {
         }
     }
 
-    private var thinkingCapsule: some View {
+    @ViewBuilder
+    private func processingCapsule(title: String, completion: Bool) -> some View {
         GeometryReader { proxy in
             let width = proxy.size.width
             let fillWidth = max(20, width * normalizedProgress)
@@ -242,26 +408,35 @@ private struct StatusPulseHUDView: View {
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color.gray.opacity(0.36),
-                                Color.gray.opacity(0.08)
+                                Color.gray.opacity(0.38),
+                                Color.gray.opacity(0.10)
                             ],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
                     )
                     .frame(width: fillWidth)
-                    .animation(.easeOut(duration: 0.18), value: normalizedProgress)
+                    .animation(.easeOut(duration: completion ? 0.14 : 0.18), value: normalizedProgress)
 
                 HStack(spacing: 7) {
                     Spacer(minLength: 0)
-                    Text("思考中")
+                    Text(title)
                         .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                         .foregroundStyle(Color.primary.opacity(0.82))
                         .lineLimit(1)
                     Capsule(style: .continuous)
                         .fill(Color.primary.opacity(0.24))
                         .frame(width: 0.7, height: 9)
-                    ThinkingDots(progress: normalizedProgress)
+
+                    if completion {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.primary.opacity(0.64))
+                            .frame(width: 22, height: 10, alignment: .center)
+                    } else {
+                        ThinkingDots(progress: normalizedProgress)
+                    }
+
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 10)
@@ -272,10 +447,10 @@ private struct StatusPulseHUDView: View {
 
     private var feedbackCapsule: some View {
         HStack(spacing: 6) {
-            Image(systemName: phase.menuBarSymbol)
+            Image(systemName: viewModel.phase.menuBarSymbol)
                 .font(.system(size: 9.5, weight: .semibold))
                 .foregroundStyle(phaseAccentColor)
-            Text(message)
+            Text(viewModel.message)
                 .font(.system(size: 10.2, weight: .medium))
                 .foregroundStyle(Color.primary.opacity(0.80))
                 .lineLimit(1)

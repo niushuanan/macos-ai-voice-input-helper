@@ -92,7 +92,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 pageHeader(
                     title: "首页",
-                    subtitle: "产品亮点与累计效率数据。"
+                    subtitle: ""
                 )
 
                 homeProductIntroCard
@@ -204,7 +204,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 pageHeader(
                     title: "Skill",
-                    subtitle: "这里的偏好改完就会立刻生效。发生异常时会自动退回原始流程，不会卡住主链路。"
+                    subtitle: ""
                 )
 
                 ForEach(skillRuleStore.visibleRules()) { rule in
@@ -245,7 +245,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 pageHeader(
                     title: "模型",
-                    subtitle: "页面固定两块：语音识别、文本处理。非密钥改动会立刻生效。"
+                    subtitle: ""
                 )
 
                 modelRoleSection(
@@ -928,13 +928,15 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func pageHeader(title: String, subtitle: String) -> some View {
+    private func pageHeader(title: String, subtitle: String = "") -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.title2.weight(.bold))
-            Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

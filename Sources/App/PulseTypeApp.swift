@@ -6,7 +6,7 @@ struct PulseTypeApp: App {
     @StateObject private var model = AppModel.bootstrap()
 
     var body: some Scene {
-        WindowGroup("PulseType 主界面", id: "control-center") {
+        WindowGroup("PulseType", id: "control-center") {
             SettingsView(model: model)
                 .frame(minWidth: 920, minHeight: 700)
         }
