@@ -67,8 +67,8 @@ final class HotkeyStateStoreTests: XCTestCase {
         store.resetToDefaults()
 
         XCTAssertEqual(store.wakeTriggerMode, .modifierTap)
-        XCTAssertEqual(store.wakeModifier, .option)
-        XCTAssertEqual(store.wakeShortcutText, "单击 Option")
+        XCTAssertEqual(store.wakeModifier, .leftOption)
+        XCTAssertEqual(store.wakeShortcutText, "单键触发 · 左 Option")
         XCTAssertEqual(store.cancelShortcutText, KeyboardShortcuts.Shortcut(.escape).description.replacingOccurrences(of: "-", with: " + "))
         XCTAssertFalse(store.hasConflict)
     }
@@ -79,8 +79,8 @@ final class HotkeyStateStoreTests: XCTestCase {
         let store = HotkeyStateStore(defaults: defaults)
 
         XCTAssertEqual(store.wakeTriggerMode, .modifierTap)
-        XCTAssertEqual(store.wakeModifier, .option)
-        XCTAssertEqual(store.wakeShortcutText, "单击 Option")
+        XCTAssertEqual(store.wakeModifier, .leftOption)
+        XCTAssertEqual(store.wakeShortcutText, "单键触发 · 左 Option")
     }
 
     func testModifierTapModeSupportsCommandAndPersists() {
@@ -89,13 +89,13 @@ final class HotkeyStateStoreTests: XCTestCase {
         let store = HotkeyStateStore(defaults: defaults)
 
         store.setTriggerMode(.modifierTap, for: .wakeSession)
-        store.setModifier(.command, for: .wakeSession)
+        store.setModifier(.leftCommand, for: .wakeSession)
         store.refresh()
 
         XCTAssertEqual(store.wakeTriggerMode, .modifierTap)
-        XCTAssertEqual(store.wakeModifier, .command)
-        XCTAssertEqual(store.wakeShortcutText, "单击 Command")
-        XCTAssertTrue(store.registrationText(for: .wakeSession).contains("修饰键单击"))
+        XCTAssertEqual(store.wakeModifier, .leftCommand)
+        XCTAssertEqual(store.wakeShortcutText, "单键触发 · 左 Command")
+        XCTAssertTrue(store.registrationText(for: .wakeSession).contains("单键触发"))
     }
 
     func testCancelHotkeyIsAlwaysFixedToEscape() {
@@ -104,14 +104,36 @@ final class HotkeyStateStoreTests: XCTestCase {
         let store = HotkeyStateStore(defaults: defaults)
 
         store.setTriggerMode(.modifierTap, for: .wakeSession)
-        store.setModifier(.command, for: .wakeSession)
-        store.setModifier(.command, for: .cancelSession)
+        store.setModifier(.leftCommand, for: .wakeSession)
+        store.setModifier(.leftCommand, for: .cancelSession)
         KeyboardShortcuts.setShortcut(.init(.x, modifiers: [.command]), for: .cancelSession)
         store.refresh()
 
         XCTAssertEqual(store.cancelTriggerMode, .shortcut)
         XCTAssertEqual(store.cancelShortcutText, KeyboardShortcuts.Shortcut(.escape).description.replacingOccurrences(of: "-", with: " + "))
         XCTAssertTrue(store.registrationText(for: .cancelSession).contains("Esc"))
+    }
+
+    func testLegacyModifierValueMigratesToLeftVariant() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        defaults.set("option", forKey: "hotkeys.wake.modifier.v1")
+
+        let store = HotkeyStateStore(defaults: defaults)
+
+        XCTAssertEqual(store.wakeModifier, .leftOption)
+        XCTAssertEqual(store.wakeShortcutText, "单键触发 · 左 Option")
+    }
+
+    func testModifierKeyCodeMappingSupportsLeftAndRight() {
+        XCTAssertEqual(HotkeyModifier.from(keyCode: 55), .leftCommand)
+        XCTAssertEqual(HotkeyModifier.from(keyCode: 54), .rightCommand)
+        XCTAssertEqual(HotkeyModifier.from(keyCode: 58), .leftOption)
+        XCTAssertEqual(HotkeyModifier.from(keyCode: 61), .rightOption)
+        XCTAssertEqual(HotkeyModifier.from(keyCode: 56), .leftShift)
+        XCTAssertEqual(HotkeyModifier.from(keyCode: 60), .rightShift)
+        XCTAssertEqual(HotkeyModifier.from(keyCode: 59), .leftControl)
+        XCTAssertEqual(HotkeyModifier.from(keyCode: 62), .rightControl)
     }
 
     private var defaultsSuiteName: String {

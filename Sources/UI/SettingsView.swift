@@ -29,6 +29,11 @@ struct SettingsView: View {
     @State private var debouncedToastTask: Task<Void, Never>?
     @State private var debouncedSceneSaveTask: Task<Void, Never>?
     @State private var dictionaryDraft = ""
+    @State private var isCapturingWakeModifier = false
+    @State private var pendingWakeModifier: HotkeyModifier?
+    @State private var wakeModifierCaptureHint: String?
+    @State private var wakeModifierFlagsMonitor: Any?
+    @State private var wakeModifierKeyDownMonitor: Any?
 
     init(model: AppModel) {
         self.model = model
@@ -566,6 +571,9 @@ struct SettingsView: View {
             providerSettingsStore.refreshCredentialState()
             hotkeyStateStore.refresh()
         }
+        .onDisappear {
+            stopWakeModifierCapture()
+        }
     }
 
     private var hotkeySettingsCard: some View {
@@ -582,6 +590,9 @@ struct SettingsView: View {
                         get: { hotkeyStateStore.wakeTriggerMode },
                         set: { mode in
                             hotkeyStateStore.setTriggerMode(mode, for: .wakeSession)
+                            if mode != .modifierTap {
+                                stopWakeModifierCapture()
+                            }
                             showToast("主键触发方式已改为\(mode.displayName)。")
                         }
                     )
@@ -595,22 +606,52 @@ struct SettingsView: View {
                 if hotkeyStateStore.wakeTriggerMode == .shortcut {
                     KeyboardShortcuts.Recorder("主键组合键", name: .wakeSession)
                 } else {
-                    Picker(
-                        "主键修饰键",
-                        selection: Binding(
-                            get: { hotkeyStateStore.wakeModifier },
-                            set: { modifier in
-                                hotkeyStateStore.setModifier(modifier, for: .wakeSession)
-                                showToast("主键已改为单击\(modifier.displayName)。")
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("单键触发按键")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Button {
+                            startWakeModifierCapture()
+                        } label: {
+                            HStack(spacing: 10) {
+                                Text("[ \(pendingWakeModifier?.displayName ?? hotkeyStateStore.wakeModifier.displayName) ]")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Text(isCapturingWakeModifier ? "录入中" : "点击录入")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
-                        )
-                    ) {
-                        ForEach(HotkeyModifier.allCases) { modifier in
-                            Text(modifier.displayName).tag(modifier)
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 7)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.65))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .stroke(
+                                                isCapturingWakeModifier
+                                                    ? Color.accentColor
+                                                    : Color.primary.opacity(0.2),
+                                                lineWidth: 1
+                                            )
+                                    )
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        if let wakeModifierCaptureHint {
+                            Text(wakeModifierCaptureHint)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("点击上面的括号区域后，按左/右修饰键，再按 Enter 确认，按 Esc 取消。")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .pickerStyle(.segmented)
-                    Text("当前主键：单击 \(hotkeyStateStore.wakeModifier.displayName)")
+                    Text("当前主键：单键触发 · \(hotkeyStateStore.wakeModifier.displayName)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1420,6 +1461,80 @@ struct SettingsView: View {
                 snapshot.effectiveTerms.count,
                 snapshot.maxCharacters
             )
+        }
+    }
+
+    private func startWakeModifierCapture() {
+        removeWakeModifierCaptureMonitors()
+        isCapturingWakeModifier = true
+        pendingWakeModifier = nil
+        wakeModifierCaptureHint = "请按左/右修饰键，然后按 Enter 确认。"
+
+        wakeModifierFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+            self.handleWakeModifierFlagsChanged(event)
+            return event
+        }
+
+        wakeModifierKeyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            self.handleWakeModifierKeyDown(event)
+        }
+    }
+
+    private func stopWakeModifierCapture() {
+        removeWakeModifierCaptureMonitors()
+        isCapturingWakeModifier = false
+        pendingWakeModifier = nil
+        wakeModifierCaptureHint = nil
+    }
+
+    private func removeWakeModifierCaptureMonitors() {
+        if let wakeModifierFlagsMonitor {
+            NSEvent.removeMonitor(wakeModifierFlagsMonitor)
+            self.wakeModifierFlagsMonitor = nil
+        }
+        if let wakeModifierKeyDownMonitor {
+            NSEvent.removeMonitor(wakeModifierKeyDownMonitor)
+            self.wakeModifierKeyDownMonitor = nil
+        }
+    }
+
+    private func handleWakeModifierFlagsChanged(_ event: NSEvent) {
+        guard isCapturingWakeModifier else {
+            return
+        }
+        guard let modifier = HotkeyModifier.from(keyCode: event.keyCode) else {
+            return
+        }
+        pendingWakeModifier = modifier
+        wakeModifierCaptureHint = "已捕获 \(modifier.displayName)。按 Enter 确认，按 Esc 取消。"
+    }
+
+    private func handleWakeModifierKeyDown(_ event: NSEvent) -> NSEvent? {
+        guard isCapturingWakeModifier else {
+            return event
+        }
+
+        switch event.keyCode {
+        case 36, 76:
+            guard let modifier = pendingWakeModifier else {
+                wakeModifierCaptureHint = "还没有捕获到修饰键，请先按目标键。"
+                return nil
+            }
+            hotkeyStateStore.setModifier(modifier, for: .wakeSession)
+            showToast("主键已改为单键触发 · \(modifier.displayName)。")
+            stopWakeModifierCapture()
+            return nil
+        case 53:
+            stopWakeModifierCapture()
+            showToast("已取消主键修改。")
+            return nil
+        default:
+            if pendingWakeModifier == nil {
+                wakeModifierCaptureHint = "请先按目标修饰键，再按 Enter。"
+            } else if let pendingWakeModifier {
+                wakeModifierCaptureHint = "已捕获 \(pendingWakeModifier.displayName)。按 Enter 确认，按 Esc 取消。"
+            }
+            return nil
         }
     }
 }

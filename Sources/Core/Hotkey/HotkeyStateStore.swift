@@ -14,42 +14,113 @@ enum HotkeyTriggerMode: String, CaseIterable, Identifiable {
         case .shortcut:
             return "组合键"
         case .modifierTap:
-            return "修饰键单击"
+            return "单键触发"
         }
     }
 }
 
 enum HotkeyModifier: String, CaseIterable, Identifiable {
-    case command
-    case option
-    case control
-    case shift
+    case leftCommand
+    case rightCommand
+    case leftOption
+    case rightOption
+    case leftControl
+    case rightControl
+    case leftShift
+    case rightShift
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .command:
-            return "Command"
-        case .option:
-            return "Option"
-        case .control:
-            return "Control"
-        case .shift:
-            return "Shift"
+        case .leftCommand:
+            return "左 Command"
+        case .rightCommand:
+            return "右 Command"
+        case .leftOption:
+            return "左 Option"
+        case .rightOption:
+            return "右 Option"
+        case .leftControl:
+            return "左 Control"
+        case .rightControl:
+            return "右 Control"
+        case .leftShift:
+            return "左 Shift"
+        case .rightShift:
+            return "右 Shift"
         }
     }
 
     var modifierFlags: NSEvent.ModifierFlags {
         switch self {
-        case .command:
+        case .leftCommand, .rightCommand:
             return .command
-        case .option:
+        case .leftOption, .rightOption:
             return .option
-        case .control:
+        case .leftControl, .rightControl:
             return .control
-        case .shift:
+        case .leftShift, .rightShift:
             return .shift
+        }
+    }
+
+    var keyCode: UInt16 {
+        switch self {
+        case .leftCommand:
+            return 55
+        case .rightCommand:
+            return 54
+        case .leftShift:
+            return 56
+        case .rightShift:
+            return 60
+        case .leftOption:
+            return 58
+        case .rightOption:
+            return 61
+        case .leftControl:
+            return 59
+        case .rightControl:
+            return 62
+        }
+    }
+
+    static func from(keyCode: UInt16) -> HotkeyModifier? {
+        switch keyCode {
+        case 55:
+            return .leftCommand
+        case 54:
+            return .rightCommand
+        case 56:
+            return .leftShift
+        case 60:
+            return .rightShift
+        case 58:
+            return .leftOption
+        case 61:
+            return .rightOption
+        case 59:
+            return .leftControl
+        case 62:
+            return .rightControl
+        default:
+            return nil
+        }
+    }
+
+    static func migrate(fromLegacyRawValue rawValue: String) -> HotkeyModifier? {
+        switch rawValue {
+        case "command":
+            return .leftCommand
+        case "option":
+            return .leftOption
+        case "control":
+            return .leftControl
+        case "shift":
+            return .leftShift
+        default:
+            return nil
         }
     }
 }
@@ -104,9 +175,9 @@ final class HotkeyStateStore: ObservableObject {
         self.wakeModifier = Self.loadModifier(
             defaults: defaults,
             key: wakeModifierStorageKey,
-            fallback: .option
+            fallback: .leftOption
         )
-        self.cancelModifier = .option
+        self.cancelModifier = .leftOption
 
         self.wakeShortcutText = "未设置"
         self.cancelShortcutText = "未设置"
@@ -222,8 +293,8 @@ final class HotkeyStateStore: ObservableObject {
         KeyboardShortcuts.setShortcut(fixedCancelShortcut, for: .cancelSession)
         wakeTriggerMode = .modifierTap
         cancelTriggerMode = .shortcut
-        wakeModifier = .option
-        cancelModifier = .option
+        wakeModifier = .leftOption
+        cancelModifier = .leftOption
         defaults.set(wakeTriggerMode.rawValue, forKey: wakeModeStorageKey)
         defaults.set(wakeModifier.rawValue, forKey: wakeModifierStorageKey)
         defaults.removeObject(forKey: cancelModeStorageKey)
@@ -238,7 +309,7 @@ final class HotkeyStateStore: ObservableObject {
             case .shortcut:
                 return wakeShortcutRegistered ? "主键监听已生效（组合键）" : "主键还没有生效"
             case .modifierTap:
-                return wakeShortcutRegistered ? "主键监听已生效（修饰键单击）" : "主键还没有生效"
+                return wakeShortcutRegistered ? "主键监听已生效（单键触发）" : "主键还没有生效"
             }
         case .cancelSession:
             return cancelShortcutRegistered ? "取消键监听已生效（Esc）" : "取消键还没有生效（Esc）"
@@ -288,7 +359,7 @@ final class HotkeyStateStore: ObservableObject {
         case .shortcut:
             return describeShortcut(shortcut)
         case .modifierTap:
-            return "单击 \(modifier.displayName)"
+            return "单键触发 · \(modifier.displayName)"
         }
     }
 
@@ -301,7 +372,7 @@ final class HotkeyStateStore: ObservableObject {
 
     private func enforceFixedCancelShortcut() {
         cancelTriggerMode = .shortcut
-        cancelModifier = .option
+        cancelModifier = .leftOption
         defaults.removeObject(forKey: cancelModeStorageKey)
         defaults.removeObject(forKey: cancelModifierStorageKey)
         if KeyboardShortcuts.getShortcut(for: .cancelSession) != fixedCancelShortcut {
@@ -332,7 +403,7 @@ final class HotkeyStateStore: ObservableObject {
     ) -> HotkeyModifier {
         guard
             let raw = defaults.string(forKey: key),
-            let modifier = HotkeyModifier(rawValue: raw)
+            let modifier = HotkeyModifier(rawValue: raw) ?? HotkeyModifier.migrate(fromLegacyRawValue: raw)
         else {
             return fallback
         }

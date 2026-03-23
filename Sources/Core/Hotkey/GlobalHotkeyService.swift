@@ -163,16 +163,26 @@ final class GlobalHotkeyService {
     ) {
         let trackedFlags: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
         let activeFlags = event.modifierFlags.intersection(trackedFlags)
-        let isPressedNow = activeFlags.contains(modifier.modifierFlags)
-        let hasOtherModifiers = !activeFlags.subtracting(modifier.modifierFlags).isEmpty
+        let isTargetKeyEvent = event.keyCode == modifier.keyCode
+        let hasOtherModifierFamilies = !activeFlags.subtracting(modifier.modifierFlags).isEmpty
 
-        if isPressedNow {
+        if isTargetKeyEvent {
             if !state.isPressed {
                 state.isPressed = true
                 state.pressedAt = Date()
-                state.sawForeignInput = hasOtherModifiers
-            } else if hasOtherModifiers {
-                state.sawForeignInput = true
+                state.sawForeignInput = hasOtherModifierFamilies
+                return
+            }
+
+            let duration = Date().timeIntervalSince(state.pressedAt ?? Date())
+            let sameFamilyStillPressed = activeFlags.contains(modifier.modifierFlags)
+            let shouldTrigger = duration <= 0.7
+                && !state.sawForeignInput
+                && !hasOtherModifierFamilies
+                && !sameFamilyStillPressed
+            state.reset()
+            if shouldTrigger {
+                trigger()
             }
             return
         }
@@ -181,11 +191,12 @@ final class GlobalHotkeyService {
             return
         }
 
-        let duration = Date().timeIntervalSince(state.pressedAt ?? Date())
-        let shouldTrigger = duration <= 0.7 && !state.sawForeignInput && !hasOtherModifiers
-        state.reset()
-        if shouldTrigger {
-            trigger()
+        if HotkeyModifier.from(keyCode: event.keyCode) != nil {
+            state.sawForeignInput = true
+        }
+
+        if !activeFlags.contains(modifier.modifierFlags) {
+            state.reset()
         }
     }
 

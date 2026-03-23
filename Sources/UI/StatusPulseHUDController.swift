@@ -157,13 +157,18 @@ final class StatusPulseHUDController {
     private var progressTimer: DispatchSourceTimer?
     private var progressStateMachine = HUDProgressStateMachine()
     private var visibilityGeneration: UInt64 = 0
-    private let hudSize = NSSize(width: 184, height: 34)
+    private let hudScale: CGFloat = 1.3
+    private let baseHUDSize = NSSize(width: 184, height: 34)
 
     private var currentPhase: SessionPhase = .idle
     private var currentMessage: String = ""
     private var currentProgress: Double = 0
     private var currentListeningLevel: Double = 0
     private var currentStyle: HUDPresentationStyle = .feedback
+
+    private var hudSize: NSSize {
+        scaled(baseHUDSize)
+    }
 
     func show(
         phase: SessionPhase,
@@ -229,7 +234,8 @@ final class StatusPulseHUDController {
                 message: currentMessage,
                 progress: currentProgress,
                 listeningLevel: currentListeningLevel,
-                presentationStyle: currentStyle
+                presentationStyle: currentStyle,
+                scale: hudScale
             )
         )
         position(panel: panel, size: hudSize)
@@ -243,9 +249,17 @@ final class StatusPulseHUDController {
 
         let origin = NSPoint(
             x: visibleFrame.midX - (size.width / 2),
-            y: visibleFrame.minY + 22
+            y: visibleFrame.minY + scaled(22)
         )
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
+    }
+
+    private func scaled(_ value: CGFloat) -> CGFloat {
+        value * hudScale
+    }
+
+    private func scaled(_ size: NSSize) -> NSSize {
+        NSSize(width: scaled(size.width), height: scaled(size.height))
     }
 
     private func scheduleHide(using visibility: HUDVisibilityPlan) {
@@ -326,6 +340,11 @@ private struct StatusPulseHUDView: View {
     let progress: Double
     let listeningLevel: Double
     let presentationStyle: HUDPresentationStyle
+    let scale: CGFloat
+
+    private func s(_ value: CGFloat) -> CGFloat {
+        value * scale
+    }
 
     var body: some View {
         Group {
@@ -344,8 +363,8 @@ private struct StatusPulseHUDView: View {
                 feedbackCapsule
             }
         }
-        .padding(.horizontal, 3)
-        .padding(.vertical, 3)
+        .padding(.horizontal, s(3))
+        .padding(.vertical, s(3))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
@@ -376,18 +395,18 @@ private struct StatusPulseHUDView: View {
 
     private var listeningCapsule: some View {
         statusSplitCapsule(title: "语音输入") {
-            ListeningBars(level: normalizedListeningLevel)
+            ListeningBars(level: normalizedListeningLevel, scale: scale)
         }
     }
 
     private var cancelledCapsule: some View {
         statusSplitCapsule(title: "已取消") {
             Circle()
-                .stroke(Color.primary.opacity(0.42), lineWidth: 0.8)
-                .frame(width: 11, height: 11)
+                .stroke(Color.primary.opacity(0.42), lineWidth: s(0.8))
+                .frame(width: s(11), height: s(11))
                 .overlay(
                     Image(systemName: "xmark")
-                        .font(.system(size: 6.5, weight: .bold))
+                        .font(.system(size: s(6.5), weight: .bold))
                         .foregroundStyle(Color.primary.opacity(0.66))
                 )
         }
@@ -396,11 +415,11 @@ private struct StatusPulseHUDView: View {
     private var errorCapsule: some View {
         statusSplitCapsule(title: "未完成") {
             Circle()
-                .stroke(Color(red: 0.56, green: 0.26, blue: 0.26).opacity(0.66), lineWidth: 0.9)
-                .frame(width: 11, height: 11)
+                .stroke(Color(red: 0.56, green: 0.26, blue: 0.26).opacity(0.66), lineWidth: s(0.9))
+                .frame(width: s(11), height: s(11))
                 .overlay(
                     Image(systemName: "exclamationmark")
-                        .font(.system(size: 7, weight: .bold))
+                        .font(.system(size: s(7), weight: .bold))
                         .foregroundStyle(Color(red: 0.56, green: 0.26, blue: 0.26).opacity(0.76))
                 )
         }
@@ -410,10 +429,10 @@ private struct StatusPulseHUDView: View {
     private func processingCapsule(title: String, completion: Bool) -> some View {
         GeometryReader { proxy in
             let width = proxy.size.width
-            let fillWidth = max(20, width * normalizedProgress)
+            let fillWidth = max(s(20), width * normalizedProgress)
 
             ZStack(alignment: .leading) {
-                HUDNativeMaterialCapsule()
+                HUDNativeMaterialCapsule(scale: scale)
 
                 Capsule(style: .continuous)
                     .fill(
@@ -429,47 +448,47 @@ private struct StatusPulseHUDView: View {
                     .frame(width: fillWidth)
                     .animation(.easeOut(duration: completion ? 0.14 : 0.18), value: normalizedProgress)
 
-                HStack(spacing: 7) {
+                HStack(spacing: s(7)) {
                     Spacer(minLength: 0)
                     Text(title)
-                        .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                        .font(.system(size: s(11.5), weight: .semibold, design: .rounded))
                         .foregroundStyle(Color.primary.opacity(0.82))
                         .lineLimit(1)
                     Capsule(style: .continuous)
                         .fill(Color.primary.opacity(0.24))
-                        .frame(width: 0.7, height: 9)
+                        .frame(width: s(0.7), height: s(9))
 
                     if completion {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: s(10), weight: .semibold))
                             .foregroundStyle(Color.primary.opacity(0.64))
-                            .frame(width: 22, height: 10, alignment: .center)
+                            .frame(width: s(22), height: s(10), alignment: .center)
                     } else {
-                        ThinkingDots(progress: normalizedProgress)
+                        ThinkingDots(progress: normalizedProgress, scale: scale)
                     }
 
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, s(10))
             }
         }
-        .frame(height: 22)
+        .frame(height: s(22))
     }
 
     private var feedbackCapsule: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: s(6)) {
             Image(systemName: phase.menuBarSymbol)
-                .font(.system(size: 9.5, weight: .semibold))
+                .font(.system(size: s(9.5), weight: .semibold))
                 .foregroundStyle(phaseAccentColor)
             Text(message)
-                .font(.system(size: 10.2, weight: .medium))
+                .font(.system(size: s(10.2), weight: .medium))
                 .foregroundStyle(Color.primary.opacity(0.80))
                 .lineLimit(1)
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 4.5)
+        .padding(.horizontal, s(9))
+        .padding(.vertical, s(4.5))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(HUDNativeMaterialCapsule())
+        .background(HUDNativeMaterialCapsule(scale: scale))
     }
 
     @ViewBuilder
@@ -477,43 +496,48 @@ private struct StatusPulseHUDView: View {
         title: String,
         @ViewBuilder indicator: () -> Indicator
     ) -> some View {
-        HStack(spacing: 7) {
+        HStack(spacing: s(7)) {
             Text(title)
-                .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                .font(.system(size: s(11.5), weight: .semibold, design: .rounded))
                 .foregroundStyle(Color.primary.opacity(0.84))
                 .lineLimit(1)
 
             Capsule(style: .continuous)
                 .fill(Color.primary.opacity(0.24))
-                .frame(width: 0.7, height: 9)
+                .frame(width: s(0.7), height: s(9))
 
             indicator()
-                .frame(width: 20, height: 10, alignment: .center)
+                .frame(width: s(20), height: s(10), alignment: .center)
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 4.5)
+        .padding(.horizontal, s(11))
+        .padding(.vertical, s(4.5))
         .frame(maxWidth: .infinity, alignment: .center)
-        .background(HUDNativeMaterialCapsule())
+        .background(HUDNativeMaterialCapsule(scale: scale))
     }
 }
 
 private struct ListeningBars: View {
     let level: Double
+    let scale: CGFloat
+
+    private func s(_ value: CGFloat) -> CGFloat {
+        value * scale
+    }
 
     private var isActive: Bool {
         level > 0.035
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 3.0) {
+        HStack(alignment: .center, spacing: s(3)) {
             ForEach(0..<4, id: \.self) { index in
                 Capsule(style: .continuous)
                     .fill(Color.primary.opacity(isActive ? 0.78 : 0.28))
-                    .frame(width: 1.6, height: barHeight(for: index))
+                    .frame(width: s(1.6), height: barHeight(for: index))
                     .animation(.easeOut(duration: 0.10), value: level)
             }
         }
-        .frame(width: 19, height: 10, alignment: .center)
+        .frame(width: s(19), height: s(10), alignment: .center)
     }
 
     private func barHeight(for index: Int) -> CGFloat {
@@ -521,22 +545,27 @@ private struct ListeningBars: View {
         let gain: [CGFloat] = [2.4, 3.3, 2.8, 3.7]
         let normalized = CGFloat(max(0, min(1, level)))
         let eased = sqrt(normalized)
-        return base[index] + (gain[index] * eased)
+        return s(base[index] + (gain[index] * eased))
     }
 }
 
 private struct ThinkingDots: View {
     let progress: Double
+    let scale: CGFloat
+
+    private func s(_ value: CGFloat) -> CGFloat {
+        value * scale
+    }
 
     var body: some View {
-        HStack(spacing: 3.0) {
+        HStack(spacing: s(3)) {
             ForEach(0..<4, id: \.self) { index in
                 Circle()
                     .fill(Color.primary.opacity(dotOpacity(for: index)))
-                    .frame(width: 3.8, height: 3.8)
+                    .frame(width: s(3.8), height: s(3.8))
             }
         }
-        .frame(width: 22, height: 10, alignment: .center)
+        .frame(width: s(22), height: s(10), alignment: .center)
         .animation(.easeOut(duration: 0.16), value: progress)
     }
 
@@ -548,6 +577,12 @@ private struct ThinkingDots: View {
 }
 
 private struct HUDNativeMaterialCapsule: View {
+    let scale: CGFloat
+
+    private func s(_ value: CGFloat) -> CGFloat {
+        value * scale
+    }
+
     var body: some View {
         ZStack {
             MacVisualEffectMaterialView(
@@ -584,12 +619,12 @@ private struct HUDNativeMaterialCapsule: View {
                 .blendMode(.screen)
 
             Capsule(style: .continuous)
-                .stroke(Color.white.opacity(0.20), lineWidth: 0.55)
+                .stroke(Color.white.opacity(0.20), lineWidth: s(0.55))
 
             Capsule(style: .continuous)
-                .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+                .stroke(Color.black.opacity(0.08), lineWidth: s(0.5))
         }
-        .shadow(color: Color.black.opacity(0.16), radius: 4, x: 0, y: 1.5)
+        .shadow(color: Color.black.opacity(0.16), radius: s(4), x: 0, y: s(1.5))
     }
 }
 
