@@ -50,11 +50,14 @@ final class InteractionCoordinator {
     private let appScenePolicyStore: AppScenePolicyStore
     private let localHistoryStore: LocalHistoryStore
     private let skillRuleStore: SkillRuleStore
+    private let asrDictionaryStore: ASRDictionaryStore
+    private let toastPresenter: ToastPresenter?
     private let dictationPostProcessor: DictationPostProcessor
     private var cancellables = Set<AnyCancellable>()
     private var transcriptionTask: Task<Void, Never>?
     private var currentDictationTarget: DictationWritebackTarget?
     private var lastExternalDictationTarget: DictationWritebackTarget?
+    private var lastDictionaryTruncationSignature: Int?
 
     init(
         sessionStore: SessionStore,
@@ -68,6 +71,8 @@ final class InteractionCoordinator {
         appScenePolicyStore: AppScenePolicyStore,
         localHistoryStore: LocalHistoryStore,
         skillRuleStore: SkillRuleStore,
+        asrDictionaryStore: ASRDictionaryStore,
+        toastPresenter: ToastPresenter? = nil,
         dictationPostProcessor: DictationPostProcessor = LLMDictationPostProcessor()
     ) {
         self.sessionStore = sessionStore
@@ -81,6 +86,8 @@ final class InteractionCoordinator {
         self.appScenePolicyStore = appScenePolicyStore
         self.localHistoryStore = localHistoryStore
         self.skillRuleStore = skillRuleStore
+        self.asrDictionaryStore = asrDictionaryStore
+        self.toastPresenter = toastPresenter
         self.dictationPostProcessor = dictationPostProcessor
         bindListeningLevel()
         bindExternalAppTracking()
@@ -228,6 +235,9 @@ final class InteractionCoordinator {
                     throw SpeechTranscriptionError.providerFailure(description: "当前构建不含所选 provider。")
                 }
 
+                let dictionarySnapshot = asrDictionaryStore.currentSnapshot()
+                notifyIfDictionaryTruncated(snapshot: dictionarySnapshot)
+
                 let apiKey: String
                 if configuration.providerType.requiresAPIKey {
                     guard
@@ -244,7 +254,10 @@ final class InteractionCoordinator {
                 let request = SpeechTranscriptionRequest(
                     clip: clip,
                     lane: sessionStore.activeLane,
-                    contextSummary: "lane=\(sessionStore.activeLane.rawValue)"
+                    contextSummary: "lane=\(sessionStore.activeLane.rawValue)",
+                    dictionaryTerms: dictionarySnapshot.injectedTerms,
+                    dictionaryPromptHint: dictionarySnapshot.promptHintText,
+                    dictionaryHotwordText: dictionarySnapshot.hotwordText
                 )
 
                 let result = try await provider.transcribe(
@@ -314,6 +327,38 @@ final class InteractionCoordinator {
                 sessionStore.fail(message: message)
             }
         }
+    }
+
+    private func notifyIfDictionaryTruncated(snapshot: ASRDictionarySnapshot) {
+        guard snapshot.didTruncate else {
+            lastDictionaryTruncationSignature = nil
+            return
+        }
+
+        let signature = dictionarySignature(for: snapshot)
+        guard lastDictionaryTruncationSignature != signature else {
+            return
+        }
+
+        lastDictionaryTruncationSignature = signature
+        let toastText = "词典过长，已自动截断后注入（\(snapshot.injectedTerms.count)/\(snapshot.effectiveTerms.count) 条）。"
+        toastPresenter?.show(toastText, duration: 2.4)
+        NSLog(
+            "[ASRDictionary] truncated dictionary injected=%ld effective=%ld maxChars=%ld",
+            snapshot.injectedTerms.count,
+            snapshot.effectiveTerms.count,
+            snapshot.maxCharacters
+        )
+    }
+
+    private func dictionarySignature(for snapshot: ASRDictionarySnapshot) -> Int {
+        var hasher = Hasher()
+        hasher.combine(snapshot.maxCharacters)
+        hasher.combine(snapshot.effectiveTerms.count)
+        for term in snapshot.effectiveTerms {
+            hasher.combine(term)
+        }
+        return hasher.finalize()
     }
 
     private func processTranscriptionResult(

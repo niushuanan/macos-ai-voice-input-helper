@@ -178,6 +178,23 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "hello world")
     }
 
+    func testSavedDictionaryIsInjectedIntoNextASRRequestImmediately() async throws {
+        let fixture = try makeFixture(transcriptionText: "词典测试")
+        defer { fixture.cleanUp() }
+
+        fixture.dictionaryStore.save(rawText: "OpenAI\nDeepSeek\nDeepSeek\nsemantic cache")
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        let request = try XCTUnwrap(fixture.transcriptionProvider.lastRequest)
+        XCTAssertEqual(request.dictionaryTerms, ["OpenAI", "DeepSeek", "semantic cache"])
+        XCTAssertNotNil(request.dictionaryPromptHint)
+        XCTAssertTrue(request.dictionaryPromptHint?.contains("OpenAI") == true)
+        XCTAssertEqual(request.dictionaryHotwordText, "OpenAI\nDeepSeek\nsemantic cache")
+    }
+
     private func makeFixture(
         textOutputCoordinator: FakeTextOutputCoordinator? = nil,
         dictationPostProcessor: DictationPostProcessor = FakeDictationPostProcessor(result: .success("hello world")),
@@ -226,6 +243,10 @@ final class InteractionCoordinatorTests: XCTestCase {
         let skillRuleStore = SkillRuleStore(defaults: defaults, storageKey: "skill.rules.interaction.tests")
         let transcriptionProvider = FakeTranscriptionProvider(transcript: transcriptionText)
         let resolvedTextOutputCoordinator = textOutputCoordinator ?? FakeTextOutputCoordinator()
+        let dictionaryStore = ASRDictionaryStore(
+            defaults: defaults,
+            storageKey: "asr.dictionary.interaction.tests"
+        )
 
         let coordinator = InteractionCoordinator(
             sessionStore: sessionStore,
@@ -239,6 +260,8 @@ final class InteractionCoordinatorTests: XCTestCase {
             appScenePolicyStore: appScenePolicyStore,
             localHistoryStore: localHistoryStore,
             skillRuleStore: skillRuleStore,
+            asrDictionaryStore: dictionaryStore,
+            toastPresenter: nil,
             dictationPostProcessor: dictationPostProcessor
         )
 
@@ -250,6 +273,8 @@ final class InteractionCoordinatorTests: XCTestCase {
             localHistoryStore: localHistoryStore,
             skillRuleStore: skillRuleStore,
             appScenePolicyStore: appScenePolicyStore,
+            transcriptionProvider: transcriptionProvider,
+            dictionaryStore: dictionaryStore,
             cleanUp: {
                 try? FileManager.default.removeItem(at: historyDirectory)
                 try? FileManager.default.removeItem(at: clipURL)
@@ -280,6 +305,8 @@ private struct InteractionFixture {
     let localHistoryStore: LocalHistoryStore
     let skillRuleStore: SkillRuleStore
     let appScenePolicyStore: AppScenePolicyStore
+    let transcriptionProvider: FakeTranscriptionProvider
+    let dictionaryStore: ASRDictionaryStore
     let cleanUp: () -> Void
 }
 
@@ -397,16 +424,22 @@ private final class MemoryCredentialStoreForInteractionTests: ProviderCredential
     }
 }
 
-private struct FakeTranscriptionProvider: SpeechTranscriptionProvider {
+private final class FakeTranscriptionProvider: SpeechTranscriptionProvider {
     let supportedProviderTypes: [ProviderType] = [.localSenseVoice]
     let transcript: String
+    private(set) var lastRequest: SpeechTranscriptionRequest?
+
+    init(transcript: String) {
+        self.transcript = transcript
+    }
 
     func transcribe(
         request: SpeechTranscriptionRequest,
         configuration: SpeechProviderConfiguration,
         apiKey: String
     ) async throws -> SpeechTranscriptionResult {
-        SpeechTranscriptionResult(
+        lastRequest = request
+        return SpeechTranscriptionResult(
             providerType: .localSenseVoice,
             providerName: "Fake Local",
             modelName: "sensevoice-small",

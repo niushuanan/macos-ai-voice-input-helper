@@ -186,6 +186,31 @@ struct SpeechTranscriptionRequest {
     let clip: RecordedAudioClip
     let lane: InputLane
     let contextSummary: String
+    let dictionaryTerms: [String]
+    let dictionaryPromptHint: String?
+    let dictionaryHotwordText: String?
+
+    init(
+        clip: RecordedAudioClip,
+        lane: InputLane,
+        contextSummary: String,
+        dictionaryTerms: [String] = [],
+        dictionaryPromptHint: String? = nil,
+        dictionaryHotwordText: String? = nil
+    ) {
+        self.clip = clip
+        self.lane = lane
+        self.contextSummary = contextSummary
+        self.dictionaryTerms = dictionaryTerms
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let normalizedPrompt = dictionaryPromptHint?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.dictionaryPromptHint = (normalizedPrompt?.isEmpty == false) ? normalizedPrompt : nil
+        let normalizedHotword = dictionaryHotwordText?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.dictionaryHotwordText = (normalizedHotword?.isEmpty == false) ? normalizedHotword : nil
+    }
 }
 
 struct SpeechTranscriptionResult: Equatable {

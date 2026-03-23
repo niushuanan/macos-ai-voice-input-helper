@@ -10,6 +10,7 @@ struct SettingsView: View {
     @ObservedObject private var hotkeyStateStore: HotkeyStateStore
     @ObservedObject private var permissionsCenter: PermissionsCenter
     @ObservedObject private var providerSettingsStore: ProviderSettingsStore
+    @ObservedObject private var asrDictionaryStore: ASRDictionaryStore
     @ObservedObject private var localSenseVoiceRuntimeManager: LocalSenseVoiceRuntimeManager
     @ObservedObject private var skillRuleStore: SkillRuleStore
     @ObservedObject private var appScenePolicyStore: AppScenePolicyStore
@@ -27,6 +28,7 @@ struct SettingsView: View {
     @State private var isDiscoveringApps = false
     @State private var debouncedToastTask: Task<Void, Never>?
     @State private var debouncedSceneSaveTask: Task<Void, Never>?
+    @State private var dictionaryDraft = ""
 
     init(model: AppModel) {
         self.model = model
@@ -34,6 +36,7 @@ struct SettingsView: View {
         _hotkeyStateStore = ObservedObject(wrappedValue: model.hotkeyStateStore)
         _permissionsCenter = ObservedObject(wrappedValue: model.permissionsCenter)
         _providerSettingsStore = ObservedObject(wrappedValue: model.providerSettingsStore)
+        _asrDictionaryStore = ObservedObject(wrappedValue: model.asrDictionaryStore)
         _localSenseVoiceRuntimeManager = ObservedObject(wrappedValue: model.localSenseVoiceRuntimeManager)
         _skillRuleStore = ObservedObject(wrappedValue: model.skillRuleStore)
         _appScenePolicyStore = ObservedObject(wrappedValue: model.appScenePolicyStore)
@@ -61,6 +64,8 @@ struct SettingsView: View {
                         memoryPage
                     case .skills:
                         skillsPage
+                    case .dictionary:
+                        dictionaryPage
                     case .model:
                         modelPage
                     case .settings:
@@ -84,6 +89,11 @@ struct SettingsView: View {
         .onReceive(hotkeyStateStore.$latestChangeMessage.compactMap { $0 }) { message in
             showToast(message)
             hotkeyStateStore.clearLatestChangeMessage()
+        }
+        .onChange(of: controlCenterState.selectedSection) { _, section in
+            if section == .dictionary {
+                dictionaryDraft = asrDictionaryStore.rawText
+            }
         }
     }
 
@@ -324,6 +334,57 @@ struct SettingsView: View {
                     modelDirectoryPath: providerSettingsStore.asrConfig.localModelPath
                 )
             }
+        }
+    }
+
+    private var dictionaryPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                pageHeader(
+                    title: "词典",
+                    subtitle: "每行一个词条，可写专业词或短语。保存后会立刻用于语音识别。"
+                )
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("词典内容")
+                        .font(.headline)
+
+                    TextEditor(text: $dictionaryDraft)
+                        .font(.system(size: 13))
+                        .frame(minHeight: 220, maxHeight: 320)
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(Color(nsColor: .textBackgroundColor))
+                                )
+                        )
+
+                    HStack(alignment: .center, spacing: 12) {
+                        Button("保存") {
+                            saveDictionary()
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        Text(dictionaryStatusLine)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+                .pulseCard(cornerRadius: 12)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
+        }
+        .onAppear {
+            dictionaryDraft = asrDictionaryStore.rawText
         }
     }
 
@@ -843,6 +904,20 @@ struct SettingsView: View {
         )
     }
 
+    private var dictionaryStatusLine: String {
+        let preview = asrDictionaryStore.preview(rawText: dictionaryDraft)
+        let extra = preview.didTruncate ? "（超长将自动截断注入）" : ""
+        return "总行数 \(rawDictionaryLineCount) · 有效词条 \(preview.effectiveTerms.count) · 注入长度 \(preview.injectedCharacterCount)\(extra)"
+    }
+
+    private var rawDictionaryLineCount: Int {
+        let normalized = dictionaryDraft.replacingOccurrences(of: "\r\n", with: "\n")
+        guard !normalized.isEmpty else {
+            return 0
+        }
+        return normalized.split(separator: "\n", omittingEmptySubsequences: false).count
+    }
+
     private var textProviderTypeBinding: Binding<ProviderType> {
         Binding(
             get: { providerSettingsStore.textConfig.providerType },
@@ -1333,6 +1408,20 @@ struct SettingsView: View {
             await MainActor.run {
                 textTesting = false
             }
+        }
+    }
+
+    private func saveDictionary() {
+        let snapshot = asrDictionaryStore.save(rawText: dictionaryDraft)
+        dictionaryDraft = asrDictionaryStore.rawText
+        showToast("词典已保存并生效")
+        if snapshot.didTruncate {
+            NSLog(
+                "[ASRDictionary] save preview truncated injected=%ld effective=%ld maxChars=%ld",
+                snapshot.injectedTerms.count,
+                snapshot.effectiveTerms.count,
+                snapshot.maxCharacters
+            )
         }
     }
 }

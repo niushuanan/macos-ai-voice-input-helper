@@ -306,6 +306,74 @@ final class DashScopeAndLocalASRTests: XCTestCase {
         XCTAssertTrue(detail.contains("Authorization:"))
     }
 
+    func testDashScopeProviderInjectsDictionaryPromptIntoSystemText() async throws {
+        let provider = DashScopeQwenASRProvider(session: makeStubSession())
+        let clipURL = try makeTemporaryClipURL()
+        defer { try? FileManager.default.removeItem(at: clipURL) }
+
+        let dictionaryPrompt = "用户词典（优先识别以下词条并按原样输出）：\nOpenAI\nDeepSeek"
+        DashScopeURLProtocolStub.requestHandler = { request in
+            let body = request.httpBody ?? self.readBodyStream(from: request)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            let input = try XCTUnwrap(json["input"] as? [String: Any])
+            let messages = try XCTUnwrap(input["messages"] as? [[String: Any]])
+            let system = try XCTUnwrap(messages.first(where: { $0["role"] as? String == "system" }))
+            let content = try XCTUnwrap(system["content"] as? [[String: Any]])
+            XCTAssertEqual(content.first?["text"] as? String, dictionaryPrompt)
+
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let data = Data(#"{"output":{"choices":[{"message":{"content":[{"text":"字典命中"}]}}]}}"#.utf8)
+            return (response, data)
+        }
+
+        let result = try await provider.transcribe(
+            request: SpeechTranscriptionRequest(
+                clip: RecordedAudioClip(
+                    id: UUID(),
+                    fileURL: clipURL,
+                    duration: 0.5,
+                    sampleRate: 16_000,
+                    createdAt: Date()
+                ),
+                lane: .directDictation,
+                contextSummary: "unit-test",
+                dictionaryTerms: ["OpenAI", "DeepSeek"],
+                dictionaryPromptHint: dictionaryPrompt
+            ),
+            configuration: SpeechProviderConfiguration(
+                profileID: "dashscope",
+                providerType: .dashScopeQwenASR,
+                providerName: "DashScope",
+                modelName: "qwen3-asr-flash",
+                baseURL: URL(string: "https://dashscope.aliyuncs.com")!
+            ),
+            apiKey: fakeAPIKey
+        )
+
+        XCTAssertEqual(result.transcript, "字典命中")
+    }
+
+    func testLocalDaemonRequestEncodingContainsHotword() throws {
+        let payload = LocalSenseVoiceDaemonRequest(
+            id: "req-1",
+            action: "transcribe",
+            audio: "/tmp/a.wav",
+            hotword: "OpenAI\nDeepSeek"
+        )
+        let data = try JSONEncoder().encode(payload)
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+
+        XCTAssertEqual(json["hotword"] as? String, "OpenAI\nDeepSeek")
+        XCTAssertEqual(json["action"] as? String, "transcribe")
+    }
+
     private func makeStubSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [DashScopeURLProtocolStub.self]

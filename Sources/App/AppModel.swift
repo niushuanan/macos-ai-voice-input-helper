@@ -44,6 +44,7 @@ final class AppModel: ObservableObject {
     let audioCaptureService: AudioCaptureService
     let skillRuleStore: SkillRuleStore
     let providerSettingsStore: ProviderSettingsStore
+    let asrDictionaryStore: ASRDictionaryStore
     let localSenseVoiceRuntimeManager: LocalSenseVoiceRuntimeManager
     let speechProviderRegistry: SpeechProviderRegistry
     let rewriteProviderRegistry: RewriteProviderRegistry
@@ -67,6 +68,7 @@ final class AppModel: ObservableObject {
         audioCaptureService: AudioCaptureService,
         skillRuleStore: SkillRuleStore,
         providerSettingsStore: ProviderSettingsStore,
+        asrDictionaryStore: ASRDictionaryStore,
         localSenseVoiceRuntimeManager: LocalSenseVoiceRuntimeManager,
         speechProviderRegistry: SpeechProviderRegistry,
         rewriteProviderRegistry: RewriteProviderRegistry,
@@ -88,6 +90,7 @@ final class AppModel: ObservableObject {
         self.audioCaptureService = audioCaptureService
         self.skillRuleStore = skillRuleStore
         self.providerSettingsStore = providerSettingsStore
+        self.asrDictionaryStore = asrDictionaryStore
         self.localSenseVoiceRuntimeManager = localSenseVoiceRuntimeManager
         self.speechProviderRegistry = speechProviderRegistry
         self.rewriteProviderRegistry = rewriteProviderRegistry
@@ -127,6 +130,7 @@ final class AppModel: ObservableObject {
         let providerSettingsStore = ProviderSettingsStore(
             credentialStore: credentialStore
         )
+        let asrDictionaryStore = ASRDictionaryStore()
         let localSenseVoiceRuntimeManager = LocalSenseVoiceRuntimeManager(
             runtimeRoot: store.senseVoiceRuntimeDirectory
         )
@@ -149,6 +153,7 @@ final class AppModel: ObservableObject {
         let localHistoryStore = LocalHistoryStore(historyDirectory: store.historyDirectory)
         let controlCenterState = ControlCenterState(localHistoryStore: localHistoryStore)
         let hotkeyStateStore = HotkeyStateStore()
+        let toastPresenter = ToastPresenter()
         let interactionCoordinator = InteractionCoordinator(
             sessionStore: sessionStore,
             permissionsCenter: permissionsCenter,
@@ -160,7 +165,9 @@ final class AppModel: ObservableObject {
             contextDetector: contextDetector,
             appScenePolicyStore: appScenePolicyStore,
             localHistoryStore: localHistoryStore,
-            skillRuleStore: skillRuleStore
+            skillRuleStore: skillRuleStore,
+            asrDictionaryStore: asrDictionaryStore,
+            toastPresenter: toastPresenter
         )
         return AppModel(
             controlCenterState: controlCenterState,
@@ -174,6 +181,7 @@ final class AppModel: ObservableObject {
             audioCaptureService: audioCaptureService,
             skillRuleStore: skillRuleStore,
             providerSettingsStore: providerSettingsStore,
+            asrDictionaryStore: asrDictionaryStore,
             localSenseVoiceRuntimeManager: localSenseVoiceRuntimeManager,
             speechProviderRegistry: speechProviderRegistry,
             rewriteProviderRegistry: rewriteProviderRegistry,
@@ -185,7 +193,7 @@ final class AppModel: ObservableObject {
             localHistoryStore: localHistoryStore,
             diagnosticsCenter: DiagnosticsCenter(),
             statusPulseHUDController: StatusPulseHUDController(),
-            toastPresenter: ToastPresenter()
+            toastPresenter: toastPresenter
         )
     }
 

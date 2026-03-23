@@ -22,7 +22,8 @@ struct LocalSenseVoiceProvider: SpeechTranscriptionProvider {
 
         let execution = await LocalSenseVoiceRuntime.runTranscription(
             modelDirectory: modelDirectory,
-            audioFileURL: request.clip.fileURL
+            audioFileURL: request.clip.fileURL,
+            hotwordText: request.dictionaryHotwordText
         )
 
         guard execution.success else {
@@ -62,7 +63,8 @@ enum LocalSenseVoiceHealthChecker {
         let execution = LocalSenseVoiceRuntime.runWorker(
             mode: .probe,
             modelDirectory: modelDirectory,
-            audioFileURL: nil
+            audioFileURL: nil,
+            hotwordText: nil
         )
 
         if execution.success {
@@ -109,10 +111,11 @@ private struct LocalSenseVoiceWorkerPayload: Decodable {
     let backend: String?
 }
 
-private struct LocalSenseVoiceDaemonRequest: Encodable {
+struct LocalSenseVoiceDaemonRequest: Encodable {
     let id: String
     let action: String
     let audio: String?
+    let hotword: String?
 }
 
 private actor LocalSenseVoiceDaemonClient {
@@ -125,7 +128,11 @@ private actor LocalSenseVoiceDaemonClient {
     private var activeModelDirectoryPath: String?
     private var pendingStdoutBuffer = Data()
 
-    func transcribe(modelDirectory: URL, audioFileURL: URL) -> LocalSenseVoiceWorkerExecution {
+    func transcribe(
+        modelDirectory: URL,
+        audioFileURL: URL,
+        hotwordText: String?
+    ) -> LocalSenseVoiceWorkerExecution {
         let runtimeRoot = LocalSenseVoiceRuntimeManager.defaultRuntimeRoot()
         guard let pythonURL = LocalSenseVoiceRuntime.pythonExecutableURL(runtimeRoot: runtimeRoot) else {
             return LocalSenseVoiceWorkerExecution(
@@ -162,10 +169,13 @@ private actor LocalSenseVoiceDaemonClient {
         }
 
         let requestID = UUID().uuidString
+        let normalizedHotword = hotwordText?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let request = LocalSenseVoiceDaemonRequest(
             id: requestID,
             action: "transcribe",
-            audio: audioFileURL.path
+            audio: audioFileURL.path,
+            hotword: (normalizedHotword?.isEmpty == false) ? normalizedHotword : nil
         )
 
         guard writeJSONLine(request, to: stdinHandle) else {
@@ -411,11 +421,13 @@ enum LocalSenseVoiceRuntime {
 
     fileprivate static func runTranscription(
         modelDirectory: URL,
-        audioFileURL: URL
+        audioFileURL: URL,
+        hotwordText: String?
     ) async -> LocalSenseVoiceWorkerExecution {
         let daemonExecution = await LocalSenseVoiceDaemonClient.shared.transcribe(
             modelDirectory: modelDirectory,
-            audioFileURL: audioFileURL
+            audioFileURL: audioFileURL,
+            hotwordText: hotwordText
         )
         if daemonExecution.success {
             return daemonExecution
@@ -424,7 +436,8 @@ enum LocalSenseVoiceRuntime {
         let fallbackExecution = runWorker(
             mode: .transcribe,
             modelDirectory: modelDirectory,
-            audioFileURL: audioFileURL
+            audioFileURL: audioFileURL,
+            hotwordText: hotwordText
         )
         if fallbackExecution.success {
             return fallbackExecution
@@ -445,7 +458,8 @@ enum LocalSenseVoiceRuntime {
     fileprivate static func runWorker(
         mode: LocalSenseVoiceWorkerMode,
         modelDirectory: URL,
-        audioFileURL: URL?
+        audioFileURL: URL?,
+        hotwordText: String?
     ) -> LocalSenseVoiceWorkerExecution {
         let runtimeRoot = LocalSenseVoiceRuntimeManager.defaultRuntimeRoot()
         guard let pythonURL = pythonExecutableURL(runtimeRoot: runtimeRoot) else {
@@ -471,6 +485,13 @@ enum LocalSenseVoiceRuntime {
         ]
         if let audioFileURL {
             arguments.append(contentsOf: ["--audio", audioFileURL.path])
+        }
+        if
+            let hotwordText = hotwordText?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !hotwordText.isEmpty
+        {
+            arguments.append(contentsOf: ["--hotword", hotwordText])
         }
         process.arguments = arguments
 
@@ -632,13 +653,53 @@ def load_model(backend, model_dir):
     except TypeError:
         return SenseVoiceSmall(str(model_dir))
 
-def infer_text(backend, model, audio_path):
+def with_hotword_variants(callers, fallback):
+    for call in callers:
+        try:
+            return call()
+        except TypeError:
+            continue
+    return fallback()
+
+def infer_text(backend, model, audio_path, hotword_text=""):
     if backend == "funasr":
+        if hotword_text:
+            result = with_hotword_variants(
+                [
+                    lambda: model.generate(input=str(audio_path), hotword=hotword_text),
+                    lambda: model.generate(input=str(audio_path), hotword_text=hotword_text),
+                ],
+                fallback=lambda: model.generate(input=str(audio_path))
+            )
+            return extract_text(result)
         return extract_text(model.generate(input=str(audio_path)))
+
+    def infer_by_call():
+        if hotword_text:
+            return with_hotword_variants(
+                [
+                    lambda: model(str(audio_path), hotword=hotword_text),
+                    lambda: model(str(audio_path), hotword_text=hotword_text),
+                ],
+                fallback=lambda: model(str(audio_path))
+            )
+        return model(str(audio_path))
+
+    def infer_by_method():
+        if hotword_text:
+            return with_hotword_variants(
+                [
+                    lambda: model.inference(str(audio_path), hotword=hotword_text),
+                    lambda: model.inference(str(audio_path), hotword_text=hotword_text),
+                ],
+                fallback=lambda: model.inference(str(audio_path))
+            )
+        return model.inference(str(audio_path))
+
     try:
-        result = model(str(audio_path))
+        result = infer_by_call()
     except TypeError:
-        result = model.inference(str(audio_path))
+        result = infer_by_method()
     return extract_text(result)
 
 def main():
@@ -646,6 +707,7 @@ def main():
     parser.add_argument("--mode", choices=["probe", "transcribe", "daemon"], required=True)
     parser.add_argument("--model-dir", required=True)
     parser.add_argument("--audio", default="")
+    parser.add_argument("--hotword", default="")
     args = parser.parse_args()
 
     model_dir = pathlib.Path(args.model_dir).expanduser()
@@ -659,11 +721,11 @@ def main():
         )
 
     if not has_module("onnxruntime") or not has_module("numpy"):
-            return emit(
-                False,
-                "缺少基础依赖 onnxruntime 或 numpy。",
-                "建议使用 Python 3.11 虚拟环境并执行：pip install onnxruntime numpy torch"
-            )
+        return emit(
+            False,
+            "缺少基础依赖 onnxruntime 或 numpy。",
+            "建议使用 Python 3.11 虚拟环境并执行：pip install onnxruntime numpy torch"
+        )
 
     backend = detect_backend()
 
@@ -721,8 +783,9 @@ def main():
                 emit(False, "录音文件不存在。", "请重新开始语音会话后再试。", backend=backend, request_id=request_id)
                 continue
 
+            hotword_text = str(payload.get("hotword", "")).strip()
             try:
-                text = infer_text(backend, model, audio_path)
+                text = infer_text(backend, model, audio_path, hotword_text=hotword_text)
             except Exception as error:
                 debug = traceback.format_exc(limit=2)
                 emit(
@@ -760,7 +823,7 @@ def main():
         return emit(False, "录音文件不存在。", "请重新开始语音会话后再试。", backend=backend)
 
     try:
-        text = infer_text(backend, model, audio_path)
+        text = infer_text(backend, model, audio_path, hotword_text=args.hotword.strip())
     except Exception as error:
         debug = traceback.format_exc(limit=2)
         return emit(

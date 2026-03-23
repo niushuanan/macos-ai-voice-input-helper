@@ -45,7 +45,8 @@ struct OpenAITranscriptionProvider: SpeechTranscriptionProvider {
             configuration: configuration,
             fileURL: fileURL,
             audioData: audioData,
-            format: format
+            format: format,
+            promptHint: request.dictionaryPromptHint
         )
 
         let responseData: Data
@@ -103,7 +104,8 @@ struct OpenAITranscriptionProvider: SpeechTranscriptionProvider {
         configuration: SpeechProviderConfiguration,
         fileURL: URL,
         audioData: Data,
-        format: OpenAIAudioFormat
+        format: OpenAIAudioFormat,
+        promptHint: String?
     ) -> Data {
         var body = Data()
         body.appendUTF8("--\(boundary)\r\n")
@@ -113,6 +115,12 @@ struct OpenAITranscriptionProvider: SpeechTranscriptionProvider {
         body.appendUTF8("--\(boundary)\r\n")
         body.appendUTF8("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n")
         body.appendUTF8("json\r\n")
+
+        if let promptHint, !promptHint.isEmpty {
+            body.appendUTF8("--\(boundary)\r\n")
+            body.appendUTF8("Content-Disposition: form-data; name=\"prompt\"\r\n\r\n")
+            body.appendUTF8("\(promptHint)\r\n")
+        }
 
         body.appendUTF8("--\(boundary)\r\n")
         body.appendUTF8("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileURL.lastPathComponent)\"\r\n")
@@ -254,7 +262,7 @@ struct DashScopeQwenASRProvider: SpeechTranscriptionProvider {
             model: configuration.modelName,
             input: .init(
                 messages: [
-                    .init(role: "system", content: [.text("")]),
+                    .init(role: "system", content: [.text(request.dictionaryPromptHint ?? "")]),
                     .init(
                         role: "user",
                         content: [

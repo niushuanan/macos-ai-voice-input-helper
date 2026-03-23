@@ -18,6 +18,9 @@ final class OpenAIProviderAdapterTests: XCTestCase {
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-key")
             XCTAssertTrue(request.httpBody != nil || request.httpBodyStream != nil)
+            let bodyData = self.readBodyData(from: request)
+            let bodyText = String(data: bodyData, encoding: .utf8) ?? ""
+            XCTAssertFalse(bodyText.contains("name=\"prompt\""))
 
             let response = HTTPURLResponse(
                 url: request.url!,
@@ -52,6 +55,53 @@ final class OpenAIProviderAdapterTests: XCTestCase {
         )
 
         XCTAssertEqual(result.transcript, "hello from test")
+    }
+
+    func testTranscriptionProviderInjectsPromptFieldWhenDictionaryHintProvided() async throws {
+        let session = makeStubSession()
+        let provider = OpenAITranscriptionProvider(session: session)
+        let clipURL = try makeTemporaryAudioFile()
+        defer { try? FileManager.default.removeItem(at: clipURL) }
+        let prompt = "用户词典（优先识别以下词条并按原样输出）：\nOpenAI\nDeepSeek"
+
+        URLProtocolStub.requestHandler = { request in
+            let bodyData = self.readBodyData(from: request)
+            let bodyText = String(data: bodyData, encoding: .utf8) ?? ""
+            XCTAssertTrue(bodyText.contains("name=\"prompt\""))
+            XCTAssertTrue(bodyText.contains(prompt))
+
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, Data(#"{"text":"ok"}"#.utf8))
+        }
+
+        _ = try await provider.transcribe(
+            request: SpeechTranscriptionRequest(
+                clip: RecordedAudioClip(
+                    id: UUID(),
+                    fileURL: clipURL,
+                    duration: 0.8,
+                    sampleRate: 44_100,
+                    createdAt: Date()
+                ),
+                lane: .directDictation,
+                contextSummary: "unit-test",
+                dictionaryTerms: ["OpenAI", "DeepSeek"],
+                dictionaryPromptHint: prompt
+            ),
+            configuration: SpeechProviderConfiguration(
+                profileID: "profile-1",
+                providerType: .openAICompatible,
+                providerName: "Compatible",
+                modelName: "whisper-1",
+                baseURL: URL(string: "https://api.example.com/v1/")!
+            ),
+            apiKey: "test-key"
+        )
     }
 
     func testGenerationProviderUsesResolvedEndpointAndParsesChoice() async throws {
@@ -201,6 +251,33 @@ final class OpenAIProviderAdapterTests: XCTestCase {
             .appendingPathExtension("m4a")
         try Data([0x00, 0x01, 0x02]).write(to: url)
         return url
+    }
+
+    private func readBodyData(from request: URLRequest) -> Data {
+        if let body = request.httpBody {
+            return body
+        }
+        guard let stream = request.httpBodyStream else {
+            return Data()
+        }
+
+        stream.open()
+        defer { stream.close() }
+
+        let bufferSize = 4096
+        var data = Data()
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+
+        while stream.hasBytesAvailable {
+            let count = stream.read(buffer, maxLength: bufferSize)
+            if count <= 0 {
+                break
+            }
+            data.append(buffer, count: count)
+        }
+
+        return data
     }
 }
 
