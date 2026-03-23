@@ -18,6 +18,9 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Install ripgrep
+        run: brew install ripgrep
+
       - name: Secret scan
         run: |
           chmod +x scripts/secret-scan.sh
