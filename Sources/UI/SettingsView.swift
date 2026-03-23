@@ -923,6 +923,7 @@ struct SettingsView: View {
                 )
                 .labelsHidden()
                 .toggleStyle(SwitchToggleStyle())
+                .scaleEffect(0.8)
                 .fixedSize()
             }
 
@@ -2020,6 +2021,7 @@ private struct SkillRuleCardView: View {
                 Toggle("", isOn: $isEnabled)
                     .labelsHidden()
                     .toggleStyle(SwitchToggleStyle())
+                    .scaleEffect(0.8)
                     .fixedSize()
             }
 
