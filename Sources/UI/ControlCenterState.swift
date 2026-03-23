@@ -5,10 +5,10 @@ enum DesktopSection: String, CaseIterable, Identifiable {
     case home
     case memory
     case skills
-    case agentBrainstorm
     case dictionary
     case model
     case settings
+    case agentBrainstorm
 
     var id: String { rawValue }
 
