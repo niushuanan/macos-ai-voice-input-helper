@@ -1,104 +1,70 @@
 # PulseType
 
-PulseType is a keyboard-first macOS helper app for AI voice input.
-It is intentionally not an `InputMethodKit` input method.
+PulseType 是一个给 macOS 用的 AI 语音输入助手。它不是系统输入法，而是独立 app。
 
-Current repository goal: deliver a stable **trialable v0/v1** build with clear setup, clear limits, and local-first behavior.
+## 这是啥
 
-## Why this project exists
+你可以把它理解成“键盘优先”的语音输入工具：
 
-Most dictation tools feel like either a bare microphone button or a full
-keyboard replacement. PulseType takes a different path:
+- 用全局热键开始/结束语音输入
+- 语音先转文字，再写入当前焦点 app
+- 在选中文本上做改写（翻译、润色、精简、结构化）
+- 通过不同 app 的提示词策略，让输出更贴场景
 
-- stay outside the text system as a helper app
-- make keyboard invocation and cancellation the main interaction
-- make direct dictation the primary lane, with optional rewrite extensions
-- tune output by context without forcing users into a chat window
+## 现在能做什么
 
-## What works now
+- 全局热键：唤醒键 + 取消键
+- 本地录音 + 云端 ASR
+- 听写文本自动写回前台 app
+- 双模型配置：`ASR` + `Text`
+- 默认模型组合：`Qwen3-ASR-Flash` + `deepseek-chat`
+- 可切到本地 ASR：`SenseVoice Small`
+- 模型连接一键测试
+- 本地词典：每行一个词条，保存后立刻生效
+- 本地记录：筛选、复制、删除、清空
+- 权限中心：麦克风与辅助功能状态检查
+- 菜单栏 + 主窗口 + HUD 状态提示
 
-Core product loop:
+## 页面说明
 
-- Global shortcuts: wake toggle + cancel
-- Local audio recording + cloud transcription
-- Dictation writeback into focused app
-- Selection rewrite (`translate`, `polish`, `condense`, `structure`)
-- Dual-role model config (`ASR` + `Text`) with one-click connectivity test
-- API key input in settings, explicit save button, stored locally in app support directory
-- Default cloud model pair: `Qwen3-ASR-Flash` (ASR) + `deepseek-chat` (text)
-- Local ASR option: `SenseVoice Small`
-- Local history with delete operations and app/mode/status filters
-- App-aware policy (`per-app prompt`) with skill-page management
-- Permission center for microphone and accessibility
-- Status feedback in menu bar, desktop control center, and HUD pulse
+- `首页`：会话状态、近期内容、累计指标
+- `记忆`：本地记录列表与筛选管理
+- `Skill`：口语过滤、个性提示词、按 app 风格策略
+- `词典`：ASR 词条配置
+- `模型`：ASR/Text 参数、密钥与连通测试
+- `设置`：热键、权限、运行诊断、关于
+- `Agent-头脑风暴（Beta）`：短时讨论记录与整理入口
 
-Desktop information architecture:
+## 快速开始
 
-- `首页`：会话控制、阶段状态、最近结果、今日统计
-- `记忆`：时间线、筛选（全部/普通听写/选区改写/失败）、复制/删除/清空
-- `技能`：口语过滤、个性提示词、按应用风格总开关与每应用提示词策略
-- `模型`：固定两卡（ASR/文本处理），含地址/模型/密钥/测试/最近测试结果
-- `设置`：两键热键、权限中心、关于
-
-Engineering baseline:
-
-- Unit tests for state machine, intent parsing, endpoint resolution, provider adapters
-- GitHub Actions CI running macOS build and test
-
-## Selected innovation tracks
-
-- `Dual-lane invocation`: one summon action, then branch into direct dictation
-  or selection rewrite without mode hunting
-- `Scene-tuned style presets`: adapt tone and rewrite defaults from the
-  frontmost app category, with keyboard cycling for fast override
-
-These tracks are documented in
-[docs/product-principles.md](docs/product-principles.md).
-
-## Current limits (important)
-
-- Compatibility is validated on a limited app set; broad editor coverage is not complete yet.
-- AX direct insertion can still vary across target apps and app versions.
-- Local SenseVoice path depends on local runtime/model files.
-- No signed/notarized distributable package in this stage.
-
-See [docs/compatibility-matrix-v1.md](docs/compatibility-matrix-v1.md) for tested targets and known unstable scenarios.
-
-## Quick start
-
-Generate project:
+1. 生成工程
 
 ```bash
 xcodegen generate
 ```
 
-Install single local runtime first:
+2. 覆盖安装到 `/Applications`
 
 ```bash
 ./scripts/install-local-app.sh
 ```
 
-Then open `/Applications/PulseType.app` and enter the two API keys inside `模型` page.
-If you really need a script path, `./scripts/setup-local-keys.sh` still exists as a compatibility helper.
+3. 打开 `/Applications/PulseType.app`
 
-Install local secret pre-check (optional but recommended):
+4. 在 `模型` 页填好配置并测试连通
 
-```bash
-./scripts/install-pre-commit-hook.sh
-```
+5. 在 `设置` 页确认麦克风与辅助功能权限
 
-Build:
+6. 回到 `首页`，用热键开始体验
 
-```bash
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-  xcodebuild \
-  -project PulseType.xcodeproj \
-  -scheme PulseType \
-  -configuration Debug \
-  build
-```
+## 已知限制
 
-Test:
+- 目前仅在部分 app 场景做过重点验证
+- 直接写入路径在不同 app 上存在差异
+- 本地 `SenseVoice` 依赖本机 runtime 与模型目录
+- 目前还没有签名/公证后的发行安装包
+
+## 开发与测试
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
@@ -109,45 +75,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   test
 ```
 
-Runtime doctor:
+如需排查运行环境：
 
 ```bash
 ./scripts/doctor-runtime.sh
 ```
-
-One-time local cleanup when permission or old app-path state is stale:
-
-```bash
-./scripts/repair-local-runtime.sh
-```
-
-## Trial checklist
-
-1. Open `模型` and verify defaults:
-   - ASR: DashScope + `qwen3-asr-flash`
-   - 文本: OpenAI-compatible + `https://api.deepseek.com` + `deepseek-chat`
-2. Run both connectivity tests and confirm both succeed.
-3. Open `设置` and grant microphone + accessibility permissions.
-4. Go to `首页`, press wake key to start dictation, press again to stop.
-5. Verify output text appears in target app.
-6. Open `记忆` and verify history is visible and manageable.
-7. Ensure app runtime path is `/Applications/PulseType.app` (single-version policy).
-
-## Key documents
-
-- [docs/install.md](docs/install.md)
-- [docs/usage.md](docs/usage.md)
-- [docs/api-key-setup.md](docs/api-key-setup.md)
-- [docs/product-principles.md](docs/product-principles.md)
-- [docs/engineering-plan.md](docs/engineering-plan.md)
-- [docs/architecture.md](docs/architecture.md)
-- [docs/hotkeys-permissions.md](docs/hotkeys-permissions.md)
-- [docs/audio-session.md](docs/audio-session.md)
-- [docs/transcription-provider.md](docs/transcription-provider.md)
-- [docs/text-output.md](docs/text-output.md)
-- [docs/compatibility-matrix-v1.md](docs/compatibility-matrix-v1.md)
-- [docs/local-history-and-scene-policy.md](docs/local-history-and-scene-policy.md)
-- [docs/release-checklist.md](docs/release-checklist.md)
-- [docs/v1-backlog.md](docs/v1-backlog.md)
-- [docs/milestones.md](docs/milestones.md)
-- [docs/adr/0001-helper-app-direction.md](docs/adr/0001-helper-app-direction.md)

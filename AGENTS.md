@@ -9,7 +9,6 @@
 
 ## 默认执行规则
 
-- 本项目默认启用 skill：`$pulsetype-auto-ship`（路径：`.codex/skills/pulsetype-auto-ship/SKILL.md`）。
 - 代码任务完成且存在改动时，默认执行自动发布链路：`test -> commit -> push -> install`。
 - 若用户明确说“不要发布”或“仅改代码”，当次跳过发布链路。
 
