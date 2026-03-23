@@ -747,29 +747,6 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.orange)
             }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("当前运行实例")
-                    .font(.subheadline.weight(.semibold))
-                Text("Bundle ID：\(permissionsCenter.runtimeDiagnostics.bundleIdentifier)")
-                    .font(.caption.monospaced())
-                    .textSelection(.enabled)
-                Text("可执行文件：\(permissionsCenter.runtimeDiagnostics.executablePath)")
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                Text("签名摘要：\(permissionsCenter.runtimeDiagnostics.signatureSummary)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("最近检测：\(permissionsCenter.runtimeDiagnostics.checkedAt.formatted(date: .omitted, time: .standard))")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Label("系统设置里如出现多个 PulseType，请只保留这一路径对应的项。", systemImage: "info.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
@@ -1151,9 +1128,7 @@ struct SettingsView: View {
     }
 
     private var appVersionLine: String {
-        let shortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "-"
-        let build = Bundle.main.object(forInfoDictionaryKey: kCFBundleVersionKey as String) as? String ?? "-"
-        return "\(shortVersion) (\(build))"
+        "V1.0"
     }
 
     private var memoryFilters: [LocalHistoryFilter] {
@@ -1631,16 +1606,21 @@ private struct MemoryRowView: View {
             }
 
             if entry.mode == .dictation {
-                MemoryTextBlockView(
-                    title: "主文本",
-                    text: primaryText ?? "暂无主文本",
-                    emphasizesPrimary: true
-                )
-                MemoryTextBlockView(
-                    title: "原始识别",
-                    text: rawText ?? "暂无原始识别",
-                    emphasizesPrimary: false
-                )
+                Text(primaryText ?? "暂无主文本")
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+
+                if let rawText {
+                    Text("(\(rawText))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
             } else {
                 Text(singleTextPreview)
                     .font(.callout)
@@ -1803,58 +1783,6 @@ private struct MemoryRowView: View {
         case .clipboardOnly:
             return .orange
         }
-    }
-}
-
-private struct MemoryTextBlockView: View {
-    let title: String
-    let text: String
-    let emphasizesPrimary: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                Text(title)
-                    .font(emphasizesPrimary ? .caption.weight(.semibold) : .caption2.weight(.semibold))
-                    .foregroundStyle(emphasizesPrimary ? .primary : .secondary)
-                if emphasizesPrimary {
-                    Text("主")
-                        .font(.caption2.weight(.bold))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(Color.accentColor.opacity(0.14))
-                        )
-                        .foregroundStyle(Color.accentColor)
-                }
-            }
-
-            Text(text)
-                .font(emphasizesPrimary ? .callout : .subheadline)
-                .foregroundStyle(emphasizesPrimary ? .primary : .secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(
-                    emphasizesPrimary
-                        ? Color.accentColor.opacity(0.07)
-                        : Color(nsColor: .windowBackgroundColor).opacity(0.75)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(
-                            emphasizesPrimary
-                                ? Color.accentColor.opacity(0.16)
-                                : Color.primary.opacity(0.10),
-                            lineWidth: 1
-                        )
-                )
-        )
     }
 }
 
