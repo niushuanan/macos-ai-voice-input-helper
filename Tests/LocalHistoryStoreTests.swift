@@ -108,7 +108,7 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertEqual(snapshot.totalInputCharacters, 8)
         XCTAssertEqual(snapshot.totalDialogueDurationSeconds, 2.0, accuracy: 0.001)
         XCTAssertEqual(snapshot.averageCharactersPerMinute, 240, accuracy: 0.001)
-        XCTAssertEqual(snapshot.savedTypingSeconds, 0, accuracy: 0.001)
+        XCTAssertEqual(snapshot.savedTypingSeconds, 6, accuracy: 0.001)
     }
 
     func testLifetimeStatisticsUsesFullTextWithoutUITruncation() throws {
@@ -183,7 +183,7 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: lifetimeFileURL.path))
     }
 
-    func testLoadingLegacyLifetimeSnapshotRecalculatesSavedSecondsWith260Baseline() throws {
+    func testLoadingLegacyLifetimeSnapshotRecalculatesSavedSecondsWithNewBaseline() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("history-lifetime-baseline-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -220,7 +220,7 @@ final class LocalHistoryStoreTests: XCTestCase {
 
         let store = LocalHistoryStore(historyDirectory: directory)
         let snapshot = store.lifetimeStatistics()
-        XCTAssertEqual(snapshot.savedTypingSeconds, 0, accuracy: 0.001)
+        XCTAssertEqual(snapshot.savedTypingSeconds, 6, accuracy: 0.001)
         XCTAssertEqual(snapshot.totalInputCharacters, 8)
         XCTAssertEqual(snapshot.totalDialogueDurationSeconds, 2, accuracy: 0.001)
     }

@@ -116,7 +116,7 @@ struct SettingsView: View {
                     HomeMetricCard(
                         title: "总计节省时间",
                         value: durationText(controlCenterState.homeStatsSnapshot.savedTypingSeconds),
-                        subtitle: "相对打字（260 字/分钟）"
+                        subtitle: "相对打字效率估算"
                     )
                 }
             }
@@ -848,13 +848,13 @@ struct SettingsView: View {
 
             Divider()
 
-            Label("本地模型与云端模型可自由切换，按任务灵活选择。", systemImage: "arrow.triangle.2.circlepath.circle")
+            Label("本地模型与云端模型自由切换：低延迟与高质量场景都能匹配。", systemImage: "arrow.triangle.2.circlepath.circle")
                 .font(.subheadline)
-            Label("本地优先处理，隐私数据默认不上传。", systemImage: "lock.shield")
+            Label("本地优先处理链路，隐私内容默认不上传，敏感输入更安心。", systemImage: "lock.shield")
                 .font(.subheadline)
-            Label("可按应用场景配置独立文本处理 Prompt（如微信、GPT）。", systemImage: "text.bubble")
+            Label("按应用场景配置独立 Prompt（如微信、GPT），输出风格自动贴合上下文。", systemImage: "text.bubble")
                 .font(.subheadline)
-            Label("快捷键自由设定，开口即成文，减少键盘输入。", systemImage: "keyboard")
+            Label("快捷键可自由定义，开口即成文，把重复打字变成一键完成。", systemImage: "keyboard")
                 .font(.subheadline)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

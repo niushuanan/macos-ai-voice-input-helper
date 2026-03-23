@@ -196,7 +196,7 @@ final class LocalHistoryStore: ObservableObject {
         historyDirectory: URL,
         fileManager: FileManager = .default,
         maxEntries: Int = 3000,
-        typingBaselineCPM: Double = 260
+        typingBaselineCPM: Double = 60
     ) {
         self.fileManager = fileManager
         self.entriesFileURL = historyDirectory.appendingPathComponent("session-history-v1.json", isDirectory: false)
