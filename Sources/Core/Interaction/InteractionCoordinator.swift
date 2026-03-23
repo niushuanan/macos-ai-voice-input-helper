@@ -111,12 +111,14 @@ final class InteractionCoordinator {
         guard sessionStore.phase == .listening else {
             return
         }
+        let configuration = providerSettingsStore.configuration
+        // 先切到转写阶段，避免 stopRecording 收尾期间 HUD 停在“聆听中”造成卡顿感。
+        sessionStore.markTranscribing()
         do {
             let clip = try audioCaptureService.stopRecording()
             discardPendingClipIfNeeded()
             sessionStore.attachPendingClip(clip)
             sessionStore.updateListeningLevel(0)
-            let configuration = providerSettingsStore.configuration
             sessionStore.markTranscribing(
                 audioSummary: clip.displaySummary,
                 providerName: configuration.providerName,

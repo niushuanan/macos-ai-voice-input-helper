@@ -5,6 +5,7 @@ import SwiftUI
 final class StatusPulseHUDController {
     private var panel: NSPanel?
     private var hideWorkItem: DispatchWorkItem?
+    private var previousPhase: SessionPhase = .idle
 
     func show(
         phase: SessionPhase,
@@ -15,6 +16,12 @@ final class StatusPulseHUDController {
     ) {
         let size = NSSize(width: 184, height: 34)
         let panel = ensurePanel(size: size)
+        let shouldSuppressBusyRefresh = phase.isBusyPhase && previousPhase.isBusyPhase && !panel.isVisible
+        if shouldSuppressBusyRefresh {
+            previousPhase = phase
+            return
+        }
+
         panel.contentView = NSHostingView(
             rootView: StatusPulseHUDView(
                 phase: phase,
@@ -37,6 +44,7 @@ final class StatusPulseHUDController {
             panel.animator().alphaValue = 1
         }
 
+        previousPhase = phase
         scheduleHide(for: phase)
     }
 
@@ -106,9 +114,9 @@ final class StatusPulseHUDController {
 
     private func shouldKeepVisible(for phase: SessionPhase) -> Bool {
         switch phase {
-        case .listening, .transcribing, .rewriting, .inserting:
+        case .listening:
             return true
-        case .idle, .cancelled, .error:
+        case .idle, .transcribing, .rewriting, .inserting, .cancelled, .error:
             return false
         }
     }
@@ -116,13 +124,24 @@ final class StatusPulseHUDController {
     private func hideDelay(for phase: SessionPhase) -> TimeInterval {
         switch phase {
         case .transcribing, .rewriting, .inserting:
-            return 0.62
+            return 0.24
         case .cancelled:
-            return 0.56
+            return 0.46
         case .error:
-            return 1.1
+            return 0.92
         case .idle, .listening:
-            return 0.56
+            return 0.44
+        }
+    }
+}
+
+private extension SessionPhase {
+    var isBusyPhase: Bool {
+        switch self {
+        case .transcribing, .rewriting, .inserting:
+            return true
+        case .idle, .listening, .cancelled, .error:
+            return false
         }
     }
 }
