@@ -36,10 +36,20 @@ final class LocalHistoryStoreTests: XCTestCase {
                 errorMessage: "network"
             )
         )
+        store.append(
+            makeEntry(
+                timestamp: Date(timeIntervalSince1970: 1_762_000_030),
+                mode: .brainstorm,
+                status: .success,
+                inputText: "brainstorm-raw",
+                outputText: "brainstorm-final"
+            )
+        )
 
-        XCTAssertEqual(store.entries(matching: .all).count, 3)
+        XCTAssertEqual(store.entries(matching: .all).count, 4)
         XCTAssertEqual(store.entries(matching: .dictation).count, 2)
         XCTAssertEqual(store.entries(matching: .selectionRewrite).count, 1)
+        XCTAssertEqual(store.entries(matching: .brainstorm).count, 1)
         XCTAssertEqual(store.entries(matching: .failed).count, 1)
     }
 

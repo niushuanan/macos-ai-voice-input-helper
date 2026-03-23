@@ -10,4 +10,9 @@ extension KeyboardShortcuts.Name {
         "cancelSession",
         default: .init(.escape)
     )
+
+    static let brainstormSession = Self(
+        "brainstormSession",
+        default: .init(.b, modifiers: [.option, .command])
+    )
 }

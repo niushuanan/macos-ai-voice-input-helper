@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import KeyboardShortcuts
 
@@ -19,15 +20,18 @@ final class GlobalHotkeyService {
     private let interactionCoordinator: InteractionCoordinator
     private let hotkeyStateStore: HotkeyStateStore
     private let screenCaptureActivityDetector: () -> Bool
+    private var cancellables = Set<AnyCancellable>()
     private var hasActivated = false
     private var currentSessionPhase: SessionPhase = .idle
     private var cancelShortcutRuntimeEnabled = true
+    private var brainstormShortcutRuntimeEnabled = true
     private var globalFlagsMonitor: Any?
     private var globalKeyDownMonitor: Any?
     private var localKeyDownMonitor: Any?
     private var workspaceNotificationObservers: [NSObjectProtocol] = []
     private var wakeTapState = ModifierTapState()
     private var cancelTapState = ModifierTapState()
+    private var brainstormTapState = ModifierTapState()
 
     init(
         interactionCoordinator: InteractionCoordinator,
@@ -56,9 +60,29 @@ final class GlobalHotkeyService {
             }
         }
 
+        KeyboardShortcuts.onKeyUp(for: .brainstormSession) { [weak self] in
+            guard let self else {
+                return
+            }
+            guard self.hotkeyStateStore.brainstormTriggerType == .globalShortcut else {
+                return
+            }
+            guard self.shouldHandleBrainstormInput else {
+                return
+            }
+            self.interactionCoordinator.handleBrainstormInput()
+        }
+
+        hotkeyStateStore.$lastUpdatedAt
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.refreshRuntimeState()
+            }
+            .store(in: &cancellables)
+
         installWorkspaceObservers()
         installModifierMonitors()
-        reconcileCancelShortcutAvailability()
+        refreshRuntimeState()
     }
 
     func updateSessionPhase(_ phase: SessionPhase) {
@@ -67,10 +91,12 @@ final class GlobalHotkeyService {
         }
         currentSessionPhase = phase
         reconcileCancelShortcutAvailability()
+        reconcileBrainstormShortcutAvailability()
     }
 
     func refreshRuntimeState() {
         reconcileCancelShortcutAvailability()
+        reconcileBrainstormShortcutAvailability()
     }
 
     private func installModifierMonitors() {
@@ -140,6 +166,28 @@ final class GlobalHotkeyService {
         } else {
             cancelTapState.reset()
         }
+
+        if hotkeyStateStore.brainstormTriggerType == .doubleTapModifier {
+            if hotkeyStateStore.brainstormModifier == hotkeyStateStore.wakeModifier {
+                brainstormTapState.reset()
+                return
+            }
+            processModifierEvent(
+                event,
+                modifier: hotkeyStateStore.brainstormModifier,
+                state: &brainstormTapState
+            ) { [weak self] in
+                guard let self else {
+                    return
+                }
+                guard self.shouldHandleBrainstormInput else {
+                    return
+                }
+                self.interactionCoordinator.handleBrainstormInput()
+            }
+        } else {
+            brainstormTapState.reset()
+        }
     }
 
     private func processModifierEvent(
@@ -194,10 +242,17 @@ final class GlobalHotkeyService {
         if cancelTapState.isPressed {
             cancelTapState.sawForeignInput = true
         }
+        if brainstormTapState.isPressed {
+            brainstormTapState.sawForeignInput = true
+        }
     }
 
     private var shouldHandleCancelInput: Bool {
         isCancellationPhase(currentSessionPhase) && !screenCaptureActivityDetector()
+    }
+
+    private var shouldHandleBrainstormInput: Bool {
+        isBrainstormPhase(currentSessionPhase) && !screenCaptureActivityDetector()
     }
 
     private func reconcileCancelShortcutAvailability() {
@@ -211,6 +266,24 @@ final class GlobalHotkeyService {
             KeyboardShortcuts.enable(.cancelSession)
         } else {
             KeyboardShortcuts.disable(.cancelSession)
+        }
+        hotkeyStateStore.refresh()
+    }
+
+    private func reconcileBrainstormShortcutAvailability() {
+        let shouldEnable =
+            hotkeyStateStore.brainstormTriggerType == .globalShortcut
+            && hotkeyStateStore.brainstormShortcut != nil
+            && shouldHandleBrainstormInput
+        guard shouldEnable != brainstormShortcutRuntimeEnabled else {
+            return
+        }
+
+        brainstormShortcutRuntimeEnabled = shouldEnable
+        if shouldEnable {
+            KeyboardShortcuts.enable(.brainstormSession)
+        } else {
+            KeyboardShortcuts.disable(.brainstormSession)
         }
         hotkeyStateStore.refresh()
     }
@@ -231,7 +304,7 @@ final class GlobalHotkeyService {
                 queue: .main
             ) { [weak self] _ in
                 Task { @MainActor in
-                    self?.reconcileCancelShortcutAvailability()
+                    self?.refreshRuntimeState()
                 }
             }
             workspaceNotificationObservers.append(observer)
@@ -243,6 +316,15 @@ final class GlobalHotkeyService {
         case .listening, .transcribing, .rewriting, .inserting:
             return true
         case .idle, .cancelled, .error:
+            return false
+        }
+    }
+
+    private func isBrainstormPhase(_ phase: SessionPhase) -> Bool {
+        switch phase {
+        case .idle, .cancelled, .error, .listening:
+            return true
+        case .transcribing, .rewriting, .inserting:
             return false
         }
     }

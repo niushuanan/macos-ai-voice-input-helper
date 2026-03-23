@@ -54,6 +54,26 @@ final class MemoryEntryTextResolverTests: XCTestCase {
         XCTAssertEqual(MemoryEntryTextResolver.placeholder(for: entry), "模型请求失败")
     }
 
+    func testBrainstormEntryUsesOutputThenInputFallback() {
+        let successEntry = makeEntry(
+            mode: .brainstorm,
+            inputText: "原始讨论",
+            outputText: "结构化结论",
+            status: .success
+        )
+        let fallbackEntry = makeEntry(
+            mode: .brainstorm,
+            inputText: "原始讨论",
+            outputText: nil,
+            status: .failed
+        )
+
+        XCTAssertNil(MemoryEntryTextResolver.primaryText(for: successEntry))
+        XCTAssertNil(MemoryEntryTextResolver.rawText(for: successEntry))
+        XCTAssertEqual(MemoryEntryTextResolver.defaultText(for: successEntry), "结构化结论")
+        XCTAssertEqual(MemoryEntryTextResolver.defaultText(for: fallbackEntry), "原始讨论")
+    }
+
     private func makeEntry(
         mode: SessionHistoryMode,
         inputText: String,

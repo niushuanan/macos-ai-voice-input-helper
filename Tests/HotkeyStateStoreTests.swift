@@ -6,15 +6,17 @@ import XCTest
 final class HotkeyStateStoreTests: XCTestCase {
     override func setUp() {
         super.setUp()
-        KeyboardShortcuts.reset(.wakeSession, .cancelSession)
+        KeyboardShortcuts.reset(.wakeSession, .cancelSession, .brainstormSession)
     }
 
     override func tearDown() {
-        KeyboardShortcuts.reset(.wakeSession, .cancelSession)
+        KeyboardShortcuts.reset(.wakeSession, .cancelSession, .brainstormSession)
         UserDefaults.standard.removeObject(forKey: "hotkeys.wake.mode.v1")
         UserDefaults.standard.removeObject(forKey: "hotkeys.cancel.mode.v1")
         UserDefaults.standard.removeObject(forKey: "hotkeys.wake.modifier.v1")
         UserDefaults.standard.removeObject(forKey: "hotkeys.cancel.modifier.v1")
+        UserDefaults.standard.removeObject(forKey: "hotkeys.brainstorm.triggerType.v1")
+        UserDefaults.standard.removeObject(forKey: "hotkeys.brainstorm.modifier.v1")
         super.tearDown()
     }
 
@@ -64,6 +66,9 @@ final class HotkeyStateStoreTests: XCTestCase {
         XCTAssertEqual(store.wakeModifier, .leftOption)
         XCTAssertEqual(store.wakeShortcutText, "单键触发 · 左 Option")
         XCTAssertEqual(store.cancelShortcutText, KeyboardShortcuts.Shortcut(.escape).description.replacingOccurrences(of: "-", with: " + "))
+        XCTAssertEqual(store.brainstormTriggerType, .doubleTapModifier)
+        XCTAssertEqual(store.brainstormModifier, .rightOption)
+        XCTAssertEqual(store.brainstormShortcutText, "双击修饰键 · 右 Option")
         XCTAssertFalse(store.hasConflict)
     }
 
@@ -126,6 +131,44 @@ final class HotkeyStateStoreTests: XCTestCase {
         XCTAssertEqual(HotkeyModifier.from(keyCode: 60), .rightShift)
         XCTAssertEqual(HotkeyModifier.from(keyCode: 59), .leftControl)
         XCTAssertEqual(HotkeyModifier.from(keyCode: 62), .rightControl)
+    }
+
+    func testBrainstormDefaultsUseDoubleTapRightOption() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let store = HotkeyStateStore(defaults: defaults)
+
+        XCTAssertEqual(store.brainstormTriggerType, .doubleTapModifier)
+        XCTAssertEqual(store.brainstormModifier, .rightOption)
+        XCTAssertEqual(store.brainstormShortcutText, "双击修饰键 · 右 Option")
+        XCTAssertTrue(store.brainstormShortcutRegistered)
+    }
+
+    func testBrainstormDoubleTapConflictWithWakeModifierIsDetected() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let store = HotkeyStateStore(defaults: defaults)
+        store.setModifier(.leftOption, for: .wakeSession)
+        store.setBrainstormTriggerType(.doubleTapModifier)
+        store.setBrainstormModifier(.leftOption)
+
+        XCTAssertTrue(store.hasConflict)
+        XCTAssertEqual(store.conflictMessage, "头脑风暴触发键和主键重复，请更换其中一个。")
+    }
+
+    func testBrainstormGlobalShortcutConflictWithEscapeIsDetected() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let store = HotkeyStateStore(defaults: defaults)
+        store.setBrainstormTriggerType(.globalShortcut)
+        KeyboardShortcuts.setShortcut(.init(.escape), for: .brainstormSession)
+        store.refresh()
+
+        XCTAssertTrue(store.hasConflict)
+        XCTAssertEqual(store.conflictMessage, "头脑风暴快捷键和取消键（Esc）重复，请更换。")
     }
 
     private var defaultsSuiteName: String {

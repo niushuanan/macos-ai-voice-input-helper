@@ -3,6 +3,7 @@ import Foundation
 enum SessionHistoryMode: String, Codable, Equatable {
     case dictation
     case selectionRewrite
+    case brainstorm
 }
 
 enum SessionHistoryStatus: String, Codable, Equatable {
@@ -15,6 +16,7 @@ enum LocalHistoryFilter: String, CaseIterable, Identifiable {
     case all
     case dictation
     case selectionRewrite
+    case brainstorm
     case failed
 
     var id: String { rawValue }
@@ -27,6 +29,8 @@ enum LocalHistoryFilter: String, CaseIterable, Identifiable {
             return "普通听写"
         case .selectionRewrite:
             return "选区改写"
+        case .brainstorm:
+            return "Agent-头脑风暴（Beta）"
         case .failed:
             return "失败"
         }
@@ -255,6 +259,8 @@ final class LocalHistoryStore: ObservableObject {
             return entries.filter { $0.mode == .dictation }
         case .selectionRewrite:
             return entries.filter { $0.mode == .selectionRewrite }
+        case .brainstorm:
+            return entries.filter { $0.mode == .brainstorm }
         case .failed:
             return entries.filter { $0.status == .failed }
         }

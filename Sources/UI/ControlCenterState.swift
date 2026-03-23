@@ -5,6 +5,7 @@ enum DesktopSection: String, CaseIterable, Identifiable {
     case home
     case memory
     case skills
+    case agentBrainstorm
     case dictionary
     case model
     case settings
@@ -19,6 +20,8 @@ enum DesktopSection: String, CaseIterable, Identifiable {
             return "记忆"
         case .skills:
             return "Skill"
+        case .agentBrainstorm:
+            return "Agent-头脑风暴（Beta）"
         case .dictionary:
             return "词典"
         case .model:
@@ -36,6 +39,8 @@ enum DesktopSection: String, CaseIterable, Identifiable {
             return "clock.arrow.circlepath"
         case .skills:
             return "slider.horizontal.3"
+        case .agentBrainstorm:
+            return "person.2.wave.2"
         case .dictionary:
             return "text.book.closed"
         case .model:

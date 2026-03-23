@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import KeyboardShortcuts
 import SwiftUI
 
 struct SettingsView: View {
@@ -68,6 +69,8 @@ struct SettingsView: View {
                         memoryPage
                     case .skills:
                         skillsPage
+                    case .agentBrainstorm:
+                        agentBrainstormPage
                     case .dictionary:
                         dictionaryPage
                     case .model:
@@ -97,6 +100,8 @@ struct SettingsView: View {
         .onChange(of: controlCenterState.selectedSection) { _, section in
             if section == .dictionary {
                 dictionaryDraft = asrDictionaryStore.rawText
+            } else if section == .agentBrainstorm {
+                hotkeyStateStore.refresh()
             }
         }
     }
@@ -218,6 +223,7 @@ struct SettingsView: View {
         .onAppear {
             if controlCenterState.memoryFilter == .selectionRewrite
                 || controlCenterState.memoryFilter == .dictation
+                || controlCenterState.memoryFilter == .brainstorm
             {
                 controlCenterState.memoryFilter = .all
             }
@@ -586,6 +592,169 @@ struct SettingsView: View {
         }
     }
 
+    private var agentBrainstormPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                pageHeader(
+                    title: "Agent-头脑风暴（Beta）",
+                    subtitle: "用于短时讨论记录，自动整理为可直接给 AI 分析的上下文。"
+                )
+
+                brainstormIntroCard
+                brainstormTriggerCard
+                brainstormSessionCard
+                brainstormOutputPreviewCard
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
+        }
+        .onAppear {
+            hotkeyStateStore.refresh()
+        }
+    }
+
+    private var brainstormIntroCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("适用场景")
+                .font(.headline)
+            Label("两三个人快速聊一个功能，聊完马上给 AI 继续拆解。", systemImage: "person.2")
+                .font(.subheadline)
+            Label("结果会带发言人标记，避免上下文混乱。", systemImage: "text.bubble")
+                .font(.subheadline)
+            Label("默认同时写入输入框和剪贴板，粘贴即可继续提问。", systemImage: "doc.on.clipboard")
+                .font(.subheadline)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .pulseCard(cornerRadius: 12)
+    }
+
+    private var brainstormTriggerCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("触发层")
+                .font(.headline)
+
+            Picker("触发方式", selection: brainstormTriggerTypeBinding) {
+                ForEach(BrainstormTriggerType.allCases) { triggerType in
+                    Text(triggerType.displayName).tag(triggerType)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            if hotkeyStateStore.brainstormTriggerType == .doubleTapModifier {
+                Picker("双击修饰键", selection: brainstormModifierBinding) {
+                    ForEach(HotkeyModifier.allCases) { modifier in
+                        Text(modifier.displayName).tag(modifier)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Text("当前触发：双击 \(hotkeyStateStore.brainstormModifier.displayName)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                HStack(alignment: .center, spacing: 12) {
+                    Text("独立快捷键")
+                        .font(.subheadline.weight(.semibold))
+                    KeyboardShortcuts.Recorder(for: .brainstormSession)
+                    Spacer()
+                }
+                Text("当前触发：\(hotkeyStateStore.brainstormShortcutText)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                Button("检测脑暴监听") {
+                    hotkeyStateStore.refresh()
+                    showToast(hotkeyStateStore.registrationText(for: .brainstormSession))
+                }
+                .buttonStyle(.bordered)
+
+                Button("恢复默认触发") {
+                    hotkeyStateStore.resetToDefaults()
+                    showToast("脑暴触发已恢复默认。")
+                }
+                .buttonStyle(.bordered)
+            }
+
+            if let conflict = hotkeyStateStore.conflictMessage {
+                Label(conflict, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else {
+                Label("触发配置可用。", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .pulseCard(cornerRadius: 12)
+    }
+
+    private var brainstormSessionCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("会话层")
+                .font(.headline)
+
+            LabeledContent("当前阶段", value: model.sessionStore.phase.title)
+            LabeledContent("当前通道", value: model.sessionStore.activeLane.title)
+
+            HStack(spacing: 8) {
+                Button(brainstormToggleButtonTitle) {
+                    model.interactionCoordinator.handleBrainstormInput()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canToggleBrainstormSession)
+
+                Button("取消当前会话") {
+                    model.interactionCoordinator.handleCancelInput()
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.sessionStore.phase == .idle)
+
+                Spacer()
+            }
+
+            Text("路径：开始录音 -> 再触发一次结束录音 -> 输出结构化结论。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .pulseCard(cornerRadius: 12)
+    }
+
+    private var brainstormOutputPreviewCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("输出层样例")
+                .font(.headline)
+
+            Text(brainstormPreviewTemplate)
+                .font(.system(size: 12, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(nsColor: .textBackgroundColor))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+                        )
+                )
+
+            Text("最终输出会自动覆盖为真实讨论内容。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .pulseCard(cornerRadius: 12)
+    }
+
     private var hotkeySettingsCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("快捷键")
@@ -753,6 +922,8 @@ struct SettingsView: View {
                     )
                 )
                 .labelsHidden()
+                .toggleStyle(SwitchToggleStyle())
+                .fixedSize()
             }
 
             Text("总开关关闭后，不再拼接任何应用提示词。")
@@ -979,6 +1150,74 @@ struct SettingsView: View {
 
     private var textProviderOptions: [ProviderType] {
         ProviderType.allCases.filter(\.supportsRewrite)
+    }
+
+    private var brainstormTriggerTypeBinding: Binding<BrainstormTriggerType> {
+        Binding(
+            get: { hotkeyStateStore.brainstormTriggerType },
+            set: { triggerType in
+                hotkeyStateStore.setBrainstormTriggerType(triggerType)
+            }
+        )
+    }
+
+    private var brainstormModifierBinding: Binding<HotkeyModifier> {
+        Binding(
+            get: { hotkeyStateStore.brainstormModifier },
+            set: { modifier in
+                hotkeyStateStore.setBrainstormModifier(modifier)
+            }
+        )
+    }
+
+    private var canToggleBrainstormSession: Bool {
+        switch model.sessionStore.phase {
+        case .idle, .cancelled, .error:
+            return true
+        case .listening:
+            return model.sessionStore.activeLane == .brainstormDiscussion
+        case .transcribing, .rewriting, .inserting:
+            return false
+        }
+    }
+
+    private var brainstormToggleButtonTitle: String {
+        if model.sessionStore.phase == .listening, model.sessionStore.activeLane == .brainstormDiscussion {
+            return "停止并整理脑暴"
+        }
+        return "开始头脑风暴"
+    }
+
+    private var brainstormPreviewTemplate: String {
+        """
+        topic: 新功能 MVP 范围
+        participants:
+        - A: PM
+        - B: Engineer
+
+        dialogue:
+        - A: 目标是让新用户 5 分钟内跑通。
+        - B: 首版先做单模型，保留多模型扩展点。
+
+        decision:
+        - 首版仅保留核心流程，不做复杂配置面板。
+
+        tradeoff:
+        - 开发速度更快，但高级用户可配置项会延期。
+
+        open_questions:
+        - 是否要在首版加入团队协作权限？
+
+        next_actions:
+        - owner: A
+          action: 明确首版验收标准
+          due: 2026-03-28
+        - owner: B
+          action: 输出技术方案与工期
+          due: 2026-03-29
+
+        ask_ai: 请基于以上内容给出 MVP 里程碑、风险与关键指标建议。
+        """
     }
 
     private var detailPaneBackground: some View {
@@ -1780,6 +2019,8 @@ private struct SkillRuleCardView: View {
                 Spacer()
                 Toggle("", isOn: $isEnabled)
                     .labelsHidden()
+                    .toggleStyle(SwitchToggleStyle())
+                    .fixedSize()
             }
 
             if ruleID == .systemPrompt {

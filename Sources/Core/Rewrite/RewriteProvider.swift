@@ -496,3 +496,120 @@ struct LLMDictationPostProcessor: DictationPostProcessor {
         )
     }
 }
+
+struct BrainstormContextComposeRequest: Equatable {
+    let transcript: String
+    let focusContext: FocusedAppContext
+}
+
+struct BrainstormContextComposeResult: Equatable {
+    let outputText: String
+    let providerName: String
+    let modelName: String
+}
+
+protocol BrainstormContextComposer {
+    func compose(
+        request: BrainstormContextComposeRequest,
+        configuration: TextGenerationProviderConfiguration,
+        apiKey: String
+    ) async throws -> BrainstormContextComposeResult
+}
+
+struct BrainstormContextPromptBuilder {
+    func build(request: BrainstormContextComposeRequest) -> RewritePromptTemplate {
+        let systemPrompt = """
+        You are an expert discussion organizer.
+        Return only YAML.
+        Do not add markdown fences.
+        Keep content concise and factual.
+        If speaker names are missing, use A/B/C.
+        Keep the key order exactly:
+        topic
+        participants
+        dialogue
+        decision
+        tradeoff
+        open_questions
+        next_actions
+        ask_ai
+        """
+
+        let userPrompt = """
+        App context:
+        - appName: \(request.focusContext.appName)
+        - bundleID: \(request.focusContext.bundleID)
+
+        Raw transcript:
+        <<<TEXT
+        \(request.transcript)
+        TEXT>>>
+
+        Output rules:
+        - dialogue should contain speaker-prefixed lines such as "A: ...".
+        - decision/tradeoff/open_questions should be arrays.
+        - next_actions should be an array of mapping items with owner/action/due keys.
+        - ask_ai must be one short sentence asking for MVP, milestones, risks, and metrics.
+        - Do not invent people names.
+        """
+
+        return RewritePromptTemplate(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt
+        )
+    }
+}
+
+struct LLMBrainstormContextComposer: BrainstormContextComposer {
+    private let generationProvider: any TextGenerationProvider
+    private let promptBuilder: BrainstormContextPromptBuilder
+
+    init(
+        generationProvider: any TextGenerationProvider = OpenAITextGenerationProvider(),
+        promptBuilder: BrainstormContextPromptBuilder = BrainstormContextPromptBuilder()
+    ) {
+        self.generationProvider = generationProvider
+        self.promptBuilder = promptBuilder
+    }
+
+    func compose(
+        request: BrainstormContextComposeRequest,
+        configuration: TextGenerationProviderConfiguration,
+        apiKey: String
+    ) async throws -> BrainstormContextComposeResult {
+        let normalized = request.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            throw RewriteProviderError.invalidGeneratedText
+        }
+
+        let template = promptBuilder.build(
+            request: BrainstormContextComposeRequest(
+                transcript: normalized,
+                focusContext: request.focusContext
+            )
+        )
+
+        let dynamicTokenBudget = max(220, min(1200, normalized.count * 2))
+        let generation = try await generationProvider.generateText(
+            request: TextGenerationRequest(
+                systemPrompt: template.systemPrompt,
+                userPrompt: template.userPrompt,
+                temperature: 0.2,
+                maxOutputTokens: dynamicTokenBudget
+            ),
+            configuration: configuration,
+            apiKey: apiKey
+        )
+
+        let output = generation.outputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !output.isEmpty else {
+            throw RewriteProviderError.invalidGeneratedText
+        }
+
+        return BrainstormContextComposeResult(
+            outputText: output,
+            providerName: generation.providerName,
+            modelName: generation.modelName
+        )
+    }
+}

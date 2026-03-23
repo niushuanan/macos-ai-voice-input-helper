@@ -69,6 +69,16 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.latestTranscription?.transcript, transcription.transcript)
     }
 
+    func testBrainstormStartSwitchesLaneAndListeningState() {
+        let store = SessionStore()
+
+        store.startBrainstorm()
+
+        XCTAssertEqual(store.phase, .listening)
+        XCTAssertEqual(store.activeLane, .brainstormDiscussion)
+        XCTAssertTrue(store.statusMessage.contains("头脑风暴"))
+    }
+
     func testClipboardOnlyInsertionUsesClipboardStatusMessage() {
         let store = SessionStore()
         let transcription = makeTranscription()

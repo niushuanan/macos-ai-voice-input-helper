@@ -33,6 +33,58 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .cancelled)
     }
 
+    func testBrainstormFlowWritesComposedContextAndHistory() async throws {
+        let composer = FakeBrainstormContextComposer(
+            outputText: """
+            topic: 脑暴主题
+            participants:
+            - A: PM
+            dialogue:
+            - A: 先做核心链路
+            decision: []
+            tradeoff: []
+            open_questions: []
+            next_actions: []
+            ask_ai: 请继续拆解。
+            """
+        )
+        let fixture = try makeFixture(
+            brainstormContextComposer: composer,
+            transcriptionText: "A：先做核心链路"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.coordinator.handleBrainstormInput()
+        XCTAssertEqual(fixture.sessionStore.phase, .listening)
+        XCTAssertEqual(fixture.sessionStore.activeLane, .brainstormDiscussion)
+
+        fixture.coordinator.handleBrainstormInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, composer.outputText)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.mode, .brainstorm)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, composer.outputText)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
+    }
+
+    func testBrainstormFallsBackToTemplateWhenTranscriptEmpty() async throws {
+        let composer = FakeBrainstormContextComposer(outputText: "不该被用到")
+        let fixture = try makeFixture(
+            brainstormContextComposer: composer,
+            transcriptionText: "   "
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.coordinator.handleBrainstormInput()
+        fixture.coordinator.handleBrainstormInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        let written = fixture.textOutputCoordinator.lastRequest?.text ?? ""
+        XCTAssertTrue(written.contains("topic: 讨论主题待补充"))
+        XCTAssertEqual(composer.callCount, 0)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.mode, .brainstorm)
+    }
+
     func testDictationUsesPostProcessedTextWhenHeuristicRequiresTextProcessing() async throws {
         let postProcessor = FakeDictationPostProcessor(result: .success("整理后的听写"))
         let fixture = try makeFixture(
@@ -198,6 +250,7 @@ final class InteractionCoordinatorTests: XCTestCase {
     private func makeFixture(
         textOutputCoordinator: FakeTextOutputCoordinator? = nil,
         dictationPostProcessor: DictationPostProcessor = FakeDictationPostProcessor(result: .success("hello world")),
+        brainstormContextComposer: BrainstormContextComposer = FakeBrainstormContextComposer(outputText: "topic: 测试"),
         transcriptionText: String = "hello world"
     ) throws -> InteractionFixture {
         let defaultsSuiteName = "InteractionCoordinatorTests.\(UUID().uuidString)"
@@ -262,7 +315,8 @@ final class InteractionCoordinatorTests: XCTestCase {
             skillRuleStore: skillRuleStore,
             asrDictionaryStore: dictionaryStore,
             toastPresenter: nil,
-            dictationPostProcessor: dictationPostProcessor
+            dictationPostProcessor: dictationPostProcessor,
+            brainstormContextComposer: brainstormContextComposer
         )
 
         return InteractionFixture(
@@ -515,6 +569,31 @@ private final class CapturingDictationPostProcessor: DictationPostProcessor {
     ) async throws -> DictationPostProcessResult {
         lastRequest = request
         return DictationPostProcessResult(
+            outputText: outputText,
+            providerName: "Fake Text",
+            modelName: "fake-model"
+        )
+    }
+}
+
+private final class FakeBrainstormContextComposer: BrainstormContextComposer {
+    let outputText: String
+    private(set) var callCount: Int = 0
+
+    init(outputText: String) {
+        self.outputText = outputText
+    }
+
+    func compose(
+        request: BrainstormContextComposeRequest,
+        configuration: TextGenerationProviderConfiguration,
+        apiKey: String
+    ) async throws -> BrainstormContextComposeResult {
+        _ = request
+        _ = configuration
+        _ = apiKey
+        callCount += 1
+        return BrainstormContextComposeResult(
             outputText: outputText,
             providerName: "Fake Text",
             modelName: "fake-model"

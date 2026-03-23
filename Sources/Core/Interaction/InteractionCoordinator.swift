@@ -32,6 +32,13 @@ private struct DictationPostProcessOutcome {
     let nonBlockingNotice: String?
 }
 
+private struct BrainstormComposeOutcome {
+    let text: String
+    let rewriteProvider: String?
+    let rewriteModel: String?
+    let nonBlockingNotice: String?
+}
+
 private enum DictationRoute {
     case asrOnly
     case asrAndTextProcessing
@@ -53,6 +60,7 @@ final class InteractionCoordinator {
     private let asrDictionaryStore: ASRDictionaryStore
     private let toastPresenter: ToastPresenter?
     private let dictationPostProcessor: DictationPostProcessor
+    private let brainstormContextComposer: BrainstormContextComposer
     private var cancellables = Set<AnyCancellable>()
     private var transcriptionTask: Task<Void, Never>?
     private var currentDictationTarget: DictationWritebackTarget?
@@ -73,7 +81,8 @@ final class InteractionCoordinator {
         skillRuleStore: SkillRuleStore,
         asrDictionaryStore: ASRDictionaryStore,
         toastPresenter: ToastPresenter? = nil,
-        dictationPostProcessor: DictationPostProcessor = LLMDictationPostProcessor()
+        dictationPostProcessor: DictationPostProcessor = LLMDictationPostProcessor(),
+        brainstormContextComposer: BrainstormContextComposer = LLMBrainstormContextComposer()
     ) {
         self.sessionStore = sessionStore
         self.permissionsCenter = permissionsCenter
@@ -89,6 +98,7 @@ final class InteractionCoordinator {
         self.asrDictionaryStore = asrDictionaryStore
         self.toastPresenter = toastPresenter
         self.dictationPostProcessor = dictationPostProcessor
+        self.brainstormContextComposer = brainstormContextComposer
         bindListeningLevel()
         bindExternalAppTracking()
     }
@@ -108,6 +118,29 @@ final class InteractionCoordinator {
             let lane = resolvedLane(context: context)
             startRecordingAndTransition(lane: lane)
         case .listening:
+            handleStopInput()
+        case .transcribing, .rewriting, .inserting:
+            break
+        }
+    }
+
+    func handleBrainstormInput() {
+        permissionsCenter.refreshStatuses()
+
+        switch sessionStore.phase {
+        case .idle, .cancelled, .error:
+            discardPendingClipIfNeeded()
+
+            guard permissionsCenter.snapshot.canStartVoiceSession else {
+                sessionStore.fail(message: "开始语音会话前，需要先允许麦克风权限。")
+                return
+            }
+
+            startRecordingAndTransition(lane: .brainstormDiscussion)
+        case .listening:
+            guard sessionStore.activeLane == .brainstormDiscussion else {
+                return
+            }
             handleStopInput()
         case .transcribing, .rewriting, .inserting:
             break
@@ -194,7 +227,7 @@ final class InteractionCoordinator {
 
     private func startRecordingAndTransition(lane: InputLane) {
         do {
-            if lane == .directDictation {
+            if lane == .directDictation || lane == .brainstormDiscussion {
                 currentDictationTarget = resolveDictationWritebackTarget()
             } else {
                 currentDictationTarget = nil
@@ -205,6 +238,8 @@ final class InteractionCoordinator {
                 sessionStore.startDictation()
             case .selectionRewrite:
                 sessionStore.startRewrite()
+            case .brainstormDiscussion:
+                sessionStore.startBrainstorm()
             }
         } catch {
             currentDictationTarget = nil
@@ -377,6 +412,11 @@ final class InteractionCoordinator {
                 transcription,
                 audioDurationSeconds: audioDurationSeconds
             )
+        case .brainstormDiscussion:
+            await outputBrainstormContext(
+                transcription,
+                audioDurationSeconds: audioDurationSeconds
+            )
         }
     }
 
@@ -497,6 +537,238 @@ final class InteractionCoordinator {
             )
             currentDictationTarget = nil
             sessionStore.fail(message: message)
+        }
+    }
+
+    private func outputBrainstormContext(
+        _ transcription: SpeechTranscriptionResult,
+        audioDurationSeconds: TimeInterval
+    ) async {
+        let writebackTarget = currentDictationTarget
+        let focusContext = writebackTarget?.focusContext ?? contextDetector.focusedAppContext()
+        let writebackWarmupTask = Task { [weak self] in
+            guard
+                let self,
+                let warmableCoordinator = self.textOutputCoordinator as? AccessibilityTextOutputCoordinator
+            else {
+                return
+            }
+            await warmableCoordinator.prepareForWrite(
+                preferredTarget: writebackTarget?.snapshot,
+                fallbackFocusContext: focusContext
+            )
+        }
+
+        let composeOutcome = await composeBrainstormContext(
+            transcript: transcription.transcript,
+            focusContext: focusContext
+        )
+        _ = await writebackWarmupTask.value
+
+        let finalTranscription = SpeechTranscriptionResult(
+            providerType: transcription.providerType,
+            providerName: transcription.providerName,
+            modelName: transcription.modelName,
+            transcript: composeOutcome.text
+        )
+
+        let request = TextOutputRequest(
+            text: finalTranscription.transcript,
+            operation: .insertText,
+            focusContext: focusContext,
+            preferredTarget: writebackTarget?.snapshot
+        )
+
+        sessionStore.markInserting(
+            transcription: finalTranscription,
+            focusContext: focusContext
+        )
+
+        do {
+            let outputResult = try await textOutputCoordinator.write(request: request)
+            sessionStore.completeInsertion(
+                outputResult: outputResult,
+                note: composeOutcome.nonBlockingNotice
+            )
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .brainstorm,
+                    appName: focusContext.appName,
+                    bundleID: focusContext.bundleID,
+                    inputText: transcription.transcript,
+                    outputText: finalTranscription.transcript,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    rewriteProvider: composeOutcome.rewriteProvider,
+                    rewriteModel: composeOutcome.rewriteModel,
+                    outputPath: outputResult.path,
+                    status: .success,
+                    audioDurationSeconds: audioDurationSeconds
+                )
+            )
+            currentDictationTarget = nil
+        } catch let outputError as TextOutputError {
+            let message = actionableOutputMessage(for: outputError, focusContext: focusContext)
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .brainstorm,
+                    appName: focusContext.appName,
+                    bundleID: focusContext.bundleID,
+                    inputText: transcription.transcript,
+                    outputText: nil,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    rewriteProvider: composeOutcome.rewriteProvider,
+                    rewriteModel: composeOutcome.rewriteModel,
+                    status: .failed,
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds
+                )
+            )
+            currentDictationTarget = nil
+            sessionStore.fail(message: message)
+        } catch {
+            let message = actionableOutputMessage(
+                for: .accessibilityPathFailed(reason: error.localizedDescription),
+                focusContext: focusContext
+            )
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .brainstorm,
+                    appName: focusContext.appName,
+                    bundleID: focusContext.bundleID,
+                    inputText: transcription.transcript,
+                    outputText: nil,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    rewriteProvider: composeOutcome.rewriteProvider,
+                    rewriteModel: composeOutcome.rewriteModel,
+                    status: .failed,
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds
+                )
+            )
+            currentDictationTarget = nil
+            sessionStore.fail(message: message)
+        }
+    }
+
+    private func composeBrainstormContext(
+        transcript: String,
+        focusContext: FocusedAppContext
+    ) async -> BrainstormComposeOutcome {
+        let normalizedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTranscript.isEmpty else {
+            return BrainstormComposeOutcome(
+                text: """
+                topic: 讨论主题待补充
+                participants:
+                - A: 角色待补充
+                
+                dialogue:
+                - A: （没有可用转写文本）
+                
+                decision: []
+                tradeoff: []
+                open_questions: []
+                next_actions: []
+                
+                ask_ai: 请基于以上内容给出 MVP、里程碑、风险与验证指标。
+                """,
+                rewriteProvider: nil,
+                rewriteModel: nil,
+                nonBlockingNotice: "转写文本为空，已给出最小模板。"
+            )
+        }
+
+        guard providerSettingsStore.isRewriteConfigurationValid else {
+            let message = providerSettingsStore.rewriteConfigurationValidationMessage
+                ?? "文本模型配置无效。"
+            return BrainstormComposeOutcome(
+                text: """
+                topic: 讨论主题待补充
+                participants:
+                - A: 角色待补充
+                
+                dialogue:
+                - A: \(normalizedTranscript)
+                
+                decision: []
+                tradeoff: []
+                open_questions: []
+                next_actions: []
+                
+                ask_ai: 请基于以上内容给出 MVP、里程碑、风险与验证指标。
+                """,
+                rewriteProvider: nil,
+                rewriteModel: nil,
+                nonBlockingNotice: "文本模型暂不可用（\(message)），已给出基础模板。"
+            )
+        }
+
+        guard
+            let loadedKey = try? providerSettingsStore.loadAPIKeyForRewriteProvider(),
+            !loadedKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return BrainstormComposeOutcome(
+                text: """
+                topic: 讨论主题待补充
+                participants:
+                - A: 角色待补充
+                
+                dialogue:
+                - A: \(normalizedTranscript)
+                
+                decision: []
+                tradeoff: []
+                open_questions: []
+                next_actions: []
+                
+                ask_ai: 请基于以上内容给出 MVP、里程碑、风险与验证指标。
+                """,
+                rewriteProvider: nil,
+                rewriteModel: nil,
+                nonBlockingNotice: "文本模型密钥不可用，已给出基础模板。"
+            )
+        }
+
+        let apiKey = loadedKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            let result = try await brainstormContextComposer.compose(
+                request: BrainstormContextComposeRequest(
+                    transcript: normalizedTranscript,
+                    focusContext: focusContext
+                ),
+                configuration: providerSettingsStore.rewriteConfiguration,
+                apiKey: apiKey
+            )
+            return BrainstormComposeOutcome(
+                text: result.outputText,
+                rewriteProvider: result.providerName,
+                rewriteModel: result.modelName,
+                nonBlockingNotice: nil
+            )
+        } catch {
+            return BrainstormComposeOutcome(
+                text: """
+                topic: 讨论主题待补充
+                participants:
+                - A: 角色待补充
+                
+                dialogue:
+                - A: \(normalizedTranscript)
+                
+                decision: []
+                tradeoff: []
+                open_questions: []
+                next_actions: []
+                
+                ask_ai: 请基于以上内容给出 MVP、里程碑、风险与验证指标。
+                """,
+                rewriteProvider: nil,
+                rewriteModel: nil,
+                nonBlockingNotice: "上下文整理失败，已回退到基础模板。"
+            )
         }
     }
 
@@ -1079,6 +1351,8 @@ final class InteractionCoordinator {
             return .dictation
         case .selectionRewrite:
             return .selectionRewrite
+        case .brainstormDiscussion:
+            return .brainstorm
         }
     }
 }

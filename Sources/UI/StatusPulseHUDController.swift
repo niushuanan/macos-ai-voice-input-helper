@@ -161,6 +161,7 @@ final class StatusPulseHUDController {
     private let baseHUDSize = NSSize(width: 184, height: 34)
 
     private var currentPhase: SessionPhase = .idle
+    private var currentLane: InputLane = .directDictation
     private var currentMessage: String = ""
     private var currentProgress: Double = 0
     private var currentListeningLevel: Double = 0
@@ -172,7 +173,7 @@ final class StatusPulseHUDController {
 
     func show(
         phase: SessionPhase,
-        lane _: InputLane,
+        lane: InputLane,
         message: String,
         progress _: Double,
         listeningLevel: Double
@@ -183,6 +184,7 @@ final class StatusPulseHUDController {
         let frame = progressStateMachine.transition(to: phase)
 
         currentPhase = phase
+        currentLane = lane
         currentMessage = message
         currentListeningLevel = max(0, min(1, listeningLevel))
         currentStyle = frame.style
@@ -231,6 +233,7 @@ final class StatusPulseHUDController {
         panel.contentView = NSHostingView(
             rootView: StatusPulseHUDView(
                 phase: currentPhase,
+                lane: currentLane,
                 message: currentMessage,
                 progress: currentProgress,
                 listeningLevel: currentListeningLevel,
@@ -336,6 +339,7 @@ final class StatusPulseHUDController {
 
 private struct StatusPulseHUDView: View {
     let phase: SessionPhase
+    let lane: InputLane
     let message: String
     let progress: Double
     let listeningLevel: Double
@@ -394,8 +398,19 @@ private struct StatusPulseHUDView: View {
     }
 
     private var listeningCapsule: some View {
-        statusSplitCapsule(title: "语音输入") {
+        statusSplitCapsule(title: listeningTitle) {
             ListeningBars(level: normalizedListeningLevel, scale: scale)
+        }
+    }
+
+    private var listeningTitle: String {
+        switch lane {
+        case .directDictation:
+            return "语音输入"
+        case .selectionRewrite:
+            return "选区改写"
+        case .brainstormDiscussion:
+            return "头脑风暴"
         }
     }
 

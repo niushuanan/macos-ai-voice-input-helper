@@ -35,6 +35,12 @@ final class SessionStore: ObservableObject {
         transition(to: .listening, statusMessage: "正在聆听选区改写指令。")
     }
 
+    func startBrainstorm() {
+        clearRuntimeArtifactsForNewSession()
+        activeLane = .brainstormDiscussion
+        transition(to: .listening, statusMessage: "正在记录 Agent 头脑风暴讨论。")
+    }
+
     func markTranscribing(audioSummary: String? = nil) {
         if let audioSummary {
             transition(to: .transcribing, statusMessage: "录音已完成：\(audioSummary)")

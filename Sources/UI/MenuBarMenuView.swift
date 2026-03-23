@@ -34,6 +34,9 @@ struct MenuBarMenuView: View {
         Text("取消键：\(hotkeyStateStore.cancelShortcutText)")
             .font(.caption2)
             .foregroundStyle(.secondary)
+        Text("脑暴触发：\(hotkeyStateStore.brainstormShortcutText)")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
 
         if permissionsCenter.snapshot.hasBlockingIssue {
             Divider()
@@ -54,6 +57,12 @@ struct MenuBarMenuView: View {
         }
         .disabled(!canToggleSession)
         .globalKeyboardShortcut(.wakeSession)
+
+        Button(brainstormToggleTitle) {
+            model.interactionCoordinator.handleBrainstormInput()
+        }
+        .disabled(!canToggleBrainstormSession)
+        .globalKeyboardShortcut(.brainstormSession)
 
         Button("取消会话") {
             model.interactionCoordinator.handleCancelInput()
@@ -96,10 +105,28 @@ struct MenuBarMenuView: View {
         }
     }
 
+    private var canToggleBrainstormSession: Bool {
+        switch model.sessionStore.phase {
+        case .idle, .cancelled, .error:
+            return true
+        case .listening:
+            return model.sessionStore.activeLane == .brainstormDiscussion
+        case .transcribing, .rewriting, .inserting:
+            return false
+        }
+    }
+
     private var primaryToggleTitle: String {
         if model.sessionStore.phase == .listening {
             return "停止并处理"
         }
         return "开始听写"
+    }
+
+    private var brainstormToggleTitle: String {
+        if model.sessionStore.phase == .listening, model.sessionStore.activeLane == .brainstormDiscussion {
+            return "停止并整理脑暴"
+        }
+        return "开始头脑风暴"
     }
 }
