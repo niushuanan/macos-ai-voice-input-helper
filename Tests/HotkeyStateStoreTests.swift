@@ -18,43 +18,37 @@ final class HotkeyStateStoreTests: XCTestCase {
         super.tearDown()
     }
 
-    func testRefreshReflectsLatestShortcutValues() {
+    func testLegacyWakeShortcutModeAndBindingAreMigratedToModifierTap() {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
-        let store = HotkeyStateStore(defaults: defaults)
-        store.setTriggerMode(.shortcut, for: .wakeSession)
-
+        defaults.set(HotkeyTriggerMode.shortcut.rawValue, forKey: "hotkeys.wake.mode.v1")
+        defaults.set(HotkeyModifier.leftOption.rawValue, forKey: "hotkeys.wake.modifier.v1")
         KeyboardShortcuts.setShortcut(.init(.a, modifiers: [.command, .shift]), for: .wakeSession)
-        KeyboardShortcuts.setShortcut(.init(.k, modifiers: [.command]), for: .cancelSession)
-        store.refresh()
 
-        XCTAssertEqual(
-            store.wakeShortcutText,
-            KeyboardShortcuts.getShortcut(for: .wakeSession)?
-                .description
-                .replacingOccurrences(of: "-", with: " + ")
-        )
-        XCTAssertEqual(
-            store.cancelShortcutText,
-            KeyboardShortcuts.Shortcut(.escape)
-                .description
-                .replacingOccurrences(of: "-", with: " + ")
-        )
+        let store = HotkeyStateStore(defaults: defaults)
+
+        XCTAssertEqual(store.wakeTriggerMode, .modifierTap)
+        XCTAssertEqual(store.wakeShortcutText, "单键触发 · 左 Option")
+        XCTAssertNil(KeyboardShortcuts.getShortcut(for: .wakeSession))
+        XCTAssertEqual(defaults.string(forKey: "hotkeys.wake.mode.v1"), HotkeyTriggerMode.modifierTap.rawValue)
     }
 
-    func testConflictMessageAppearsWhenTwoHotkeysMatch() {
+    func testLegacyWakeShortcutConflictIsIgnoredAfterMigration() {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
-        let store = HotkeyStateStore(defaults: defaults)
-        store.setTriggerMode(.shortcut, for: .wakeSession)
+        defaults.set(HotkeyTriggerMode.shortcut.rawValue, forKey: "hotkeys.wake.mode.v1")
         let shortcut = KeyboardShortcuts.Shortcut(.escape)
 
         KeyboardShortcuts.setShortcut(shortcut, for: .wakeSession)
         KeyboardShortcuts.setShortcut(shortcut, for: .cancelSession)
+
+        let store = HotkeyStateStore(defaults: defaults)
         store.refresh()
 
-        XCTAssertTrue(store.hasConflict)
-        XCTAssertTrue(store.conflictMessage?.contains("重复") == true)
+        XCTAssertEqual(store.wakeTriggerMode, .modifierTap)
+        XCTAssertNil(KeyboardShortcuts.getShortcut(for: .wakeSession))
+        XCTAssertFalse(store.hasConflict)
+        XCTAssertNil(store.conflictMessage)
     }
 
     func testResetToDefaultsRestoresDefaultShortcuts() {
@@ -88,7 +82,6 @@ final class HotkeyStateStoreTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
         let store = HotkeyStateStore(defaults: defaults)
 
-        store.setTriggerMode(.modifierTap, for: .wakeSession)
         store.setModifier(.leftCommand, for: .wakeSession)
         store.refresh()
 
@@ -103,7 +96,6 @@ final class HotkeyStateStoreTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
         let store = HotkeyStateStore(defaults: defaults)
 
-        store.setTriggerMode(.modifierTap, for: .wakeSession)
         store.setModifier(.leftCommand, for: .wakeSession)
         store.setModifier(.leftCommand, for: .cancelSession)
         KeyboardShortcuts.setShortcut(.init(.x, modifiers: [.command]), for: .cancelSession)

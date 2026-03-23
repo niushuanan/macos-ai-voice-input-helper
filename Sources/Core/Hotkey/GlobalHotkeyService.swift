@@ -47,15 +47,6 @@ final class GlobalHotkeyService {
         }
         hasActivated = true
 
-        KeyboardShortcuts.onKeyUp(for: .wakeSession) { [weak self] in
-            guard let self else {
-                return
-            }
-            if self.hotkeyStateStore.wakeTriggerMode == .shortcut {
-                self.interactionCoordinator.handleWakeInput(context: .dictation)
-            }
-        }
-
         KeyboardShortcuts.onKeyUp(for: .cancelSession) { [weak self] in
             guard let self else {
                 return
@@ -124,16 +115,12 @@ final class GlobalHotkeyService {
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {
-        if hotkeyStateStore.wakeTriggerMode == .modifierTap {
-            processModifierEvent(
-                event,
-                modifier: hotkeyStateStore.wakeModifier,
-                state: &wakeTapState
-            ) { [weak self] in
-                self?.interactionCoordinator.handleWakeInput(context: .dictation)
-            }
-        } else {
-            wakeTapState.reset()
+        processModifierEvent(
+            event,
+            modifier: hotkeyStateStore.wakeModifier,
+            state: &wakeTapState
+        ) { [weak self] in
+            self?.interactionCoordinator.handleWakeInput(context: .dictation)
         }
 
         if hotkeyStateStore.cancelTriggerMode == .modifierTap {

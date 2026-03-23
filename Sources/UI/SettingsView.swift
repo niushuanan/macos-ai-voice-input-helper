@@ -1,4 +1,3 @@
-import KeyboardShortcuts
 import AppKit
 import Combine
 import SwiftUI
@@ -214,10 +213,11 @@ struct SettingsView: View {
             isPresented: $showClearMemoryConfirmation,
             titleVisibility: .visible
         ) {
-            Button("清空全部记录", role: .destructive) {
+            Button("清空全部记录") {
                 localHistoryStore.clearAll()
                 memoryFeedback = "会话明细已清空，首页累计指标保持不变。"
             }
+            .keyboardShortcut(.defaultAction)
             Button("取消", role: .cancel) {}
         } message: {
             Text("该操作会删除记忆页全部本地记录，但不影响首页累计指标。")
@@ -601,77 +601,54 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("主键（开始/停止）")
                     .font(.subheadline.weight(.semibold))
-                Picker(
-                    "主键触发方式",
-                    selection: Binding(
-                        get: { hotkeyStateStore.wakeTriggerMode },
-                        set: { mode in
-                            hotkeyStateStore.setTriggerMode(mode, for: .wakeSession)
-                            if mode != .modifierTap {
-                                stopWakeModifierCapture()
-                            }
-                            showToast("主键触发方式已改为\(mode.displayName)。")
-                        }
-                    )
-                ) {
-                    ForEach(HotkeyTriggerMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                if hotkeyStateStore.wakeTriggerMode == .shortcut {
-                    KeyboardShortcuts.Recorder("主键组合键", name: .wakeSession)
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("单键触发按键")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        Button {
-                            startWakeModifierCapture()
-                        } label: {
-                            HStack(spacing: 10) {
-                                Text("[ \(pendingWakeModifier?.displayName ?? hotkeyStateStore.wakeModifier.displayName) ]")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Text(isCapturingWakeModifier ? "录入中" : "点击录入")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(.horizontal, 11)
-                            .padding(.vertical, 7)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.65))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                            .stroke(
-                                                isCapturingWakeModifier
-                                                    ? Color.accentColor
-                                                    : Color.primary.opacity(0.2),
-                                                lineWidth: 1
-                                            )
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        if let wakeModifierCaptureHint {
-                            Text(wakeModifierCaptureHint)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text("点击上面的括号区域后，按左/右修饰键，再按 Enter 确认，按 Esc 取消。")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Text("当前主键：单键触发 · \(hotkeyStateStore.wakeModifier.displayName)")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("单键触发按键")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    Button {
+                        startWakeModifierCapture()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Text("[ \(pendingWakeModifier?.displayName ?? hotkeyStateStore.wakeModifier.displayName) ]")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text(isCapturingWakeModifier ? "录入中" : "点击录入")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 7)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.65))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .stroke(
+                                            isCapturingWakeModifier
+                                                ? Color.accentColor
+                                                : Color.primary.opacity(0.2),
+                                            lineWidth: 1
+                                        )
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    if let wakeModifierCaptureHint {
+                        Text(wakeModifierCaptureHint)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("点击上面的括号区域后，按左/右修饰键，再按 Enter 确认，按 Esc 取消。")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                Text("当前主键：单键触发 · \(hotkeyStateStore.wakeModifier.displayName)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Divider()
