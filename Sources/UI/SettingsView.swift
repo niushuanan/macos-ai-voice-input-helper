@@ -1606,20 +1606,47 @@ private struct MemoryRowView: View {
             }
 
             if entry.mode == .dictation {
-                Text(primaryText ?? "暂无主文本")
-                    .font(.callout)
-                    .foregroundStyle(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(primaryText ?? "暂无主文本")
+                            .font(.callout)
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
 
-                if let rawText {
-                    Text("(\(rawText))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
+                        Menu {
+                            Button("复制主文本") {
+                                onCopyPrimary()
+                            }
+                            .disabled(primaryText == nil)
+
+                            Button("复制原始文本") {
+                                onCopyRaw()
+                            }
+                            .disabled(rawText == nil)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 24, height: 24)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                        .fill(Color.primary.opacity(0.06))
+                                )
+                        }
+                        .menuStyle(.borderlessButton)
+                        .help("复制文本")
+                    }
+
+                    if let rawText {
+                        Text("(\(rawText))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
                 }
             } else {
                 Text(singleTextPreview)
@@ -1650,19 +1677,7 @@ private struct MemoryRowView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
 
-                if entry.mode == .dictation {
-                    Button("复制主文本") {
-                        onCopyPrimary()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(primaryText == nil)
-
-                    Button("复制原始文本") {
-                        onCopyRaw()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(rawText == nil)
-                } else {
+                if entry.mode != .dictation {
                     Button("复制") {
                         onCopyPrimary()
                     }
