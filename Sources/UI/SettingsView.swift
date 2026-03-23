@@ -159,6 +159,7 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .labelsHidden()
 
                     Spacer()
 
@@ -209,7 +210,9 @@ struct SettingsView: View {
             .padding(.vertical, 22)
         }
         .onAppear {
-            if controlCenterState.memoryFilter == .selectionRewrite {
+            if controlCenterState.memoryFilter == .selectionRewrite
+                || controlCenterState.memoryFilter == .dictation
+            {
                 controlCenterState.memoryFilter = .all
             }
         }
@@ -668,14 +671,6 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("当前主键：\(hotkeyStateStore.wakeShortcutText)")
-                Text("当前取消键：Esc")
-                Text("最近更新：\(hotkeyStateStore.lastUpdatedAt.formatted(date: .omitted, time: .standard))")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
             HStack(spacing: 8) {
                 Button("检测主键监听") {
                     hotkeyStateStore.refresh()
@@ -1132,7 +1127,7 @@ struct SettingsView: View {
     }
 
     private var memoryFilters: [LocalHistoryFilter] {
-        LocalHistoryFilter.allCases.filter { $0 != .selectionRewrite }
+        [.all, .failed]
     }
 
     private var sortedScenePolicies: [AppScenePolicy] {
@@ -1593,8 +1588,6 @@ private struct MemoryRowView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Label(modeTitle, systemImage: modeSymbol)
-                    .font(.caption)
                 Label(statusTitle, systemImage: statusSymbol)
                     .font(.caption)
                     .foregroundStyle(statusColor)
@@ -1690,24 +1683,6 @@ private struct MemoryRowView: View {
                 }
                 .buttonStyle(.bordered)
             }
-        }
-    }
-
-    private var modeTitle: String {
-        switch entry.mode {
-        case .dictation:
-            return "普通听写"
-        case .selectionRewrite:
-            return "选区改写"
-        }
-    }
-
-    private var modeSymbol: String {
-        switch entry.mode {
-        case .dictation:
-            return "mic"
-        case .selectionRewrite:
-            return "wand.and.stars"
         }
     }
 
