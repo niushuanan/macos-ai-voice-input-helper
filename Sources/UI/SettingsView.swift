@@ -18,7 +18,6 @@ struct SettingsView: View {
 
     @State private var asrTesting = false
     @State private var textTesting = false
-    @State private var memoryFeedback: String?
     @State private var showClearMemoryConfirmation = false
     @State private var sceneSearchQuery = ""
     @State private var scenePromptDraft = ""
@@ -170,12 +169,6 @@ struct SettingsView: View {
                     .disabled(localHistoryStore.entries.isEmpty)
                 }
 
-                if let memoryFeedback {
-                    Text(memoryFeedback)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
                 if filteredHistoryEntries.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Label("当前筛选下还没有记录。", systemImage: "tray")
@@ -195,7 +188,7 @@ struct SettingsView: View {
                                 onCopyRaw: { copyRawMemoryText(entry) },
                                 onDelete: {
                                     localHistoryStore.delete(entryID: entry.id)
-                                    memoryFeedback = "已删除一条记录。"
+                                    showToast("已删除一条记录。")
                                 }
                             )
                             .padding(12)
@@ -215,7 +208,7 @@ struct SettingsView: View {
         ) {
             Button("清空全部记录") {
                 localHistoryStore.clearAll()
-                memoryFeedback = "会话明细已清空，首页累计指标保持不变。"
+                showToast("会话明细已清空，首页累计指标保持不变。")
             }
             .keyboardShortcut(.defaultAction)
             Button("取消", role: .cancel) {}
@@ -1354,27 +1347,27 @@ struct SettingsView: View {
         }
 
         guard let text else {
-            memoryFeedback = emptyMessage
+            showToast(emptyMessage)
             return
         }
 
         writeTextToPasteboard(text)
-        memoryFeedback = successMessage
+        showToast(successMessage)
     }
 
     private func copyRawMemoryText(_ entry: SessionHistoryEntry) {
         guard entry.mode == .dictation else {
-            memoryFeedback = "当前模式没有原始识别文本。"
+            showToast("当前模式没有原始识别文本。")
             return
         }
 
         guard let text = MemoryEntryTextResolver.rawText(for: entry) else {
-            memoryFeedback = "这条记录没有原始识别文本可复制。"
+            showToast("这条记录没有原始识别文本可复制。")
             return
         }
 
         writeTextToPasteboard(text)
-        memoryFeedback = "已复制原始识别文本。"
+        showToast("已复制原始识别文本。")
     }
 
     private func writeTextToPasteboard(_ text: String) {
