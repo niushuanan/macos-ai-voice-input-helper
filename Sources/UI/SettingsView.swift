@@ -20,6 +20,7 @@ struct SettingsView: View {
     @State private var asrTesting = false
     @State private var textTesting = false
     @State private var memoryFeedback: String?
+    @State private var showClearMemoryConfirmation = false
     @State private var sceneSearchQuery = ""
     @State private var scenePromptDraft = ""
     @State private var sceneEditingBundleID: String?
@@ -164,8 +165,7 @@ struct SettingsView: View {
                     Spacer()
 
                     Button("清空记录", role: .destructive) {
-                        localHistoryStore.clearAll()
-                        memoryFeedback = "会话明细已清空，首页累计指标保持不变。"
+                        showClearMemoryConfirmation = true
                     }
                     .buttonStyle(.bordered)
                     .disabled(localHistoryStore.entries.isEmpty)
@@ -208,6 +208,19 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
             .padding(.vertical, 22)
+        }
+        .confirmationDialog(
+            "确认清空记录？",
+            isPresented: $showClearMemoryConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("清空全部记录", role: .destructive) {
+                localHistoryStore.clearAll()
+                memoryFeedback = "会话明细已清空，首页累计指标保持不变。"
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("该操作会删除记忆页全部本地记录，但不影响首页累计指标。")
         }
         .onAppear {
             if controlCenterState.memoryFilter == .selectionRewrite
