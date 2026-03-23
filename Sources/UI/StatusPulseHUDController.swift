@@ -640,7 +640,6 @@ private struct HUDNativeMaterialCapsule: View {
             Capsule(style: .continuous)
                 .stroke(Color.black.opacity(0.06), lineWidth: s(0.46))
         }
-        .shadow(color: Color.black.opacity(0.12), radius: s(6.5), x: 0, y: s(2))
     }
 }
 
