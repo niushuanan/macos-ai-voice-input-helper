@@ -865,8 +865,6 @@ struct SettingsView: View {
             LabeledContent("应用名", value: "PulseType")
             LabeledContent("版本", value: appVersionLine)
             LabeledContent("产品定位", value: "macOS 桌面语音输入助手")
-            LabeledContent("数据策略", value: "历史、配置、诊断默认保存在本地")
-            LabeledContent("密钥策略", value: "API Key 仅在本地应用目录保存（不再触发钥匙串弹窗）")
 
             Divider()
 
