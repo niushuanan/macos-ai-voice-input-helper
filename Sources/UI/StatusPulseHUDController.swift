@@ -125,12 +125,6 @@ struct HUDProgressStateMachine {
         return progress
     }
 
-    mutating func reset() {
-        previousPhase = .idle
-        progress = 0
-        cap = 0
-    }
-
     private func busyPlan(for phase: SessionPhase) -> (title: String, baseline: Double, cap: Double) {
         switch phase {
         case .transcribing:
@@ -157,21 +151,19 @@ extension SessionPhase {
 }
 
 @MainActor
-final class StatusPulseHUDViewModel: ObservableObject {
-    @Published var phase: SessionPhase = .idle
-    @Published var message: String = ""
-    @Published var progress: Double = 0
-    @Published var listeningLevel: Double = 0
-    @Published var presentationStyle: HUDPresentationStyle = .feedback
-}
-
-@MainActor
 final class StatusPulseHUDController {
     private var panel: NSPanel?
     private var hideWorkItem: DispatchWorkItem?
     private var progressTimer: DispatchSourceTimer?
     private var progressStateMachine = HUDProgressStateMachine()
-    private let viewModel = StatusPulseHUDViewModel()
+    private var visibilityGeneration: UInt64 = 0
+    private let hudSize = NSSize(width: 184, height: 34)
+
+    private var currentPhase: SessionPhase = .idle
+    private var currentMessage: String = ""
+    private var currentProgress: Double = 0
+    private var currentListeningLevel: Double = 0
+    private var currentStyle: HUDPresentationStyle = .feedback
 
     func show(
         phase: SessionPhase,
@@ -180,13 +172,16 @@ final class StatusPulseHUDController {
         progress _: Double,
         listeningLevel: Double
     ) {
+        visibilityGeneration &+= 1
+        hideWorkItem?.cancel()
+
         let frame = progressStateMachine.transition(to: phase)
 
-        viewModel.phase = phase
-        viewModel.message = message
-        viewModel.listeningLevel = max(0, min(1, listeningLevel))
-        viewModel.presentationStyle = frame.style
-        viewModel.progress = max(0, min(1, frame.progress))
+        currentPhase = phase
+        currentMessage = message
+        currentListeningLevel = max(0, min(1, listeningLevel))
+        currentStyle = frame.style
+        currentProgress = max(0, min(1, frame.progress))
 
         if case .processing = frame.style {
             startProgressTickerIfNeeded()
@@ -194,24 +189,11 @@ final class StatusPulseHUDController {
             stopProgressTicker()
         }
 
-        let size = NSSize(width: 184, height: 34)
-        let panel = ensurePanel(size: size)
-        if panel.contentView == nil {
-            panel.contentView = NSHostingView(
-                rootView: StatusPulseHUDView(viewModel: viewModel)
-            )
-        }
+        let panel = ensurePanel(size: hudSize)
+        render(panel: panel)
 
-        position(panel: panel, size: size)
-
-        if !panel.isVisible {
-            panel.alphaValue = 0
-            panel.orderFrontRegardless()
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.10
-                panel.animator().alphaValue = 1
-            }
-        }
+        panel.orderFrontRegardless()
+        panel.alphaValue = 1
 
         scheduleHide(using: frame.visibility)
     }
@@ -240,6 +222,19 @@ final class StatusPulseHUDController {
         return panel
     }
 
+    private func render(panel: NSPanel) {
+        panel.contentView = NSHostingView(
+            rootView: StatusPulseHUDView(
+                phase: currentPhase,
+                message: currentMessage,
+                progress: currentProgress,
+                listeningLevel: currentListeningLevel,
+                presentationStyle: currentStyle
+            )
+        )
+        position(panel: panel, size: hudSize)
+    }
+
     private func position(panel: NSPanel, size: NSSize) {
         let targetScreen = NSScreen.main ?? NSScreen.screens.first
         guard let visibleFrame = targetScreen?.visibleFrame else {
@@ -260,8 +255,13 @@ final class StatusPulseHUDController {
             return
         }
 
+        let generation = visibilityGeneration
         let work = DispatchWorkItem { [weak self] in
-            guard let panel = self?.panel else {
+            guard
+                let self,
+                generation == self.visibilityGeneration,
+                let panel = self.panel
+            else {
                 return
             }
 
@@ -269,6 +269,9 @@ final class StatusPulseHUDController {
                 context.duration = visibility.fadeDuration
                 panel.animator().alphaValue = 0
             }, completionHandler: {
+                guard generation == self.visibilityGeneration else {
+                    return
+                }
                 panel.orderOut(nil)
             })
         }
@@ -301,24 +304,32 @@ final class StatusPulseHUDController {
     }
 
     private func handleProgressTick() {
-        guard case .processing = viewModel.presentationStyle else {
+        guard case .processing = currentStyle else {
             return
         }
 
         let nextProgress = max(0, min(1, progressStateMachine.tick()))
-        guard abs(nextProgress - viewModel.progress) > 0.0008 else {
+        guard abs(nextProgress - currentProgress) > 0.0008 else {
             return
         }
-        viewModel.progress = nextProgress
+
+        currentProgress = nextProgress
+        if let panel {
+            render(panel: panel)
+        }
     }
 }
 
 private struct StatusPulseHUDView: View {
-    @ObservedObject var viewModel: StatusPulseHUDViewModel
+    let phase: SessionPhase
+    let message: String
+    let progress: Double
+    let listeningLevel: Double
+    let presentationStyle: HUDPresentationStyle
 
     var body: some View {
         Group {
-            switch viewModel.presentationStyle {
+            switch presentationStyle {
             case .listening:
                 listeningCapsule
             case let .processing(title):
@@ -339,15 +350,15 @@ private struct StatusPulseHUDView: View {
     }
 
     private var normalizedListeningLevel: Double {
-        max(0, min(1, viewModel.listeningLevel))
+        max(0, min(1, listeningLevel))
     }
 
     private var normalizedProgress: Double {
-        max(0, min(1, viewModel.progress))
+        max(0, min(1, progress))
     }
 
     private var phaseAccentColor: Color {
-        switch viewModel.phase {
+        switch phase {
         case .idle:
             return Color.primary.opacity(0.56)
         case .listening:
@@ -447,10 +458,10 @@ private struct StatusPulseHUDView: View {
 
     private var feedbackCapsule: some View {
         HStack(spacing: 6) {
-            Image(systemName: viewModel.phase.menuBarSymbol)
+            Image(systemName: phase.menuBarSymbol)
                 .font(.system(size: 9.5, weight: .semibold))
                 .foregroundStyle(phaseAccentColor)
-            Text(viewModel.message)
+            Text(message)
                 .font(.system(size: 10.2, weight: .medium))
                 .foregroundStyle(Color.primary.opacity(0.80))
                 .lineLimit(1)
