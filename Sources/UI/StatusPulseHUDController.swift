@@ -438,8 +438,9 @@ private struct StatusPulseHUDView: View {
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color.gray.opacity(0.38),
-                                Color.gray.opacity(0.10)
+                                Color.white.opacity(0.56),
+                                Color.white.opacity(0.30),
+                                Color.accentColor.opacity(0.10)
                             ],
                             startPoint: .leading,
                             endPoint: .trailing
@@ -452,16 +453,16 @@ private struct StatusPulseHUDView: View {
                     Spacer(minLength: 0)
                     Text(title)
                         .font(.system(size: s(11.5), weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color.primary.opacity(0.82))
+                        .foregroundStyle(Color.primary.opacity(0.86))
                         .lineLimit(1)
                     Capsule(style: .continuous)
-                        .fill(Color.primary.opacity(0.24))
+                        .fill(Color.primary.opacity(0.16))
                         .frame(width: s(0.7), height: s(9))
 
                     if completion {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: s(10), weight: .semibold))
-                            .foregroundStyle(Color.primary.opacity(0.64))
+                            .foregroundStyle(Color.accentColor.opacity(0.68))
                             .frame(width: s(22), height: s(10), alignment: .center)
                     } else {
                         ThinkingDots(progress: normalizedProgress, scale: scale)
@@ -503,7 +504,7 @@ private struct StatusPulseHUDView: View {
                 .lineLimit(1)
 
             Capsule(style: .continuous)
-                .fill(Color.primary.opacity(0.24))
+                .fill(Color.primary.opacity(0.16))
                 .frame(width: s(0.7), height: s(9))
 
             indicator()
@@ -586,7 +587,7 @@ private struct HUDNativeMaterialCapsule: View {
     var body: some View {
         ZStack {
             MacVisualEffectMaterialView(
-                material: .hudWindow,
+                material: .popover,
                 blendingMode: .withinWindow,
                 state: .active
             )
@@ -596,9 +597,9 @@ private struct HUDNativeMaterialCapsule: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.gray.opacity(0.22),
-                            Color.gray.opacity(0.14),
-                            Color.gray.opacity(0.09)
+                            Color.white.opacity(0.74),
+                            Color.white.opacity(0.48),
+                            Color(nsColor: .windowBackgroundColor).opacity(0.42)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -609,8 +610,8 @@ private struct HUDNativeMaterialCapsule: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(0.16),
-                            Color.white.opacity(0.02)
+                            Color.white.opacity(0.52),
+                            Color.white.opacity(0.08)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -619,12 +620,12 @@ private struct HUDNativeMaterialCapsule: View {
                 .blendMode(.screen)
 
             Capsule(style: .continuous)
-                .stroke(Color.white.opacity(0.20), lineWidth: s(0.55))
+                .stroke(Color.white.opacity(0.88), lineWidth: s(0.58))
 
             Capsule(style: .continuous)
-                .stroke(Color.black.opacity(0.08), lineWidth: s(0.5))
+                .stroke(Color.black.opacity(0.06), lineWidth: s(0.46))
         }
-        .shadow(color: Color.black.opacity(0.16), radius: s(4), x: 0, y: s(1.5))
+        .shadow(color: Color.black.opacity(0.12), radius: s(6.5), x: 0, y: s(2))
     }
 }
 
