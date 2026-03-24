@@ -619,7 +619,6 @@ struct SettingsView: View {
 
                 brainstormIntroCard
                 brainstormTriggerCard
-                brainstormSessionCard
                 brainstormOutputPreviewCard
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -824,39 +823,6 @@ struct SettingsView: View {
             )
         }
         .buttonStyle(.plain)
-    }
-
-    private var brainstormSessionCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("会话层")
-                .font(.headline)
-
-            LabeledContent("当前阶段", value: model.sessionStore.phase.title)
-            LabeledContent("当前通道", value: model.sessionStore.activeLane.title)
-
-            HStack(spacing: 8) {
-                Button(brainstormToggleButtonTitle) {
-                    model.interactionCoordinator.handleBrainstormInput()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!canToggleBrainstormSession)
-
-                Button("取消当前会话") {
-                    model.interactionCoordinator.handleCancelInput()
-                }
-                .buttonStyle(.bordered)
-                .disabled(model.sessionStore.phase == .idle)
-
-                Spacer()
-            }
-
-            Text("路径：开始录音 -> 再触发一次结束录音 -> 输出结构化结论。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .pulseCard(cornerRadius: 12)
     }
 
     private var brainstormOutputPreviewCard: some View {
@@ -1340,24 +1306,6 @@ struct SettingsView: View {
         KeyboardShortcuts.Shortcut(key)
             .description
             .replacingOccurrences(of: "-", with: " + ")
-    }
-
-    private var canToggleBrainstormSession: Bool {
-        switch model.sessionStore.phase {
-        case .idle, .cancelled, .error:
-            return true
-        case .listening:
-            return model.sessionStore.activeLane == .brainstormDiscussion
-        case .transcribing, .rewriting, .inserting:
-            return false
-        }
-    }
-
-    private var brainstormToggleButtonTitle: String {
-        if model.sessionStore.phase == .listening, model.sessionStore.activeLane == .brainstormDiscussion {
-            return "停止并整理脑暴"
-        }
-        return "开始头脑风暴"
     }
 
     private var brainstormPreviewTemplate: String {
