@@ -33,6 +33,25 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .cancelled)
     }
 
+    func testBrainstormIsBlockedDuringNormalDictationAndShowsSingleToastWithinCooldown() throws {
+        let toastPresenter = ToastPresenter()
+        let fixture = try makeFixture(toastPresenter: toastPresenter)
+        defer { fixture.cleanUp() }
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        XCTAssertEqual(fixture.sessionStore.phase, .listening)
+        XCTAssertEqual(fixture.sessionStore.activeLane, .directDictation)
+
+        fixture.coordinator.handleBrainstormInput()
+        let firstToast = toastPresenter.message?.text
+        XCTAssertEqual(firstToast, "当前是普通语音输入，脑暴双击已忽略。请先停止本次录音。")
+
+        fixture.coordinator.handleBrainstormInput()
+        XCTAssertEqual(toastPresenter.message?.text, firstToast)
+        XCTAssertEqual(fixture.audioCapture.startCallCount, 1)
+        XCTAssertTrue(fixture.audioCapture.isRecording)
+    }
+
     func testBrainstormFlowWritesComposedContextAndHistory() async throws {
         let composer = FakeBrainstormContextComposer(
             result: .success(
@@ -355,7 +374,8 @@ final class InteractionCoordinatorTests: XCTestCase {
                 dialogueText: "A: 默认对话"
             )
         ),
-        transcriptionText: String = "hello world"
+        transcriptionText: String = "hello world",
+        toastPresenter: ToastPresenter? = nil
     ) throws -> InteractionFixture {
         let defaultsSuiteName = "InteractionCoordinatorTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: defaultsSuiteName) else {
@@ -404,6 +424,7 @@ final class InteractionCoordinatorTests: XCTestCase {
             defaults: defaults,
             storageKey: "asr.dictionary.interaction.tests"
         )
+        let resolvedToastPresenter = toastPresenter
 
         let coordinator = InteractionCoordinator(
             sessionStore: sessionStore,
@@ -418,7 +439,7 @@ final class InteractionCoordinatorTests: XCTestCase {
             localHistoryStore: localHistoryStore,
             skillRuleStore: skillRuleStore,
             asrDictionaryStore: dictionaryStore,
-            toastPresenter: nil,
+            toastPresenter: resolvedToastPresenter,
             dictationPostProcessor: dictationPostProcessor,
             brainstormContextComposer: brainstormContextComposer
         )

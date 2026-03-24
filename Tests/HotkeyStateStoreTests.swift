@@ -71,8 +71,6 @@ final class HotkeyStateStoreTests: XCTestCase {
         XCTAssertEqual(store.brainstormTriggerType, .doubleTapModifier)
         XCTAssertEqual(store.brainstormModifier, .rightOption)
         XCTAssertEqual(store.brainstormShortcutText, "双击修饰键 · 右 Option")
-        XCTAssertNil(store.brainstormSequenceFirstKey)
-        XCTAssertNil(store.brainstormSequenceSecondKey)
         XCTAssertFalse(store.hasConflict)
     }
 
@@ -149,42 +147,12 @@ final class HotkeyStateStoreTests: XCTestCase {
         XCTAssertTrue(store.brainstormShortcutRegistered)
     }
 
-    func testBrainstormSingleTapConflictWithWakeModifierIsBlocked() {
-        let defaults = makeDefaults()
-        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
-
-        let store = HotkeyStateStore(defaults: defaults)
-        XCTAssertTrue(store.setBrainstormTriggerType(.singleTapModifier))
-        let originalModifier = store.brainstormModifier
-        let updated = store.setBrainstormModifier(store.wakeModifier)
-
-        XCTAssertFalse(updated)
-        XCTAssertEqual(store.brainstormModifier, originalModifier)
-        XCTAssertFalse(store.hasConflict)
-        XCTAssertNil(store.conflictMessage)
-    }
-
-    func testWakeModifierChangeIsBlockedWhenConflictingWithSingleTapBrainstorm() {
-        let defaults = makeDefaults()
-        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
-
-        let store = HotkeyStateStore(defaults: defaults)
-        XCTAssertTrue(store.setBrainstormTriggerType(.singleTapModifier))
-        XCTAssertTrue(store.setBrainstormModifier(.rightOption))
-
-        let updated = store.setModifier(.rightOption, for: .wakeSession)
-
-        XCTAssertFalse(updated)
-        XCTAssertEqual(store.wakeModifier, .leftOption)
-    }
-
     func testBrainstormDoubleTapCanReuseWakeModifier() {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
 
         let store = HotkeyStateStore(defaults: defaults)
         XCTAssertTrue(store.setBrainstormTriggerType(.doubleTapModifier))
-
         let updated = store.setBrainstormModifier(store.wakeModifier)
 
         XCTAssertTrue(updated)
@@ -192,69 +160,36 @@ final class HotkeyStateStoreTests: XCTestCase {
         XCTAssertFalse(store.hasConflict)
     }
 
-    func testBrainstormComboShortcutEscapeIsBlocked() {
+    func testBrainstormLegacyModesAreForcedToDoubleTap() {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
 
-        let store = HotkeyStateStore(defaults: defaults)
-        XCTAssertTrue(store.setBrainstormTriggerType(.comboShortcut))
-        let previousShortcut = store.brainstormShortcut
-        let updated = store.setBrainstormShortcut(.init(.escape))
-
-        XCTAssertFalse(updated)
-        XCTAssertEqual(store.brainstormShortcut, previousShortcut)
-    }
-
-    func testBrainstormSequenceEscapeIsBlocked() {
-        let defaults = makeDefaults()
-        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
-
-        let store = HotkeyStateStore(defaults: defaults)
-        XCTAssertTrue(store.setBrainstormTriggerType(.sequenceTwoStep))
-
-        let updated = store.setBrainstormSequence(firstKey: .escape, secondKey: .a)
-
-        XCTAssertFalse(updated)
-        XCTAssertNil(store.brainstormSequenceFirstKey)
-        XCTAssertNil(store.brainstormSequenceSecondKey)
-    }
-
-    func testBrainstormSequencePersistsAndUpdatesDescription() {
-        let defaults = makeDefaults()
-        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
-
-        let store = HotkeyStateStore(defaults: defaults)
-        XCTAssertTrue(store.setBrainstormSequence(firstKey: .a, secondKey: .b))
-        XCTAssertTrue(store.setBrainstormTriggerType(.sequenceTwoStep))
-
-        XCTAssertEqual(store.brainstormSequenceFirstKey, .a)
-        XCTAssertEqual(store.brainstormSequenceSecondKey, .b)
-        XCTAssertTrue(store.hasBrainstormSequenceBinding)
-        XCTAssertEqual(defaults.integer(forKey: "hotkeys.brainstorm.sequence.firstKeyCode.v1"), KeyboardShortcuts.Key.a.rawValue)
-        XCTAssertEqual(defaults.integer(forKey: "hotkeys.brainstorm.sequence.secondKeyCode.v1"), KeyboardShortcuts.Key.b.rawValue)
-        XCTAssertTrue(store.brainstormShortcutText.contains("顺序连按"))
-        XCTAssertTrue(store.brainstormShortcutText.contains("->"))
-    }
-
-    func testBrainstormTriggerTypePersistenceSupportsAllModes() {
-        let defaults = makeDefaults()
-        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
-
-        for mode in BrainstormTriggerType.allCases {
-            defaults.set(mode.rawValue, forKey: "hotkeys.brainstorm.triggerType.v1")
-            let store = HotkeyStateStore(defaults: defaults)
-            XCTAssertEqual(store.brainstormTriggerType, mode)
-        }
-    }
-
-    func testBrainstormTriggerTypeLegacyGlobalShortcutMigratesToComboShortcut() {
-        let defaults = makeDefaults()
-        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
         defaults.set("globalShortcut", forKey: "hotkeys.brainstorm.triggerType.v1")
-
         let store = HotkeyStateStore(defaults: defaults)
+        XCTAssertEqual(store.brainstormTriggerType, .doubleTapModifier)
 
-        XCTAssertEqual(store.brainstormTriggerType, .comboShortcut)
+        defaults.set("sequenceTwoStep", forKey: "hotkeys.brainstorm.triggerType.v1")
+        store.refresh()
+        XCTAssertEqual(store.brainstormTriggerType, .doubleTapModifier)
+    }
+
+    func testBrainstormShortcutAndSequenceAPIsAreRejected() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let store = HotkeyStateStore(defaults: defaults)
+        XCTAssertFalse(store.setBrainstormShortcut(.init(.escape)))
+        XCTAssertFalse(store.setBrainstormSequence(firstKey: .a, secondKey: .b))
+        XCTAssertNil(store.brainstormShortcut)
+        XCTAssertFalse(store.hasBrainstormSequenceBinding)
+    }
+
+    func testBrainstormTriggerTypePersistenceUsesDoubleTapOnly() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        defaults.set(BrainstormTriggerType.doubleTapModifier.rawValue, forKey: "hotkeys.brainstorm.triggerType.v1")
+        let store = HotkeyStateStore(defaults: defaults)
+        XCTAssertEqual(store.brainstormTriggerType, .doubleTapModifier)
     }
 
     private var defaultsSuiteName: String {

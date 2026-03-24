@@ -41,45 +41,6 @@ struct ModifierDoubleTapStateMachine {
     }
 }
 
-enum BrainstormSequenceProgress {
-    case waitingFirst
-    case waitingSecond
-}
-
-enum BrainstormSequenceAction {
-    case none
-    case trigger
-}
-
-struct BrainstormSequenceStateMachine {
-    private(set) var progress: BrainstormSequenceProgress = .waitingFirst
-
-    mutating func handleKey(
-        _ key: KeyboardShortcuts.Key,
-        first: KeyboardShortcuts.Key,
-        second: KeyboardShortcuts.Key
-    ) -> BrainstormSequenceAction {
-        switch progress {
-        case .waitingFirst:
-            if key == first {
-                progress = .waitingSecond
-            }
-            return .none
-        case .waitingSecond:
-            if key == second {
-                progress = .waitingFirst
-                return .trigger
-            }
-            progress = .waitingFirst
-            return .none
-        }
-    }
-
-    mutating func reset() {
-        progress = .waitingFirst
-    }
-}
-
 @MainActor
 final class GlobalHotkeyService {
     private struct ModifierTapState {
@@ -101,7 +62,6 @@ final class GlobalHotkeyService {
     private var hasActivated = false
     private var currentSessionPhase: SessionPhase = .idle
     private var cancelShortcutRuntimeEnabled = true
-    private var brainstormShortcutRuntimeEnabled = true
     private var globalFlagsMonitor: Any?
     private var globalKeyDownMonitor: Any?
     private var localKeyDownMonitor: Any?
@@ -111,7 +71,6 @@ final class GlobalHotkeyService {
     private var brainstormTapState = ModifierTapState()
     private var wakeAndBrainstormArbitration = ModifierDoubleTapStateMachine(interval: 0.35)
     private var brainstormDoubleTapStateMachine = ModifierDoubleTapStateMachine(interval: 0.35)
-    private var brainstormSequenceStateMachine = BrainstormSequenceStateMachine()
     private var wakeArbitrationWorkItem: DispatchWorkItem?
 
     init(
@@ -141,19 +100,6 @@ final class GlobalHotkeyService {
             }
         }
 
-        KeyboardShortcuts.onKeyUp(for: .brainstormSession) { [weak self] in
-            guard let self else {
-                return
-            }
-            guard self.hotkeyStateStore.brainstormTriggerType == .comboShortcut else {
-                return
-            }
-            guard self.shouldHandleBrainstormInput else {
-                return
-            }
-            self.interactionCoordinator.handleBrainstormInput()
-        }
-
         hotkeyStateStore.$lastUpdatedAt
             .removeDuplicates()
             .sink { [weak self] _ in
@@ -172,7 +118,6 @@ final class GlobalHotkeyService {
         }
         currentSessionPhase = phase
         reconcileCancelShortcutAvailability()
-        reconcileBrainstormShortcutAvailability()
     }
 
     func refreshRuntimeState() {
@@ -184,12 +129,7 @@ final class GlobalHotkeyService {
             brainstormDoubleTapStateMachine.reset()
         }
 
-        if hotkeyStateStore.brainstormTriggerType != .sequenceTwoStep {
-            brainstormSequenceStateMachine.reset()
-        }
-
         reconcileCancelShortcutAvailability()
-        reconcileBrainstormShortcutAvailability()
     }
 
     private func installModifierMonitors() {
@@ -260,39 +200,16 @@ final class GlobalHotkeyService {
             cancelTapState.reset()
         }
 
-        switch hotkeyStateStore.brainstormTriggerType {
-        case .singleTapModifier:
-            if hotkeyStateStore.brainstormModifier == hotkeyStateStore.wakeModifier {
-                brainstormTapState.reset()
-                return
-            }
-            processModifierEvent(
-                event,
-                modifier: hotkeyStateStore.brainstormModifier,
-                state: &brainstormTapState
-            ) { [weak self] in
-                guard let self else {
-                    return
-                }
-                guard self.shouldHandleBrainstormInput else {
-                    return
-                }
-                self.interactionCoordinator.handleBrainstormInput()
-            }
-        case .doubleTapModifier:
-            if hotkeyStateStore.brainstormModifier == hotkeyStateStore.wakeModifier {
-                brainstormTapState.reset()
-                return
-            }
-            processModifierEvent(
-                event,
-                modifier: hotkeyStateStore.brainstormModifier,
-                state: &brainstormTapState
-            ) { [weak self] in
-                self?.handleBrainstormDoubleModifierTap()
-            }
-        case .comboShortcut, .sequenceTwoStep:
+        if hotkeyStateStore.brainstormModifier == hotkeyStateStore.wakeModifier {
             brainstormTapState.reset()
+            return
+        }
+        processModifierEvent(
+            event,
+            modifier: hotkeyStateStore.brainstormModifier,
+            state: &brainstormTapState
+        ) { [weak self] in
+            self?.handleBrainstormDoubleModifierTap()
         }
     }
 
@@ -402,8 +319,8 @@ final class GlobalHotkeyService {
     }
 
     private func handleKeyDown(_ event: NSEvent) {
+        _ = event
         markForeignKeyInput()
-        handleBrainstormSequenceKeyDown(event)
     }
 
     private func markForeignKeyInput() {
@@ -415,39 +332,6 @@ final class GlobalHotkeyService {
         }
         if brainstormTapState.isPressed {
             brainstormTapState.sawForeignInput = true
-        }
-    }
-
-    private func handleBrainstormSequenceKeyDown(_ event: NSEvent) {
-        guard hotkeyStateStore.brainstormTriggerType == .sequenceTwoStep else {
-            brainstormSequenceStateMachine.reset()
-            return
-        }
-        guard shouldHandleBrainstormInput else {
-            brainstormSequenceStateMachine.reset()
-            return
-        }
-        guard !event.isARepeat else {
-            return
-        }
-        guard HotkeyModifier.from(keyCode: event.keyCode) == nil else {
-            return
-        }
-        guard
-            let firstKey = hotkeyStateStore.brainstormSequenceFirstKey,
-            let secondKey = hotkeyStateStore.brainstormSequenceSecondKey
-        else {
-            return
-        }
-
-        let key = KeyboardShortcuts.Key(rawValue: Int(event.keyCode))
-        let action = brainstormSequenceStateMachine.handleKey(
-            key,
-            first: firstKey,
-            second: secondKey
-        )
-        if action == .trigger {
-            interactionCoordinator.handleBrainstormInput()
         }
     }
 
@@ -476,24 +360,6 @@ final class GlobalHotkeyService {
             KeyboardShortcuts.enable(.cancelSession)
         } else {
             KeyboardShortcuts.disable(.cancelSession)
-        }
-        hotkeyStateStore.refresh()
-    }
-
-    private func reconcileBrainstormShortcutAvailability() {
-        let shouldEnable =
-            hotkeyStateStore.brainstormTriggerType == .comboShortcut
-            && hotkeyStateStore.brainstormShortcut != nil
-            && shouldHandleBrainstormInput
-        guard shouldEnable != brainstormShortcutRuntimeEnabled else {
-            return
-        }
-
-        brainstormShortcutRuntimeEnabled = shouldEnable
-        if shouldEnable {
-            KeyboardShortcuts.enable(.brainstormSession)
-        } else {
-            KeyboardShortcuts.disable(.brainstormSession)
         }
         hotkeyStateStore.refresh()
     }

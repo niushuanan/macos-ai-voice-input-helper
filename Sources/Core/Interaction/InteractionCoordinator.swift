@@ -68,6 +68,7 @@ final class InteractionCoordinator {
     private var currentDictationTarget: DictationWritebackTarget?
     private var lastExternalDictationTarget: DictationWritebackTarget?
     private var lastDictionaryTruncationSignature: Int?
+    private var lastBrainstormBlockedByDictationAt: Date?
 
     init(
         sessionStore: SessionStore,
@@ -141,12 +142,25 @@ final class InteractionCoordinator {
             startRecordingAndTransition(lane: .brainstormDiscussion)
         case .listening:
             guard sessionStore.activeLane == .brainstormDiscussion else {
+                notifyBrainstormBlockedByDictationIfNeeded()
                 return
             }
             handleStopInput()
         case .transcribing, .rewriting, .inserting:
             break
         }
+    }
+
+    private func notifyBrainstormBlockedByDictationIfNeeded() {
+        let now = Date()
+        if
+            let lastBrainstormBlockedByDictationAt,
+            now.timeIntervalSince(lastBrainstormBlockedByDictationAt) < 1.2
+        {
+            return
+        }
+        self.lastBrainstormBlockedByDictationAt = now
+        toastPresenter?.show("当前是普通语音输入，脑暴双击已忽略。请先停止本次录音。")
     }
 
     func handleStopInput() {

@@ -7,8 +7,6 @@ struct SettingsView: View {
     let model: AppModel
 
     private enum BrainstormCaptureMode {
-        case comboShortcut
-        case sequenceTwoStep
         case modifierTap
     }
 
@@ -41,10 +39,7 @@ struct SettingsView: View {
     @State private var wakeModifierFlagsMonitor: Any?
     @State private var wakeModifierKeyDownMonitor: Any?
     @State private var activeBrainstormCaptureMode: BrainstormCaptureMode?
-    @State private var pendingBrainstormShortcut: KeyboardShortcuts.Shortcut?
     @State private var pendingBrainstormModifier: HotkeyModifier?
-    @State private var pendingBrainstormSequenceFirstKey: KeyboardShortcuts.Key?
-    @State private var pendingBrainstormSequenceSecondKey: KeyboardShortcuts.Key?
     @State private var brainstormCaptureHint: String?
     @State private var brainstormFlagsMonitor: Any?
     @State private var brainstormKeyDownMonitor: Any?
@@ -646,29 +641,10 @@ struct SettingsView: View {
             Text("触发层")
                 .font(.headline)
 
-            Picker("触发方式", selection: brainstormTriggerTypeBinding) {
-                ForEach(BrainstormTriggerType.allCases) { triggerType in
-                    Text(triggerType.displayName).tag(triggerType)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            switch hotkeyStateStore.brainstormTriggerType {
-            case .comboShortcut:
-                brainstormComboShortcutSection
-            case .sequenceTwoStep:
-                brainstormSequenceSection
-            case .singleTapModifier:
-                brainstormModifierSection(
-                    title: "单击修饰键",
-                    currentText: "当前触发：单击 \(hotkeyStateStore.brainstormModifier.displayName)"
-                )
-            case .doubleTapModifier:
-                brainstormModifierSection(
-                    title: "双击修饰键",
-                    currentText: "当前触发：双击 \(hotkeyStateStore.brainstormModifier.displayName)"
-                )
-            }
+            brainstormModifierSection(
+                title: "双击修饰键",
+                currentText: "当前触发：双击 \(hotkeyStateStore.brainstormModifier.displayName)"
+            )
 
             HStack(spacing: 8) {
                 Button("检测脑暴监听") {
@@ -697,60 +673,6 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .pulseCard(cornerRadius: 12)
-    }
-
-    private var brainstormComboShortcutSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("组合键")
-                .font(.subheadline.weight(.semibold))
-            captureBracketButton(
-                valueText: pendingBrainstormShortcutText ?? currentBrainstormComboShortcutText,
-                isCapturing: activeBrainstormCaptureMode == .comboShortcut
-            ) {
-                startBrainstormComboCapture()
-            }
-
-            if activeBrainstormCaptureMode == .comboShortcut, let brainstormCaptureHint {
-                Text(brainstormCaptureHint)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("点击上面的括号区域后，按组合键，再按 Enter 确认，按 Esc 取消。")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            Text("当前触发：组合键 · \(currentBrainstormComboShortcutText)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var brainstormSequenceSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("顺序连按（两步）")
-                .font(.subheadline.weight(.semibold))
-            captureBracketButton(
-                valueText: pendingBrainstormSequenceText ?? currentBrainstormSequenceText,
-                isCapturing: activeBrainstormCaptureMode == .sequenceTwoStep
-            ) {
-                startBrainstormSequenceCapture()
-            }
-
-            if activeBrainstormCaptureMode == .sequenceTwoStep, let brainstormCaptureHint {
-                Text(brainstormCaptureHint)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("点击上面的括号区域后，依次按两步按键，再按 Enter 确认，按 Esc 取消。")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            Text("当前触发：顺序连按 · \(currentBrainstormSequenceText)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
     }
 
     private func brainstormModifierSection(
@@ -1213,63 +1135,6 @@ struct SettingsView: View {
 
     private var textProviderOptions: [ProviderType] {
         ProviderType.allCases.filter(\.supportsRewrite)
-    }
-
-    private var brainstormTriggerTypeBinding: Binding<BrainstormTriggerType> {
-        Binding(
-            get: { hotkeyStateStore.brainstormTriggerType },
-            set: { triggerType in
-                stopBrainstormCapture()
-                let updated = hotkeyStateStore.setBrainstormTriggerType(triggerType)
-                if !updated {
-                    showToast("单击修饰键不能与主键相同，请先调整键位。")
-                }
-            }
-        )
-    }
-
-    private var currentBrainstormComboShortcutText: String {
-        formattedShortcutText(hotkeyStateStore.brainstormShortcut)
-    }
-
-    private var pendingBrainstormShortcutText: String? {
-        guard let pendingBrainstormShortcut else {
-            return nil
-        }
-        return formattedShortcutText(pendingBrainstormShortcut)
-    }
-
-    private var currentBrainstormSequenceText: String {
-        guard
-            let first = hotkeyStateStore.brainstormSequenceFirstKey,
-            let second = hotkeyStateStore.brainstormSequenceSecondKey
-        else {
-            return "未设置"
-        }
-        return "\(formattedKeyText(first)) -> \(formattedKeyText(second))"
-    }
-
-    private var pendingBrainstormSequenceText: String? {
-        guard
-            let first = pendingBrainstormSequenceFirstKey,
-            let second = pendingBrainstormSequenceSecondKey
-        else {
-            return nil
-        }
-        return "\(formattedKeyText(first)) -> \(formattedKeyText(second))"
-    }
-
-    private func formattedShortcutText(_ shortcut: KeyboardShortcuts.Shortcut?) -> String {
-        shortcut?
-            .description
-            .replacingOccurrences(of: "-", with: " + ")
-            ?? "未设置"
-    }
-
-    private func formattedKeyText(_ key: KeyboardShortcuts.Key) -> String {
-        KeyboardShortcuts.Shortcut(key)
-            .description
-            .replacingOccurrences(of: "-", with: " + ")
     }
 
     private var detailPaneBackground: some View {
@@ -1859,18 +1724,6 @@ struct SettingsView: View {
         }
     }
 
-    private func startBrainstormComboCapture() {
-        stopWakeModifierCapture()
-        stopBrainstormCapture()
-        activeBrainstormCaptureMode = .comboShortcut
-        pendingBrainstormShortcut = nil
-        brainstormCaptureHint = "请按组合键，然后按 Enter 确认。"
-
-        brainstormKeyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            self.handleBrainstormComboKeyDown(event)
-        }
-    }
-
     private func startBrainstormModifierCapture() {
         stopWakeModifierCapture()
         stopBrainstormCapture()
@@ -1887,26 +1740,10 @@ struct SettingsView: View {
         }
     }
 
-    private func startBrainstormSequenceCapture() {
-        stopWakeModifierCapture()
-        stopBrainstormCapture()
-        activeBrainstormCaptureMode = .sequenceTwoStep
-        pendingBrainstormSequenceFirstKey = nil
-        pendingBrainstormSequenceSecondKey = nil
-        brainstormCaptureHint = "请依次按两步按键，然后按 Enter 确认。"
-
-        brainstormKeyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            self.handleBrainstormSequenceKeyDown(event)
-        }
-    }
-
     private func stopBrainstormCapture() {
         removeBrainstormCaptureMonitors()
         activeBrainstormCaptureMode = nil
-        pendingBrainstormShortcut = nil
         pendingBrainstormModifier = nil
-        pendingBrainstormSequenceFirstKey = nil
-        pendingBrainstormSequenceSecondKey = nil
         brainstormCaptureHint = nil
     }
 
@@ -1918,44 +1755,6 @@ struct SettingsView: View {
         if let brainstormKeyDownMonitor {
             NSEvent.removeMonitor(brainstormKeyDownMonitor)
             self.brainstormKeyDownMonitor = nil
-        }
-    }
-
-    private func handleBrainstormComboKeyDown(_ event: NSEvent) -> NSEvent? {
-        guard activeBrainstormCaptureMode == .comboShortcut else {
-            return event
-        }
-
-        switch event.keyCode {
-        case 36, 76:
-            guard let pendingBrainstormShortcut else {
-                brainstormCaptureHint = "还没有捕获到组合键，请先按目标按键。"
-                return nil
-            }
-            let updated = hotkeyStateStore.setBrainstormShortcut(pendingBrainstormShortcut)
-            guard updated else {
-                brainstormCaptureHint = "组合键不能使用 Esc，请重新录入。"
-                showToast("组合键不能使用 Esc。")
-                return nil
-            }
-            showToast("头脑风暴组合键已更新。")
-            stopBrainstormCapture()
-            return nil
-        case 53:
-            stopBrainstormCapture()
-            showToast("已取消头脑风暴组合键修改。")
-            return nil
-        default:
-            guard !event.isARepeat else {
-                return nil
-            }
-            guard let shortcut = KeyboardShortcuts.Shortcut(event: event) else {
-                brainstormCaptureHint = "无效按键，请重新录入。"
-                return nil
-            }
-            pendingBrainstormShortcut = shortcut
-            brainstormCaptureHint = "已捕获 \(formattedShortcutText(shortcut))。按 Enter 确认，按 Esc 取消。"
-            return nil
         }
     }
 
@@ -1981,12 +1780,7 @@ struct SettingsView: View {
                 brainstormCaptureHint = "还没有捕获到修饰键，请先按目标键。"
                 return nil
             }
-            let updated = hotkeyStateStore.setBrainstormModifier(pendingBrainstormModifier)
-            guard updated else {
-                brainstormCaptureHint = "单击修饰键不能与主键相同，请重新录入。"
-                showToast("单击修饰键不能与主键相同。")
-                return nil
-            }
+            hotkeyStateStore.setBrainstormModifier(pendingBrainstormModifier)
             showToast("头脑风暴修饰键已更新。")
             stopBrainstormCapture()
             return nil
@@ -1999,62 +1793,6 @@ struct SettingsView: View {
                 brainstormCaptureHint = "请先按目标修饰键，再按 Enter。"
             } else if let pendingBrainstormModifier {
                 brainstormCaptureHint = "已捕获 \(pendingBrainstormModifier.displayName)。按 Enter 确认，按 Esc 取消。"
-            }
-            return nil
-        }
-    }
-
-    private func handleBrainstormSequenceKeyDown(_ event: NSEvent) -> NSEvent? {
-        guard activeBrainstormCaptureMode == .sequenceTwoStep else {
-            return event
-        }
-
-        switch event.keyCode {
-        case 36, 76:
-            guard
-                let first = pendingBrainstormSequenceFirstKey,
-                let second = pendingBrainstormSequenceSecondKey
-            else {
-                brainstormCaptureHint = "请先依次录入两步按键。"
-                return nil
-            }
-            let updated = hotkeyStateStore.setBrainstormSequence(firstKey: first, secondKey: second)
-            guard updated else {
-                brainstormCaptureHint = "顺序连按不能使用 Esc，请重新录入。"
-                showToast("顺序连按不能使用 Esc。")
-                return nil
-            }
-            showToast("头脑风暴顺序连按已更新。")
-            stopBrainstormCapture()
-            return nil
-        case 53:
-            stopBrainstormCapture()
-            showToast("已取消头脑风暴顺序连按修改。")
-            return nil
-        default:
-            guard !event.isARepeat else {
-                return nil
-            }
-            guard HotkeyModifier.from(keyCode: event.keyCode) == nil else {
-                brainstormCaptureHint = "顺序连按每一步仅支持单键，不支持修饰键。"
-                return nil
-            }
-            let key = KeyboardShortcuts.Key(rawValue: Int(event.keyCode))
-            if key == .escape {
-                brainstormCaptureHint = "顺序连按不能使用 Esc。"
-                return nil
-            }
-            if pendingBrainstormSequenceFirstKey == nil {
-                pendingBrainstormSequenceFirstKey = key
-                brainstormCaptureHint = "第一步已捕获 \(formattedKeyText(key))，请继续录入第二步。"
-            } else if pendingBrainstormSequenceSecondKey == nil {
-                pendingBrainstormSequenceSecondKey = key
-                if let first = pendingBrainstormSequenceFirstKey {
-                    brainstormCaptureHint = "两步已捕获：\(formattedKeyText(first)) -> \(formattedKeyText(key))。按 Enter 确认。"
-                }
-            } else {
-                pendingBrainstormSequenceSecondKey = key
-                brainstormCaptureHint = "第二步已更新为 \(formattedKeyText(key))。按 Enter 确认。"
             }
             return nil
         }
