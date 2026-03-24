@@ -639,19 +639,21 @@ struct SettingsView: View {
     private var brainstormIntroCard: some View {
         let profile = currentBrainstormDurationProfile
         return VStack(alignment: .leading, spacing: 8) {
-            Text("适用场景")
+            Text("这个功能能帮你什么")
                 .font(.headline)
-            Label("两三个人快速聊一个功能，聊完马上给 AI 继续拆解。", systemImage: "person.2")
+            Label("多人聊完一个想法后，可直接生成能发给 AI 的上下文。", systemImage: "person.2")
                 .font(.subheadline)
-            Label("结果会带发言人标记，避免上下文混乱。", systemImage: "text.bubble")
+            Label("自动理清讨论重点，减少你手动补背景。", systemImage: "text.bubble")
                 .font(.subheadline)
-            Label("默认同时写入输入框和剪贴板，粘贴即可继续提问。", systemImage: "doc.on.clipboard")
+            Label("整理结果会放进输入框和剪贴板，下一问马上接上。", systemImage: "doc.on.clipboard")
                 .font(.subheadline)
             Divider()
             Text("当前模型实测上限：\(profile.maxSeconds) 秒")
-                .font(.subheadline.weight(.semibold))
+                .font(.caption)
+                .foregroundStyle(.secondary)
             Text("推荐时长：\(profile.recommendedSeconds) 秒以内")
-                .font(.subheadline.weight(.semibold))
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
@@ -871,7 +873,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("按应用风格")
                         .font(.headline)
-                    Text("在这里按应用配置独立提示词。命中策略时会拼到文本模型 system prompt。")
+                    Text("给每个应用设独立表达风格，写出来的话更贴场景。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -892,7 +894,7 @@ struct SettingsView: View {
                 .fixedSize()
             }
 
-            Text("总开关关闭后，不再拼接任何应用提示词。")
+            Text("关闭总开关后，所有应用都会用同一套表达风格。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -993,22 +995,16 @@ struct SettingsView: View {
 
     private var homeProductIntroCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("产品介绍")
+            Text("核心特点")
                 .font(.headline)
 
-            LabeledContent("应用名", value: "PulseType")
-            LabeledContent("版本", value: appVersionLine)
-            LabeledContent("产品定位", value: "macOS 桌面语音输入助手")
-
-            Divider()
-
-            Label("本地模型与云端模型自由切换：低延迟与高质量场景都能匹配。", systemImage: "arrow.triangle.2.circlepath.circle")
+            Label("说完就出字，日常打字量能明显降下来。", systemImage: "text.bubble")
                 .font(.subheadline)
-            Label("本地优先处理链路，隐私内容默认不上传，敏感输入更安心。", systemImage: "lock.shield")
+            Label("本地优先处理，隐私内容更安心。", systemImage: "lock.shield")
                 .font(.subheadline)
-            Label("面向微信、GPT 等不同场景可配置独立 Prompt，让表达语气与结构自动贴合当前应用。", systemImage: "text.bubble")
+            Label("不同应用可配不同语气，聊天和写文案都更顺手。", systemImage: "arrow.triangle.2.circlepath.circle")
                 .font(.subheadline)
-            Label("快捷键可自由定义，开口即成文，把重复打字变成一键完成。", systemImage: "keyboard")
+            Label("快捷键可自定义，常用动作一按就到位。", systemImage: "keyboard")
                 .font(.subheadline)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1246,10 +1242,6 @@ struct SettingsView: View {
         }
 
         return "建议依次检查地址、模型名、密钥、额度和网络。"
-    }
-
-    private var appVersionLine: String {
-        "V1.0"
     }
 
     private var memoryFilters: [LocalHistoryFilter] {
