@@ -69,8 +69,8 @@ final class HotkeyStateStoreTests: XCTestCase {
         XCTAssertEqual(store.wakeShortcutText, "单键触发 · 左 Option")
         XCTAssertEqual(store.cancelShortcutText, KeyboardShortcuts.Shortcut(.escape).description.replacingOccurrences(of: "-", with: " + "))
         XCTAssertEqual(store.brainstormTriggerType, .doubleTapModifier)
-        XCTAssertEqual(store.brainstormModifier, .rightOption)
-        XCTAssertEqual(store.brainstormShortcutText, "双击修饰键 · 右 Option")
+        XCTAssertEqual(store.brainstormModifier, .rightShift)
+        XCTAssertEqual(store.brainstormShortcutText, "双击修饰键 · 右 Shift")
         XCTAssertFalse(store.hasConflict)
     }
 
@@ -135,15 +135,15 @@ final class HotkeyStateStoreTests: XCTestCase {
         XCTAssertEqual(HotkeyModifier.from(keyCode: 62), .rightControl)
     }
 
-    func testBrainstormDefaultsUseDoubleTapRightOption() {
+    func testBrainstormDefaultsUseDoubleTapRightShift() {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
 
         let store = HotkeyStateStore(defaults: defaults)
 
         XCTAssertEqual(store.brainstormTriggerType, .doubleTapModifier)
-        XCTAssertEqual(store.brainstormModifier, .rightOption)
-        XCTAssertEqual(store.brainstormShortcutText, "双击修饰键 · 右 Option")
+        XCTAssertEqual(store.brainstormModifier, .rightShift)
+        XCTAssertEqual(store.brainstormShortcutText, "双击修饰键 · 右 Shift")
         XCTAssertTrue(store.brainstormShortcutRegistered)
     }
 

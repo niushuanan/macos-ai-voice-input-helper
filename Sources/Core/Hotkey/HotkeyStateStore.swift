@@ -206,7 +206,7 @@ final class HotkeyStateStore: ObservableObject {
         self.brainstormModifier = Self.loadModifier(
             defaults: defaults,
             key: brainstormModifierStorageKey,
-            fallback: .rightOption
+            fallback: .rightShift
         )
 
         self.wakeShortcutText = "未设置"
@@ -388,7 +388,7 @@ final class HotkeyStateStore: ObservableObject {
         wakeModifier = .leftOption
         cancelModifier = .leftOption
         brainstormTriggerType = .doubleTapModifier
-        brainstormModifier = .rightOption
+        brainstormModifier = .rightShift
         defaults.set(wakeTriggerMode.rawValue, forKey: wakeModeStorageKey)
         defaults.set(wakeModifier.rawValue, forKey: wakeModifierStorageKey)
         defaults.removeObject(forKey: cancelModeStorageKey)

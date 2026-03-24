@@ -646,20 +646,6 @@ struct SettingsView: View {
                 currentText: "当前触发：双击 \(hotkeyStateStore.brainstormModifier.displayName)"
             )
 
-            HStack(spacing: 8) {
-                Button("检测脑暴监听") {
-                    hotkeyStateStore.refresh()
-                    showToast(hotkeyStateStore.registrationText(for: .brainstormSession))
-                }
-                .buttonStyle(.bordered)
-
-                Button("恢复默认触发") {
-                    hotkeyStateStore.resetToDefaults()
-                    showToast("脑暴触发已恢复默认。")
-                }
-                .buttonStyle(.bordered)
-            }
-
             if let conflict = hotkeyStateStore.conflictMessage {
                 Label(conflict, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
@@ -807,42 +793,15 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            HStack(spacing: 8) {
-                Button("检测主键监听") {
-                    hotkeyStateStore.refresh()
-                    showToast(hotkeyStateStore.registrationText(for: .wakeSession))
-                }
-                .buttonStyle(.bordered)
-
-                Button("检测取消键监听") {
-                    hotkeyStateStore.refresh()
-                    showToast(hotkeyStateStore.registrationText(for: .cancelSession))
-                }
-                .buttonStyle(.bordered)
-            }
-
             if let conflict = hotkeyStateStore.conflictMessage {
                 Label(conflict, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
             } else {
-                Label("两个快捷键没有冲突，且会实时同步到监听器。", systemImage: "checkmark.circle.fill")
+                Label("两个快捷键没有冲突。", systemImage: "checkmark.circle.fill")
                     .font(.caption)
                     .foregroundStyle(.green)
             }
-
-            HStack {
-                Button("恢复默认") {
-                    hotkeyStateStore.resetToDefaults()
-                    showToast("已恢复默认快捷键。")
-                }
-                .buttonStyle(.bordered)
-                Spacer()
-            }
-
-            Text("快捷键监听：后台持续检测你设定的触发按键。主键用于开始/停止，取消键用于中断当前会话。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
