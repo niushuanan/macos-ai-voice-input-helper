@@ -206,6 +206,7 @@ struct SettingsView: View {
                             MemoryRowView(
                                 entry: entry,
                                 onCopyPrimary: { copyPrimaryMemoryText(entry) },
+                                onCopyDialogue: { copyBrainstormDialogueText(entry) },
                                 onCopyRaw: { copyRawMemoryText(entry) },
                                 onDelete: {
                                     localHistoryStore.delete(entryID: entry.id)
@@ -226,7 +227,7 @@ struct SettingsView: View {
             "确认清空记录？",
             isPresented: $showClearMemoryConfirmation,
             titleVisibility: .visible
-        ) {
+        ) {            
             Button("清空全部记录") {
                 localHistoryStore.clearAll()
                 showToast("会话明细已清空，首页累计指标保持不变。")
@@ -235,14 +236,6 @@ struct SettingsView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("该操作会删除记忆页全部本地记录，但不影响首页累计指标。")
-        }
-        .onAppear {
-            if controlCenterState.memoryFilter == .selectionRewrite
-                || controlCenterState.memoryFilter == .dictation
-                || controlCenterState.memoryFilter == .brainstorm
-            {
-                controlCenterState.memoryFilter = .all
-            }
         }
     }
 
@@ -619,7 +612,6 @@ struct SettingsView: View {
 
                 brainstormIntroCard
                 brainstormTriggerCard
-                brainstormOutputPreviewCard
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
@@ -823,34 +815,6 @@ struct SettingsView: View {
             )
         }
         .buttonStyle(.plain)
-    }
-
-    private var brainstormOutputPreviewCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("输出层样例")
-                .font(.headline)
-
-            Text(brainstormPreviewTemplate)
-                .font(.system(size: 12, design: .monospaced))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color(nsColor: .textBackgroundColor))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
-                        )
-                )
-
-            Text("最终输出会自动覆盖为真实讨论内容。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .pulseCard(cornerRadius: 12)
     }
 
     private var hotkeySettingsCard: some View {
@@ -1308,38 +1272,6 @@ struct SettingsView: View {
             .replacingOccurrences(of: "-", with: " + ")
     }
 
-    private var brainstormPreviewTemplate: String {
-        """
-        topic: 新功能 MVP 范围
-        participants:
-        - A: PM
-        - B: Engineer
-
-        dialogue:
-        - A: 目标是让新用户 5 分钟内跑通。
-        - B: 首版先做单模型，保留多模型扩展点。
-
-        decision:
-        - 首版仅保留核心流程，不做复杂配置面板。
-
-        tradeoff:
-        - 开发速度更快，但高级用户可配置项会延期。
-
-        open_questions:
-        - 是否要在首版加入团队协作权限？
-
-        next_actions:
-        - owner: A
-          action: 明确首版验收标准
-          due: 2026-03-28
-        - owner: B
-          action: 输出技术方案与工期
-          due: 2026-03-29
-
-        ask_ai: 请基于以上内容给出 MVP 里程碑、风险与关键指标建议。
-        """
-    }
-
     private var detailPaneBackground: some View {
         LinearGradient(
             colors: [
@@ -1469,7 +1401,7 @@ struct SettingsView: View {
     }
 
     private var memoryFilters: [LocalHistoryFilter] {
-        [.all, .failed]
+        [.all, .dictation, .brainstorm, .failed]
     }
 
     private var sortedScenePolicies: [AppScenePolicy] {
@@ -1699,6 +1631,10 @@ struct SettingsView: View {
             text = MemoryEntryTextResolver.primaryText(for: entry)
             emptyMessage = "这条记录没有主文本可复制。"
             successMessage = "已复制主文本。"
+        } else if entry.mode == .brainstorm {
+            text = MemoryEntryTextResolver.brainstormSummaryText(for: entry)
+            emptyMessage = "这条脑暴记录没有结论可复制。"
+            successMessage = "已复制结论。"
         } else {
             text = MemoryEntryTextResolver.defaultText(for: entry)
             emptyMessage = "这条记录没有可复制的文本。"
@@ -1715,18 +1651,39 @@ struct SettingsView: View {
     }
 
     private func copyRawMemoryText(_ entry: SessionHistoryEntry) {
-        guard entry.mode == .dictation else {
-            showToast("当前模式没有原始识别文本。")
+        switch entry.mode {
+        case .dictation:
+            guard let text = MemoryEntryTextResolver.rawText(for: entry) else {
+                showToast("这条记录没有原始识别文本可复制。")
+                return
+            }
+            writeTextToPasteboard(text)
+            showToast("已复制原始识别文本。")
+        case .brainstorm:
+            guard let text = MemoryEntryTextResolver.brainstormRawText(for: entry) else {
+                showToast("这条脑暴记录没有原始记录可复制。")
+                return
+            }
+            writeTextToPasteboard(text)
+            showToast("已复制原始记录。")
+        case .selectionRewrite:
+            showToast("当前模式没有原始记录。")
+        }
+    }
+
+    private func copyBrainstormDialogueText(_ entry: SessionHistoryEntry) {
+        guard entry.mode == .brainstorm else {
+            showToast("当前模式没有对话整理文本。")
             return
         }
 
-        guard let text = MemoryEntryTextResolver.rawText(for: entry) else {
-            showToast("这条记录没有原始识别文本可复制。")
+        guard let text = MemoryEntryTextResolver.brainstormDialogueText(for: entry) else {
+            showToast("这条脑暴记录没有对话整理文本可复制。")
             return
         }
 
         writeTextToPasteboard(text)
-        showToast("已复制原始识别文本。")
+        showToast("已复制对话整理文本。")
     }
 
     private func writeTextToPasteboard(_ text: String) {
@@ -2125,8 +2082,10 @@ private struct PlaceholderPageView: View {
 private struct MemoryRowView: View {
     let entry: SessionHistoryEntry
     let onCopyPrimary: () -> Void
+    let onCopyDialogue: () -> Void
     let onCopyRaw: () -> Void
     let onDelete: () -> Void
+    @State private var brainstormDetailsExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -2188,6 +2147,65 @@ private struct MemoryRowView: View {
                             .textSelection(.enabled)
                     }
                 }
+            } else if entry.mode == .brainstorm {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(brainstormSummaryText ?? "暂无结论")
+                            .font(.callout)
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+
+                        Menu {
+                            Button("复制结论") {
+                                onCopyPrimary()
+                            }
+                            .disabled(brainstormSummaryText == nil)
+
+                            Button("复制对话") {
+                                onCopyDialogue()
+                            }
+                            .disabled(brainstormDialogueText == nil)
+
+                            Button("复制原始记录") {
+                                onCopyRaw()
+                            }
+                            .disabled(brainstormRawText == nil)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 24, height: 24)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                        .fill(Color.primary.opacity(0.06))
+                                )
+                        }
+                        .menuStyle(.borderlessButton)
+                        .help("复制文本")
+                    }
+
+                    if brainstormDetailsExpanded {
+                        if let brainstormDialogueText {
+                            Text(brainstormDialogueText)
+                                .font(.caption)
+                                .foregroundStyle(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+
+                        if let brainstormRawText {
+                            Text(brainstormRawText)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
             } else {
                 Text(singleTextPreview)
                     .font(.callout)
@@ -2217,12 +2235,18 @@ private struct MemoryRowView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
 
-                if entry.mode != .dictation {
+                if entry.mode == .selectionRewrite {
                     Button("复制") {
                         onCopyPrimary()
                     }
                     .buttonStyle(.bordered)
                     .disabled(singleCopyText == nil)
+                } else if entry.mode == .brainstorm {
+                    Button(brainstormDetailsExpanded ? "隐藏详情" : "展开详情") {
+                        brainstormDetailsExpanded.toggle()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!hasBrainstormDetails)
                 }
 
                 Button("删除", role: .destructive) {
@@ -2272,6 +2296,22 @@ private struct MemoryRowView: View {
 
     private var rawText: String? {
         MemoryEntryTextResolver.rawText(for: entry)
+    }
+
+    private var brainstormSummaryText: String? {
+        MemoryEntryTextResolver.brainstormSummaryText(for: entry)
+    }
+
+    private var brainstormDialogueText: String? {
+        MemoryEntryTextResolver.brainstormDialogueText(for: entry)
+    }
+
+    private var brainstormRawText: String? {
+        MemoryEntryTextResolver.brainstormRawText(for: entry)
+    }
+
+    private var hasBrainstormDetails: Bool {
+        brainstormDialogueText != nil || brainstormRawText != nil
     }
 
     private var singleCopyText: String? {

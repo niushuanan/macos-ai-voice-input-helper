@@ -45,6 +45,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
     let bundleID: String
     let inputText: String
     let outputText: String?
+    let brainstormDialogueText: String?
     let instructionText: String?
     let transcriptionProvider: String?
     let transcriptionModel: String?
@@ -64,6 +65,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         bundleID: String,
         inputText: String,
         outputText: String?,
+        brainstormDialogueText: String? = nil,
         instructionText: String? = nil,
         transcriptionProvider: String? = nil,
         transcriptionModel: String? = nil,
@@ -82,6 +84,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         self.bundleID = bundleID
         self.inputText = inputText
         self.outputText = outputText
+        self.brainstormDialogueText = brainstormDialogueText
         self.instructionText = instructionText
         self.transcriptionProvider = transcriptionProvider
         self.transcriptionModel = transcriptionModel
@@ -102,6 +105,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         case bundleID
         case inputText
         case outputText
+        case brainstormDialogueText
         case instructionText
         case transcriptionProvider
         case transcriptionModel
@@ -123,6 +127,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         bundleID = try container.decode(String.self, forKey: .bundleID)
         inputText = try container.decode(String.self, forKey: .inputText)
         outputText = try container.decodeIfPresent(String.self, forKey: .outputText)
+        brainstormDialogueText = try container.decodeIfPresent(String.self, forKey: .brainstormDialogueText)
         instructionText = try container.decodeIfPresent(String.self, forKey: .instructionText)
         transcriptionProvider = try container.decodeIfPresent(String.self, forKey: .transcriptionProvider)
         transcriptionModel = try container.decodeIfPresent(String.self, forKey: .transcriptionModel)
@@ -144,6 +149,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         try container.encode(bundleID, forKey: .bundleID)
         try container.encode(inputText, forKey: .inputText)
         try container.encodeIfPresent(outputText, forKey: .outputText)
+        try container.encodeIfPresent(brainstormDialogueText, forKey: .brainstormDialogueText)
         try container.encodeIfPresent(instructionText, forKey: .instructionText)
         try container.encodeIfPresent(transcriptionProvider, forKey: .transcriptionProvider)
         try container.encodeIfPresent(transcriptionModel, forKey: .transcriptionModel)

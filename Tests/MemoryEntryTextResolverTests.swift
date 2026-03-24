@@ -58,7 +58,7 @@ final class MemoryEntryTextResolverTests: XCTestCase {
         let successEntry = makeEntry(
             mode: .brainstorm,
             inputText: "原始讨论",
-            outputText: "结构化结论",
+            outputText: "- 结构化结论",
             status: .success
         )
         let fallbackEntry = makeEntry(
@@ -70,8 +70,30 @@ final class MemoryEntryTextResolverTests: XCTestCase {
 
         XCTAssertNil(MemoryEntryTextResolver.primaryText(for: successEntry))
         XCTAssertNil(MemoryEntryTextResolver.rawText(for: successEntry))
-        XCTAssertEqual(MemoryEntryTextResolver.defaultText(for: successEntry), "结构化结论")
+        XCTAssertEqual(MemoryEntryTextResolver.defaultText(for: successEntry), "- 结构化结论")
         XCTAssertEqual(MemoryEntryTextResolver.defaultText(for: fallbackEntry), "原始讨论")
+
+        XCTAssertEqual(MemoryEntryTextResolver.brainstormSummaryText(for: successEntry), "- 结构化结论")
+        XCTAssertEqual(MemoryEntryTextResolver.brainstormRawText(for: successEntry), "原始讨论")
+        XCTAssertNil(MemoryEntryTextResolver.brainstormDialogueText(for: successEntry))
+    }
+
+    func testBrainstormEntryUsesDialogueWhenSummaryMissing() {
+        let entry = SessionHistoryEntry(
+            mode: .brainstorm,
+            appName: "TextEdit",
+            bundleID: "com.apple.TextEdit",
+            inputText: "原始讨论",
+            outputText: nil,
+            brainstormDialogueText: "A: 先做核心\nB: 同意",
+            status: .success
+        )
+
+        XCTAssertEqual(
+            MemoryEntryTextResolver.brainstormDialogueText(for: entry),
+            "A: 先做核心\nB: 同意"
+        )
+        XCTAssertEqual(MemoryEntryTextResolver.defaultText(for: entry), "A: 先做核心\nB: 同意")
     }
 
     private func makeEntry(

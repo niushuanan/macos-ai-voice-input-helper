@@ -15,10 +15,39 @@ enum MemoryEntryTextResolver {
         return normalized(entry.inputText)
     }
 
+    static func brainstormSummaryText(for entry: SessionHistoryEntry) -> String? {
+        guard entry.mode == .brainstorm else {
+            return nil
+        }
+        return normalized(entry.outputText)
+            ?? normalized(entry.errorMessage)
+    }
+
+    static func brainstormDialogueText(for entry: SessionHistoryEntry) -> String? {
+        guard entry.mode == .brainstorm else {
+            return nil
+        }
+        return normalized(entry.brainstormDialogueText)
+    }
+
+    static func brainstormRawText(for entry: SessionHistoryEntry) -> String? {
+        guard entry.mode == .brainstorm else {
+            return nil
+        }
+        return normalized(entry.inputText)
+    }
+
     static func defaultText(for entry: SessionHistoryEntry) -> String? {
         if entry.mode == .dictation {
             return primaryText(for: entry)
                 ?? rawText(for: entry)
+                ?? normalized(entry.errorMessage)
+        }
+
+        if entry.mode == .brainstorm {
+            return brainstormSummaryText(for: entry)
+                ?? brainstormDialogueText(for: entry)
+                ?? brainstormRawText(for: entry)
                 ?? normalized(entry.errorMessage)
         }
 

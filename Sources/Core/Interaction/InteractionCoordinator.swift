@@ -33,9 +33,11 @@ private struct DictationPostProcessOutcome {
 }
 
 private struct BrainstormComposeOutcome {
-    let text: String
+    let summaryText: String
+    let dialogueText: String
     let rewriteProvider: String?
     let rewriteModel: String?
+    let appliedSkills: [SkillRuleID]
     let nonBlockingNotice: String?
 }
 
@@ -546,6 +548,21 @@ final class InteractionCoordinator {
     ) async {
         let writebackTarget = currentDictationTarget
         let focusContext = writebackTarget?.focusContext ?? contextDetector.focusedAppContext()
+        let scenePolicy = effectiveScenePolicy(for: focusContext)
+        let normalizedAppPrompt = scenePolicy.appPrompt
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let userSystemPrompt = skillRuleStore.activeSystemPrompt()?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let localApplyResult = skillRuleStore.applyDictation(
+            transcription.transcript,
+            outputBias: .neutral
+        )
+        let normalizedTranscript = localApplyResult.text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let inputForCompose = normalizedTranscript.isEmpty
+            ? transcription.transcript
+            : normalizedTranscript
+
         let writebackWarmupTask = Task { [weak self] in
             guard
                 let self,
@@ -560,8 +577,10 @@ final class InteractionCoordinator {
         }
 
         let composeOutcome = await composeBrainstormContext(
-            transcript: transcription.transcript,
-            focusContext: focusContext
+            transcript: inputForCompose,
+            focusContext: focusContext,
+            appPrompt: normalizedAppPrompt.isEmpty ? nil : normalizedAppPrompt,
+            userSystemPrompt: userSystemPrompt.isEmpty ? nil : userSystemPrompt
         )
         _ = await writebackWarmupTask.value
 
@@ -569,7 +588,11 @@ final class InteractionCoordinator {
             providerType: transcription.providerType,
             providerName: transcription.providerName,
             modelName: transcription.modelName,
-            transcript: composeOutcome.text
+            transcript: composeOutcome.summaryText
+        )
+        let appliedSkills = mergedSkills(
+            lhs: localApplyResult.appliedSkills,
+            rhs: composeOutcome.appliedSkills
         )
 
         let request = TextOutputRequest(
@@ -597,13 +620,15 @@ final class InteractionCoordinator {
                     bundleID: focusContext.bundleID,
                     inputText: transcription.transcript,
                     outputText: finalTranscription.transcript,
+                    brainstormDialogueText: composeOutcome.dialogueText,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     rewriteProvider: composeOutcome.rewriteProvider,
                     rewriteModel: composeOutcome.rewriteModel,
                     outputPath: outputResult.path,
                     status: .success,
-                    audioDurationSeconds: audioDurationSeconds
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: appliedSkills
                 )
             )
             currentDictationTarget = nil
@@ -616,13 +641,15 @@ final class InteractionCoordinator {
                     bundleID: focusContext.bundleID,
                     inputText: transcription.transcript,
                     outputText: nil,
+                    brainstormDialogueText: composeOutcome.dialogueText,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     rewriteProvider: composeOutcome.rewriteProvider,
                     rewriteModel: composeOutcome.rewriteModel,
                     status: .failed,
                     errorMessage: message,
-                    audioDurationSeconds: audioDurationSeconds
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: appliedSkills
                 )
             )
             currentDictationTarget = nil
@@ -639,13 +666,15 @@ final class InteractionCoordinator {
                     bundleID: focusContext.bundleID,
                     inputText: transcription.transcript,
                     outputText: nil,
+                    brainstormDialogueText: composeOutcome.dialogueText,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     rewriteProvider: composeOutcome.rewriteProvider,
                     rewriteModel: composeOutcome.rewriteModel,
                     status: .failed,
                     errorMessage: message,
-                    audioDurationSeconds: audioDurationSeconds
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: appliedSkills
                 )
             )
             currentDictationTarget = nil
@@ -655,54 +684,29 @@ final class InteractionCoordinator {
 
     private func composeBrainstormContext(
         transcript: String,
-        focusContext: FocusedAppContext
+        focusContext: FocusedAppContext,
+        appPrompt: String?,
+        userSystemPrompt: String?
     ) async -> BrainstormComposeOutcome {
         let normalizedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTranscript.isEmpty else {
-            return BrainstormComposeOutcome(
-                text: """
-                topic: 讨论主题待补充
-                participants:
-                - A: 角色待补充
-                
-                dialogue:
-                - A: （没有可用转写文本）
-                
-                decision: []
-                tradeoff: []
-                open_questions: []
-                next_actions: []
-                
-                ask_ai: 请基于以上内容给出 MVP、里程碑、风险与验证指标。
-                """,
-                rewriteProvider: nil,
-                rewriteModel: nil,
-                nonBlockingNotice: "转写文本为空，已给出最小模板。"
+            return makeFallbackBrainstormOutcome(
+                transcript: "",
+                notice: "转写文本为空，已给出最小模板。"
             )
         }
+
+        let normalizedSystemPrompt = userSystemPrompt?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedAppPrompt = appPrompt?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         guard providerSettingsStore.isRewriteConfigurationValid else {
             let message = providerSettingsStore.rewriteConfigurationValidationMessage
                 ?? "文本模型配置无效。"
-            return BrainstormComposeOutcome(
-                text: """
-                topic: 讨论主题待补充
-                participants:
-                - A: 角色待补充
-                
-                dialogue:
-                - A: \(normalizedTranscript)
-                
-                decision: []
-                tradeoff: []
-                open_questions: []
-                next_actions: []
-                
-                ask_ai: 请基于以上内容给出 MVP、里程碑、风险与验证指标。
-                """,
-                rewriteProvider: nil,
-                rewriteModel: nil,
-                nonBlockingNotice: "文本模型暂不可用（\(message)），已给出基础模板。"
+            return makeFallbackBrainstormOutcome(
+                transcript: normalizedTranscript,
+                notice: "文本模型暂不可用（\(message)），已给出基础模板。"
             )
         }
 
@@ -710,26 +714,18 @@ final class InteractionCoordinator {
             let loadedKey = try? providerSettingsStore.loadAPIKeyForRewriteProvider(),
             !loadedKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
-            return BrainstormComposeOutcome(
-                text: """
-                topic: 讨论主题待补充
-                participants:
-                - A: 角色待补充
-                
-                dialogue:
-                - A: \(normalizedTranscript)
-                
-                decision: []
-                tradeoff: []
-                open_questions: []
-                next_actions: []
-                
-                ask_ai: 请基于以上内容给出 MVP、里程碑、风险与验证指标。
-                """,
-                rewriteProvider: nil,
-                rewriteModel: nil,
-                nonBlockingNotice: "文本模型密钥不可用，已给出基础模板。"
+            return makeFallbackBrainstormOutcome(
+                transcript: normalizedTranscript,
+                notice: "文本模型密钥不可用，已给出基础模板。"
             )
+        }
+
+        var modelAppliedSkills: [SkillRuleID] = []
+        if !normalizedAppPrompt.isEmpty {
+            modelAppliedSkills.append(.appPreferenceBoost)
+        }
+        if !normalizedSystemPrompt.isEmpty {
+            modelAppliedSkills.append(.systemPrompt)
         }
 
         let apiKey = loadedKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -737,39 +733,82 @@ final class InteractionCoordinator {
             let result = try await brainstormContextComposer.compose(
                 request: BrainstormContextComposeRequest(
                     transcript: normalizedTranscript,
-                    focusContext: focusContext
+                    focusContext: focusContext,
+                    appPrompt: normalizedAppPrompt.isEmpty ? nil : normalizedAppPrompt,
+                    userSystemPrompt: normalizedSystemPrompt.isEmpty ? nil : normalizedSystemPrompt
                 ),
                 configuration: providerSettingsStore.rewriteConfiguration,
                 apiKey: apiKey
             )
             return BrainstormComposeOutcome(
-                text: result.outputText,
+                summaryText: result.summaryText,
+                dialogueText: result.dialogueText,
                 rewriteProvider: result.providerName,
                 rewriteModel: result.modelName,
+                appliedSkills: modelAppliedSkills,
                 nonBlockingNotice: nil
             )
         } catch {
-            return BrainstormComposeOutcome(
-                text: """
-                topic: 讨论主题待补充
-                participants:
-                - A: 角色待补充
-                
-                dialogue:
-                - A: \(normalizedTranscript)
-                
-                decision: []
-                tradeoff: []
-                open_questions: []
-                next_actions: []
-                
-                ask_ai: 请基于以上内容给出 MVP、里程碑、风险与验证指标。
-                """,
-                rewriteProvider: nil,
-                rewriteModel: nil,
-                nonBlockingNotice: "上下文整理失败，已回退到基础模板。"
+            return makeFallbackBrainstormOutcome(
+                transcript: normalizedTranscript,
+                notice: "上下文整理失败，已回退到基础模板。"
             )
         }
+    }
+
+    private func makeFallbackBrainstormOutcome(
+        transcript: String,
+        notice: String
+    ) -> BrainstormComposeOutcome {
+        let normalized = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let summaryText = fallbackBrainstormSummary(transcript: normalized)
+        let dialogueText = fallbackBrainstormDialogue(transcript: normalized)
+        return BrainstormComposeOutcome(
+            summaryText: summaryText,
+            dialogueText: dialogueText,
+            rewriteProvider: nil,
+            rewriteModel: nil,
+            appliedSkills: [],
+            nonBlockingNotice: notice
+        )
+    }
+
+    private func fallbackBrainstormSummary(transcript: String) -> String {
+        var points = [
+            "先确认讨论目标与边界，再推进执行。",
+            "优先完成最小可行版本，复杂项后置。",
+            "按优先级拆分任务并明确负责人。"
+        ]
+        if let firstLine = transcript
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+            .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+        {
+            points[0] = "本次讨论核心为：\(firstLine.prefix(28))。"
+        }
+        return points.map { "- \($0)" }.joined(separator: "\n")
+    }
+
+    private func fallbackBrainstormDialogue(transcript: String) -> String {
+        let normalized = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return "A: （暂无有效转写内容）"
+        }
+
+        let rawLines = normalized
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let roles = ["A", "B", "C"]
+        let lines = rawLines.isEmpty ? [normalized] : rawLines
+
+        return lines.enumerated().map { index, line in
+            if line.range(of: #"^[A-Z][A-Z0-9]*\s*[:：]"#, options: .regularExpression) != nil {
+                return line.replacingOccurrences(of: "：", with: ":")
+            }
+            return "\(roles[index % roles.count]): \(line)"
+        }
+        .joined(separator: "\n")
     }
 
     private func outputSelectionRewrite(

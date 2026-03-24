@@ -287,6 +287,28 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertTrue(store.entries.isEmpty)
     }
 
+    func testBrainstormDialogueTextRoundTripCodable() throws {
+        let entry = SessionHistoryEntry(
+            mode: .brainstorm,
+            appName: "TextEdit",
+            bundleID: "com.apple.TextEdit",
+            inputText: "原始记录",
+            outputText: "- 结论一\n- 结论二\n- 结论三",
+            brainstormDialogueText: "A: 先做核心\nB: 再看扩展",
+            status: .success
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode([entry])
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode([SessionHistoryEntry].self, from: data)
+
+        XCTAssertEqual(decoded.first?.brainstormDialogueText, "A: 先做核心\nB: 再看扩展")
+    }
+
     private func makeStore() -> (LocalHistoryStore, URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("history-tests-\(UUID().uuidString)", isDirectory: true)

@@ -614,7 +614,7 @@ private struct HUDNativeMaterialCapsule: View {
                         colors: [
                             Color.white.opacity(0.74),
                             Color.white.opacity(0.48),
-                            Color(nsColor: .windowBackgroundColor).opacity(0.42)
+                            Color(nsColor: .windowBackgroundColor).opacity(0.30)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -636,9 +636,6 @@ private struct HUDNativeMaterialCapsule: View {
 
             Capsule(style: .continuous)
                 .stroke(Color.white.opacity(0.88), lineWidth: s(0.58))
-
-            Capsule(style: .continuous)
-                .stroke(Color.black.opacity(0.06), lineWidth: s(0.46))
         }
     }
 }

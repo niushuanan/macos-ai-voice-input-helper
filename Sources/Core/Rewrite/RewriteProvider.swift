@@ -500,10 +500,13 @@ struct LLMDictationPostProcessor: DictationPostProcessor {
 struct BrainstormContextComposeRequest: Equatable {
     let transcript: String
     let focusContext: FocusedAppContext
+    let appPrompt: String?
+    let userSystemPrompt: String?
 }
 
 struct BrainstormContextComposeResult: Equatable {
-    let outputText: String
+    let summaryText: String
+    let dialogueText: String
     let providerName: String
     let modelName: String
 }
@@ -518,21 +521,37 @@ protocol BrainstormContextComposer {
 
 struct BrainstormContextPromptBuilder {
     func build(request: BrainstormContextComposeRequest) -> RewritePromptTemplate {
+        let normalizedUserSystemPrompt = request.userSystemPrompt?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedAppPrompt = request.appPrompt?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let userPromptBlock = normalizedUserSystemPrompt.isEmpty
+            ? "（无）"
+            : normalizedUserSystemPrompt
+        let appPromptBlock = normalizedAppPrompt.isEmpty
+            ? "（无）"
+            : normalizedAppPrompt
+
         let systemPrompt = """
-        You are an expert discussion organizer.
-        Return only YAML.
-        Do not add markdown fences.
-        Keep content concise and factual.
-        If speaker names are missing, use A/B/C.
-        Keep the key order exactly:
-        topic
-        participants
-        dialogue
-        decision
-        tradeoff
-        open_questions
-        next_actions
-        ask_ai
+        You are a brainstorming synthesis engine.
+        Return only valid JSON. Do not add markdown fences.
+
+        Hard rules:
+        1) Output must include only two sections: concise conclusions and role dialogue.
+        2) Conclusions must contain 3-5 items, one sentence per item, conclusion only.
+        3) Dialogue must keep chronological order and use A/B/C role tags.
+        4) Never output YAML, markdown, explanation, or extra fields.
+
+        Priority when instructions conflict:
+        1) Hard rules above
+        2) App-specific instruction
+        3) User preference instruction
+
+        App-specific instruction (priority #2):
+        \(appPromptBlock)
+
+        User preference instruction (priority #3):
+        \(userPromptBlock)
         """
 
         let userPrompt = """
@@ -545,12 +564,11 @@ struct BrainstormContextPromptBuilder {
         \(request.transcript)
         TEXT>>>
 
-        Output rules:
-        - dialogue should contain speaker-prefixed lines such as "A: ...".
-        - decision/tradeoff/open_questions should be arrays.
-        - next_actions should be an array of mapping items with owner/action/due keys.
-        - ask_ai must be one short sentence asking for MVP, milestones, risks, and metrics.
-        - Do not invent people names.
+        Output schema (JSON object):
+        {
+          "summaryPoints": ["...", "...", "..."],
+          "dialogueLines": ["A: ...", "B: ..."]
+        }
         """
 
         return RewritePromptTemplate(
@@ -585,7 +603,9 @@ struct LLMBrainstormContextComposer: BrainstormContextComposer {
         let template = promptBuilder.build(
             request: BrainstormContextComposeRequest(
                 transcript: normalized,
-                focusContext: request.focusContext
+                focusContext: request.focusContext,
+                appPrompt: request.appPrompt,
+                userSystemPrompt: request.userSystemPrompt
             )
         )
 
@@ -605,11 +625,188 @@ struct LLMBrainstormContextComposer: BrainstormContextComposer {
         guard !output.isEmpty else {
             throw RewriteProviderError.invalidGeneratedText
         }
+        let parsed = Self.parseBrainstormOutput(
+            output,
+            fallbackTranscript: normalized
+        )
 
         return BrainstormContextComposeResult(
-            outputText: output,
+            summaryText: parsed.summaryText,
+            dialogueText: parsed.dialogueText,
             providerName: generation.providerName,
             modelName: generation.modelName
         )
+    }
+
+    private static func parseBrainstormOutput(
+        _ output: String,
+        fallbackTranscript: String
+    ) -> (summaryText: String, dialogueText: String) {
+        if let parsed = parseJSONPayload(output) {
+            let dialogue = parsed.dialogueText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? fallbackDialogue(from: fallbackTranscript)
+                : parsed.dialogueText
+            return (parsed.summaryText, dialogue)
+        }
+
+        let stripped = stripMarkdownFence(output)
+        if let parsed = parseJSONPayload(stripped) {
+            let dialogue = parsed.dialogueText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? fallbackDialogue(from: fallbackTranscript)
+                : parsed.dialogueText
+            return (parsed.summaryText, dialogue)
+        }
+
+        return (
+            summaryText: fallbackSummary(from: fallbackTranscript),
+            dialogueText: fallbackDialogue(from: fallbackTranscript)
+        )
+    }
+
+    private static func parseJSONPayload(
+        _ output: String
+    ) -> (summaryText: String, dialogueText: String)? {
+        guard
+            let data = output.data(using: .utf8),
+            let json = try? JSONSerialization.jsonObject(with: data),
+            let dictionary = json as? [String: Any]
+        else {
+            return nil
+        }
+
+        let summarySource = dictionary["summaryPoints"] ?? dictionary["summary"]
+        let dialogueSource = dictionary["dialogueLines"] ?? dictionary["dialogue"]
+        var summaryPoints = normalizeSummaryPoints(summarySource)
+        var dialogueLines = normalizeDialogueLines(dialogueSource)
+
+        if summaryPoints.count > 5 {
+            summaryPoints = Array(summaryPoints.prefix(5))
+        }
+
+        let fallbackPoints = fallbackSummaryPoints()
+        var fallbackIndex = 0
+        while summaryPoints.count < 3, fallbackIndex < fallbackPoints.count {
+            summaryPoints.append(fallbackPoints[fallbackIndex])
+            fallbackIndex += 1
+        }
+
+        if summaryPoints.isEmpty {
+            return nil
+        }
+
+        return (
+            summaryText: summaryPoints.map { "- \($0)" }.joined(separator: "\n"),
+            dialogueText: dialogueLines.joined(separator: "\n")
+        )
+    }
+
+    private static func normalizeSummaryPoints(_ source: Any?) -> [String] {
+        let rawItems: [String]
+        if let values = source as? [Any] {
+            rawItems = values.compactMap { $0 as? String }
+        } else if let value = source as? String {
+            rawItems = value.split(whereSeparator: \.isNewline).map(String.init)
+        } else {
+            rawItems = []
+        }
+
+        return rawItems
+            .map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .replacingOccurrences(of: #"^[-•\d\.\)\s]+"#, with: "", options: .regularExpression)
+            }
+            .filter { !$0.isEmpty }
+    }
+
+    private static func normalizeDialogueLines(_ source: Any?) -> [String] {
+        let rawItems: [String]
+        if let values = source as? [Any] {
+            rawItems = values.compactMap { $0 as? String }
+        } else if let value = source as? String {
+            rawItems = value.split(whereSeparator: \.isNewline).map(String.init)
+        } else {
+            rawItems = []
+        }
+
+        return rawItems
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .enumerated()
+            .map { index, line in
+                if line.range(of: #"^[A-Z][A-Z0-9]*\s*[:：]"#, options: .regularExpression) != nil {
+                    return line.replacingOccurrences(of: "：", with: ":")
+                }
+                let roles = ["A", "B", "C"]
+                let role = roles[index % roles.count]
+                return "\(role): \(line)"
+            }
+    }
+
+    private static func stripMarkdownFence(_ output: String) -> String {
+        var trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("```") {
+            trimmed = trimmed.replacingOccurrences(
+                of: #"^```(?:json)?\s*"#,
+                with: "",
+                options: .regularExpression
+            )
+            trimmed = trimmed.replacingOccurrences(
+                of: #"\s*```$"#,
+                with: "",
+                options: .regularExpression
+            )
+        }
+        return trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func fallbackSummary(from transcript: String) -> String {
+        var points = fallbackSummaryPoints()
+        let topicHint = transcript
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: \.isNewline)
+            .first
+            .map(String.init) ?? ""
+
+        if !topicHint.isEmpty {
+            points[0] = "讨论核心围绕：\(topicHint.prefix(28))。"
+        }
+        return points.map { "- \($0)" }.joined(separator: "\n")
+    }
+
+    private static func fallbackSummaryPoints() -> [String] {
+        [
+            "先确认本次讨论目标与边界，再推进执行。",
+            "优先落地最小可行方案，复杂项后置。",
+            "按优先级拆分下一步动作并明确负责人。"
+        ]
+    }
+
+    private static func fallbackDialogue(from transcript: String) -> String {
+        let lines = fallbackDialogueLines(from: transcript)
+        return lines.joined(separator: "\n")
+    }
+
+    private static func fallbackDialogueLines(from transcript: String) -> [String] {
+        let compact = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !compact.isEmpty else {
+            return ["A: （暂无有效转写内容）"]
+        }
+
+        let rawLines = compact
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let roles = ["A", "B", "C"]
+
+        if rawLines.isEmpty {
+            return ["A: \(compact)"]
+        }
+
+        return rawLines.enumerated().map { index, line in
+            if line.range(of: #"^[A-Z][A-Z0-9]*\s*[:：]"#, options: .regularExpression) != nil {
+                return line.replacingOccurrences(of: "：", with: ":")
+            }
+            return "\(roles[index % roles.count]): \(line)"
+        }
     }
 }
