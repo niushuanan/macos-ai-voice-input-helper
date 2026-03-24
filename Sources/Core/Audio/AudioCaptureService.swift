@@ -111,6 +111,7 @@ final class AVAudioRecorderCaptureService: NSObject, AudioCaptureService {
             throw AudioCaptureError.noClipAvailable
         }
 
+        let recorderDuration = max(0, recorder.currentTime)
         recorder.stop()
         stopMeterTimer()
         self.recorder = nil
@@ -121,10 +122,13 @@ final class AVAudioRecorderCaptureService: NSObject, AudioCaptureService {
             throw AudioCaptureError.persistenceFailed
         }
 
+        let fileDuration = measuredDurationFromFile(fileURL)
+        let resolvedDuration = max(recorderDuration, fileDuration)
+
         return RecordedAudioClip(
             id: UUID(),
             fileURL: fileURL,
-            duration: recorder.currentTime,
+            duration: resolvedDuration,
             sampleRate: preferredSampleRate,
             createdAt: Date()
         )
@@ -192,6 +196,35 @@ final class AVAudioRecorderCaptureService: NSObject, AudioCaptureService {
         let timestamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
         let filename = "clip-\(timestamp)-\(UUID().uuidString.prefix(8)).wav"
         return temporaryDirectory.appendingPathComponent(filename)
+    }
+
+    private func measuredDurationFromFile(_ fileURL: URL) -> TimeInterval {
+        guard
+            let attributes = try? fileManager.attributesOfItem(atPath: fileURL.path),
+            let fileSize = (attributes[.size] as? NSNumber)?.uint64Value
+        else {
+            return 0
+        }
+        return Self.wavDurationSeconds(
+            fileSizeBytes: fileSize,
+            sampleRate: preferredSampleRate
+        )
+    }
+
+    nonisolated static func wavDurationSeconds(
+        fileSizeBytes: UInt64,
+        sampleRate: Double
+    ) -> TimeInterval {
+        guard sampleRate > 0 else {
+            return 0
+        }
+        let headerBytes: UInt64 = 44
+        let bytesPerSampleFrame: UInt64 = 2
+        guard fileSizeBytes > headerBytes else {
+            return 0
+        }
+        let pcmDataBytes = fileSizeBytes - headerBytes
+        return Double(pcmDataBytes) / (sampleRate * Double(bytesPerSampleFrame))
     }
 
     private func recorderSettings() -> [String: Any] {
