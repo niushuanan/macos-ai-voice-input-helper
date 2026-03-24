@@ -20,17 +20,38 @@ enum HotkeyTriggerMode: String, CaseIterable, Identifiable {
 }
 
 enum BrainstormTriggerType: String, CaseIterable, Identifiable {
+    case comboShortcut
+    case sequenceTwoStep
+    case singleTapModifier
     case doubleTapModifier
-    case globalShortcut
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
+        case .comboShortcut:
+            return "组合键"
+        case .sequenceTwoStep:
+            return "顺序连按"
+        case .singleTapModifier:
+            return "单击修饰键"
         case .doubleTapModifier:
             return "双击修饰键"
-        case .globalShortcut:
-            return "独立快捷键"
+        }
+    }
+
+    static func loadCompatible(rawValue: String?) -> BrainstormTriggerType {
+        switch rawValue {
+        case BrainstormTriggerType.comboShortcut.rawValue, "globalShortcut":
+            return .comboShortcut
+        case BrainstormTriggerType.sequenceTwoStep.rawValue:
+            return .sequenceTwoStep
+        case BrainstormTriggerType.singleTapModifier.rawValue:
+            return .singleTapModifier
+        case BrainstormTriggerType.doubleTapModifier.rawValue, "doubleTapModifier":
+            return .doubleTapModifier
+        default:
+            return .doubleTapModifier
         }
     }
 }
@@ -163,6 +184,8 @@ final class HotkeyStateStore: ObservableObject {
     @Published private(set) var cancelModifier: HotkeyModifier
     @Published private(set) var brainstormTriggerType: BrainstormTriggerType
     @Published private(set) var brainstormModifier: HotkeyModifier
+    @Published private(set) var brainstormSequenceFirstKey: KeyboardShortcuts.Key?
+    @Published private(set) var brainstormSequenceSecondKey: KeyboardShortcuts.Key?
 
     private let notificationCenter: NotificationCenter
     private let defaults: UserDefaults
@@ -177,6 +200,8 @@ final class HotkeyStateStore: ObservableObject {
     private let cancelModifierStorageKey = "hotkeys.cancel.modifier.v1"
     private let brainstormTriggerTypeStorageKey = "hotkeys.brainstorm.triggerType.v1"
     private let brainstormModifierStorageKey = "hotkeys.brainstorm.modifier.v1"
+    private let brainstormSequenceFirstKeyCodeStorageKey = "hotkeys.brainstorm.sequence.firstKeyCode.v1"
+    private let brainstormSequenceSecondKeyCodeStorageKey = "hotkeys.brainstorm.sequence.secondKeyCode.v1"
     private let fixedCancelShortcut = KeyboardShortcuts.Shortcut(.escape)
 
     init(
@@ -196,14 +221,21 @@ final class HotkeyStateStore: ObservableObject {
             fallback: .leftOption
         )
         self.cancelModifier = .leftOption
-        self.brainstormTriggerType = Self.loadBrainstormTriggerType(
-            defaults: defaults,
-            key: brainstormTriggerTypeStorageKey
+        self.brainstormTriggerType = BrainstormTriggerType.loadCompatible(
+            rawValue: defaults.string(forKey: brainstormTriggerTypeStorageKey)
         )
         self.brainstormModifier = Self.loadModifier(
             defaults: defaults,
             key: brainstormModifierStorageKey,
             fallback: .rightOption
+        )
+        self.brainstormSequenceFirstKey = Self.loadKey(
+            defaults: defaults,
+            key: brainstormSequenceFirstKeyCodeStorageKey
+        )
+        self.brainstormSequenceSecondKey = Self.loadKey(
+            defaults: defaults,
+            key: brainstormSequenceSecondKeyCodeStorageKey
         )
 
         self.wakeShortcutText = "未设置"
@@ -242,7 +274,8 @@ final class HotkeyStateStore: ObservableObject {
             .store(in: &cancellables)
     }
 
-    func setTriggerMode(_ mode: HotkeyTriggerMode, for name: KeyboardShortcuts.Name) {
+    @discardableResult
+    func setTriggerMode(_ mode: HotkeyTriggerMode, for name: KeyboardShortcuts.Name) -> Bool {
         switch name {
         case .wakeSession:
             _ = mode
@@ -252,43 +285,92 @@ final class HotkeyStateStore: ObservableObject {
             enforceFixedCancelShortcut()
         case .brainstormSession:
             let mapped: BrainstormTriggerType = (mode == .modifierTap)
-                ? .doubleTapModifier
-                : .globalShortcut
-            setBrainstormTriggerType(mapped)
-            return
+                ? .singleTapModifier
+                : .comboShortcut
+            return setBrainstormTriggerType(mapped)
         default:
-            return
+            return false
         }
         refresh()
+        return true
     }
 
-    func setModifier(_ modifier: HotkeyModifier, for name: KeyboardShortcuts.Name) {
+    @discardableResult
+    func setModifier(_ modifier: HotkeyModifier, for name: KeyboardShortcuts.Name) -> Bool {
         switch name {
         case .wakeSession:
+            if brainstormTriggerType == .singleTapModifier, brainstormModifier == modifier {
+                refresh()
+                return false
+            }
             wakeModifier = modifier
             defaults.set(modifier.rawValue, forKey: wakeModifierStorageKey)
         case .cancelSession:
             _ = modifier
             enforceFixedCancelShortcut()
         case .brainstormSession:
-            setBrainstormModifier(modifier)
-            return
+            return setBrainstormModifier(modifier)
         default:
-            return
+            return false
         }
         refresh()
+        return true
     }
 
-    func setBrainstormTriggerType(_ triggerType: BrainstormTriggerType) {
+    @discardableResult
+    func setBrainstormTriggerType(_ triggerType: BrainstormTriggerType) -> Bool {
+        if triggerType == .singleTapModifier, wakeModifier == brainstormModifier {
+            refresh()
+            return false
+        }
         brainstormTriggerType = triggerType
         defaults.set(triggerType.rawValue, forKey: brainstormTriggerTypeStorageKey)
         refresh()
+        return true
     }
 
-    func setBrainstormModifier(_ modifier: HotkeyModifier) {
+    @discardableResult
+    func setBrainstormModifier(_ modifier: HotkeyModifier) -> Bool {
+        if brainstormTriggerType == .singleTapModifier, modifier == wakeModifier {
+            refresh()
+            return false
+        }
         brainstormModifier = modifier
         defaults.set(modifier.rawValue, forKey: brainstormModifierStorageKey)
         refresh()
+        return true
+    }
+
+    @discardableResult
+    func setBrainstormShortcut(_ shortcut: KeyboardShortcuts.Shortcut?) -> Bool {
+        if shortcut?.key == .escape {
+            refresh()
+            return false
+        }
+        KeyboardShortcuts.setShortcut(shortcut, for: .brainstormSession)
+        refresh()
+        return true
+    }
+
+    @discardableResult
+    func setBrainstormSequence(
+        firstKey: KeyboardShortcuts.Key,
+        secondKey: KeyboardShortcuts.Key
+    ) -> Bool {
+        if firstKey == .escape || secondKey == .escape {
+            refresh()
+            return false
+        }
+        brainstormSequenceFirstKey = firstKey
+        brainstormSequenceSecondKey = secondKey
+        defaults.set(firstKey.rawValue, forKey: brainstormSequenceFirstKeyCodeStorageKey)
+        defaults.set(secondKey.rawValue, forKey: brainstormSequenceSecondKeyCodeStorageKey)
+        refresh()
+        return true
+    }
+
+    var hasBrainstormSequenceBinding: Bool {
+        brainstormSequenceFirstKey != nil && brainstormSequenceSecondKey != nil
     }
 
     var brainstormShortcut: KeyboardShortcuts.Shortcut? {
@@ -320,9 +402,11 @@ final class HotkeyStateStore: ObservableObject {
         wakeShortcutRegistered = registrationState(for: .wakeSession, mode: wakeTriggerMode)
         cancelShortcutRegistered = registrationState(for: .cancelSession, mode: cancelTriggerMode)
         switch brainstormTriggerType {
-        case .doubleTapModifier:
+        case .singleTapModifier, .doubleTapModifier:
             brainstormShortcutRegistered = true
-        case .globalShortcut:
+        case .sequenceTwoStep:
+            brainstormShortcutRegistered = hasBrainstormSequenceBinding
+        case .comboShortcut:
             brainstormShortcutRegistered = registrationState(for: .brainstormSession, mode: .shortcut)
         }
         lastUpdatedAt = now()
@@ -370,6 +454,10 @@ final class HotkeyStateStore: ObservableObject {
         defaults.removeObject(forKey: cancelModifierStorageKey)
         defaults.set(brainstormTriggerType.rawValue, forKey: brainstormTriggerTypeStorageKey)
         defaults.set(brainstormModifier.rawValue, forKey: brainstormModifierStorageKey)
+        defaults.removeObject(forKey: brainstormSequenceFirstKeyCodeStorageKey)
+        defaults.removeObject(forKey: brainstormSequenceSecondKeyCodeStorageKey)
+        brainstormSequenceFirstKey = nil
+        brainstormSequenceSecondKey = nil
         refresh()
     }
 
@@ -381,13 +469,17 @@ final class HotkeyStateStore: ObservableObject {
             return cancelShortcutRegistered ? "取消键监听已生效（Esc）" : "取消键还没有生效（Esc）"
         case .brainstormSession:
             switch brainstormTriggerType {
+            case .singleTapModifier:
+                return "头脑风暴监听已生效（单击\(brainstormModifier.displayName)）"
             case .doubleTapModifier:
                 return "头脑风暴监听已生效（双击\(brainstormModifier.displayName)）"
-            case .globalShortcut:
+            case .comboShortcut:
                 if brainstormShortcut != nil {
-                    return brainstormShortcutRegistered ? "头脑风暴监听已生效（独立快捷键）" : "头脑风暴快捷键已设置但尚未生效"
+                    return brainstormShortcutRegistered ? "头脑风暴监听已生效（组合键）" : "头脑风暴组合键已设置但尚未生效"
                 }
-                return "头脑风暴快捷键还没有设置"
+                return "头脑风暴组合键还没有设置"
+            case .sequenceTwoStep:
+                return brainstormShortcutRegistered ? "头脑风暴监听已生效（顺序连按）" : "头脑风暴顺序连按还没有设置"
             }
         default:
             return "监听状态未知"
@@ -403,15 +495,18 @@ final class HotkeyStateStore: ObservableObject {
             return "主键与取消键使用了同一个修饰键，会导致会话行为不明确。"
         }
 
-        if brainstormTriggerType == .doubleTapModifier, wakeModifier == brainstormModifier {
+        if brainstormTriggerType == .singleTapModifier, wakeModifier == brainstormModifier {
             return "头脑风暴触发键和主键重复，请更换其中一个。"
         }
 
-        if
-            brainstormTriggerType == .globalShortcut,
-            brainstormShortcut == fixedCancelShortcut
-        {
-            return "头脑风暴快捷键和取消键（Esc）重复，请更换。"
+        if brainstormTriggerType == .comboShortcut, brainstormShortcut?.key == .escape {
+            return "头脑风暴组合键不能使用 Esc，请更换。"
+        }
+
+        if brainstormTriggerType == .sequenceTwoStep {
+            if brainstormSequenceFirstKey == .escape || brainstormSequenceSecondKey == .escape {
+                return "头脑风暴顺序连按不能使用 Esc，请更换。"
+            }
         }
 
         return nil
@@ -448,11 +543,25 @@ final class HotkeyStateStore: ObservableObject {
         shortcut: KeyboardShortcuts.Shortcut?
     ) -> String {
         switch triggerType {
+        case .comboShortcut:
+            return "组合键 · \(describeShortcut(shortcut))"
+        case .sequenceTwoStep:
+            return "顺序连按 · \(describeSequenceBinding())"
+        case .singleTapModifier:
+            return "单击修饰键 · \(modifier.displayName)"
         case .doubleTapModifier:
             return "双击修饰键 · \(modifier.displayName)"
-        case .globalShortcut:
-            return describeShortcut(shortcut)
         }
+    }
+
+    private func describeSequenceBinding() -> String {
+        guard
+            let first = brainstormSequenceFirstKey,
+            let second = brainstormSequenceSecondKey
+        else {
+            return "未设置"
+        }
+        return "\(describeKey(first)) -> \(describeKey(second))"
     }
 
     private func describeShortcut(_ shortcut: KeyboardShortcuts.Shortcut?) -> String {
@@ -460,6 +569,12 @@ final class HotkeyStateStore: ObservableObject {
             .description
             .replacingOccurrences(of: "-", with: " + ")
             ?? "未设置"
+    }
+
+    private func describeKey(_ key: KeyboardShortcuts.Key) -> String {
+        KeyboardShortcuts.Shortcut(key)
+            .description
+            .replacingOccurrences(of: "-", with: " + ")
     }
 
     private func enforceFixedCancelShortcut() {
@@ -496,16 +611,13 @@ final class HotkeyStateStore: ObservableObject {
         return modifier
     }
 
-    private static func loadBrainstormTriggerType(
+    private static func loadKey(
         defaults: UserDefaults,
         key: String
-    ) -> BrainstormTriggerType {
-        guard
-            let raw = defaults.string(forKey: key),
-            let mode = BrainstormTriggerType(rawValue: raw)
-        else {
-            return .doubleTapModifier
+    ) -> KeyboardShortcuts.Key? {
+        guard defaults.object(forKey: key) != nil else {
+            return nil
         }
-        return mode
+        return KeyboardShortcuts.Key(rawValue: defaults.integer(forKey: key))
     }
 }

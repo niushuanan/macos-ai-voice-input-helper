@@ -3,6 +3,83 @@ import Combine
 import Foundation
 import KeyboardShortcuts
 
+enum ModifierDoubleTapAction {
+    case waitingSecondTap
+    case trigger
+}
+
+struct ModifierDoubleTapStateMachine {
+    let interval: TimeInterval
+    private(set) var firstTapAt: Date?
+
+    mutating func registerTap(at date: Date) -> ModifierDoubleTapAction {
+        if
+            let firstTapAt,
+            date.timeIntervalSince(firstTapAt) <= interval
+        {
+            self.firstTapAt = nil
+            return .trigger
+        }
+
+        firstTapAt = date
+        return .waitingSecondTap
+    }
+
+    mutating func clearIfExpired(at date: Date) -> Bool {
+        guard let firstTapAt else {
+            return false
+        }
+        guard date.timeIntervalSince(firstTapAt) >= interval else {
+            return false
+        }
+        self.firstTapAt = nil
+        return true
+    }
+
+    mutating func reset() {
+        firstTapAt = nil
+    }
+}
+
+enum BrainstormSequenceProgress {
+    case waitingFirst
+    case waitingSecond
+}
+
+enum BrainstormSequenceAction {
+    case none
+    case trigger
+}
+
+struct BrainstormSequenceStateMachine {
+    private(set) var progress: BrainstormSequenceProgress = .waitingFirst
+
+    mutating func handleKey(
+        _ key: KeyboardShortcuts.Key,
+        first: KeyboardShortcuts.Key,
+        second: KeyboardShortcuts.Key
+    ) -> BrainstormSequenceAction {
+        switch progress {
+        case .waitingFirst:
+            if key == first {
+                progress = .waitingSecond
+            }
+            return .none
+        case .waitingSecond:
+            if key == second {
+                progress = .waitingFirst
+                return .trigger
+            }
+            progress = .waitingFirst
+            return .none
+        }
+    }
+
+    mutating func reset() {
+        progress = .waitingFirst
+    }
+}
+
 @MainActor
 final class GlobalHotkeyService {
     private struct ModifierTapState {
@@ -32,6 +109,10 @@ final class GlobalHotkeyService {
     private var wakeTapState = ModifierTapState()
     private var cancelTapState = ModifierTapState()
     private var brainstormTapState = ModifierTapState()
+    private var wakeAndBrainstormArbitration = ModifierDoubleTapStateMachine(interval: 0.35)
+    private var brainstormDoubleTapStateMachine = ModifierDoubleTapStateMachine(interval: 0.35)
+    private var brainstormSequenceStateMachine = BrainstormSequenceStateMachine()
+    private var wakeArbitrationWorkItem: DispatchWorkItem?
 
     init(
         interactionCoordinator: InteractionCoordinator,
@@ -64,7 +145,7 @@ final class GlobalHotkeyService {
             guard let self else {
                 return
             }
-            guard self.hotkeyStateStore.brainstormTriggerType == .globalShortcut else {
+            guard self.hotkeyStateStore.brainstormTriggerType == .comboShortcut else {
                 return
             }
             guard self.shouldHandleBrainstormInput else {
@@ -95,6 +176,18 @@ final class GlobalHotkeyService {
     }
 
     func refreshRuntimeState() {
+        if !shouldArbitrateWakeAndBrainstormModifier {
+            clearWakeArbitration()
+        }
+
+        if hotkeyStateStore.brainstormTriggerType != .doubleTapModifier {
+            brainstormDoubleTapStateMachine.reset()
+        }
+
+        if hotkeyStateStore.brainstormTriggerType != .sequenceTwoStep {
+            brainstormSequenceStateMachine.reset()
+        }
+
         reconcileCancelShortcutAvailability()
         reconcileBrainstormShortcutAvailability()
     }
@@ -111,15 +204,15 @@ final class GlobalHotkeyService {
             }
         }
 
-        globalKeyDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] _ in
+        globalKeyDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             Task { @MainActor in
-                self?.markForeignKeyInput()
+                self?.handleKeyDown(event)
             }
         }
 
         localKeyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             Task { @MainActor in
-                self?.markForeignKeyInput()
+                self?.handleKeyDown(event)
             }
             return event
         }
@@ -146,7 +239,7 @@ final class GlobalHotkeyService {
             modifier: hotkeyStateStore.wakeModifier,
             state: &wakeTapState
         ) { [weak self] in
-            self?.interactionCoordinator.handleWakeInput(context: .dictation)
+            self?.handleWakeModifierTap()
         }
 
         if hotkeyStateStore.cancelTriggerMode == .modifierTap {
@@ -167,7 +260,8 @@ final class GlobalHotkeyService {
             cancelTapState.reset()
         }
 
-        if hotkeyStateStore.brainstormTriggerType == .doubleTapModifier {
+        switch hotkeyStateStore.brainstormTriggerType {
+        case .singleTapModifier:
             if hotkeyStateStore.brainstormModifier == hotkeyStateStore.wakeModifier {
                 brainstormTapState.reset()
                 return
@@ -185,8 +279,80 @@ final class GlobalHotkeyService {
                 }
                 self.interactionCoordinator.handleBrainstormInput()
             }
-        } else {
+        case .doubleTapModifier:
+            if hotkeyStateStore.brainstormModifier == hotkeyStateStore.wakeModifier {
+                brainstormTapState.reset()
+                return
+            }
+            processModifierEvent(
+                event,
+                modifier: hotkeyStateStore.brainstormModifier,
+                state: &brainstormTapState
+            ) { [weak self] in
+                self?.handleBrainstormDoubleModifierTap()
+            }
+        case .comboShortcut, .sequenceTwoStep:
             brainstormTapState.reset()
+        }
+    }
+
+    private func handleWakeModifierTap() {
+        guard shouldArbitrateWakeAndBrainstormModifier else {
+            clearWakeArbitration()
+            interactionCoordinator.handleWakeInput(context: .dictation)
+            return
+        }
+
+        switch wakeAndBrainstormArbitration.registerTap(at: Date()) {
+        case .waitingSecondTap:
+            scheduleWakeArbitrationTimeout()
+        case .trigger:
+            wakeArbitrationWorkItem?.cancel()
+            wakeArbitrationWorkItem = nil
+            if shouldHandleBrainstormInput {
+                interactionCoordinator.handleBrainstormInput()
+            } else {
+                interactionCoordinator.handleWakeInput(context: .dictation)
+            }
+        }
+    }
+
+    private func scheduleWakeArbitrationTimeout() {
+        wakeArbitrationWorkItem?.cancel()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else {
+                return
+            }
+            self.wakeArbitrationWorkItem = nil
+            if self.wakeAndBrainstormArbitration.clearIfExpired(at: Date()) {
+                self.interactionCoordinator.handleWakeInput(context: .dictation)
+            }
+        }
+        wakeArbitrationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + wakeAndBrainstormArbitration.interval,
+            execute: workItem
+        )
+    }
+
+    private func clearWakeArbitration() {
+        wakeArbitrationWorkItem?.cancel()
+        wakeArbitrationWorkItem = nil
+        wakeAndBrainstormArbitration.reset()
+    }
+
+    private func handleBrainstormDoubleModifierTap() {
+        guard shouldHandleBrainstormInput else {
+            brainstormDoubleTapStateMachine.reset()
+            return
+        }
+
+        switch brainstormDoubleTapStateMachine.registerTap(at: Date()) {
+        case .waitingSecondTap:
+            break
+        case .trigger:
+            interactionCoordinator.handleBrainstormInput()
         }
     }
 
@@ -235,6 +401,11 @@ final class GlobalHotkeyService {
         }
     }
 
+    private func handleKeyDown(_ event: NSEvent) {
+        markForeignKeyInput()
+        handleBrainstormSequenceKeyDown(event)
+    }
+
     private func markForeignKeyInput() {
         if wakeTapState.isPressed {
             wakeTapState.sawForeignInput = true
@@ -247,12 +418,51 @@ final class GlobalHotkeyService {
         }
     }
 
+    private func handleBrainstormSequenceKeyDown(_ event: NSEvent) {
+        guard hotkeyStateStore.brainstormTriggerType == .sequenceTwoStep else {
+            brainstormSequenceStateMachine.reset()
+            return
+        }
+        guard shouldHandleBrainstormInput else {
+            brainstormSequenceStateMachine.reset()
+            return
+        }
+        guard !event.isARepeat else {
+            return
+        }
+        guard HotkeyModifier.from(keyCode: event.keyCode) == nil else {
+            return
+        }
+        guard
+            let firstKey = hotkeyStateStore.brainstormSequenceFirstKey,
+            let secondKey = hotkeyStateStore.brainstormSequenceSecondKey
+        else {
+            return
+        }
+
+        let key = KeyboardShortcuts.Key(rawValue: Int(event.keyCode))
+        let action = brainstormSequenceStateMachine.handleKey(
+            key,
+            first: firstKey,
+            second: secondKey
+        )
+        if action == .trigger {
+            interactionCoordinator.handleBrainstormInput()
+        }
+    }
+
     private var shouldHandleCancelInput: Bool {
         isCancellationPhase(currentSessionPhase) && !screenCaptureActivityDetector()
     }
 
     private var shouldHandleBrainstormInput: Bool {
         isBrainstormPhase(currentSessionPhase) && !screenCaptureActivityDetector()
+    }
+
+    private var shouldArbitrateWakeAndBrainstormModifier: Bool {
+        hotkeyStateStore.brainstormTriggerType == .doubleTapModifier
+            && hotkeyStateStore.brainstormModifier == hotkeyStateStore.wakeModifier
+            && shouldHandleBrainstormInput
     }
 
     private func reconcileCancelShortcutAvailability() {
@@ -272,7 +482,7 @@ final class GlobalHotkeyService {
 
     private func reconcileBrainstormShortcutAvailability() {
         let shouldEnable =
-            hotkeyStateStore.brainstormTriggerType == .globalShortcut
+            hotkeyStateStore.brainstormTriggerType == .comboShortcut
             && hotkeyStateStore.brainstormShortcut != nil
             && shouldHandleBrainstormInput
         guard shouldEnable != brainstormShortcutRuntimeEnabled else {
