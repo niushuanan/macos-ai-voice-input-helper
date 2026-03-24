@@ -98,9 +98,10 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertEqual(snapshot.totalDialogueDurationSeconds, 30, accuracy: 0.001)
         XCTAssertEqual(snapshot.totalInputCharacters, 5)
         XCTAssertEqual(snapshot.averageCharactersPerMinute, 10, accuracy: 0.001)
+        XCTAssertEqual(snapshot.speedSampleCount, 1)
     }
 
-    func testLifetimeStatisticsEstimateDurationForLegacyRowsWithoutAudioDuration() throws {
+    func testLifetimeStatisticsSkipsSpeedSampleWhenAudioDurationMissing() throws {
         let (store, directory) = makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -116,9 +117,10 @@ final class LocalHistoryStoreTests: XCTestCase {
 
         let snapshot = store.lifetimeStatistics()
         XCTAssertEqual(snapshot.totalInputCharacters, 8)
-        XCTAssertEqual(snapshot.totalDialogueDurationSeconds, 2.0, accuracy: 0.001)
-        XCTAssertEqual(snapshot.averageCharactersPerMinute, 240, accuracy: 0.001)
-        XCTAssertEqual(snapshot.savedTypingSeconds, 6, accuracy: 0.001)
+        XCTAssertEqual(snapshot.totalDialogueDurationSeconds, 0, accuracy: 0.001)
+        XCTAssertEqual(snapshot.averageCharactersPerMinute, 0, accuracy: 0.001)
+        XCTAssertEqual(snapshot.savedTypingSeconds, 0, accuracy: 0.001)
+        XCTAssertEqual(snapshot.speedSampleCount, 0)
     }
 
     func testLifetimeStatisticsUsesFullTextWithoutUITruncation() throws {
@@ -139,6 +141,7 @@ final class LocalHistoryStoreTests: XCTestCase {
         let snapshot = store.lifetimeStatistics()
         XCTAssertEqual(snapshot.totalInputCharacters, longText.count)
         XCTAssertEqual(snapshot.totalDialogueDurationSeconds, 120, accuracy: 0.001)
+        XCTAssertEqual(snapshot.speedSampleCount, 1)
     }
 
     func testMigrationRecalculatesLifetimeFromLegacyEntriesFile() throws {
@@ -185,9 +188,10 @@ final class LocalHistoryStoreTests: XCTestCase {
         let snapshot = store.lifetimeStatistics()
 
         XCTAssertEqual(snapshot.totalInputCharacters, 15)
-        XCTAssertEqual(snapshot.totalDialogueDurationSeconds, 21.25, accuracy: 0.001)
-        XCTAssertEqual(snapshot.averageCharactersPerMinute, 42.35, accuracy: 0.01)
+        XCTAssertEqual(snapshot.totalDialogueDurationSeconds, 20, accuracy: 0.001)
+        XCTAssertEqual(snapshot.averageCharactersPerMinute, 30, accuracy: 0.001)
         XCTAssertEqual(snapshot.savedTypingSeconds, 0, accuracy: 0.001)
+        XCTAssertEqual(snapshot.speedSampleCount, 1)
 
         let lifetimeFileURL = directory.appendingPathComponent("lifetime-stats-v1.json", isDirectory: false)
         XCTAssertTrue(FileManager.default.fileExists(atPath: lifetimeFileURL.path))
@@ -217,7 +221,13 @@ final class LocalHistoryStoreTests: XCTestCase {
             options: .atomic
         )
 
-        let oldBaselineSnapshot = HistoryLifetimeSnapshot(
+        struct LegacyHistoryLifetimeSnapshot: Codable {
+            let totalDialogueDurationSeconds: Double
+            let totalInputCharacters: Int
+            let averageCharactersPerMinute: Double
+            let savedTypingSeconds: Double
+        }
+        let oldBaselineSnapshot = LegacyHistoryLifetimeSnapshot(
             totalDialogueDurationSeconds: 2,
             totalInputCharacters: 8,
             averageCharactersPerMinute: 240,
@@ -233,6 +243,7 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertEqual(snapshot.savedTypingSeconds, 6, accuracy: 0.001)
         XCTAssertEqual(snapshot.totalInputCharacters, 8)
         XCTAssertEqual(snapshot.totalDialogueDurationSeconds, 2, accuracy: 0.001)
+        XCTAssertEqual(snapshot.speedSampleCount, 1)
     }
 
     func testDeleteDoesNotChangeLifetimeStatistics() throws {

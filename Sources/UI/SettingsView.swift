@@ -19,6 +19,7 @@ struct SettingsView: View {
     @ObservedObject private var skillRuleStore: SkillRuleStore
     @ObservedObject private var appScenePolicyStore: AppScenePolicyStore
     @ObservedObject private var localHistoryStore: LocalHistoryStore
+    @ObservedObject private var brainstormDurationProfileStore: BrainstormDurationProfileStore
     @ObservedObject private var toastPresenter: ToastPresenter
 
     @State private var asrTesting = false
@@ -55,6 +56,7 @@ struct SettingsView: View {
         _skillRuleStore = ObservedObject(wrappedValue: model.skillRuleStore)
         _appScenePolicyStore = ObservedObject(wrappedValue: model.appScenePolicyStore)
         _localHistoryStore = ObservedObject(wrappedValue: model.localHistoryStore)
+        _brainstormDurationProfileStore = ObservedObject(wrappedValue: model.brainstormDurationProfileStore)
         _toastPresenter = ObservedObject(wrappedValue: model.toastPresenter)
     }
 
@@ -111,9 +113,22 @@ struct SettingsView: View {
                 dictionaryDraft = asrDictionaryStore.rawText
             } else if section == .agentBrainstorm {
                 hotkeyStateStore.refresh()
+                model.interactionCoordinator.ensureBrainstormDurationProfile()
             } else if activeBrainstormCaptureMode != nil {
                 stopBrainstormCapture()
             }
+        }
+        .onChange(of: providerSettingsStore.asrConfig.providerType) { _, _ in
+            guard controlCenterState.selectedSection == .agentBrainstorm else {
+                return
+            }
+            model.interactionCoordinator.ensureBrainstormDurationProfile()
+        }
+        .onChange(of: providerSettingsStore.asrConfig.modelName) { _, _ in
+            guard controlCenterState.selectedSection == .agentBrainstorm else {
+                return
+            }
+            model.interactionCoordinator.ensureBrainstormDurationProfile()
         }
     }
 
@@ -140,8 +155,8 @@ struct SettingsView: View {
                     )
                     HomeMetricCard(
                         title: "平均速度",
-                        value: speedText(controlCenterState.homeStatsSnapshot.averageCharactersPerMinute),
-                        subtitle: "字/分钟（累计）"
+                        value: HomeStatsFormatter.speedText(snapshot: controlCenterState.homeStatsSnapshot),
+                        subtitle: "字/分钟（真实时长）"
                     )
                     HomeMetricCard(
                         title: "总计节省时间",
@@ -614,6 +629,7 @@ struct SettingsView: View {
         }
         .onAppear {
             hotkeyStateStore.refresh()
+            model.interactionCoordinator.ensureBrainstormDurationProfile()
         }
         .onDisappear {
             stopBrainstormCapture()
@@ -621,7 +637,8 @@ struct SettingsView: View {
     }
 
     private var brainstormIntroCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let profile = currentBrainstormDurationProfile
+        return VStack(alignment: .leading, spacing: 8) {
             Text("适用场景")
                 .font(.headline)
             Label("两三个人快速聊一个功能，聊完马上给 AI 继续拆解。", systemImage: "person.2")
@@ -630,6 +647,11 @@ struct SettingsView: View {
                 .font(.subheadline)
             Label("默认同时写入输入框和剪贴板，粘贴即可继续提问。", systemImage: "doc.on.clipboard")
                 .font(.subheadline)
+            Divider()
+            Text("当前模型实测上限：\(profile.maxSeconds) 秒")
+                .font(.subheadline.weight(.semibold))
+            Text("推荐时长：\(profile.recommendedSeconds) 秒以内")
+                .font(.subheadline.weight(.semibold))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
@@ -1004,6 +1026,17 @@ struct SettingsView: View {
         ]
     }
 
+    private var currentBrainstormDurationProfile: BrainstormDurationProfile {
+        let normalizedModel = providerSettingsStore.modelName
+        let modelName = normalizedModel.isEmpty
+            ? providerSettingsStore.asrConfig.modelName
+            : normalizedModel
+        return brainstormDurationProfileStore.effectiveProfile(
+            for: providerSettingsStore.asrConfig.providerType,
+            modelName: modelName
+        )
+    }
+
     private var asrProviderTypeBinding: Binding<ProviderType> {
         Binding(
             get: { providerSettingsStore.asrConfig.providerType },
@@ -1149,11 +1182,6 @@ struct SettingsView: View {
         let minutes = safeSeconds / 60
         let remainSeconds = safeSeconds % 60
         return "\(minutes)分 \(remainSeconds)秒"
-    }
-
-    private func speedText(_ value: Double) -> String {
-        let safe = max(0, Int(value.rounded()))
-        return "\(safe)"
     }
 
     private func effectiveConfigLine(

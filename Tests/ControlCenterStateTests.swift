@@ -29,6 +29,7 @@ final class ControlCenterStateTests: XCTestCase {
         XCTAssertEqual(state.homeStatsSnapshot.totalInputCharacters, 5)
         XCTAssertEqual(state.homeStatsSnapshot.totalDialogueDurationSeconds, 30, accuracy: 0.001)
         XCTAssertEqual(state.homeStatsSnapshot.averageCharactersPerMinute, 10, accuracy: 0.001)
+        XCTAssertEqual(state.homeStatsSnapshot.speedSampleCount, 1)
 
         store.append(
             SessionHistoryEntry(
@@ -44,5 +45,21 @@ final class ControlCenterStateTests: XCTestCase {
 
         XCTAssertEqual(state.homeStatsSnapshot.totalInputCharacters, 5)
         XCTAssertEqual(state.homeStatsSnapshot.totalDialogueDurationSeconds, 30, accuracy: 0.001)
+
+        store.append(
+            SessionHistoryEntry(
+                mode: .dictation,
+                appName: "TextEdit",
+                bundleID: "com.apple.TextEdit",
+                inputText: "legacy",
+                outputText: "legacy",
+                status: .success,
+                audioDurationSeconds: nil
+            )
+        )
+
+        XCTAssertEqual(state.homeStatsSnapshot.totalInputCharacters, 11)
+        XCTAssertEqual(state.homeStatsSnapshot.totalDialogueDurationSeconds, 30, accuracy: 0.001)
+        XCTAssertEqual(state.homeStatsSnapshot.speedSampleCount, 1)
     }
 }

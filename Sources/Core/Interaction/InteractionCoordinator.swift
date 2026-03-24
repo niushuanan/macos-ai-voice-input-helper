@@ -37,6 +37,7 @@ private struct BrainstormComposeOutcome {
     let dialogueText: String
     let rewriteProvider: String?
     let rewriteModel: String?
+    let tokenBudget: Int?
     let appliedSkills: [SkillRuleID]
     let nonBlockingNotice: String?
 }
@@ -44,6 +45,16 @@ private struct BrainstormComposeOutcome {
 private enum DictationRoute {
     case asrOnly
     case asrAndTextProcessing
+}
+
+private struct ASRTranscriptionOutcome {
+    let result: SpeechTranscriptionResult
+    let attempts: Int
+}
+
+private struct ASRTranscriptionFailure: Error {
+    let error: SpeechTranscriptionError
+    let attempts: Int
 }
 
 @MainActor
@@ -58,6 +69,8 @@ final class InteractionCoordinator {
     private let contextDetector: ContextDetector
     private let appScenePolicyStore: AppScenePolicyStore
     private let localHistoryStore: LocalHistoryStore
+    private let brainstormDurationProfileStore: BrainstormDurationProfileStore
+    private let speechPipelineLogger: SpeechPipelineLogger
     private let skillRuleStore: SkillRuleStore
     private let asrDictionaryStore: ASRDictionaryStore
     private let toastPresenter: ToastPresenter?
@@ -69,6 +82,11 @@ final class InteractionCoordinator {
     private var lastExternalDictationTarget: DictationWritebackTarget?
     private var lastDictionaryTruncationSignature: Int?
     private var lastBrainstormBlockedByDictationAt: Date?
+    private var currentTraceID: String?
+    private var brainstormAutoStopTask: Task<Void, Never>?
+    private var brainstormAutoStopHasTriggered = false
+    private var brainstormProbeTask: Task<Void, Never>?
+    private var probingProfileKey: String?
 
     init(
         sessionStore: SessionStore,
@@ -81,6 +99,8 @@ final class InteractionCoordinator {
         contextDetector: ContextDetector,
         appScenePolicyStore: AppScenePolicyStore,
         localHistoryStore: LocalHistoryStore,
+        brainstormDurationProfileStore: BrainstormDurationProfileStore,
+        speechPipelineLogger: SpeechPipelineLogger,
         skillRuleStore: SkillRuleStore,
         asrDictionaryStore: ASRDictionaryStore,
         toastPresenter: ToastPresenter? = nil,
@@ -97,6 +117,8 @@ final class InteractionCoordinator {
         self.contextDetector = contextDetector
         self.appScenePolicyStore = appScenePolicyStore
         self.localHistoryStore = localHistoryStore
+        self.brainstormDurationProfileStore = brainstormDurationProfileStore
+        self.speechPipelineLogger = speechPipelineLogger
         self.skillRuleStore = skillRuleStore
         self.asrDictionaryStore = asrDictionaryStore
         self.toastPresenter = toastPresenter
@@ -151,6 +173,44 @@ final class InteractionCoordinator {
         }
     }
 
+    func ensureBrainstormDurationProfile(force: Bool = false) {
+        let configuration = providerSettingsStore.configuration
+        let profileKey = brainstormProfileKey(
+            providerType: configuration.providerType,
+            modelName: configuration.modelName
+        )
+        if
+            !force,
+            brainstormDurationProfileStore.hasFreshProfile(
+                for: configuration.providerType,
+                modelName: configuration.modelName
+            )
+        {
+            return
+        }
+
+        if probingProfileKey == profileKey, brainstormProbeTask != nil {
+            return
+        }
+
+        brainstormProbeTask?.cancel()
+        probingProfileKey = profileKey
+        brainstormProbeTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            let profile = await self.measureBrainstormDurationProfile(
+                configuration: configuration
+            )
+            guard !Task.isCancelled else {
+                return
+            }
+            self.brainstormDurationProfileStore.upsert(profile)
+            self.probingProfileKey = nil
+            self.brainstormProbeTask = nil
+        }
+    }
+
     private func notifyBrainstormBlockedByDictationIfNeeded() {
         let now = Date()
         if
@@ -167,11 +227,22 @@ final class InteractionCoordinator {
         guard sessionStore.phase == .listening else {
             return
         }
+        cancelBrainstormDurationGuard()
         let configuration = providerSettingsStore.configuration
+        let traceID = ensureTraceID()
         // 先切到转写阶段，避免 stopRecording 收尾期间 HUD 停在“聆听中”造成卡顿感。
         sessionStore.markTranscribing()
         do {
             let clip = try audioCaptureService.stopRecording()
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: sessionStore.activeLane,
+                provider: configuration.providerName,
+                model: configuration.modelName,
+                httpStatus: nil,
+                stage: "recording.stop",
+                audioDuration: clip.duration
+            )
             discardPendingClipIfNeeded()
             sessionStore.attachPendingClip(clip)
             sessionStore.updateListeningLevel(0)
@@ -182,7 +253,18 @@ final class InteractionCoordinator {
             )
             startTranscription(for: clip)
         } catch {
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: sessionStore.activeLane,
+                provider: configuration.providerName,
+                model: configuration.modelName,
+                httpStatus: nil,
+                stage: "recording.stop.failed",
+                errorType: "audioStopFailed",
+                detail: error.localizedDescription
+            )
             sessionStore.fail(message: "停止录音失败：\(error.localizedDescription)")
+            currentTraceID = nil
         }
     }
 
@@ -190,11 +272,13 @@ final class InteractionCoordinator {
         guard sessionStore.phase != .idle else {
             return
         }
+        cancelBrainstormDurationGuard()
 
         let focusContext = contextDetector.focusedAppContext()
         let mode = historyMode(for: sessionStore.activeLane)
         let latestInput = sessionStore.latestTranscription?.transcript ?? ""
         let clipDuration = sessionStore.pendingClip?.duration
+        let traceID = ensureTraceID()
 
         transcriptionTask?.cancel()
         transcriptionTask = nil
@@ -218,18 +302,32 @@ final class InteractionCoordinator {
                 audioDurationSeconds: clipDuration
             )
         )
+        speechPipelineLogger.log(
+            traceID: traceID,
+            lane: sessionStore.activeLane,
+            provider: nil,
+            model: nil,
+            httpStatus: nil,
+            stage: "history.cancelled",
+            detail: "mode=\(mode.rawValue)",
+            audioDuration: clipDuration
+        )
+        currentTraceID = nil
     }
 
     func handleCompleteInput() {
         guard sessionStore.phase == .inserting else {
             return
         }
+        cancelBrainstormDurationGuard()
         currentDictationTarget = nil
         discardPendingClipIfNeeded()
         sessionStore.completeInsertion()
+        currentTraceID = nil
     }
 
     func handleResetInput() {
+        cancelBrainstormDurationGuard()
         transcriptionTask?.cancel()
         transcriptionTask = nil
         currentDictationTarget = nil
@@ -239,9 +337,15 @@ final class InteractionCoordinator {
         }
         discardPendingClipIfNeeded()
         sessionStore.reset()
+        currentTraceID = nil
     }
 
     private func startRecordingAndTransition(lane: InputLane) {
+        let configuration = providerSettingsStore.configuration
+        let traceID = UUID().uuidString
+        currentTraceID = traceID
+        brainstormAutoStopHasTriggered = false
+
         do {
             if lane == .directDictation || lane == .brainstormDiscussion {
                 currentDictationTarget = resolveDictationWritebackTarget()
@@ -257,10 +361,505 @@ final class InteractionCoordinator {
             case .brainstormDiscussion:
                 sessionStore.startBrainstorm()
             }
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: lane,
+                provider: configuration.providerName,
+                model: configuration.modelName,
+                httpStatus: nil,
+                stage: "session.start"
+            )
+            if lane == .brainstormDiscussion {
+                armBrainstormDurationGuard(
+                    configuration: configuration,
+                    traceID: traceID
+                )
+                ensureBrainstormDurationProfile()
+            } else {
+                cancelBrainstormDurationGuard()
+            }
         } catch {
+            cancelBrainstormDurationGuard()
             currentDictationTarget = nil
             sessionStore.fail(message: "无法开始录音：\(error.localizedDescription)")
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: lane,
+                provider: configuration.providerName,
+                model: configuration.modelName,
+                httpStatus: nil,
+                stage: "session.start.failed",
+                errorType: "audioStartFailed",
+                detail: error.localizedDescription
+            )
+            currentTraceID = nil
         }
+    }
+
+    private func ensureTraceID() -> String {
+        if let currentTraceID {
+            return currentTraceID
+        }
+        let newTraceID = UUID().uuidString
+        currentTraceID = newTraceID
+        return newTraceID
+    }
+
+    private func transcribeWithRetryOnInvalidResponse(
+        provider: any SpeechTranscriptionProvider,
+        request: SpeechTranscriptionRequest,
+        configuration: SpeechProviderConfiguration,
+        apiKey: String,
+        traceID: String
+    ) async throws -> ASRTranscriptionOutcome {
+        for attempt in 1...2 {
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: request.lane,
+                provider: configuration.providerName,
+                model: configuration.modelName,
+                httpStatus: nil,
+                stage: "asr.attempt.start",
+                detail: "attempt=\(attempt)",
+                audioDuration: request.clip.duration
+            )
+
+            do {
+                let result = try await provider.transcribe(
+                    request: request,
+                    configuration: configuration,
+                    apiKey: apiKey
+                )
+                return ASRTranscriptionOutcome(
+                    result: result,
+                    attempts: attempt
+                )
+            } catch let speechError as SpeechTranscriptionError {
+                speechPipelineLogger.log(
+                    traceID: traceID,
+                    lane: request.lane,
+                    provider: configuration.providerName,
+                    model: configuration.modelName,
+                    httpStatus: httpStatus(from: speechError),
+                    stage: "asr.attempt.failed",
+                    errorType: transcriptionErrorType(for: speechError),
+                    detail: actionableMessage(for: speechError),
+                    audioDuration: request.clip.duration
+                )
+                if case .invalidResponse = speechError, attempt == 1 {
+                    speechPipelineLogger.log(
+                        traceID: traceID,
+                        lane: request.lane,
+                        provider: configuration.providerName,
+                        model: configuration.modelName,
+                        httpStatus: nil,
+                        stage: "asr.retry",
+                        errorType: "invalidResponse",
+                        detail: "retry-with-original-params",
+                        audioDuration: request.clip.duration
+                    )
+                    continue
+                }
+                throw ASRTranscriptionFailure(
+                    error: speechError,
+                    attempts: attempt
+                )
+            } catch {
+                let wrapped = SpeechTranscriptionError.providerFailure(
+                    description: error.localizedDescription
+                )
+                speechPipelineLogger.log(
+                    traceID: traceID,
+                    lane: request.lane,
+                    provider: configuration.providerName,
+                    model: configuration.modelName,
+                    httpStatus: httpStatus(from: wrapped),
+                    stage: "asr.attempt.failed",
+                    errorType: transcriptionErrorType(for: wrapped),
+                    detail: actionableMessage(for: wrapped),
+                    audioDuration: request.clip.duration
+                )
+                throw ASRTranscriptionFailure(
+                    error: wrapped,
+                    attempts: attempt
+                )
+            }
+        }
+
+        throw ASRTranscriptionFailure(
+            error: .invalidResponse,
+            attempts: 2
+        )
+    }
+
+    private func finalTranscriptionErrorMessage(
+        for error: SpeechTranscriptionError,
+        traceID: String,
+        attempts: Int
+    ) -> String {
+        let message = actionableMessage(for: error)
+        if case .invalidResponse = error, attempts >= 2 {
+            return "\(message)（traceID: \(traceID)）"
+        }
+        return message
+    }
+
+    private func transcriptionErrorType(for error: SpeechTranscriptionError) -> String {
+        switch error {
+        case .missingAPIKey:
+            return "missingAPIKey"
+        case .audioFormatUnsupported:
+            return "audioFormatUnsupported"
+        case .networkFailure:
+            return "networkFailure"
+        case .providerFailure:
+            return "providerFailure"
+        case .invalidResponse:
+            return "invalidResponse"
+        case .cancelled:
+            return "cancelled"
+        }
+    }
+
+    private func armBrainstormDurationGuard(
+        configuration: SpeechProviderConfiguration,
+        traceID: String
+    ) {
+        cancelBrainstormDurationGuard()
+        let profile = brainstormDurationProfileStore.effectiveProfile(
+            for: configuration.providerType,
+            modelName: configuration.modelName
+        )
+        let maxSeconds = max(1, profile.maxSeconds)
+        speechPipelineLogger.log(
+            traceID: traceID,
+            lane: .brainstormDiscussion,
+            provider: configuration.providerName,
+            model: configuration.modelName,
+            httpStatus: nil,
+            stage: "brainstorm.limit.active",
+            detail: "maxSeconds=\(maxSeconds)"
+        )
+
+        brainstormAutoStopTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            try? await Task.sleep(nanoseconds: UInt64(maxSeconds) * 1_000_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            await MainActor.run {
+                self.handleBrainstormDurationLimitReached(
+                    traceID: traceID,
+                    configuration: configuration,
+                    maxSeconds: maxSeconds
+                )
+            }
+        }
+    }
+
+    private func cancelBrainstormDurationGuard() {
+        brainstormAutoStopTask?.cancel()
+        brainstormAutoStopTask = nil
+    }
+
+    private func handleBrainstormDurationLimitReached(
+        traceID: String,
+        configuration: SpeechProviderConfiguration,
+        maxSeconds: Int
+    ) {
+        guard !brainstormAutoStopHasTriggered else {
+            return
+        }
+        guard currentTraceID == traceID else {
+            return
+        }
+        guard
+            sessionStore.phase == .listening,
+            sessionStore.activeLane == .brainstormDiscussion,
+            audioCaptureService.isRecording
+        else {
+            return
+        }
+
+        brainstormAutoStopHasTriggered = true
+        speechPipelineLogger.log(
+            traceID: traceID,
+            lane: .brainstormDiscussion,
+            provider: configuration.providerName,
+            model: configuration.modelName,
+            httpStatus: nil,
+            stage: "brainstorm.limit.hit",
+            detail: "maxSeconds=\(maxSeconds)"
+        )
+        toastPresenter?.show("已到脑暴时长上限，已自动结束录音并开始整理。")
+        handleStopInput()
+    }
+
+    private func measureBrainstormDurationProfile(
+        configuration: SpeechProviderConfiguration
+    ) async -> BrainstormDurationProfile {
+        let probeTraceID = "probe-\(UUID().uuidString)"
+        speechPipelineLogger.log(
+            traceID: probeTraceID,
+            lane: .brainstormDiscussion,
+            provider: configuration.providerName,
+            model: configuration.modelName,
+            httpStatus: nil,
+            stage: "brainstorm.probe.start"
+        )
+
+        guard let provider = providerRegistry.provider(for: configuration.providerType) else {
+            speechPipelineLogger.log(
+                traceID: probeTraceID,
+                lane: .brainstormDiscussion,
+                provider: configuration.providerName,
+                model: configuration.modelName,
+                httpStatus: nil,
+                stage: "brainstorm.probe.fallback",
+                errorType: "missingProvider",
+                detail: "当前构建不含所选 provider。"
+            )
+            return .fallback(
+                providerType: configuration.providerType,
+                modelName: configuration.modelName
+            )
+        }
+
+        let apiKey: String
+        if configuration.providerType.requiresAPIKey {
+            guard
+                let loadedKey = try? providerSettingsStore.loadAPIKeyForTranscriptionProvider(),
+                !loadedKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
+                speechPipelineLogger.log(
+                    traceID: probeTraceID,
+                    lane: .brainstormDiscussion,
+                    provider: configuration.providerName,
+                    model: configuration.modelName,
+                    httpStatus: nil,
+                    stage: "brainstorm.probe.fallback",
+                    errorType: "missingAPIKey"
+                )
+                return .fallback(
+                    providerType: configuration.providerType,
+                    modelName: configuration.modelName
+                )
+            }
+            apiKey = loadedKey
+        } else {
+            apiKey = ""
+        }
+
+        let maxSeconds = await BrainstormDurationProbePlanner.resolveMaxSeconds { [weak self] duration in
+            guard let self else {
+                return false
+            }
+            return await self.probeBrainstormDuration(
+                durationSeconds: duration,
+                provider: provider,
+                configuration: configuration,
+                apiKey: apiKey,
+                traceID: probeTraceID
+            )
+        }
+        let recommendedSeconds = BrainstormDurationProbePlanner.recommendedSeconds(
+            maxSeconds: maxSeconds
+        )
+        let profile = BrainstormDurationProfile(
+            providerType: configuration.providerType,
+            modelName: configuration.modelName,
+            maxSeconds: maxSeconds,
+            recommendedSeconds: recommendedSeconds,
+            measuredAt: Date()
+        )
+
+        speechPipelineLogger.log(
+            traceID: probeTraceID,
+            lane: .brainstormDiscussion,
+            provider: configuration.providerName,
+            model: configuration.modelName,
+            httpStatus: nil,
+            stage: "brainstorm.probe.success",
+            detail: "maxSeconds=\(maxSeconds),recommendedSeconds=\(recommendedSeconds)"
+        )
+        return profile
+    }
+
+    private func probeBrainstormDuration(
+        durationSeconds: Int,
+        provider: any SpeechTranscriptionProvider,
+        configuration: SpeechProviderConfiguration,
+        apiKey: String,
+        traceID: String
+    ) async -> Bool {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("brainstorm-probe-\(UUID().uuidString)")
+            .appendingPathExtension("wav")
+        defer {
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+
+        do {
+            let waveData = makeSilentWAV(durationSeconds: durationSeconds)
+            try waveData.write(to: fileURL, options: .atomic)
+            let clip = RecordedAudioClip(
+                id: UUID(),
+                fileURL: fileURL,
+                duration: TimeInterval(durationSeconds),
+                sampleRate: 16_000,
+                createdAt: Date()
+            )
+            let request = SpeechTranscriptionRequest(
+                clip: clip,
+                lane: .brainstormDiscussion,
+                contextSummary: "duration-probe-\(durationSeconds)"
+            )
+
+            do {
+                _ = try await provider.transcribe(
+                    request: request,
+                    configuration: configuration,
+                    apiKey: apiKey
+                )
+                speechPipelineLogger.log(
+                    traceID: traceID,
+                    lane: .brainstormDiscussion,
+                    provider: configuration.providerName,
+                    model: configuration.modelName,
+                    httpStatus: nil,
+                    stage: "brainstorm.probe.attempt.success",
+                    detail: "durationSeconds=\(durationSeconds)"
+                )
+                return true
+            } catch let speechError as SpeechTranscriptionError {
+                if case .invalidResponse = speechError {
+                    // 静音音频可能返回空文本，但链路本身可承载该时长。
+                    speechPipelineLogger.log(
+                        traceID: traceID,
+                        lane: .brainstormDiscussion,
+                        provider: configuration.providerName,
+                        model: configuration.modelName,
+                        httpStatus: httpStatus(from: speechError),
+                        stage: "brainstorm.probe.attempt.success",
+                        detail: "durationSeconds=\(durationSeconds),emptyTranscriptAsSuccess"
+                    )
+                    return true
+                }
+                speechPipelineLogger.log(
+                    traceID: traceID,
+                    lane: .brainstormDiscussion,
+                    provider: configuration.providerName,
+                    model: configuration.modelName,
+                    httpStatus: httpStatus(from: speechError),
+                    stage: "brainstorm.probe.attempt.failed",
+                    errorType: transcriptionErrorType(for: speechError),
+                    detail: "durationSeconds=\(durationSeconds),\(actionableMessage(for: speechError))"
+                )
+                return false
+            } catch {
+                speechPipelineLogger.log(
+                    traceID: traceID,
+                    lane: .brainstormDiscussion,
+                    provider: configuration.providerName,
+                    model: configuration.modelName,
+                    httpStatus: nil,
+                    stage: "brainstorm.probe.attempt.failed",
+                    errorType: "providerFailure",
+                    detail: "durationSeconds=\(durationSeconds),\(error.localizedDescription)"
+                )
+                return false
+            }
+        } catch {
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .brainstormDiscussion,
+                provider: configuration.providerName,
+                model: configuration.modelName,
+                httpStatus: nil,
+                stage: "brainstorm.probe.attempt.failed",
+                errorType: "fileWriteFailed",
+                detail: "durationSeconds=\(durationSeconds),\(error.localizedDescription)"
+            )
+            return false
+        }
+    }
+
+    private func makeSilentWAV(durationSeconds: Int) -> Data {
+        let safeDuration = max(0, durationSeconds)
+        let sampleRate: Int = 16_000
+        let channels: Int = 1
+        let bitsPerSample: Int = 16
+        let blockAlign = channels * bitsPerSample / 8
+        let byteRate = sampleRate * blockAlign
+        let sampleCount = safeDuration * sampleRate
+        let pcmDataSize = sampleCount * blockAlign
+
+        var data = Data()
+        func appendASCII(_ value: String) {
+            data.append(Data(value.utf8))
+        }
+        func appendLE<T: FixedWidthInteger>(_ value: T) {
+            var little = value.littleEndian
+            withUnsafeBytes(of: &little) { buffer in
+                data.append(contentsOf: buffer)
+            }
+        }
+
+        appendASCII("RIFF")
+        appendLE(UInt32(36 + pcmDataSize))
+        appendASCII("WAVE")
+        appendASCII("fmt ")
+        appendLE(UInt32(16))
+        appendLE(UInt16(1))
+        appendLE(UInt16(channels))
+        appendLE(UInt32(sampleRate))
+        appendLE(UInt32(byteRate))
+        appendLE(UInt16(blockAlign))
+        appendLE(UInt16(bitsPerSample))
+        appendASCII("data")
+        appendLE(UInt32(pcmDataSize))
+        if pcmDataSize > 0 {
+            data.append(Data(count: pcmDataSize))
+        }
+        return data
+    }
+
+    private func brainstormProfileKey(
+        providerType: ProviderType,
+        modelName: String
+    ) -> String {
+        let normalizedModel = modelName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return "\(providerType.rawValue)|\(normalizedModel)"
+    }
+
+    private func httpStatus(from error: SpeechTranscriptionError) -> Int? {
+        switch error {
+        case let .networkFailure(description):
+            return httpStatus(from: description)
+        case let .providerFailure(description):
+            return httpStatus(from: description)
+        case .missingAPIKey, .audioFormatUnsupported, .invalidResponse, .cancelled:
+            return nil
+        }
+    }
+
+    private func httpStatus(from text: String) -> Int? {
+        guard
+            let regex = try? NSRegularExpression(pattern: #"HTTP\s+(\d{3})"#, options: .caseInsensitive),
+            let match = regex.firstMatch(
+                in: text,
+                options: [],
+                range: NSRange(text.startIndex..<text.endIndex, in: text)
+            ),
+            let range = Range(match.range(at: 1), in: text)
+        else {
+            return nil
+        }
+        return Int(text[range])
     }
 
     private func startTranscription(for clip: RecordedAudioClip) {
@@ -272,6 +871,8 @@ final class InteractionCoordinator {
             }
 
             var resolvedConfiguration: SpeechProviderConfiguration?
+            let lane = sessionStore.activeLane
+            let traceID = ensureTraceID()
 
             do {
                 guard providerSettingsStore.isConfigurationValid else {
@@ -311,10 +912,12 @@ final class InteractionCoordinator {
                     dictionaryHotwordText: dictionarySnapshot.hotwordText
                 )
 
-                let result = try await provider.transcribe(
+                let outcome = try await transcribeWithRetryOnInvalidResponse(
+                    provider: provider,
                     request: request,
                     configuration: configuration,
-                    apiKey: apiKey
+                    apiKey: apiKey,
+                    traceID: traceID
                 )
                 guard !Task.isCancelled else {
                     return
@@ -322,11 +925,73 @@ final class InteractionCoordinator {
 
                 audioCaptureService.removeClip(at: clip.fileURL)
                 sessionStore.clearPendingClipReference()
+                speechPipelineLogger.log(
+                    traceID: traceID,
+                    lane: lane,
+                    provider: outcome.result.providerName,
+                    model: outcome.result.modelName,
+                    httpStatus: nil,
+                    stage: "asr.success",
+                    detail: "attempts=\(outcome.attempts)",
+                    audioDuration: clip.duration,
+                    transcriptLength: outcome.result.transcript.count
+                )
                 await processTranscriptionResult(
-                    result,
+                    outcome.result,
                     lane: request.lane,
                     audioDurationSeconds: clip.duration
                 )
+            } catch let failure as ASRTranscriptionFailure {
+                guard !Task.isCancelled else {
+                    return
+                }
+                currentDictationTarget = nil
+                audioCaptureService.removeClip(at: clip.fileURL)
+                sessionStore.clearPendingClipReference()
+                let message = finalTranscriptionErrorMessage(
+                    for: failure.error,
+                    traceID: traceID,
+                    attempts: failure.attempts
+                )
+                let focusContext = contextDetector.focusedAppContext()
+                localHistoryStore.append(
+                    SessionHistoryEntry(
+                        mode: historyMode(for: lane),
+                        appName: focusContext.appName,
+                        bundleID: focusContext.bundleID,
+                        inputText: "",
+                        outputText: nil,
+                        transcriptionProvider: resolvedConfiguration?.providerName,
+                        transcriptionModel: resolvedConfiguration?.modelName,
+                        status: .failed,
+                        errorMessage: message,
+                        audioDurationSeconds: clip.duration
+                    )
+                )
+                speechPipelineLogger.log(
+                    traceID: traceID,
+                    lane: lane,
+                    provider: resolvedConfiguration?.providerName,
+                    model: resolvedConfiguration?.modelName,
+                    httpStatus: httpStatus(from: failure.error),
+                    stage: "asr.failed",
+                    errorType: transcriptionErrorType(for: failure.error),
+                    detail: message,
+                    audioDuration: clip.duration
+                )
+                speechPipelineLogger.log(
+                    traceID: traceID,
+                    lane: lane,
+                    provider: nil,
+                    model: nil,
+                    httpStatus: nil,
+                    stage: "history.failed",
+                    errorType: "transcription",
+                    detail: message,
+                    audioDuration: clip.duration
+                )
+                sessionStore.fail(message: message)
+                currentTraceID = nil
             } catch is CancellationError {
                 return
             } catch let speechError as SpeechTranscriptionError {
@@ -351,7 +1016,19 @@ final class InteractionCoordinator {
                         audioDurationSeconds: clip.duration
                     )
                 )
+                speechPipelineLogger.log(
+                    traceID: traceID,
+                    lane: lane,
+                    provider: resolvedConfiguration?.providerName,
+                    model: resolvedConfiguration?.modelName,
+                    httpStatus: httpStatus(from: speechError),
+                    stage: "asr.failed",
+                    errorType: transcriptionErrorType(for: speechError),
+                    detail: actionableMessage(for: speechError),
+                    audioDuration: clip.duration
+                )
                 sessionStore.fail(message: actionableMessage(for: speechError))
+                currentTraceID = nil
             } catch {
                 guard !Task.isCancelled else {
                     return
@@ -375,7 +1052,19 @@ final class InteractionCoordinator {
                         audioDurationSeconds: clip.duration
                     )
                 )
+                speechPipelineLogger.log(
+                    traceID: traceID,
+                    lane: lane,
+                    provider: resolvedConfiguration?.providerName,
+                    model: resolvedConfiguration?.modelName,
+                    httpStatus: httpStatus(from: message),
+                    stage: "asr.failed",
+                    errorType: "providerFailure",
+                    detail: message,
+                    audioDuration: clip.duration
+                )
                 sessionStore.fail(message: message)
+                currentTraceID = nil
             }
         }
     }
@@ -440,6 +1129,7 @@ final class InteractionCoordinator {
         _ transcription: SpeechTranscriptionResult,
         audioDurationSeconds: TimeInterval
     ) async {
+        let traceID = ensureTraceID()
         let writebackTarget = currentDictationTarget
         let focusContext = writebackTarget?.focusContext ?? contextDetector.focusedAppContext()
         let writebackWarmupTask = Task { [weak self] in
@@ -511,7 +1201,29 @@ final class InteractionCoordinator {
                     appliedSkills: appliedSkills
                 )
             )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .directDictation,
+                provider: finalTranscription.providerName,
+                model: finalTranscription.modelName,
+                httpStatus: nil,
+                stage: "write.success",
+                detail: "path=\(outputResult.path.rawValue)",
+                audioDuration: audioDurationSeconds,
+                transcriptLength: finalTranscription.transcript.count
+            )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .directDictation,
+                provider: nil,
+                model: nil,
+                httpStatus: nil,
+                stage: "history.success",
+                audioDuration: audioDurationSeconds,
+                transcriptLength: finalTranscription.transcript.count
+            )
             currentDictationTarget = nil
+            currentTraceID = nil
         } catch let outputError as TextOutputError {
             let message = actionableOutputMessage(for: outputError, focusContext: focusContext)
             localHistoryStore.append(
@@ -529,8 +1241,31 @@ final class InteractionCoordinator {
                     appliedSkills: appliedSkills
                 )
             )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .directDictation,
+                provider: finalTranscription.providerName,
+                model: finalTranscription.modelName,
+                httpStatus: nil,
+                stage: "write.failed",
+                errorType: "textOutput",
+                detail: message,
+                audioDuration: audioDurationSeconds
+            )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .directDictation,
+                provider: nil,
+                model: nil,
+                httpStatus: nil,
+                stage: "history.failed",
+                errorType: "textOutput",
+                detail: message,
+                audioDuration: audioDurationSeconds
+            )
             currentDictationTarget = nil
             sessionStore.fail(message: message)
+            currentTraceID = nil
         } catch {
             let message = actionableOutputMessage(
                 for: .accessibilityPathFailed(reason: error.localizedDescription),
@@ -551,8 +1286,31 @@ final class InteractionCoordinator {
                     appliedSkills: appliedSkills
                 )
             )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .directDictation,
+                provider: finalTranscription.providerName,
+                model: finalTranscription.modelName,
+                httpStatus: nil,
+                stage: "write.failed",
+                errorType: "textOutput",
+                detail: message,
+                audioDuration: audioDurationSeconds
+            )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .directDictation,
+                provider: nil,
+                model: nil,
+                httpStatus: nil,
+                stage: "history.failed",
+                errorType: "textOutput",
+                detail: message,
+                audioDuration: audioDurationSeconds
+            )
             currentDictationTarget = nil
             sessionStore.fail(message: message)
+            currentTraceID = nil
         }
     }
 
@@ -560,6 +1318,7 @@ final class InteractionCoordinator {
         _ transcription: SpeechTranscriptionResult,
         audioDurationSeconds: TimeInterval
     ) async {
+        let traceID = ensureTraceID()
         let writebackTarget = currentDictationTarget
         let focusContext = writebackTarget?.focusContext ?? contextDetector.focusedAppContext()
         let scenePolicy = effectiveScenePolicy(for: focusContext)
@@ -594,7 +1353,8 @@ final class InteractionCoordinator {
             transcript: inputForCompose,
             focusContext: focusContext,
             appPrompt: normalizedAppPrompt.isEmpty ? nil : normalizedAppPrompt,
-            userSystemPrompt: userSystemPrompt.isEmpty ? nil : userSystemPrompt
+            userSystemPrompt: userSystemPrompt.isEmpty ? nil : userSystemPrompt,
+            traceID: traceID
         )
         _ = await writebackWarmupTask.value
 
@@ -645,7 +1405,31 @@ final class InteractionCoordinator {
                     appliedSkills: appliedSkills
                 )
             )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .brainstormDiscussion,
+                provider: composeOutcome.rewriteProvider ?? transcription.providerName,
+                model: composeOutcome.rewriteModel ?? transcription.modelName,
+                httpStatus: nil,
+                stage: "write.success",
+                detail: "path=\(outputResult.path.rawValue)",
+                audioDuration: audioDurationSeconds,
+                transcriptLength: finalTranscription.transcript.count,
+                tokenBudget: composeOutcome.tokenBudget
+            )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .brainstormDiscussion,
+                provider: nil,
+                model: nil,
+                httpStatus: nil,
+                stage: "history.success",
+                audioDuration: audioDurationSeconds,
+                transcriptLength: finalTranscription.transcript.count,
+                tokenBudget: composeOutcome.tokenBudget
+            )
             currentDictationTarget = nil
+            currentTraceID = nil
         } catch let outputError as TextOutputError {
             let message = actionableOutputMessage(for: outputError, focusContext: focusContext)
             localHistoryStore.append(
@@ -666,8 +1450,33 @@ final class InteractionCoordinator {
                     appliedSkills: appliedSkills
                 )
             )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .brainstormDiscussion,
+                provider: composeOutcome.rewriteProvider ?? transcription.providerName,
+                model: composeOutcome.rewriteModel ?? transcription.modelName,
+                httpStatus: nil,
+                stage: "write.failed",
+                errorType: "textOutput",
+                detail: message,
+                audioDuration: audioDurationSeconds,
+                tokenBudget: composeOutcome.tokenBudget
+            )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .brainstormDiscussion,
+                provider: nil,
+                model: nil,
+                httpStatus: nil,
+                stage: "history.failed",
+                errorType: "textOutput",
+                detail: message,
+                audioDuration: audioDurationSeconds,
+                tokenBudget: composeOutcome.tokenBudget
+            )
             currentDictationTarget = nil
             sessionStore.fail(message: message)
+            currentTraceID = nil
         } catch {
             let message = actionableOutputMessage(
                 for: .accessibilityPathFailed(reason: error.localizedDescription),
@@ -691,8 +1500,33 @@ final class InteractionCoordinator {
                     appliedSkills: appliedSkills
                 )
             )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .brainstormDiscussion,
+                provider: composeOutcome.rewriteProvider ?? transcription.providerName,
+                model: composeOutcome.rewriteModel ?? transcription.modelName,
+                httpStatus: nil,
+                stage: "write.failed",
+                errorType: "textOutput",
+                detail: message,
+                audioDuration: audioDurationSeconds,
+                tokenBudget: composeOutcome.tokenBudget
+            )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .brainstormDiscussion,
+                provider: nil,
+                model: nil,
+                httpStatus: nil,
+                stage: "history.failed",
+                errorType: "textOutput",
+                detail: message,
+                audioDuration: audioDurationSeconds,
+                tokenBudget: composeOutcome.tokenBudget
+            )
             currentDictationTarget = nil
             sessionStore.fail(message: message)
+            currentTraceID = nil
         }
     }
 
@@ -700,27 +1534,61 @@ final class InteractionCoordinator {
         transcript: String,
         focusContext: FocusedAppContext,
         appPrompt: String?,
-        userSystemPrompt: String?
+        userSystemPrompt: String?,
+        traceID: String
     ) async -> BrainstormComposeOutcome {
         let normalizedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTranscript.isEmpty else {
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .brainstormDiscussion,
+                provider: nil,
+                model: nil,
+                httpStatus: nil,
+                stage: "brainstorm.compose.skipped",
+                errorType: "emptyTranscript"
+            )
             return makeFallbackBrainstormOutcome(
                 transcript: "",
                 notice: "转写文本为空，已给出最小模板。"
             )
         }
+        let tokenBudget = LLMBrainstormContextComposer.dynamicTokenBudget(for: normalizedTranscript)
 
         let normalizedSystemPrompt = userSystemPrompt?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let normalizedAppPrompt = appPrompt?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
+        speechPipelineLogger.log(
+            traceID: traceID,
+            lane: .brainstormDiscussion,
+            provider: providerSettingsStore.rewriteConfiguration.providerName,
+            model: providerSettingsStore.rewriteConfiguration.modelName,
+            httpStatus: nil,
+            stage: "brainstorm.compose.start",
+            transcriptLength: normalizedTranscript.count,
+            tokenBudget: tokenBudget
+        )
+
         guard providerSettingsStore.isRewriteConfigurationValid else {
             let message = providerSettingsStore.rewriteConfigurationValidationMessage
                 ?? "文本模型配置无效。"
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .brainstormDiscussion,
+                provider: providerSettingsStore.rewriteConfiguration.providerName,
+                model: providerSettingsStore.rewriteConfiguration.modelName,
+                httpStatus: nil,
+                stage: "brainstorm.compose.fallback",
+                errorType: "invalidRewriteConfiguration",
+                detail: message,
+                tokenBudget: tokenBudget
+            )
             return makeFallbackBrainstormOutcome(
                 transcript: normalizedTranscript,
-                notice: "文本模型暂不可用（\(message)），已给出基础模板。"
+                notice: "文本模型暂不可用（\(message)），已给出基础模板。",
+                tokenBudget: tokenBudget
             )
         }
 
@@ -728,9 +1596,20 @@ final class InteractionCoordinator {
             let loadedKey = try? providerSettingsStore.loadAPIKeyForRewriteProvider(),
             !loadedKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .brainstormDiscussion,
+                provider: providerSettingsStore.rewriteConfiguration.providerName,
+                model: providerSettingsStore.rewriteConfiguration.modelName,
+                httpStatus: nil,
+                stage: "brainstorm.compose.fallback",
+                errorType: "missingAPIKey",
+                tokenBudget: tokenBudget
+            )
             return makeFallbackBrainstormOutcome(
                 transcript: normalizedTranscript,
-                notice: "文本模型密钥不可用，已给出基础模板。"
+                notice: "文本模型密钥不可用，已给出基础模板。",
+                tokenBudget: tokenBudget
             )
         }
 
@@ -754,25 +1633,50 @@ final class InteractionCoordinator {
                 configuration: providerSettingsStore.rewriteConfiguration,
                 apiKey: apiKey
             )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .brainstormDiscussion,
+                provider: result.providerName,
+                model: result.modelName,
+                httpStatus: nil,
+                stage: "brainstorm.compose.success",
+                transcriptLength: result.summaryText.count,
+                tokenBudget: tokenBudget
+            )
             return BrainstormComposeOutcome(
                 summaryText: result.summaryText,
                 dialogueText: result.dialogueText,
                 rewriteProvider: result.providerName,
                 rewriteModel: result.modelName,
+                tokenBudget: tokenBudget,
                 appliedSkills: modelAppliedSkills,
                 nonBlockingNotice: nil
             )
         } catch {
+            let message = error.localizedDescription
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .brainstormDiscussion,
+                provider: providerSettingsStore.rewriteConfiguration.providerName,
+                model: providerSettingsStore.rewriteConfiguration.modelName,
+                httpStatus: httpStatus(from: message),
+                stage: "brainstorm.compose.fallback",
+                errorType: "composeFailed",
+                detail: message,
+                tokenBudget: tokenBudget
+            )
             return makeFallbackBrainstormOutcome(
                 transcript: normalizedTranscript,
-                notice: "上下文整理失败，已回退到基础模板。"
+                notice: "上下文整理失败，已回退到基础模板。",
+                tokenBudget: tokenBudget
             )
         }
     }
 
     private func makeFallbackBrainstormOutcome(
         transcript: String,
-        notice: String
+        notice: String,
+        tokenBudget: Int? = nil
     ) -> BrainstormComposeOutcome {
         let normalized = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let summaryText = fallbackBrainstormSummary(transcript: normalized)
@@ -782,6 +1686,7 @@ final class InteractionCoordinator {
             dialogueText: dialogueText,
             rewriteProvider: nil,
             rewriteModel: nil,
+            tokenBudget: tokenBudget,
             appliedSkills: [],
             nonBlockingNotice: notice
         )

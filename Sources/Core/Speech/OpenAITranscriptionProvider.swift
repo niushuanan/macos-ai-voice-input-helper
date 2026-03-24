@@ -88,6 +88,9 @@ struct OpenAITranscriptionProvider: SpeechTranscriptionProvider {
                 .trimmingCharacters(in: .whitespacesAndNewlines),
             !rawText.isEmpty
         {
+            if looksLikeJSONPayload(rawText) {
+                throw SpeechTranscriptionError.invalidResponse
+            }
             return SpeechTranscriptionResult(
                 providerType: configuration.providerType,
                 providerName: configuration.providerName,
@@ -97,6 +100,11 @@ struct OpenAITranscriptionProvider: SpeechTranscriptionProvider {
         }
 
         throw SpeechTranscriptionError.invalidResponse
+    }
+
+    private func looksLikeJSONPayload(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("{") || trimmed.hasPrefix("[")
     }
 
     private func buildMultipartBody(

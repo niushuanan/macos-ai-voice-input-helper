@@ -180,12 +180,45 @@ struct HistoryLifetimeSnapshot: Codable, Equatable {
     let totalInputCharacters: Int
     let averageCharactersPerMinute: Double
     let savedTypingSeconds: Double
+    let speedSampleCount: Int
+
+    init(
+        totalDialogueDurationSeconds: Double,
+        totalInputCharacters: Int,
+        averageCharactersPerMinute: Double,
+        savedTypingSeconds: Double,
+        speedSampleCount: Int = 0
+    ) {
+        self.totalDialogueDurationSeconds = totalDialogueDurationSeconds
+        self.totalInputCharacters = totalInputCharacters
+        self.averageCharactersPerMinute = averageCharactersPerMinute
+        self.savedTypingSeconds = savedTypingSeconds
+        self.speedSampleCount = speedSampleCount
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case totalDialogueDurationSeconds
+        case totalInputCharacters
+        case averageCharactersPerMinute
+        case savedTypingSeconds
+        case speedSampleCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        totalDialogueDurationSeconds = try container.decode(Double.self, forKey: .totalDialogueDurationSeconds)
+        totalInputCharacters = try container.decode(Int.self, forKey: .totalInputCharacters)
+        averageCharactersPerMinute = try container.decode(Double.self, forKey: .averageCharactersPerMinute)
+        savedTypingSeconds = try container.decode(Double.self, forKey: .savedTypingSeconds)
+        speedSampleCount = try container.decodeIfPresent(Int.self, forKey: .speedSampleCount) ?? 0
+    }
 
     static let zero = HistoryLifetimeSnapshot(
         totalDialogueDurationSeconds: 0,
         totalInputCharacters: 0,
         averageCharactersPerMinute: 0,
-        savedTypingSeconds: 0
+        savedTypingSeconds: 0,
+        speedSampleCount: 0
     )
 }
 
@@ -229,11 +262,15 @@ final class LocalHistoryStore: ObservableObject {
         }
 
         if let contribution = lifetimeContribution(for: entry) {
-            let nextDuration = lifetimeSnapshot.totalDialogueDurationSeconds + contribution.durationSeconds
-            let nextCharacters = lifetimeSnapshot.totalInputCharacters + contribution.characters
+            let nextDuration = lifetimeSnapshot.totalDialogueDurationSeconds + contribution.sampledDurationSeconds
+            let nextCharacters = lifetimeSnapshot.totalInputCharacters + contribution.totalCharacters
+            let nextSampleCharacters = sampledCharacters(from: lifetimeSnapshot) + Double(contribution.sampledCharacters)
+            let nextSpeedSampleCount = lifetimeSnapshot.speedSampleCount + contribution.speedSampleCount
             lifetimeSnapshot = makeLifetimeSnapshot(
                 totalDurationSeconds: nextDuration,
-                totalCharacters: nextCharacters
+                totalCharacters: nextCharacters,
+                sampledCharacters: nextSampleCharacters,
+                speedSampleCount: nextSpeedSampleCount
             )
             persistLifetimeSnapshot()
         }
@@ -353,12 +390,21 @@ final class LocalHistoryStore: ObservableObject {
             return
         }
 
-        let recalculated = makeLifetimeSnapshot(
+        // 旧快照没有 speedSampleCount，统一改用真实时长口径重算。
+        if !containsSpeedSampleCountKey(in: data) {
+            lifetimeSnapshot = recalculateLifetimeSnapshotFromEntries()
+            persistLifetimeSnapshot()
+            return
+        }
+
+        let sanitized = makeLifetimeSnapshot(
             totalDurationSeconds: decoded.totalDialogueDurationSeconds,
-            totalCharacters: decoded.totalInputCharacters
+            totalCharacters: decoded.totalInputCharacters,
+            sampledCharacters: sampledCharacters(from: decoded),
+            speedSampleCount: decoded.speedSampleCount
         )
-        lifetimeSnapshot = recalculated
-        if recalculated != decoded {
+        lifetimeSnapshot = sanitized
+        if sanitized != decoded {
             persistLifetimeSnapshot()
         }
     }
@@ -373,24 +419,35 @@ final class LocalHistoryStore: ObservableObject {
     private func recalculateLifetimeSnapshotFromEntries() -> HistoryLifetimeSnapshot {
         var totalDuration: Double = 0
         var totalCharacters: Int = 0
+        var sampledCharacters: Int = 0
+        var speedSampleCount: Int = 0
 
         for entry in entries {
             guard let contribution = lifetimeContribution(for: entry) else {
                 continue
             }
-            totalDuration += contribution.durationSeconds
-            totalCharacters += contribution.characters
+            totalDuration += contribution.sampledDurationSeconds
+            totalCharacters += contribution.totalCharacters
+            sampledCharacters += contribution.sampledCharacters
+            speedSampleCount += contribution.speedSampleCount
         }
 
         return makeLifetimeSnapshot(
             totalDurationSeconds: totalDuration,
-            totalCharacters: totalCharacters
+            totalCharacters: totalCharacters,
+            sampledCharacters: Double(sampledCharacters),
+            speedSampleCount: speedSampleCount
         )
     }
 
     private func lifetimeContribution(
         for entry: SessionHistoryEntry
-    ) -> (durationSeconds: Double, characters: Int)? {
+    ) -> (
+        sampledDurationSeconds: Double,
+        totalCharacters: Int,
+        sampledCharacters: Int,
+        speedSampleCount: Int
+    )? {
         guard
             entry.mode == .dictation,
             entry.status == .success
@@ -405,38 +462,66 @@ final class LocalHistoryStore: ObservableObject {
         }
 
         let rawDuration = max(0, entry.audioDurationSeconds ?? 0)
-        let durationSeconds: Double
-        if rawDuration > 0 {
-            durationSeconds = rawDuration
-        } else {
-            durationSeconds = max(1.2, Double(charCount) / 4.0)
-        }
+        let speedSampleCount = rawDuration > 0 ? 1 : 0
+        let sampledCharacters = rawDuration > 0 ? charCount : 0
 
-        return (durationSeconds, charCount)
+        return (
+            sampledDurationSeconds: rawDuration,
+            totalCharacters: charCount,
+            sampledCharacters: sampledCharacters,
+            speedSampleCount: speedSampleCount
+        )
     }
 
     private func makeLifetimeSnapshot(
         totalDurationSeconds: Double,
-        totalCharacters: Int
+        totalCharacters: Int,
+        sampledCharacters: Double,
+        speedSampleCount: Int
     ) -> HistoryLifetimeSnapshot {
         let safeDuration = max(0, totalDurationSeconds)
         let safeCharacters = max(0, totalCharacters)
+        let safeSampledCharacters = max(0, sampledCharacters)
+        let safeSpeedSampleCount = max(0, speedSampleCount)
 
         let averageCharactersPerMinute: Double
-        if safeDuration > 0 {
-            averageCharactersPerMinute = (Double(safeCharacters) / safeDuration) * 60
+        if safeDuration > 0, safeSpeedSampleCount > 0 {
+            averageCharactersPerMinute = (safeSampledCharacters / safeDuration) * 60
         } else {
             averageCharactersPerMinute = 0
         }
 
-        let typingSeconds = (Double(safeCharacters) / max(1, typingBaselineCPM)) * 60
+        let typingSeconds = (safeSampledCharacters / max(1, typingBaselineCPM)) * 60
         let savedTypingSeconds = max(typingSeconds - safeDuration, 0)
 
         return HistoryLifetimeSnapshot(
             totalDialogueDurationSeconds: safeDuration,
             totalInputCharacters: safeCharacters,
             averageCharactersPerMinute: averageCharactersPerMinute,
-            savedTypingSeconds: savedTypingSeconds
+            savedTypingSeconds: savedTypingSeconds,
+            speedSampleCount: safeSpeedSampleCount
         )
+    }
+
+    private func sampledCharacters(from snapshot: HistoryLifetimeSnapshot) -> Double {
+        guard snapshot.totalDialogueDurationSeconds > 0 else {
+            return 0
+        }
+        return max(
+            0,
+            snapshot.averageCharactersPerMinute
+                * snapshot.totalDialogueDurationSeconds
+                / 60
+        )
+    }
+
+    private func containsSpeedSampleCountKey(in data: Data) -> Bool {
+        guard
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let dictionary = object as? [String: Any]
+        else {
+            return false
+        }
+        return dictionary["speedSampleCount"] != nil
     }
 }

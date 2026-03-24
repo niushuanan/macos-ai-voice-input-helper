@@ -609,7 +609,7 @@ struct LLMBrainstormContextComposer: BrainstormContextComposer {
             )
         )
 
-        let dynamicTokenBudget = max(220, min(1200, normalized.count * 2))
+        let dynamicTokenBudget = Self.dynamicTokenBudget(for: normalized)
         let generation = try await generationProvider.generateText(
             request: TextGenerationRequest(
                 systemPrompt: template.systemPrompt,
@@ -636,6 +636,11 @@ struct LLMBrainstormContextComposer: BrainstormContextComposer {
             providerName: generation.providerName,
             modelName: generation.modelName
         )
+    }
+
+    static func dynamicTokenBudget(for transcript: String) -> Int {
+        let normalized = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        return max(220, min(1200, normalized.count * 2))
     }
 
     private static func parseBrainstormOutput(

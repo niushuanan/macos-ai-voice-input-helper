@@ -203,6 +203,70 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(history.appliedSkills, [])
     }
 
+    func testBrainstormAutoStopsAtDurationLimitOnlyOnce() async throws {
+        let toastPresenter = ToastPresenter()
+        let fixture = try makeFixture(
+            brainstormDurationProfile: BrainstormDurationProfile(
+                providerType: .localSenseVoice,
+                modelName: "sensevoice-small",
+                maxSeconds: 1,
+                recommendedSeconds: 30,
+                measuredAt: Date()
+            ),
+            toastPresenter: toastPresenter
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.coordinator.handleBrainstormInput()
+        XCTAssertEqual(fixture.sessionStore.phase, .listening)
+        XCTAssertEqual(fixture.sessionStore.activeLane, .brainstormDiscussion)
+
+        try? await Task.sleep(nanoseconds: 1_400_000_000)
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.audioCapture.stopCallCount, 1)
+        XCTAssertEqual(toastPresenter.message?.text, "已到脑暴时长上限，已自动结束录音并开始整理。")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.mode, .brainstorm)
+    }
+
+    func testInvalidResponseRetriesOnceAndThenFailsWithTraceID() async throws {
+        let fixture = try makeFixture(
+            transcriptionResponses: [
+                .failure(.invalidResponse),
+                .failure(.invalidResponse)
+            ]
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.transcriptionProvider.callCount, 2)
+        XCTAssertEqual(fixture.sessionStore.phase, .error)
+        XCTAssertTrue(fixture.sessionStore.statusMessage.contains("traceID:"))
+
+        let logText = (try? String(contentsOf: fixture.speechPipelineLogURL, encoding: .utf8)) ?? ""
+        XCTAssertTrue(logText.contains("\"stage\":\"asr.retry\""))
+        let failureCount = logText.components(separatedBy: "\"stage\":\"asr.attempt.failed\"").count - 1
+        XCTAssertGreaterThanOrEqual(failureCount, 2)
+    }
+
+    func testWriteFailureIsLoggedAndMarkedAsFailedHistory() async throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.errorToThrow = TextOutputError.noEditableTarget
+        let fixture = try makeFixture(textOutputCoordinator: textOutputCoordinator)
+        defer { fixture.cleanUp() }
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .failed)
+        let logText = (try? String(contentsOf: fixture.speechPipelineLogURL, encoding: .utf8)) ?? ""
+        XCTAssertTrue(logText.contains("\"stage\":\"write.failed\""))
+    }
+
     func testDictationUsesPostProcessedTextWhenHeuristicRequiresTextProcessing() async throws {
         let postProcessor = FakeDictationPostProcessor(result: .success("整理后的听写"))
         let fixture = try makeFixture(
@@ -375,6 +439,8 @@ final class InteractionCoordinatorTests: XCTestCase {
             )
         ),
         transcriptionText: String = "hello world",
+        transcriptionResponses: [Result<String, SpeechTranscriptionError>]? = nil,
+        brainstormDurationProfile: BrainstormDurationProfile? = nil,
         toastPresenter: ToastPresenter? = nil
     ) throws -> InteractionFixture {
         let defaultsSuiteName = "InteractionCoordinatorTests.\(UUID().uuidString)"
@@ -386,6 +452,9 @@ final class InteractionCoordinatorTests: XCTestCase {
         let historyDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("interaction-history-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: historyDirectory, withIntermediateDirectories: true)
+        let diagnosticsDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("interaction-diagnostics-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: diagnosticsDirectory, withIntermediateDirectories: true)
 
         let clipURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("interaction-clip-\(UUID().uuidString)")
@@ -416,9 +485,19 @@ final class InteractionCoordinatorTests: XCTestCase {
         )
         providerSettingsStore.updateASRProviderType(.localSenseVoice)
         let localHistoryStore = LocalHistoryStore(historyDirectory: historyDirectory)
+        let brainstormDurationProfileStore = BrainstormDurationProfileStore(historyDirectory: historyDirectory)
+        if let brainstormDurationProfile {
+            brainstormDurationProfileStore.upsert(brainstormDurationProfile)
+        }
+        let speechPipelineLogger = SpeechPipelineLogger(diagnosticsDirectory: diagnosticsDirectory)
         let appScenePolicyStore = AppScenePolicyStore(defaults: defaults)
         let skillRuleStore = SkillRuleStore(defaults: defaults, storageKey: "skill.rules.interaction.tests")
-        let transcriptionProvider = FakeTranscriptionProvider(transcript: transcriptionText)
+        let transcriptionProvider: FakeTranscriptionProvider
+        if let transcriptionResponses {
+            transcriptionProvider = FakeTranscriptionProvider(scriptedResponses: transcriptionResponses)
+        } else {
+            transcriptionProvider = FakeTranscriptionProvider(transcript: transcriptionText)
+        }
         let resolvedTextOutputCoordinator = textOutputCoordinator ?? FakeTextOutputCoordinator()
         let dictionaryStore = ASRDictionaryStore(
             defaults: defaults,
@@ -437,6 +516,8 @@ final class InteractionCoordinatorTests: XCTestCase {
             contextDetector: FixedContextDetector(),
             appScenePolicyStore: appScenePolicyStore,
             localHistoryStore: localHistoryStore,
+            brainstormDurationProfileStore: brainstormDurationProfileStore,
+            speechPipelineLogger: speechPipelineLogger,
             skillRuleStore: skillRuleStore,
             asrDictionaryStore: dictionaryStore,
             toastPresenter: resolvedToastPresenter,
@@ -450,12 +531,15 @@ final class InteractionCoordinatorTests: XCTestCase {
             audioCapture: audioCapture,
             textOutputCoordinator: resolvedTextOutputCoordinator,
             localHistoryStore: localHistoryStore,
+            brainstormDurationProfileStore: brainstormDurationProfileStore,
             skillRuleStore: skillRuleStore,
             appScenePolicyStore: appScenePolicyStore,
             transcriptionProvider: transcriptionProvider,
             dictionaryStore: dictionaryStore,
+            speechPipelineLogURL: diagnosticsDirectory.appendingPathComponent("speech-pipeline.log", isDirectory: false),
             cleanUp: {
                 try? FileManager.default.removeItem(at: historyDirectory)
+                try? FileManager.default.removeItem(at: diagnosticsDirectory)
                 try? FileManager.default.removeItem(at: clipURL)
                 defaults.removePersistentDomain(forName: defaultsSuiteName)
             }
@@ -482,10 +566,12 @@ private struct InteractionFixture {
     let audioCapture: FakeAudioCaptureService
     let textOutputCoordinator: FakeTextOutputCoordinator
     let localHistoryStore: LocalHistoryStore
+    let brainstormDurationProfileStore: BrainstormDurationProfileStore
     let skillRuleStore: SkillRuleStore
     let appScenePolicyStore: AppScenePolicyStore
     let transcriptionProvider: FakeTranscriptionProvider
     let dictionaryStore: ASRDictionaryStore
+    let speechPipelineLogURL: URL
     let cleanUp: () -> Void
 }
 
@@ -540,6 +626,7 @@ private final class FakeAudioCaptureService: AudioCaptureService {
 private final class FakeTextOutputCoordinator: TextOutputCoordinator {
     var insertionStrategy: String = "test"
     var selectionSnapshot: FocusedSelectionSnapshot?
+    var errorToThrow: Error?
     private(set) var lastRequest: TextOutputRequest?
 
     func currentSelectionSnapshot() -> FocusedSelectionSnapshot? {
@@ -547,6 +634,9 @@ private final class FakeTextOutputCoordinator: TextOutputCoordinator {
     }
 
     func write(request: TextOutputRequest) async throws -> TextOutputResult {
+        if let errorToThrow {
+            throw errorToThrow
+        }
         lastRequest = request
         return TextOutputResult(
             appName: request.focusContext.appName,
@@ -605,11 +695,20 @@ private final class MemoryCredentialStoreForInteractionTests: ProviderCredential
 
 private final class FakeTranscriptionProvider: SpeechTranscriptionProvider {
     let supportedProviderTypes: [ProviderType] = [.localSenseVoice]
-    let transcript: String
+    private var scriptedResponses: [Result<String, SpeechTranscriptionError>]
+    private let fallbackResponse: Result<String, SpeechTranscriptionError>
+    private(set) var callCount: Int = 0
     private(set) var lastRequest: SpeechTranscriptionRequest?
 
     init(transcript: String) {
-        self.transcript = transcript
+        let response: Result<String, SpeechTranscriptionError> = .success(transcript)
+        self.scriptedResponses = [response]
+        self.fallbackResponse = response
+    }
+
+    init(scriptedResponses: [Result<String, SpeechTranscriptionError>]) {
+        self.scriptedResponses = scriptedResponses
+        self.fallbackResponse = scriptedResponses.last ?? .success("fallback")
     }
 
     func transcribe(
@@ -617,13 +716,28 @@ private final class FakeTranscriptionProvider: SpeechTranscriptionProvider {
         configuration: SpeechProviderConfiguration,
         apiKey: String
     ) async throws -> SpeechTranscriptionResult {
+        callCount += 1
         lastRequest = request
-        return SpeechTranscriptionResult(
-            providerType: .localSenseVoice,
-            providerName: "Fake Local",
-            modelName: "sensevoice-small",
-            transcript: transcript
-        )
+        _ = configuration
+        _ = apiKey
+        let response: Result<String, SpeechTranscriptionError>
+        if scriptedResponses.isEmpty {
+            response = fallbackResponse
+        } else {
+            response = scriptedResponses.removeFirst()
+        }
+
+        switch response {
+        case let .success(transcript):
+            return SpeechTranscriptionResult(
+                providerType: .localSenseVoice,
+                providerName: "Fake Local",
+                modelName: "sensevoice-small",
+                transcript: transcript
+            )
+        case let .failure(error):
+            throw error
+        }
     }
 }
 

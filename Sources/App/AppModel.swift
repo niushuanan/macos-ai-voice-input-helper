@@ -54,6 +54,7 @@ final class AppModel: ObservableObject {
     let permissionsCenter: PermissionsCenter
     let localStore: LocalStore
     let localHistoryStore: LocalHistoryStore
+    let brainstormDurationProfileStore: BrainstormDurationProfileStore
     let diagnosticsCenter: DiagnosticsCenter
     let statusPulseHUDController: StatusPulseHUDController
     let toastPresenter: ToastPresenter
@@ -78,6 +79,7 @@ final class AppModel: ObservableObject {
         permissionsCenter: PermissionsCenter,
         localStore: LocalStore,
         localHistoryStore: LocalHistoryStore,
+        brainstormDurationProfileStore: BrainstormDurationProfileStore,
         diagnosticsCenter: DiagnosticsCenter,
         statusPulseHUDController: StatusPulseHUDController,
         toastPresenter: ToastPresenter
@@ -100,6 +102,7 @@ final class AppModel: ObservableObject {
         self.permissionsCenter = permissionsCenter
         self.localStore = localStore
         self.localHistoryStore = localHistoryStore
+        self.brainstormDurationProfileStore = brainstormDurationProfileStore
         self.diagnosticsCenter = diagnosticsCenter
         self.statusPulseHUDController = statusPulseHUDController
         self.toastPresenter = toastPresenter
@@ -151,6 +154,12 @@ final class AppModel: ObservableObject {
             contextDetector: contextDetector
         )
         let localHistoryStore = LocalHistoryStore(historyDirectory: store.historyDirectory)
+        let brainstormDurationProfileStore = BrainstormDurationProfileStore(
+            historyDirectory: store.historyDirectory
+        )
+        let speechPipelineLogger = SpeechPipelineLogger(
+            diagnosticsDirectory: store.diagnosticsDirectory
+        )
         let controlCenterState = ControlCenterState(localHistoryStore: localHistoryStore)
         let hotkeyStateStore = HotkeyStateStore()
         let toastPresenter = ToastPresenter()
@@ -165,6 +174,8 @@ final class AppModel: ObservableObject {
             contextDetector: contextDetector,
             appScenePolicyStore: appScenePolicyStore,
             localHistoryStore: localHistoryStore,
+            brainstormDurationProfileStore: brainstormDurationProfileStore,
+            speechPipelineLogger: speechPipelineLogger,
             skillRuleStore: skillRuleStore,
             asrDictionaryStore: asrDictionaryStore,
             toastPresenter: toastPresenter
@@ -191,6 +202,7 @@ final class AppModel: ObservableObject {
             permissionsCenter: permissionsCenter,
             localStore: store,
             localHistoryStore: localHistoryStore,
+            brainstormDurationProfileStore: brainstormDurationProfileStore,
             diagnosticsCenter: DiagnosticsCenter(),
             statusPulseHUDController: StatusPulseHUDController(),
             toastPresenter: toastPresenter

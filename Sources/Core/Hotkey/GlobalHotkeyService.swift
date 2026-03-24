@@ -10,12 +10,13 @@ enum ModifierDoubleTapAction {
 
 struct ModifierDoubleTapStateMachine {
     let interval: TimeInterval
+    private let intervalTolerance: TimeInterval = 0.000_001
     private(set) var firstTapAt: Date?
 
     mutating func registerTap(at date: Date) -> ModifierDoubleTapAction {
         if
             let firstTapAt,
-            date.timeIntervalSince(firstTapAt) <= interval
+            date.timeIntervalSince(firstTapAt) <= interval + intervalTolerance
         {
             self.firstTapAt = nil
             return .trigger
@@ -29,7 +30,7 @@ struct ModifierDoubleTapStateMachine {
         guard let firstTapAt else {
             return false
         }
-        guard date.timeIntervalSince(firstTapAt) >= interval else {
+        guard date.timeIntervalSince(firstTapAt) >= interval - intervalTolerance else {
             return false
         }
         self.firstTapAt = nil

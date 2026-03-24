@@ -104,6 +104,159 @@ final class OpenAIProviderAdapterTests: XCTestCase {
         )
     }
 
+    func testTranscriptionProviderFailsWhenASRReturnsEmptyText() async throws {
+        let session = makeStubSession()
+        let provider = OpenAITranscriptionProvider(session: session)
+        let clipURL = try makeTemporaryAudioFile()
+        defer { try? FileManager.default.removeItem(at: clipURL) }
+
+        URLProtocolStub.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let data = Data(#"{"text":"   "}"#.utf8)
+            return (response, data)
+        }
+
+        do {
+            _ = try await provider.transcribe(
+                request: SpeechTranscriptionRequest(
+                    clip: RecordedAudioClip(
+                        id: UUID(),
+                        fileURL: clipURL,
+                        duration: 0.8,
+                        sampleRate: 44_100,
+                        createdAt: Date()
+                    ),
+                    lane: .directDictation,
+                    contextSummary: "unit-test"
+                ),
+                configuration: SpeechProviderConfiguration(
+                    profileID: "profile-1",
+                    providerType: .openAICompatible,
+                    providerName: "Compatible",
+                    modelName: "whisper-1",
+                    baseURL: URL(string: "https://api.example.com/v1/")!
+                ),
+                apiKey: "test-key"
+            )
+            XCTFail("Expected invalidResponse")
+        } catch let error as SpeechTranscriptionError {
+            if case .invalidResponse = error {
+                XCTAssertTrue(true)
+            } else {
+                XCTFail("Expected invalidResponse, got \(error)")
+            }
+        } catch {
+            XCTFail("Expected SpeechTranscriptionError, got \(error)")
+        }
+    }
+
+    func testTranscriptionProviderFailsWhenASRReturnsUnexpectedJSONShape() async throws {
+        let session = makeStubSession()
+        let provider = OpenAITranscriptionProvider(session: session)
+        let clipURL = try makeTemporaryAudioFile()
+        defer { try? FileManager.default.removeItem(at: clipURL) }
+
+        URLProtocolStub.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let data = Data(#"{"unexpected":"shape"}"#.utf8)
+            return (response, data)
+        }
+
+        do {
+            _ = try await provider.transcribe(
+                request: SpeechTranscriptionRequest(
+                    clip: RecordedAudioClip(
+                        id: UUID(),
+                        fileURL: clipURL,
+                        duration: 0.8,
+                        sampleRate: 44_100,
+                        createdAt: Date()
+                    ),
+                    lane: .directDictation,
+                    contextSummary: "unit-test"
+                ),
+                configuration: SpeechProviderConfiguration(
+                    profileID: "profile-1",
+                    providerType: .openAICompatible,
+                    providerName: "Compatible",
+                    modelName: "whisper-1",
+                    baseURL: URL(string: "https://api.example.com/v1/")!
+                ),
+                apiKey: "test-key"
+            )
+            XCTFail("Expected invalidResponse")
+        } catch let error as SpeechTranscriptionError {
+            if case .invalidResponse = error {
+                XCTAssertTrue(true)
+            } else {
+                XCTFail("Expected invalidResponse, got \(error)")
+            }
+        } catch {
+            XCTFail("Expected SpeechTranscriptionError, got \(error)")
+        }
+    }
+
+    func testTranscriptionProviderMapsHTTPNon2xxToProviderFailure() async throws {
+        let session = makeStubSession()
+        let provider = OpenAITranscriptionProvider(session: session)
+        let clipURL = try makeTemporaryAudioFile()
+        defer { try? FileManager.default.removeItem(at: clipURL) }
+
+        URLProtocolStub.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 502,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let data = Data(#"{"error":{"message":"upstream unavailable"}}"#.utf8)
+            return (response, data)
+        }
+
+        do {
+            _ = try await provider.transcribe(
+                request: SpeechTranscriptionRequest(
+                    clip: RecordedAudioClip(
+                        id: UUID(),
+                        fileURL: clipURL,
+                        duration: 0.8,
+                        sampleRate: 44_100,
+                        createdAt: Date()
+                    ),
+                    lane: .directDictation,
+                    contextSummary: "unit-test"
+                ),
+                configuration: SpeechProviderConfiguration(
+                    profileID: "profile-1",
+                    providerType: .openAICompatible,
+                    providerName: "Compatible",
+                    modelName: "whisper-1",
+                    baseURL: URL(string: "https://api.example.com/v1/")!
+                ),
+                apiKey: "test-key"
+            )
+            XCTFail("Expected providerFailure")
+        } catch let error as SpeechTranscriptionError {
+            if case let .providerFailure(description) = error {
+                XCTAssertTrue(description.contains("HTTP 502"))
+            } else {
+                XCTFail("Expected providerFailure, got \(error)")
+            }
+        } catch {
+            XCTFail("Expected SpeechTranscriptionError, got \(error)")
+        }
+    }
+
     func testGenerationProviderUsesResolvedEndpointAndParsesChoice() async throws {
         let session = makeStubSession()
         let provider = OpenAITextGenerationProvider(session: session)
