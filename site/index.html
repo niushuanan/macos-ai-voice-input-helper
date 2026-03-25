@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PulseType - AI 语音输入助手</title>
+    <meta
+      name="description"
+      content="PulseType 是一款面向 macOS 的 AI 语音输入助手，支持语音转写、改写与历史管理。"
+    />
+    <style>
+      :root {
+        --bg: #f5f7fb;
+        --card: #ffffff;
+        --text: #1f2a37;
+        --sub: #4b5563;
+        --accent: #0f766e;
+        --accent-2: #115e59;
+        --line: #e5e7eb;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 10% 10%, #d1fae5 0, transparent 35%),
+          radial-gradient(circle at 90% 20%, #ccfbf1 0, transparent 30%),
+          var(--bg);
+      }
+
+      .container {
+        width: min(960px, calc(100% - 32px));
+        margin: 0 auto;
+      }
+
+      header {
+        padding: 56px 0 24px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(30px, 4vw, 46px);
+        line-height: 1.15;
+      }
+
+      .subtitle {
+        margin: 14px 0 0;
+        color: var(--sub);
+        font-size: 17px;
+      }
+
+      .actions {
+        margin-top: 24px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        padding: 12px 18px;
+        font-weight: 600;
+        text-decoration: none;
+        border: 1px solid transparent;
+      }
+
+      .btn-primary {
+        background: var(--accent);
+        color: #fff;
+      }
+
+      .btn-primary:hover {
+        background: var(--accent-2);
+      }
+
+      .btn-secondary {
+        border-color: var(--line);
+        color: var(--text);
+        background: #fff;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 14px;
+        margin: 22px 0 0;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 16px;
+      }
+
+      .card h3 {
+        margin: 0 0 10px;
+        font-size: 17px;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--sub);
+        line-height: 1.6;
+      }
+
+      section {
+        margin: 22px 0 0;
+      }
+
+      section h2 {
+        font-size: 22px;
+        margin: 0 0 10px;
+      }
+
+      section ul {
+        margin: 0;
+        padding-left: 18px;
+        line-height: 1.9;
+        color: var(--sub);
+      }
+
+      footer {
+        margin: 36px 0 42px;
+        color: #6b7280;
+        font-size: 13px;
+      }
+
+      .tip {
+        margin-top: 12px;
+        background: #ecfeff;
+        border: 1px solid #a5f3fc;
+        border-radius: 12px;
+        padding: 12px;
+        color: #155e75;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>PulseType<br />AI 语音输入助手</h1>
+        <p class="subtitle">
+          面向 macOS 的语音输入与改写工具。支持语音转文字、选中文本改写、历史记录本地保存。
+        </p>
+        <div class="actions">
+          <a
+            class="btn btn-primary"
+            href="https://github.com/niushuanan/macos-ai-voice-input-helper/releases/latest"
+            target="_blank"
+            rel="noopener noreferrer"
+            >下载最新版本</a
+          >
+          <a
+            class="btn btn-secondary"
+            href="https://github.com/niushuanan/macos-ai-voice-input-helper/blob/main/docs/install.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            >安装说明</a
+          >
+        </div>
+      </header>
+
+      <div class="grid">
+        <article class="card">
+          <h3>系统要求</h3>
+          <p>macOS 14 或更高版本，支持 Apple Silicon 与 Intel。</p>
+        </article>
+        <article class="card">
+          <h3>权限说明</h3>
+          <p>首次使用需要麦克风与辅助功能权限，用于录音和文本写回。</p>
+        </article>
+        <article class="card">
+          <h3>数据策略</h3>
+          <p>历史记录优先本地存放。你可以在应用内随时删除历史内容。</p>
+        </article>
+      </div>
+
+      <section>
+        <h2>大陆用户安装建议</h2>
+        <ul>
+          <li>如果下载速度慢，优先使用你网络环境下更快的代理链路再下载。</li>
+          <li>安装后把 App 放在 `/Applications/PulseType.app` 再运行，权限更稳定。</li>
+          <li>若出现系统安全提示，请在系统设置中允许来自已识别开发者的应用。</li>
+        </ul>
+        <p class="tip">
+          说明：当前下载文件托管在 GitHub Release，后续会补充大陆镜像下载地址。
+        </p>
+      </section>
+
+      <section>
+        <h2>版本与问题反馈</h2>
+        <ul>
+          <li>
+            发布记录：
+            <a
+              href="https://github.com/niushuanan/macos-ai-voice-input-helper/releases"
+              target="_blank"
+              rel="noopener noreferrer"
+              >GitHub Releases</a
+            >
+          </li>
+          <li>
+            问题反馈：
+            <a
+              href="https://github.com/niushuanan/macos-ai-voice-input-helper/issues"
+              target="_blank"
+              rel="noopener noreferrer"
+              >GitHub Issues</a
+            >
+          </li>
+        </ul>
+      </section>
+
+      <footer>
+        © <span id="year"></span> PulseType. All rights reserved.
+      </footer>
+    </div>
+    <script>
+      document.getElementById("year").textContent = new Date().getFullYear();
+    </script>
+  </body>
+</html>
