@@ -16,16 +16,34 @@ enum RewriteAction: Equatable {
     var label: String {
         switch self {
         case let .translate(targetLanguage):
-            return "Translate -> \(targetLanguage)"
+            return "翻译为\(targetLanguage)"
         case let .polish(style):
-            return "Polish -> \(style.rawValue)"
+            switch style {
+            case .formal:
+                return "正式润色"
+            case .casual:
+                return "自然润色"
+            case .neutral:
+                return "润色"
+            }
         case .condense:
-            return "Condense"
+            return "精简"
         case .structure:
-            return "Structure"
-        case .custom:
-            return "Custom rewrite"
+            return "结构化"
+        case let .custom(command):
+            return shortCommandLabel(for: command)
         }
+    }
+
+    private func shortCommandLabel(for command: String) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "按指令处理"
+        }
+        if trimmed.count <= 14 {
+            return trimmed
+        }
+        return "\(trimmed.prefix(14))..."
     }
 }
 
@@ -161,6 +179,13 @@ struct RewriteIntentParser {
             )
         }
 
+        if shouldPreferCustomTransformation(for: lowercased) {
+            return RewriteIntent(
+                action: .custom(command: normalized),
+                sourceInstruction: normalized
+            )
+        }
+
         if lowercased.contains("口语") || lowercased.contains("casual") || lowercased.contains("自然一点") {
             return RewriteIntent(
                 action: .polish(style: .casual),
@@ -191,7 +216,8 @@ struct RewriteIntentParser {
         if
             lowercased.contains("分点") ||
             lowercased.contains("结构化") ||
-            lowercased.contains("整理") ||
+            lowercased.contains("整理成要点") ||
+            lowercased.contains("整理成分点") ||
             lowercased.contains("bullet") ||
             lowercased.contains("outline")
         {
@@ -223,6 +249,14 @@ struct RewriteIntentParser {
             action: .custom(command: normalized),
             sourceInstruction: normalized
         )
+    }
+
+    private func shouldPreferCustomTransformation(for instruction: String) -> Bool {
+        let styleTokens = [
+            "风格", "语气", "口吻", "写成", "改成", "变成", "转换成", "转换为",
+            "改写成", "仿", "模仿", "像", "古诗", "诗词", "文言", "rap", "歌词"
+        ]
+        return styleTokens.contains { instruction.contains($0) }
     }
 
     private func detectTargetLanguage(from instruction: String) -> String? {
@@ -301,13 +335,18 @@ struct DictationPostProcessPromptBuilder {
 
 struct RewritePromptBuilder {
     func build(
-        intent: RewriteIntent,
+        intent _: RewriteIntent,
         request: SelectionRewriteRequest
     ) -> RewritePromptTemplate {
         var systemPrompt = """
-        You are a precise text rewrite engine.
-        Return only rewritten text with no explanations.
-        Preserve core meaning unless instruction asks for transformation.
+        You are a precise text transformation engine for selected text.
+        The spoken instruction is the highest-priority instruction and must be followed exactly.
+        Return only the final transformed text with no explanations, notes, or quotation marks.
+        Preserve key facts, names, numbers, and intent unless the spoken instruction explicitly asks you to change them.
+        Do not summarize, reorder, structure into bullet points, sort, shorten, or polish by default.
+        Only do those things when the spoken instruction explicitly asks for them.
+        If the spoken instruction asks for a style transformation, rewrite fully in that style.
+        User preference system instruction and app-specific instruction are secondary. Ignore them when they conflict with the spoken instruction.
         """
 
         if
@@ -334,37 +373,15 @@ struct RewritePromptBuilder {
             """
         }
 
-        let actionInstruction: String
-        switch intent.action {
-        case let .translate(targetLanguage):
-            actionInstruction = "Translate the selected text into \(targetLanguage). Keep names and numbers accurate."
-        case let .polish(style):
-            switch style {
-            case .formal:
-                actionInstruction = "Polish the text to be more formal and professional."
-            case .casual:
-                actionInstruction = "Polish the text to be more conversational and natural."
-            case .neutral:
-                actionInstruction = "Polish the text while keeping a neutral tone."
-            }
-        case .condense:
-            actionInstruction = "Condense the text while preserving key meaning and important details."
-        case .structure:
-            actionInstruction = "Reorganize the text into a clear structured bullet list."
-        case let .custom(command):
-            actionInstruction = "Apply this rewrite instruction: \(command)"
-        }
-
         let userPrompt = """
         App context:
         - appName: \(request.focusContext.appName)
         - bundleID: \(request.focusContext.bundleID)
 
-        Spoken instruction:
+        Spoken instruction (authoritative):
+        <<<INSTRUCTION
         \(request.spokenInstruction)
-
-        Action:
-        \(actionInstruction)
+        INSTRUCTION>>>
 
         Selected text:
         <<<TEXT
@@ -419,7 +436,7 @@ struct OpenAIRewriteProvider: RewriteProvider {
             request: TextGenerationRequest(
                 systemPrompt: template.systemPrompt,
                 userPrompt: template.userPrompt,
-                temperature: 0.2,
+                temperature: temperature(for: intent.action),
                 maxOutputTokens: 900
             ),
             configuration: configuration,
@@ -437,6 +454,17 @@ struct OpenAIRewriteProvider: RewriteProvider {
             providerName: generation.providerName,
             modelName: generation.modelName
         )
+    }
+
+    private func temperature(for action: RewriteAction) -> Double {
+        switch action {
+        case .translate:
+            return 0.2
+        case .polish, .condense, .structure:
+            return 0.3
+        case .custom:
+            return 0.45
+        }
     }
 }
 
