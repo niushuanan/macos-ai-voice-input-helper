@@ -1569,10 +1569,9 @@ struct SettingsView: View {
                 }
         }
         .pickerStyle(.segmented)
-        .controlSize(.small)
+        .controlSize(.regular)
         .labelsHidden()
-        .fixedSize(horizontal: true, vertical: false)
-        .frame(maxWidth: 420, alignment: .leading)
+        .frame(maxWidth: 760, alignment: .leading)
     }
 
     private var sortedScenePolicies: [AppScenePolicy] {
