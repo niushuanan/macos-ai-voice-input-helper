@@ -6,8 +6,7 @@ import Foundation
 protocol MagicianToolExecuting {
     func execute(
         intent: MagicianIntent,
-        command: String,
-        selection: FocusedSelectionSnapshot
+        context: MagicianExecutionContext
     ) async throws -> MagicianExecutionResult
 }
 
@@ -20,8 +19,7 @@ final class MagicianToolExecutor: MagicianToolExecuting {
 
     func execute(
         intent: MagicianIntent,
-        command: String,
-        selection: FocusedSelectionSnapshot
+        context: MagicianExecutionContext
     ) async throws -> MagicianExecutionResult {
         switch intent.intent {
         case .textTransform:
@@ -32,13 +30,13 @@ final class MagicianToolExecutor: MagicianToolExecuting {
                 recoverAction: "check_router_logic"
             )
         case .webSearch:
-            return try webSearchAdapter.execute(intent: intent, selection: selection)
+            return try webSearchAdapter.execute(intent: intent, context: context)
         case .createEvent:
-            return try await eventAdapter.execute(intent: intent, command: command, selection: selection)
+            return try await eventAdapter.execute(intent: intent, context: context)
         case .createNote:
-            return try await noteAdapter.execute(intent: intent, selection: selection)
+            return try await noteAdapter.execute(intent: intent, context: context)
         case .composeEmailDraft:
-            return try mailAdapter.execute(intent: intent, selection: selection)
+            return try mailAdapter.execute(intent: intent, context: context)
         }
     }
 }
@@ -46,15 +44,15 @@ final class MagicianToolExecutor: MagicianToolExecuting {
 private struct MagicianWebSearchAdapter {
     func execute(
         intent: MagicianIntent,
-        selection: FocusedSelectionSnapshot
+        context: MagicianExecutionContext
     ) throws -> MagicianExecutionResult {
-        let query = resolvedQuery(intent: intent, selection: selection)
+        let query = resolvedQuery(intent: intent, context: context)
         guard !query.isEmpty else {
             throw MagicianError(
                 code: .selectionEmpty,
-                userMessage: "搜索内容为空，请先选中一段文字再试。",
+                userMessage: "搜索内容为空，请补一句要搜什么再试。",
                 debugMessage: "web search query empty",
-                recoverAction: "select_text_first"
+                recoverAction: "retry_command"
             )
         }
 
@@ -101,21 +99,24 @@ private struct MagicianWebSearchAdapter {
 
     private func resolvedQuery(
         intent: MagicianIntent,
-        selection: FocusedSelectionSnapshot
+        context: MagicianExecutionContext
     ) -> String {
         let query = intent.params.query?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !query.isEmpty {
             return query
         }
-        return selection.selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !source.isEmpty {
+            return source
+        }
+        return context.command.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
 private struct MagicianEventAdapter {
     func execute(
         intent: MagicianIntent,
-        command: String,
-        selection: FocusedSelectionSnapshot
+        context: MagicianExecutionContext
     ) async throws -> MagicianExecutionResult {
         let eventStore = EKEventStore()
 
@@ -146,9 +147,9 @@ private struct MagicianEventAdapter {
             )
         }
 
-        let title = resolvedTitle(intent: intent, selection: selection)
+        let title = resolvedTitle(intent: intent, context: context)
         let location = intent.params.location?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let startAt = resolvedStartDate(intent: intent, command: command, selection: selection)
+        let startAt = resolvedStartDate(intent: intent, context: context)
         let endAt = resolvedEndDate(intent: intent, startAt: startAt)
 
         let event = EKEvent(eventStore: eventStore)
@@ -161,10 +162,10 @@ private struct MagicianEventAdapter {
         来自 PulseType 魔法师
 
         原文：
-        \(selection.selectedText)
+        \(context.selectedText.isEmpty ? "（无选中文本）" : context.selectedText)
 
         指令：
-        \(command)
+        \(context.command)
         """
 
         do {
@@ -207,7 +208,7 @@ private struct MagicianEventAdapter {
 
     private func resolvedTitle(
         intent: MagicianIntent,
-        selection: FocusedSelectionSnapshot
+        context: MagicianExecutionContext
     ) -> String {
         if
             let title = intent.params.title?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -216,8 +217,12 @@ private struct MagicianEventAdapter {
             return String(title.prefix(60))
         }
 
-        let selected = selection.selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selected = context.selectedText
         if selected.isEmpty {
+            let fromCommand = context.command.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !fromCommand.isEmpty {
+                return String(fromCommand.prefix(20))
+            }
             return "待办事项"
         }
         return String(selected.prefix(20))
@@ -225,8 +230,7 @@ private struct MagicianEventAdapter {
 
     private func resolvedStartDate(
         intent: MagicianIntent,
-        command: String,
-        selection: FocusedSelectionSnapshot
+        context: MagicianExecutionContext
     ) -> Date {
         if
             let startString = intent.params.startAt,
@@ -235,7 +239,7 @@ private struct MagicianEventAdapter {
             return date
         }
 
-        let detectorInput = "\(command)\n\(selection.selectedText)"
+        let detectorInput = "\(context.command)\n\(context.selectedText)\n\(intent.sourceText)"
         if let detected = detectDate(in: detectorInput) {
             return detected
         }
@@ -295,15 +299,13 @@ private struct MagicianEventAdapter {
 }
 
 private struct MagicianNoteAdapter {
-    private let shortcutsExecutable = "/usr/bin/shortcuts"
-    private let shortcutNameKey = "magician.shortcuts.create_note.name.v1"
-    private let defaultShortcutName = "PulseType-写入备忘录"
+    private let shortcutSupport = MagicianCreateNoteShortcutSupport()
 
     func execute(
         intent: MagicianIntent,
-        selection: FocusedSelectionSnapshot
+        context: MagicianExecutionContext
     ) async throws -> MagicianExecutionResult {
-        guard FileManager.default.isExecutableFile(atPath: shortcutsExecutable) else {
+        guard shortcutSupport.cliAvailable else {
             throw MagicianError(
                 code: .shortcutNotFound,
                 userMessage: "系统里没有可用的 shortcuts 命令，请先启用 Shortcuts。",
@@ -312,17 +314,26 @@ private struct MagicianNoteAdapter {
             )
         }
 
-        let noteBody = resolvedNoteBody(intent: intent, selection: selection)
+        let noteBody = resolvedNoteBody(intent: intent, context: context)
         guard !noteBody.isEmpty else {
             throw MagicianError(
                 code: .selectionEmpty,
-                userMessage: "备忘录内容为空，请先选中内容再试。",
+                userMessage: "备忘录内容为空，请补一句要记的内容再试。",
                 debugMessage: "note body empty",
-                recoverAction: "select_text_first"
+                recoverAction: "retry_command"
             )
         }
 
-        let shortcutName = resolvedShortcutName()
+        let shortcutName = shortcutSupport.shortcutName
+        guard shortcutSupport.hasShortcut(named: shortcutName) else {
+            throw MagicianError(
+                code: .shortcutNotFound,
+                userMessage: "没找到快捷指令“\(shortcutName)”。请先在 Shortcuts 创建同名指令。",
+                debugMessage: "shortcut '\(shortcutName)' not found in shortcut list",
+                recoverAction: "create_note_shortcut"
+            )
+        }
+
         let result = try await runShortcut(name: shortcutName, inputText: noteBody)
         if result.exitCode != 0 {
             let detail = result.stderr.isEmpty ? result.stdout : result.stderr
@@ -353,19 +364,20 @@ private struct MagicianNoteAdapter {
 
     private func resolvedNoteBody(
         intent: MagicianIntent,
-        selection: FocusedSelectionSnapshot
+        context: MagicianExecutionContext
     ) -> String {
         let body = intent.params.noteBody?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !body.isEmpty {
             return body
         }
-        return selection.selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func resolvedShortcutName() -> String {
-        let customized = UserDefaults.standard.string(forKey: shortcutNameKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return customized.isEmpty ? defaultShortcutName : customized
+        let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !source.isEmpty {
+            return source
+        }
+        if !context.selectedText.isEmpty {
+            return context.selectedText
+        }
+        return context.command.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func runShortcut(
@@ -383,7 +395,7 @@ private struct MagicianNoteAdapter {
 
         return await Task.detached(priority: .userInitiated) {
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
+            process.executableURL = URL(fileURLWithPath: MagicianCreateNoteShortcutSupport.shortcutsExecutablePath)
             process.arguments = ["run", name, "--input-path", tempURL.path]
 
             let stdoutPipe = Pipe()
@@ -422,11 +434,11 @@ private struct MagicianNoteAdapter {
 private struct MagicianMailDraftAdapter {
     func execute(
         intent: MagicianIntent,
-        selection: FocusedSelectionSnapshot
+        context: MagicianExecutionContext
     ) throws -> MagicianExecutionResult {
         let recipients = resolvedRecipients(intent: intent)
-        let subject = resolvedSubject(intent: intent, selection: selection)
-        let body = resolvedBody(intent: intent, selection: selection)
+        let subject = resolvedSubject(intent: intent, context: context)
+        let body = resolvedBody(intent: intent, context: context)
 
         if let service = NSSharingService(named: .composeEmail) {
             service.recipients = recipients
@@ -478,14 +490,22 @@ private struct MagicianMailDraftAdapter {
 
     private func resolvedSubject(
         intent: MagicianIntent,
-        selection: FocusedSelectionSnapshot
+        context: MagicianExecutionContext
     ) -> String {
         let subject = intent.params.mailSubject?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !subject.isEmpty {
             return subject
         }
-        let selected = selection.selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selected = context.selectedText
         if selected.isEmpty {
+            let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !source.isEmpty {
+                return String(source.prefix(24))
+            }
+            let command = context.command.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !command.isEmpty {
+                return String(command.prefix(24))
+            }
             return "来自 PulseType 的邮件草稿"
         }
         return String(selected.prefix(24))
@@ -493,12 +513,19 @@ private struct MagicianMailDraftAdapter {
 
     private func resolvedBody(
         intent: MagicianIntent,
-        selection: FocusedSelectionSnapshot
+        context: MagicianExecutionContext
     ) -> String {
         let body = intent.params.mailBody?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !body.isEmpty {
             return body
         }
-        return selection.selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !source.isEmpty {
+            return source
+        }
+        if !context.selectedText.isEmpty {
+            return context.selectedText
+        }
+        return context.command.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

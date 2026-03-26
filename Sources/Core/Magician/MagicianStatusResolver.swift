@@ -123,6 +123,19 @@ struct MagicianStatusResolver {
                     )
                 )
             }
+            guard dependencies.createNoteShortcutExists else {
+                return .blocked(
+                    reason: "没找到快捷指令“\(dependencies.createNoteShortcutName)”。",
+                    prompt: MagicianPermissionPromptModel(
+                        feature: feature,
+                        title: "缺少快捷指令",
+                        message: "写入备忘录依赖名为“\(dependencies.createNoteShortcutName)”的快捷指令，请先在 Shortcuts 中创建或改名后再试。",
+                        primaryButtonTitle: "打开 Shortcuts",
+                        secondaryButtonTitle: "稍后再说",
+                        primaryAction: .openShortcutsApp
+                    )
+                )
+            }
             return .ready
 
         case .composeEmailDraft:

@@ -49,6 +49,8 @@ struct SettingsView: View {
     @State private var magicianPermissionPrompt: MagicianPermissionPromptModel?
     @State private var magicianEventAuthorizationStatus: EKAuthorizationStatus = EKEventStore.authorizationStatus(for: .event)
     @State private var magicianShortcutsAvailable = FileManager.default.isExecutableFile(atPath: "/usr/bin/shortcuts")
+    @State private var magicianCreateNoteShortcutName = MagicianCreateNoteShortcutSupport().shortcutName
+    @State private var magicianCreateNoteShortcutExists = MagicianCreateNoteShortcutSupport().hasShortcut()
     @State private var magicianComposeEmailAvailable = NSSharingService(named: .composeEmail) != nil
 
     private let magicianStatusResolver = MagicianStatusResolver()
@@ -281,6 +283,8 @@ struct SettingsView: View {
                     subtitle: "选中文字，下指令，立刻执行。"
                 )
 
+                magicianTriggerGuideCard
+
                 ForEach(MagicianFeatureDescriptor.all) { descriptor in
                     magicianFeatureCard(descriptor)
                 }
@@ -293,6 +297,24 @@ struct SettingsView: View {
             refreshMagicianCapabilityState()
             permissionsCenter.refreshStatuses()
         }
+    }
+
+    private var magicianTriggerGuideCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("如何触发")
+                .font(.headline)
+            Text("长按主键（默认右 Shift）说命令，松开就会执行。")
+                .font(.subheadline)
+            Text("文字处理必须先选中内容；其余能力可直接说命令，无选中也能执行。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("示例：先选中一段文本后长按主键说“翻成日语”；或直接长按说“搜索 OpenAI 最新发布”。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .pulseCard(cornerRadius: 12)
     }
 
     private func magicianFeatureCard(_ descriptor: MagicianFeatureDescriptor) -> some View {
@@ -930,6 +952,25 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("触发规则说明")
+                    .font(.subheadline.weight(.semibold))
+                Text("主键单击：普通语音开始/停止。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("主键长按（≥180ms）：进入魔法师，按住说话，松开执行。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("脑暴键双击（≤350ms）：进入头脑风暴。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("当主键与脑暴键相同：双击优先脑暴，长按优先魔法师，单击普通语音。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             if let conflict = hotkeyStateStore.conflictMessage {
                 Label(conflict, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
@@ -1268,13 +1309,18 @@ struct SettingsView: View {
             accessibilityState: permissionsCenter.snapshot.accessibility,
             eventAuthorizationStatus: magicianEventAuthorizationStatus,
             shortcutsCLIAvailable: magicianShortcutsAvailable,
+            createNoteShortcutName: magicianCreateNoteShortcutName,
+            createNoteShortcutExists: magicianCreateNoteShortcutExists,
             composeEmailAvailable: magicianComposeEmailAvailable
         )
     }
 
     private func refreshMagicianCapabilityState() {
+        let shortcutSupport = MagicianCreateNoteShortcutSupport()
         magicianEventAuthorizationStatus = EKEventStore.authorizationStatus(for: .event)
-        magicianShortcutsAvailable = FileManager.default.isExecutableFile(atPath: "/usr/bin/shortcuts")
+        magicianShortcutsAvailable = shortcutSupport.cliAvailable
+        magicianCreateNoteShortcutName = shortcutSupport.shortcutName
+        magicianCreateNoteShortcutExists = shortcutSupport.hasShortcut(named: magicianCreateNoteShortcutName)
         magicianComposeEmailAvailable = NSSharingService(named: .composeEmail) != nil
     }
 

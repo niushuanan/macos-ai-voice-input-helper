@@ -57,3 +57,12 @@ struct MagicianExecutionResult: Equatable {
     let fallbackUsed: Bool
 }
 
+struct MagicianExecutionContext: Equatable {
+    let command: String
+    let selection: FocusedSelectionSnapshot?
+    let focusContext: FocusedAppContext
+
+    var selectedText: String {
+        selection?.selectedText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+}

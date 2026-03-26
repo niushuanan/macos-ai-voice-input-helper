@@ -16,6 +16,36 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertEqual(intent.params.query, "OpenAI o3")
     }
 
+    func testHeuristicRouterParsesWebSearchWithoutSelection() async throws {
+        let router = HeuristicMagicianIntentRouter()
+
+        let intent = try await router.route(
+            command: "帮我搜索 OpenAI 最新发布",
+            selection: nil,
+            enabledFeatures: [.webSearch]
+        )
+
+        XCTAssertEqual(intent.intent, .webSearch)
+        XCTAssertEqual(intent.params.query, "OpenAI 最新发布")
+    }
+
+    func testHeuristicRouterRejectsTextTransformWhenSelectionMissing() async {
+        let router = HeuristicMagicianIntentRouter()
+
+        do {
+            _ = try await router.route(
+                command: "帮我润色一下",
+                selection: nil,
+                enabledFeatures: [.textTransform]
+            )
+            XCTFail("Expected selectionEmpty error")
+        } catch let error as MagicianError {
+            XCTAssertEqual(error.code, .selectionEmpty)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testSchemaValidatorRejectsDisabledIntent() {
         let validator = MagicianIntentSchemaValidator()
         let intent = MagicianIntent(

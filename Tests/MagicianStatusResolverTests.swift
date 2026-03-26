@@ -60,6 +60,22 @@ final class MagicianStatusResolverTests: XCTestCase {
         XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "打开 Shortcuts")
     }
 
+    func testCreateNoteNeedsPermissionWhenShortcutNameMissing() {
+        let resolution = resolver.resolve(
+            feature: .createNote,
+            isEnabled: true,
+            dependencies: dependencies(
+                shortcutsAvailable: true,
+                createNoteShortcutName: "PulseType-写入备忘录",
+                createNoteShortcutExists: false
+            )
+        )
+
+        XCTAssertEqual(resolution.status, .needsPermission)
+        XCTAssertEqual(resolution.reason, "没找到快捷指令“PulseType-写入备忘录”。")
+        XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "打开 Shortcuts")
+    }
+
     func testComposeEmailNeedsPermissionWhenMailUnavailable() {
         let resolution = resolver.resolve(
             feature: .composeEmailDraft,
@@ -75,12 +91,16 @@ final class MagicianStatusResolverTests: XCTestCase {
         accessibility: PermissionState = .granted,
         eventStatus: EKAuthorizationStatus = .fullAccess,
         shortcutsAvailable: Bool = true,
+        createNoteShortcutName: String = "PulseType-写入备忘录",
+        createNoteShortcutExists: Bool = true,
         composeEmailAvailable: Bool = true
     ) -> MagicianDependencySnapshot {
         MagicianDependencySnapshot(
             accessibilityState: accessibility,
             eventAuthorizationStatus: eventStatus,
             shortcutsCLIAvailable: shortcutsAvailable,
+            createNoteShortcutName: createNoteShortcutName,
+            createNoteShortcutExists: createNoteShortcutExists,
             composeEmailAvailable: composeEmailAvailable
         )
     }

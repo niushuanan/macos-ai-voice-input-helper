@@ -4,13 +4,16 @@ import EventKit
 import Foundation
 
 struct WakeInvocationContext: Equatable {
-    let rewriteModifierHeld: Bool
-    let selectionAvailable: Bool
+    enum Source: String, Equatable {
+        case dictationTap
+        case magicianHold
+    }
 
-    static let dictation = WakeInvocationContext(
-        rewriteModifierHeld: false,
-        selectionAvailable: false
-    )
+    let source: Source
+
+    static let dictationTap = WakeInvocationContext(source: .dictationTap)
+    static let magicianHold = WakeInvocationContext(source: .magicianHold)
+    static let dictation = WakeInvocationContext.dictationTap
 }
 
 struct DictationWritebackTarget: Equatable {
@@ -155,10 +158,17 @@ final class InteractionCoordinator {
                 return
             }
 
+            if context.source == .magicianHold, !magicianFeatureToggleStore.hasAnyEnabledFeature() {
+                sessionStore.fail(message: "魔法师能力都还没开启，请先在魔法师页面打开开关。")
+                return
+            }
+
             let lane = resolvedLane(context: context)
             startRecordingAndTransition(lane: lane)
         case .listening:
-            handleStopInput()
+            if context.source == .dictationTap {
+                handleStopInput()
+            }
         case .transcribing, .rewriting, .inserting:
             break
         }
@@ -1756,13 +1766,17 @@ final class InteractionCoordinator {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let spokenInstruction = processedInstruction.isEmpty ? rawInstruction : processedInstruction
         let initialFocusContext = contextDetector.focusedAppContext()
+        let selectionSnapshot = textOutputCoordinator.currentSelectionSnapshot()
+        let fallbackFocusContext = selectionSnapshot?.focusContext ?? initialFocusContext
+        let selectionText = selectionSnapshot?.selectedText ?? ""
+
         guard !spokenInstruction.isEmpty else {
             let message = "改写指令为空，请重试并说出明确命令。"
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
-                    appName: initialFocusContext.appName,
-                    bundleID: initialFocusContext.bundleID,
+                    appName: fallbackFocusContext.appName,
+                    bundleID: fallbackFocusContext.bundleID,
                     inputText: "",
                     outputText: nil,
                     instructionText: spokenInstruction,
@@ -1790,49 +1804,15 @@ final class InteractionCoordinator {
             return
         }
 
-        guard let snapshot = textOutputCoordinator.currentSelectionSnapshot() else {
-            let message = "未检测到选中文本，请先选中内容再触发改写。"
-            localHistoryStore.append(
-                SessionHistoryEntry(
-                    mode: .selectionRewrite,
-                    appName: initialFocusContext.appName,
-                    bundleID: initialFocusContext.bundleID,
-                    inputText: "",
-                    outputText: nil,
-                    instructionText: spokenInstruction,
-                    transcriptionProvider: transcription.providerName,
-                    transcriptionModel: transcription.modelName,
-                    status: .failed,
-                    errorMessage: message,
-                    audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: instructionApplyResult.appliedSkills
-                )
-            )
-            speechPipelineLogger.log(
-                traceID: traceID,
-                lane: .selectionRewrite,
-                provider: transcription.providerName,
-                model: transcription.modelName,
-                httpStatus: nil,
-                stage: "magician.intent.failed",
-                errorType: "selectionMissing",
-                detail: message,
-                audioDuration: audioDurationSeconds
-            )
-            sessionStore.fail(message: message)
-            currentTraceID = nil
-            return
-        }
-
         let enabledFeatures = magicianFeatureToggleStore.enabledFeatures
         guard !enabledFeatures.isEmpty else {
             let message = "魔法师能力都还没开启，请先在魔法师页面打开开关。"
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
-                    appName: snapshot.focusContext.appName,
-                    bundleID: snapshot.focusContext.bundleID,
-                    inputText: snapshot.selectedText,
+                    appName: fallbackFocusContext.appName,
+                    bundleID: fallbackFocusContext.bundleID,
+                    inputText: selectionText,
                     outputText: nil,
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
@@ -1863,7 +1843,7 @@ final class InteractionCoordinator {
         do {
             routedIntent = try await magicianIntentRouter.route(
                 command: spokenInstruction,
-                selection: snapshot.selectedText,
+                selection: selectionSnapshot?.selectedText,
                 enabledFeatures: enabledFeatures
             )
             speechPipelineLogger.log(
@@ -1882,9 +1862,9 @@ final class InteractionCoordinator {
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
-                    appName: snapshot.focusContext.appName,
-                    bundleID: snapshot.focusContext.bundleID,
-                    inputText: snapshot.selectedText,
+                    appName: fallbackFocusContext.appName,
+                    bundleID: fallbackFocusContext.bundleID,
+                    inputText: selectionText,
                     outputText: nil,
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
@@ -1914,9 +1894,9 @@ final class InteractionCoordinator {
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
-                    appName: snapshot.focusContext.appName,
-                    bundleID: snapshot.focusContext.bundleID,
-                    inputText: snapshot.selectedText,
+                    appName: fallbackFocusContext.appName,
+                    bundleID: fallbackFocusContext.bundleID,
+                    inputText: selectionText,
                     outputText: nil,
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
@@ -1953,9 +1933,9 @@ final class InteractionCoordinator {
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
-                    appName: snapshot.focusContext.appName,
-                    bundleID: snapshot.focusContext.bundleID,
-                    inputText: snapshot.selectedText,
+                    appName: fallbackFocusContext.appName,
+                    bundleID: fallbackFocusContext.bundleID,
+                    inputText: selectionText.isEmpty ? routedIntent.sourceText : selectionText,
                     outputText: nil,
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
@@ -1983,6 +1963,43 @@ final class InteractionCoordinator {
         }
 
         if routedIntent.intent == .textTransform {
+            guard
+                let snapshot = selectionSnapshot,
+                !snapshot.selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
+                let message = "文字处理需要先选中一段文本，再长按主键说指令。"
+                localHistoryStore.append(
+                    SessionHistoryEntry(
+                        mode: .selectionRewrite,
+                        appName: fallbackFocusContext.appName,
+                        bundleID: fallbackFocusContext.bundleID,
+                        inputText: "",
+                        outputText: nil,
+                        instructionText: spokenInstruction,
+                        transcriptionProvider: transcription.providerName,
+                        transcriptionModel: transcription.modelName,
+                        status: .failed,
+                        errorMessage: message,
+                        audioDurationSeconds: audioDurationSeconds,
+                        appliedSkills: instructionApplyResult.appliedSkills
+                    )
+                )
+                speechPipelineLogger.log(
+                    traceID: traceID,
+                    lane: .selectionRewrite,
+                    provider: transcription.providerName,
+                    model: transcription.modelName,
+                    httpStatus: nil,
+                    stage: "magician.tool.failed",
+                    errorType: MagicianErrorCode.selectionEmpty.rawValue,
+                    detail: message,
+                    audioDuration: audioDurationSeconds
+                )
+                sessionStore.fail(message: message)
+                currentTraceID = nil
+                return
+            }
+
             await executeTextTransformIntent(
                 transcription: transcription,
                 audioDurationSeconds: audioDurationSeconds,
@@ -1994,11 +2011,19 @@ final class InteractionCoordinator {
             return
         }
 
+        let executionContext = MagicianExecutionContext(
+            command: spokenInstruction,
+            selection: selectionSnapshot,
+            focusContext: fallbackFocusContext
+        )
+        let historyInputText = selectionText.isEmpty ? routedIntent.sourceText : selectionText
+
         await executeMagicianToolIntent(
             routedIntent,
             transcription: transcription,
             spokenInstruction: spokenInstruction,
-            snapshot: snapshot,
+            executionContext: executionContext,
+            historyInputText: historyInputText,
             instructionApplyResult: instructionApplyResult,
             audioDurationSeconds: audioDurationSeconds,
             traceID: traceID
@@ -2297,7 +2322,8 @@ final class InteractionCoordinator {
         _ intent: MagicianIntent,
         transcription: SpeechTranscriptionResult,
         spokenInstruction: String,
-        snapshot: FocusedSelectionSnapshot,
+        executionContext: MagicianExecutionContext,
+        historyInputText: String,
         instructionApplyResult: SkillApplyResult,
         audioDurationSeconds: TimeInterval,
         traceID: String
@@ -2306,15 +2332,14 @@ final class InteractionCoordinator {
         do {
             let result = try await magicianToolExecutor.execute(
                 intent: intent,
-                command: spokenInstruction,
-                selection: snapshot
+                context: executionContext
             )
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
-                    appName: snapshot.focusContext.appName,
-                    bundleID: snapshot.focusContext.bundleID,
-                    inputText: snapshot.selectedText,
+                    appName: executionContext.focusContext.appName,
+                    bundleID: executionContext.focusContext.bundleID,
+                    inputText: historyInputText,
                     outputText: result.outputText,
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
@@ -2341,9 +2366,9 @@ final class InteractionCoordinator {
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
-                    appName: snapshot.focusContext.appName,
-                    bundleID: snapshot.focusContext.bundleID,
-                    inputText: snapshot.selectedText,
+                    appName: executionContext.focusContext.appName,
+                    bundleID: executionContext.focusContext.bundleID,
+                    inputText: historyInputText,
                     outputText: nil,
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
@@ -2372,9 +2397,9 @@ final class InteractionCoordinator {
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
-                    appName: snapshot.focusContext.appName,
-                    bundleID: snapshot.focusContext.bundleID,
-                    inputText: snapshot.selectedText,
+                    appName: executionContext.focusContext.appName,
+                    bundleID: executionContext.focusContext.bundleID,
+                    inputText: historyInputText,
                     outputText: nil,
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
@@ -2688,25 +2713,22 @@ final class InteractionCoordinator {
     }
 
     private func resolvedLane(context: WakeInvocationContext) -> InputLane {
-        _ = context
-        guard magicianFeatureToggleStore.hasAnyEnabledFeature() else {
+        switch context.source {
+        case .dictationTap:
             return .directDictation
-        }
-        let accessibility = permissionsCenter.snapshot.accessibility
-        guard accessibility == .granted || accessibility == .notRequired else {
-            return .directDictation
-        }
-        if textOutputCoordinator.currentSelectionSnapshot() != nil {
+        case .magicianHold:
             return .selectionRewrite
         }
-        return .directDictation
     }
 
     private func currentMagicianDependenciesSnapshot() -> MagicianDependencySnapshot {
-        MagicianDependencySnapshot(
+        let shortcutSupport = MagicianCreateNoteShortcutSupport()
+        return MagicianDependencySnapshot(
             accessibilityState: permissionsCenter.snapshot.accessibility,
             eventAuthorizationStatus: EKEventStore.authorizationStatus(for: .event),
-            shortcutsCLIAvailable: FileManager.default.isExecutableFile(atPath: "/usr/bin/shortcuts"),
+            shortcutsCLIAvailable: shortcutSupport.cliAvailable,
+            createNoteShortcutName: shortcutSupport.shortcutName,
+            createNoteShortcutExists: shortcutSupport.hasShortcut(),
             composeEmailAvailable: NSSharingService(named: .composeEmail) != nil
         )
     }

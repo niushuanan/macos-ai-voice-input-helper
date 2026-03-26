@@ -329,7 +329,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.sessionStore.activeLane, .directDictation)
     }
 
-    func testWakeInputEntersSelectionRewriteWhenMagicianEnabledAndSelectionExists() throws {
+    func testWakeTapKeepsDirectDictationEvenWhenMagicianEnabledAndSelectionExists() throws {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
             focusContext: FixedContextDetector().focusedAppContext(),
@@ -340,7 +340,24 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
 
-        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleWakeInput(context: .dictationTap)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .listening)
+        XCTAssertEqual(fixture.sessionStore.activeLane, .directDictation)
+    }
+
+    func testMagicianHoldEntersSelectionRewrite() throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
+            focusContext: FixedContextDetector().focusedAppContext(),
+            selectedText: "选中文本"
+        )
+        let fixture = try makeFixture(textOutputCoordinator: textOutputCoordinator)
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
 
         XCTAssertEqual(fixture.sessionStore.phase, .listening)
         XCTAssertEqual(fixture.sessionStore.activeLane, .selectionRewrite)
@@ -393,7 +410,7 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         fixture.magicianFeatureToggleStore.setEnabled(true, for: .webSearch)
 
-        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
         fixture.coordinator.handleStopInput()
         await waitForPipeline(using: fixture.sessionStore)
 
@@ -401,9 +418,114 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.sessionStore.statusMessage, "已打开搜索结果页。")
         XCTAssertEqual(toolExecutor.callCount, 1)
         XCTAssertEqual(toolExecutor.lastIntent?.intent, .webSearch)
-        XCTAssertEqual(toolExecutor.lastSelection?.selectedText, "OpenAI o3 mini")
+        XCTAssertEqual(toolExecutor.lastExecutionContext?.selection?.selectedText, "OpenAI o3 mini")
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "https://www.google.com/search?q=OpenAI+o3+mini")
+    }
+
+    func testMagicianToolIntentAllowsNoSelection() async throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = nil
+
+        let router = FakeMagicianIntentRouter(
+            intent: MagicianIntent(
+                intent: .webSearch,
+                confidence: 0.81,
+                sourceText: "",
+                params: MagicianIntentParams(
+                    mode: nil,
+                    targetLanguage: nil,
+                    tone: nil,
+                    query: "OpenAI 发布会",
+                    title: nil,
+                    startAt: nil,
+                    endAt: nil,
+                    location: nil,
+                    noteBody: nil,
+                    mailTo: nil,
+                    mailSubject: nil,
+                    mailBody: nil
+                )
+            )
+        )
+        let toolExecutor = FakeMagicianToolExecutor()
+        toolExecutor.result = .success(
+            MagicianExecutionResult(
+                intent: .webSearch,
+                userMessage: "已打开搜索结果页。",
+                outputText: "https://www.google.com/search?q=OpenAI+发布会",
+                fallbackUsed: false
+            )
+        )
+
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutputCoordinator,
+            magicianIntentRouter: router,
+            magicianToolExecutor: toolExecutor,
+            transcriptionText: "帮我搜索 OpenAI 发布会"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .webSearch)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .idle)
+        XCTAssertEqual(toolExecutor.callCount, 1)
+        XCTAssertNil(toolExecutor.lastExecutionContext?.selection)
+        XCTAssertEqual(
+            toolExecutor.lastExecutionContext?.command,
+            "帮我搜索 OpenAI 发布会"
+        )
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
+    }
+
+    func testMagicianTextTransformFailsWithoutSelection() async throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = nil
+        let router = FakeMagicianIntentRouter(
+            intent: MagicianIntent(
+                intent: .textTransform,
+                confidence: 0.9,
+                sourceText: "",
+                params: MagicianIntentParams(
+                    mode: .polish,
+                    targetLanguage: nil,
+                    tone: nil,
+                    query: nil,
+                    title: nil,
+                    startAt: nil,
+                    endAt: nil,
+                    location: nil,
+                    noteBody: nil,
+                    mailTo: nil,
+                    mailSubject: nil,
+                    mailBody: nil
+                )
+            )
+        )
+        let toolExecutor = FakeMagicianToolExecutor()
+
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutputCoordinator,
+            magicianIntentRouter: router,
+            magicianToolExecutor: toolExecutor,
+            transcriptionText: "帮我润色一下"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .error)
+        XCTAssertTrue(fixture.sessionStore.statusMessage.contains("文字处理需要先选中一段文本"))
+        XCTAssertEqual(toolExecutor.callCount, 0)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .failed)
     }
 
     func testDictationSkipsPostProcessWhenSystemPromptIsEmpty() async throws {
@@ -949,7 +1071,7 @@ private final class FakeMagicianIntentRouter: MagicianIntentRouting {
 
     func route(
         command: String,
-        selection: String,
+        selection: String?,
         enabledFeatures: Set<MagicianFeatureID>
     ) async throws -> MagicianIntent {
         _ = command
@@ -971,18 +1093,17 @@ private final class FakeMagicianToolExecutor: MagicianToolExecuting {
     )
     private(set) var callCount: Int = 0
     private(set) var lastIntent: MagicianIntent?
-    private(set) var lastSelection: FocusedSelectionSnapshot?
+    private(set) var lastExecutionContext: MagicianExecutionContext?
     private(set) var lastCommand: String?
 
     func execute(
         intent: MagicianIntent,
-        command: String,
-        selection: FocusedSelectionSnapshot
+        context: MagicianExecutionContext
     ) async throws -> MagicianExecutionResult {
         callCount += 1
         lastIntent = intent
-        lastSelection = selection
-        lastCommand = command
+        lastExecutionContext = context
+        lastCommand = context.command
         switch result {
         case let .success(value):
             return value

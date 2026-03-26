@@ -8,6 +8,87 @@ enum ModifierDoubleTapAction {
     case trigger
 }
 
+enum WakeModifierPressAction {
+    case none
+    case tap
+    case holdBegan
+    case holdEnded
+}
+
+struct WakeModifierPressStateMachine {
+    let holdInterval: TimeInterval
+    let tapInterval: TimeInterval
+    private let intervalTolerance: TimeInterval = 0.000_001
+    private(set) var isPressed = false
+    private(set) var pressedAt: Date?
+    private(set) var sawForeignInput = false
+    private(set) var holdTriggered = false
+
+    mutating func beginPress(
+        at date: Date,
+        hasForeignInput: Bool
+    ) {
+        isPressed = true
+        pressedAt = date
+        sawForeignInput = hasForeignInput
+        holdTriggered = false
+    }
+
+    mutating func registerForeignInput() {
+        guard isPressed else {
+            return
+        }
+        sawForeignInput = true
+    }
+
+    mutating func evaluateHold(at date: Date) -> WakeModifierPressAction {
+        guard
+            isPressed,
+            !holdTriggered,
+            !sawForeignInput,
+            let pressedAt
+        else {
+            return .none
+        }
+
+        if date.timeIntervalSince(pressedAt) >= holdInterval - intervalTolerance {
+            holdTriggered = true
+            return .holdBegan
+        }
+        return .none
+    }
+
+    mutating func endPress(
+        at date: Date,
+        hasOtherModifierFamilies: Bool,
+        sameFamilyStillPressed: Bool
+    ) -> WakeModifierPressAction {
+        guard isPressed else {
+            return .none
+        }
+
+        defer { reset() }
+
+        if holdTriggered {
+            return .holdEnded
+        }
+
+        let duration = date.timeIntervalSince(pressedAt ?? date)
+        let shouldTap = duration <= tapInterval + intervalTolerance
+            && !sawForeignInput
+            && !hasOtherModifierFamilies
+            && !sameFamilyStillPressed
+        return shouldTap ? .tap : .none
+    }
+
+    mutating func reset() {
+        isPressed = false
+        pressedAt = nil
+        sawForeignInput = false
+        holdTriggered = false
+    }
+}
+
 struct ModifierDoubleTapStateMachine {
     let interval: TimeInterval
     private let intervalTolerance: TimeInterval = 0.000_001
@@ -67,12 +148,17 @@ final class GlobalHotkeyService {
     private var globalKeyDownMonitor: Any?
     private var localKeyDownMonitor: Any?
     private var workspaceNotificationObservers: [NSObjectProtocol] = []
-    private var wakeTapState = ModifierTapState()
+    private var wakePressStateMachine = WakeModifierPressStateMachine(
+        holdInterval: 0.18,
+        tapInterval: 0.7
+    )
     private var cancelTapState = ModifierTapState()
     private var brainstormTapState = ModifierTapState()
     private var wakeAndBrainstormArbitration = ModifierDoubleTapStateMachine(interval: 0.35)
     private var brainstormDoubleTapStateMachine = ModifierDoubleTapStateMachine(interval: 0.35)
     private var wakeArbitrationWorkItem: DispatchWorkItem?
+    private var wakeHoldWorkItem: DispatchWorkItem?
+    private var wakeHoldSessionActive = false
 
     init(
         interactionCoordinator: InteractionCoordinator,
@@ -118,6 +204,9 @@ final class GlobalHotkeyService {
             return
         }
         currentSessionPhase = phase
+        if phase != .listening {
+            wakeHoldSessionActive = false
+        }
         reconcileCancelShortcutAvailability()
     }
 
@@ -172,16 +261,13 @@ final class GlobalHotkeyService {
             NSEvent.removeMonitor(localKeyDownMonitor)
             self.localKeyDownMonitor = nil
         }
+        clearWakeHoldCheck()
+        wakePressStateMachine.reset()
+        wakeHoldSessionActive = false
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {
-        processModifierEvent(
-            event,
-            modifier: hotkeyStateStore.wakeModifier,
-            state: &wakeTapState
-        ) { [weak self] in
-            self?.handleWakeModifierTap()
-        }
+        processWakeModifierEvent(event)
 
         if hotkeyStateStore.cancelTriggerMode == .modifierTap {
             processModifierEvent(
@@ -214,10 +300,111 @@ final class GlobalHotkeyService {
         }
     }
 
+    private func processWakeModifierEvent(_ event: NSEvent) {
+        let modifier = hotkeyStateStore.wakeModifier
+        let trackedFlags: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+        let activeFlags = event.modifierFlags.intersection(trackedFlags)
+        let isTargetKeyEvent = event.keyCode == modifier.keyCode
+        let hasOtherModifierFamilies = !activeFlags.subtracting(modifier.modifierFlags).isEmpty
+
+        if isTargetKeyEvent {
+            let now = Date()
+            if !wakePressStateMachine.isPressed {
+                wakePressStateMachine.beginPress(
+                    at: now,
+                    hasForeignInput: hasOtherModifierFamilies
+                )
+                scheduleWakeHoldCheck()
+                return
+            }
+
+            clearWakeHoldCheck()
+            let action = wakePressStateMachine.endPress(
+                at: now,
+                hasOtherModifierFamilies: hasOtherModifierFamilies,
+                sameFamilyStillPressed: activeFlags.contains(modifier.modifierFlags)
+            )
+            handleWakePressAction(action)
+            return
+        }
+
+        guard wakePressStateMachine.isPressed else {
+            return
+        }
+
+        if HotkeyModifier.from(keyCode: event.keyCode) != nil {
+            wakePressStateMachine.registerForeignInput()
+        }
+
+        if !activeFlags.contains(modifier.modifierFlags) {
+            clearWakeHoldCheck()
+            wakePressStateMachine.reset()
+        }
+    }
+
+    private func scheduleWakeHoldCheck() {
+        clearWakeHoldCheck()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else {
+                return
+            }
+            self.wakeHoldWorkItem = nil
+            let action = self.wakePressStateMachine.evaluateHold(at: Date())
+            self.handleWakePressAction(action)
+        }
+        wakeHoldWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + wakePressStateMachine.holdInterval,
+            execute: workItem
+        )
+    }
+
+    private func clearWakeHoldCheck() {
+        wakeHoldWorkItem?.cancel()
+        wakeHoldWorkItem = nil
+    }
+
+    private func handleWakePressAction(_ action: WakeModifierPressAction) {
+        switch action {
+        case .none:
+            break
+        case .tap:
+            handleWakeModifierTap()
+        case .holdBegan:
+            handleWakeModifierHoldBegan()
+        case .holdEnded:
+            handleWakeModifierHoldEnded()
+        }
+    }
+
+    private func handleWakeModifierHoldBegan() {
+        clearWakeArbitration()
+        brainstormDoubleTapStateMachine.reset()
+
+        guard canStartWakeHoldSession else {
+            return
+        }
+        wakeHoldSessionActive = true
+        interactionCoordinator.handleWakeInput(context: .magicianHold)
+    }
+
+    private func handleWakeModifierHoldEnded() {
+        guard wakeHoldSessionActive else {
+            return
+        }
+        wakeHoldSessionActive = false
+
+        guard currentSessionPhase == .listening else {
+            return
+        }
+        interactionCoordinator.handleStopInput()
+    }
+
     private func handleWakeModifierTap() {
         guard shouldArbitrateWakeAndBrainstormModifier else {
             clearWakeArbitration()
-            interactionCoordinator.handleWakeInput(context: .dictation)
+            interactionCoordinator.handleWakeInput(context: .dictationTap)
             return
         }
 
@@ -230,7 +417,7 @@ final class GlobalHotkeyService {
             if shouldHandleBrainstormInput {
                 interactionCoordinator.handleBrainstormInput()
             } else {
-                interactionCoordinator.handleWakeInput(context: .dictation)
+                interactionCoordinator.handleWakeInput(context: .dictationTap)
             }
         }
     }
@@ -244,7 +431,7 @@ final class GlobalHotkeyService {
             }
             self.wakeArbitrationWorkItem = nil
             if self.wakeAndBrainstormArbitration.clearIfExpired(at: Date()) {
-                self.interactionCoordinator.handleWakeInput(context: .dictation)
+                self.interactionCoordinator.handleWakeInput(context: .dictationTap)
             }
         }
         wakeArbitrationWorkItem = workItem
@@ -325,14 +512,23 @@ final class GlobalHotkeyService {
     }
 
     private func markForeignKeyInput() {
-        if wakeTapState.isPressed {
-            wakeTapState.sawForeignInput = true
+        if wakePressStateMachine.isPressed {
+            wakePressStateMachine.registerForeignInput()
         }
         if cancelTapState.isPressed {
             cancelTapState.sawForeignInput = true
         }
         if brainstormTapState.isPressed {
             brainstormTapState.sawForeignInput = true
+        }
+    }
+
+    private var canStartWakeHoldSession: Bool {
+        switch currentSessionPhase {
+        case .idle, .cancelled, .error:
+            return true
+        case .listening, .transcribing, .rewriting, .inserting:
+            return false
         }
     }
 

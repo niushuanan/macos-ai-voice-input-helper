@@ -1,6 +1,77 @@
 import EventKit
 import Foundation
 
+struct MagicianCreateNoteShortcutSupport {
+    static let shortcutsExecutablePath = "/usr/bin/shortcuts"
+    static let shortcutNameDefaultsKey = "magician.shortcuts.create_note.name.v1"
+    static let defaultShortcutName = "PulseType-写入备忘录"
+
+    let defaults: UserDefaults
+    let fileManager: FileManager
+
+    init(
+        defaults: UserDefaults = .standard,
+        fileManager: FileManager = .default
+    ) {
+        self.defaults = defaults
+        self.fileManager = fileManager
+    }
+
+    var shortcutName: String {
+        let customized = defaults.string(forKey: Self.shortcutNameDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return customized.isEmpty ? Self.defaultShortcutName : customized
+    }
+
+    var cliAvailable: Bool {
+        fileManager.isExecutableFile(atPath: Self.shortcutsExecutablePath)
+    }
+
+    func hasShortcut(named customName: String? = nil) -> Bool {
+        guard cliAvailable else {
+            return false
+        }
+        let targetName = (customName ?? shortcutName)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !targetName.isEmpty else {
+            return false
+        }
+
+        guard let listResult = listShortcuts(), listResult.exitCode == 0 else {
+            return false
+        }
+
+        let lines = listResult.output
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return lines.contains { $0.caseInsensitiveCompare(targetName) == .orderedSame }
+    }
+
+    private func listShortcuts() -> (exitCode: Int32, output: String)? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: Self.shortcutsExecutablePath)
+        process.arguments = ["list"]
+
+        let stdoutPipe = Pipe()
+        process.standardOutput = stdoutPipe
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+
+        let outputData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let outputText = String(data: outputData, encoding: .utf8) ?? ""
+        return (
+            exitCode: process.terminationStatus,
+            output: outputText
+        )
+    }
+}
+
 enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
     case textTransform = "text_transform"
     case webSearch = "web_search"
@@ -127,6 +198,7 @@ struct MagicianDependencySnapshot: Equatable {
     let accessibilityState: PermissionState
     let eventAuthorizationStatus: EKAuthorizationStatus
     let shortcutsCLIAvailable: Bool
+    let createNoteShortcutName: String
+    let createNoteShortcutExists: Bool
     let composeEmailAvailable: Bool
 }
-
