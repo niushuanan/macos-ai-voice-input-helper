@@ -9,3 +9,7 @@ build/
 tokscale-report-*/
 
 .codex/
+
+# 本地产品草案，不进仓库
+/魔法师-产品需求文档.md
+/魔法师-软件工程文档.md
