@@ -127,6 +127,69 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertEqual(generationProvider.callCount, 1)
     }
 
+    func testLLMRouterNormalizesInstructionPhraseToSelectionForCreateNote() async throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-test"])
+        )
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputText: """
+            {"intent":"create_note","confidence":0.83,"sourceText":"帮我写进备忘录","params":{"noteBody":"帮我写进备忘录"}}
+            """
+        )
+
+        let router = LLMMagicianIntentRouter(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider
+        )
+
+        let intent = try await router.route(
+            command: "帮我写进备忘录",
+            selection: "周五 15:00 在 A 会议室评审 PRD",
+            enabledFeatures: [.createNote]
+        )
+
+        XCTAssertEqual(intent.intent, .createNote)
+        XCTAssertEqual(intent.sourceText, "周五 15:00 在 A 会议室评审 PRD")
+        XCTAssertEqual(intent.params.noteBody, "周五 15:00 在 A 会议室评审 PRD")
+    }
+
+    func testLLMRouterNormalizesInstructionPhraseToSelectionForCreateEvent() async throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-test"])
+        )
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputText: """
+            {"intent":"create_event","confidence":0.82,"sourceText":"帮我建立日程","params":{"title":"帮我建立日程"}}
+            """
+        )
+
+        let router = LLMMagicianIntentRouter(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider
+        )
+
+        let selectionText = "4月1日 14:30 在上海办公室和产品团队开路标会"
+        let intent = try await router.route(
+            command: "帮我建立日程",
+            selection: selectionText,
+            enabledFeatures: [.createEvent]
+        )
+
+        XCTAssertEqual(intent.intent, .createEvent)
+        XCTAssertEqual(intent.sourceText, selectionText)
+        XCTAssertEqual(intent.params.title, String(selectionText.prefix(60)))
+    }
+
     private var defaultsSuiteName: String {
         "MagicianIntentRouterTests.\(name)"
     }

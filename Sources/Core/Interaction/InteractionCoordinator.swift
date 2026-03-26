@@ -95,6 +95,7 @@ final class InteractionCoordinator {
     private var brainstormAutoStopHasTriggered = false
     private var brainstormProbeTask: Task<Void, Never>?
     private var probingProfileKey: String?
+    private var pendingMagicianSelectionSnapshot: FocusedSelectionSnapshot?
 
     init(
         sessionStore: SessionStore,
@@ -298,6 +299,7 @@ final class InteractionCoordinator {
             return
         }
         cancelBrainstormDurationGuard()
+        pendingMagicianSelectionSnapshot = nil
 
         let focusContext = contextDetector.focusedAppContext()
         let mode = historyMode(for: sessionStore.activeLane)
@@ -345,6 +347,7 @@ final class InteractionCoordinator {
             return
         }
         cancelBrainstormDurationGuard()
+        pendingMagicianSelectionSnapshot = nil
         currentDictationTarget = nil
         discardPendingClipIfNeeded()
         sessionStore.completeInsertion()
@@ -353,6 +356,7 @@ final class InteractionCoordinator {
 
     func handleResetInput() {
         cancelBrainstormDurationGuard()
+        pendingMagicianSelectionSnapshot = nil
         transcriptionTask?.cancel()
         transcriptionTask = nil
         currentDictationTarget = nil
@@ -376,6 +380,11 @@ final class InteractionCoordinator {
                 currentDictationTarget = resolveDictationWritebackTarget()
             } else {
                 currentDictationTarget = nil
+            }
+            if lane == .selectionRewrite {
+                pendingMagicianSelectionSnapshot = textOutputCoordinator.currentSelectionSnapshot()
+            } else {
+                pendingMagicianSelectionSnapshot = nil
             }
             try audioCaptureService.startRecording()
             switch lane {
@@ -405,6 +414,7 @@ final class InteractionCoordinator {
             }
         } catch {
             cancelBrainstormDurationGuard()
+            pendingMagicianSelectionSnapshot = nil
             currentDictationTarget = nil
             sessionStore.fail(message: "无法开始录音：\(error.localizedDescription)")
             speechPipelineLogger.log(
@@ -1759,6 +1769,9 @@ final class InteractionCoordinator {
         _ transcription: SpeechTranscriptionResult,
         audioDurationSeconds: TimeInterval
     ) async {
+        defer {
+            pendingMagicianSelectionSnapshot = nil
+        }
         let traceID = ensureTraceID()
         let rawInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let instructionApplyResult = skillRuleStore.applyRewriteInstruction(rawInstruction)
@@ -1766,7 +1779,7 @@ final class InteractionCoordinator {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let spokenInstruction = processedInstruction.isEmpty ? rawInstruction : processedInstruction
         let initialFocusContext = contextDetector.focusedAppContext()
-        let selectionSnapshot = textOutputCoordinator.currentSelectionSnapshot()
+        let selectionSnapshot = pendingMagicianSelectionSnapshot ?? textOutputCoordinator.currentSelectionSnapshot()
         let fallbackFocusContext = selectionSnapshot?.focusContext ?? initialFocusContext
         let selectionText = selectionSnapshot?.selectedText ?? ""
 
@@ -2148,6 +2161,7 @@ final class InteractionCoordinator {
             actionLabel: quickActionLabel,
             stage: .textTransform
         )
+        var clipboardCandidateText: String?
         do {
             let rewriteResult = try await rewriteProvider.rewrite(
                 request: SelectionRewriteRequest(
@@ -2176,6 +2190,7 @@ final class InteractionCoordinator {
                 let normalized = outputApplyResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 return normalized.isEmpty ? rewriteResult.rewrittenText : normalized
             }()
+            clipboardCandidateText = finalRewriteText
 
             let outputRequest = TextOutputRequest(
                 text: finalRewriteText,
@@ -2257,6 +2272,46 @@ final class InteractionCoordinator {
             sessionStore.fail(message: message)
             currentTraceID = nil
         } catch let outputError as TextOutputError {
+            if
+                shouldFallbackToClipboardForMagician(outputError),
+                let clipboardCandidateText,
+                persistTextToClipboard(clipboardCandidateText)
+            {
+                let message = "未检测到可写入输入框，结果已复制到剪贴板。"
+                localHistoryStore.append(
+                    SessionHistoryEntry(
+                        mode: .selectionRewrite,
+                        appName: snapshot.focusContext.appName,
+                        bundleID: snapshot.focusContext.bundleID,
+                        inputText: snapshot.selectedText,
+                        outputText: clipboardCandidateText,
+                        instructionText: spokenInstruction,
+                        transcriptionProvider: transcription.providerName,
+                        transcriptionModel: transcription.modelName,
+                        rewriteProvider: rewriteConfiguration.providerName,
+                        rewriteModel: rewriteConfiguration.modelName,
+                        outputPath: .clipboardOnly,
+                        status: .success,
+                        audioDurationSeconds: audioDurationSeconds,
+                        appliedSkills: instructionApplyResult.appliedSkills
+                    )
+                )
+                speechPipelineLogger.log(
+                    traceID: traceID,
+                    lane: .selectionRewrite,
+                    provider: rewriteConfiguration.providerName,
+                    model: rewriteConfiguration.modelName,
+                    httpStatus: nil,
+                    stage: "magician.tool.success",
+                    detail: "intent=text_transform,path=\(TextOutputPath.clipboardOnly.rawValue)",
+                    audioDuration: audioDurationSeconds,
+                    transcriptLength: clipboardCandidateText.count
+                )
+                sessionStore.completeAction(statusMessage: message)
+                currentTraceID = nil
+                return
+            }
+
             let message = actionableOutputMessage(for: outputError, focusContext: snapshot.focusContext)
             localHistoryStore.append(
                 SessionHistoryEntry(
@@ -2323,6 +2378,30 @@ final class InteractionCoordinator {
             sessionStore.fail(message: message)
             currentTraceID = nil
         }
+    }
+
+    private func shouldFallbackToClipboardForMagician(_ error: TextOutputError) -> Bool {
+        switch error {
+        case .emptyText, .pasteboardUnavailable:
+            return false
+        case .accessibilityPermissionMissing,
+             .noFocusedElement,
+             .noEditableTarget,
+             .accessibilityPathFailed,
+             .pasteShortcutInjectionFailed,
+             .fallbackFailed:
+            return true
+        }
+    }
+
+    private func persistTextToClipboard(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return false
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        return pasteboard.setString(trimmed, forType: .string)
     }
 
     private func executeMagicianToolIntent(

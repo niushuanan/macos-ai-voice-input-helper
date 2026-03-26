@@ -469,8 +469,13 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
                 apiKey: key
             )
             let decoded = try decodeIntent(from: response.outputText)
-            return try schemaValidator.validate(
+            let normalizedIntent = normalizeLLMIntent(
                 decoded,
+                command: normalizedCommand,
+                selection: normalizedSelection
+            )
+            return try schemaValidator.validate(
+                normalizedIntent,
                 enabledFeatures: enabledFeatures,
                 command: normalizedCommand
             )
@@ -566,6 +571,13 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         3) Keep params minimal and only include useful fields.
         4) If intent is text_transform, sourceText must be the selected text and cannot be empty.
         5) For other intents, sourceText can be empty when there is no selected text.
+        6) When selected text is non-empty, treat it as the primary content source for create_note / create_event / compose_email_draft / web_search.
+        7) Never place generic command phrases into content fields. Examples of forbidden literal content:
+           - "帮我写进备忘录"
+           - "帮我建立日程"
+           - "帮我搜索一下"
+           - "整理成邮件草稿"
+        8) For create_event, extract title/time/location from selected text first, then command.
         """
     }
 
@@ -577,5 +589,139 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         Selected text:
         \(selection.isEmpty ? "(empty)" : selection)
         """
+    }
+
+    private func normalizeLLMIntent(
+        _ intent: MagicianIntent,
+        command: String,
+        selection: String
+    ) -> MagicianIntent {
+        var params = intent.params
+        var sourceText = intent.sourceText
+        let hasSelection = !selection.isEmpty
+
+        switch intent.intent {
+        case .textTransform:
+            if hasSelection {
+                sourceText = selection
+            }
+
+        case .webSearch:
+            if hasSelection {
+                sourceText = selection
+                if shouldUseSelectionAsContent(
+                    candidate: params.query,
+                    command: command,
+                    actionTokens: ["搜索", "查一下", "查一查", "google", "search"]
+                ) {
+                    params.query = selection
+                }
+            }
+
+        case .createEvent:
+            if hasSelection {
+                sourceText = selection
+                if shouldUseSelectionAsContent(
+                    candidate: params.title,
+                    command: command,
+                    actionTokens: ["日程", "建立日程", "创建日程", "建日程", "会议", "calendar", "event"]
+                ) {
+                    params.title = String(selection.prefix(60))
+                }
+            }
+
+        case .createNote:
+            if hasSelection {
+                sourceText = selection
+                if shouldUseSelectionAsContent(
+                    candidate: params.noteBody,
+                    command: command,
+                    actionTokens: ["备忘录", "写进备忘录", "写入备忘录", "记下来", "记到", "note"]
+                ) {
+                    params.noteBody = selection
+                }
+            }
+
+        case .composeEmailDraft:
+            if hasSelection {
+                sourceText = selection
+                if shouldUseSelectionAsContent(
+                    candidate: params.mailBody,
+                    command: command,
+                    actionTokens: ["邮件", "草稿", "mail", "email", "发邮件", "写邮件"]
+                ) {
+                    params.mailBody = selection
+                }
+                if shouldUseSelectionAsContent(
+                    candidate: params.mailSubject,
+                    command: command,
+                    actionTokens: ["邮件", "草稿", "mail", "email", "主题", "subject"]
+                ) {
+                    params.mailSubject = String(selection.prefix(24))
+                }
+            }
+        }
+
+        return MagicianIntent(
+            intent: intent.intent,
+            confidence: intent.confidence,
+            sourceText: sourceText,
+            params: params
+        )
+    }
+
+    private func shouldUseSelectionAsContent(
+        candidate: String?,
+        command: String,
+        actionTokens: [String]
+    ) -> Bool {
+        guard let candidate else {
+            return true
+        }
+        let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return true
+        }
+        return isLikelyInstructionPhrase(
+            trimmed,
+            command: command,
+            actionTokens: actionTokens
+        )
+    }
+
+    private func isLikelyInstructionPhrase(
+        _ text: String,
+        command: String,
+        actionTokens: [String]
+    ) -> Bool {
+        let compactText = compactIntentText(text)
+        guard !compactText.isEmpty else {
+            return true
+        }
+        if compactText == compactIntentText(command) {
+            return true
+        }
+
+        var reduced = compactText
+        let baseTokens = [
+            "帮我", "请", "一下", "帮忙", "把", "给我", "这段", "这个", "内容", "文字", "文本"
+        ] + actionTokens
+        for token in baseTokens {
+            let compactToken = compactIntentText(token)
+            guard !compactToken.isEmpty else {
+                continue
+            }
+            reduced = reduced.replacingOccurrences(of: compactToken, with: "")
+        }
+        return reduced.isEmpty || reduced.count <= 2
+    }
+
+    private func compactIntentText(_ value: String) -> String {
+        let separators = CharacterSet.whitespacesAndNewlines
+            .union(.punctuationCharacters)
+            .union(.symbols)
+        return value.lowercased()
+            .components(separatedBy: separators)
+            .joined()
     }
 }

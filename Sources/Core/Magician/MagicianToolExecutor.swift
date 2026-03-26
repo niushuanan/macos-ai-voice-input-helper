@@ -108,6 +108,42 @@ private func runOsaScript(
     )
 }
 
+private func compactIntentText(_ value: String) -> String {
+    let separators = CharacterSet.whitespacesAndNewlines
+        .union(.punctuationCharacters)
+        .union(.symbols)
+    return value.lowercased()
+        .components(separatedBy: separators)
+        .joined()
+}
+
+private func isLikelyInstructionPhrase(
+    _ candidate: String,
+    command: String,
+    actionTokens: [String]
+) -> Bool {
+    let compactCandidate = compactIntentText(candidate)
+    guard !compactCandidate.isEmpty else {
+        return true
+    }
+    if compactCandidate == compactIntentText(command) {
+        return true
+    }
+
+    var reduced = compactCandidate
+    let baseTokens = [
+        "帮我", "请", "一下", "帮忙", "把", "给我", "这段", "这个", "内容", "文字", "文本"
+    ] + actionTokens
+    for token in baseTokens {
+        let compactToken = compactIntentText(token)
+        guard !compactToken.isEmpty else {
+            continue
+        }
+        reduced = reduced.replacingOccurrences(of: compactToken, with: "")
+    }
+    return reduced.isEmpty || reduced.count <= 2
+}
+
 private struct MagicianWebSearchAdapter {
     func execute(
         intent: MagicianIntent,
@@ -277,18 +313,43 @@ private struct MagicianEventAdapter {
         intent: MagicianIntent,
         context: MagicianExecutionContext
     ) -> String {
+        let selected = context.selectedText
+        let command = context.command.trimmingCharacters(in: .whitespacesAndNewlines)
         if
             let title = intent.params.title?.trimmingCharacters(in: .whitespacesAndNewlines),
             !title.isEmpty
         {
+            if
+                !selected.isEmpty,
+                isLikelyInstructionPhrase(
+                    title,
+                    command: command,
+                    actionTokens: ["日程", "建立日程", "创建日程", "建日程", "会议", "calendar", "event"]
+                )
+            {
+                return String(selected.prefix(20))
+            }
             return String(title.prefix(60))
         }
 
-        let selected = context.selectedText
+        let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !source.isEmpty {
+            if
+                !selected.isEmpty,
+                isLikelyInstructionPhrase(
+                    source,
+                    command: command,
+                    actionTokens: ["日程", "建立日程", "创建日程", "建日程", "会议", "calendar", "event"]
+                )
+            {
+                return String(selected.prefix(20))
+            }
+            return String(source.prefix(20))
+        }
+
         if selected.isEmpty {
-            let fromCommand = context.command.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !fromCommand.isEmpty {
-                return String(fromCommand.prefix(20))
+            if !command.isEmpty {
+                return String(command.prefix(20))
             }
             return "待办事项"
         }
@@ -467,18 +528,40 @@ private struct MagicianNoteAdapter {
         intent: MagicianIntent,
         context: MagicianExecutionContext
     ) -> String {
+        let selected = context.selectedText
+        let command = context.command.trimmingCharacters(in: .whitespacesAndNewlines)
         let body = intent.params.noteBody?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !body.isEmpty {
+            if
+                !selected.isEmpty,
+                isLikelyInstructionPhrase(
+                    body,
+                    command: command,
+                    actionTokens: ["备忘录", "写进备忘录", "写入备忘录", "记到", "记下来", "note"]
+                )
+            {
+                return selected
+            }
             return body
         }
         let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !source.isEmpty {
+            if
+                !selected.isEmpty,
+                isLikelyInstructionPhrase(
+                    source,
+                    command: command,
+                    actionTokens: ["备忘录", "写进备忘录", "写入备忘录", "记到", "记下来", "note"]
+                )
+            {
+                return selected
+            }
             return source
         }
-        if !context.selectedText.isEmpty {
-            return context.selectedText
+        if !selected.isEmpty {
+            return selected
         }
-        return context.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        return command
     }
 
     private func resolvedNoteTitle(
@@ -652,41 +735,83 @@ private struct MagicianMailDraftAdapter {
         intent: MagicianIntent,
         context: MagicianExecutionContext
     ) -> String {
+        let selected = context.selectedText
+        let command = context.command.trimmingCharacters(in: .whitespacesAndNewlines)
         let subject = intent.params.mailSubject?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !subject.isEmpty {
+            if
+                !selected.isEmpty,
+                isLikelyInstructionPhrase(
+                    subject,
+                    command: command,
+                    actionTokens: ["邮件", "草稿", "写邮件", "发邮件", "mail", "email", "主题", "subject"]
+                )
+            {
+                return String(selected.prefix(24))
+            }
             return subject
         }
-        let selected = context.selectedText
-        if selected.isEmpty {
-            let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !source.isEmpty {
-                return String(source.prefix(24))
+        let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !source.isEmpty {
+            if
+                !selected.isEmpty,
+                isLikelyInstructionPhrase(
+                    source,
+                    command: command,
+                    actionTokens: ["邮件", "草稿", "写邮件", "发邮件", "mail", "email", "主题", "subject"]
+                )
+            {
+                return String(selected.prefix(24))
             }
-            let command = context.command.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !command.isEmpty {
-                return String(command.prefix(24))
-            }
-            return "来自 PulseType 的邮件草稿"
+            return String(source.prefix(24))
         }
-        return String(selected.prefix(24))
+        if !selected.isEmpty {
+            return String(selected.prefix(24))
+        }
+        if !command.isEmpty {
+            return String(command.prefix(24))
+        }
+        return "来自 PulseType 的邮件草稿"
     }
 
     private func resolvedBody(
         intent: MagicianIntent,
         context: MagicianExecutionContext
     ) -> String {
+        let selected = context.selectedText
+        let command = context.command.trimmingCharacters(in: .whitespacesAndNewlines)
         let body = intent.params.mailBody?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !body.isEmpty {
+            if
+                !selected.isEmpty,
+                isLikelyInstructionPhrase(
+                    body,
+                    command: command,
+                    actionTokens: ["邮件", "草稿", "写邮件", "发邮件", "mail", "email"]
+                )
+            {
+                return selected
+            }
             return body
         }
         let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !source.isEmpty {
+            if
+                !selected.isEmpty,
+                isLikelyInstructionPhrase(
+                    source,
+                    command: command,
+                    actionTokens: ["邮件", "草稿", "写邮件", "发邮件", "mail", "email"]
+                )
+            {
+                return selected
+            }
             return source
         }
-        if !context.selectedText.isEmpty {
-            return context.selectedText
+        if !selected.isEmpty {
+            return selected
         }
-        return context.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        return command
     }
 
     private func createDraftViaAppleScript(
