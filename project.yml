@@ -19,6 +19,8 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - path: Sources
+      - path: Config/AppRuntimePolicy.plist
+        buildPhase: resources
     configFiles:
       Debug: Config/Debug.xcconfig
       Release: Config/Release.xcconfig

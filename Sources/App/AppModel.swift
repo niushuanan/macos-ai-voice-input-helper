@@ -59,6 +59,7 @@ final class AppModel: ObservableObject {
     let diagnosticsCenter: DiagnosticsCenter
     let statusPulseHUDController: StatusPulseHUDController
     let toastPresenter: ToastPresenter
+    private let runtimePolicy = AppRuntimePolicy.current()
     private var cancellables = Set<AnyCancellable>()
 
     init(
@@ -127,12 +128,8 @@ final class AppModel: ObservableObject {
         let audioCaptureService = AVAudioRecorderCaptureService(temporaryDirectory: store.temporaryAudioDirectory)
         let skillRuleStore = SkillRuleStore()
         let magicianFeatureToggleStore = MagicianFeatureToggleStore()
-        let credentialStore = LocalFileProviderCredentialStore(
-            credentialsDirectory: store.credentialsDirectory,
-            legacyStores: [
-                KeychainProviderCredentialStore(service: "com.niushuanan.PulseType.provider-profile.v4"),
-                KeychainProviderCredentialStore(service: "com.niushuanan.PulseType.provider-profile.v3")
-            ]
+        let credentialStore = CredentialStoreFactory.makeProviderCredentialStore(
+            credentialsDirectory: store.credentialsDirectory
         )
         let providerSettingsStore = ProviderSettingsStore(
             credentialStore: credentialStore
@@ -314,7 +311,8 @@ final class AppModel: ObservableObject {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: "KeyboardShortcuts_stopSession")
 
-        guard Bundle.main.bundlePath == "/Applications/PulseType.app" else {
+        let installPath = runtimePolicy.installPath
+        guard Bundle.main.bundlePath == installPath else {
             return
         }
 
@@ -322,7 +320,7 @@ final class AppModel: ObservableObject {
 
         if
             let fingerprint = defaults.string(forKey: "permissions.accessibilityPromptFingerprint"),
-            !fingerprint.contains("/Applications/PulseType.app")
+            !fingerprint.contains(installPath)
         {
             defaults.set(false, forKey: "permissions.didPromptAccessibility")
             defaults.removeObject(forKey: "permissions.accessibilityPromptFingerprint")
@@ -346,9 +344,9 @@ final class AppModel: ObservableObject {
             var removedPaths: [String] = []
             for case let url as URL in enumerator {
                 guard
-                    url.lastPathComponent == "PulseType.app",
+                    url.lastPathComponent == self.runtimePolicy.installURL.lastPathComponent,
                     url.path.contains("/Build/Products/"),
-                    url.path != "/Applications/PulseType.app"
+                    url.path != self.runtimePolicy.installPath
                 else {
                     continue
                 }
@@ -364,13 +362,13 @@ final class AppModel: ObservableObject {
             guard
                 !removedPaths.isEmpty,
                 fileManager.isExecutableFile(
-                    atPath: "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
+                    atPath: self.runtimePolicy.launchServicesToolPath
                 )
             else {
                 return
             }
 
-            let lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
+            let lsregister = self.runtimePolicy.launchServicesToolPath
             for path in removedPaths {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: lsregister)

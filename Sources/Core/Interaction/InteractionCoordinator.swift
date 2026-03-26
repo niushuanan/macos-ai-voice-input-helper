@@ -3,94 +3,6 @@ import Combine
 import EventKit
 import Foundation
 
-struct WakeInvocationContext: Equatable {
-    enum Source: String, Equatable {
-        case dictationTap
-        case magicianHold
-    }
-
-    let source: Source
-
-    static let dictationTap = WakeInvocationContext(source: .dictationTap)
-    static let magicianHold = WakeInvocationContext(source: .magicianHold)
-    static let dictation = WakeInvocationContext.dictationTap
-}
-
-struct DictationWritebackTarget: Equatable {
-    let focusContext: FocusedAppContext
-    let processIdentifier: pid_t?
-
-    var snapshot: WritebackTargetSnapshot {
-        WritebackTargetSnapshot(
-            appName: focusContext.appName,
-            bundleID: focusContext.bundleID,
-            processIdentifier: processIdentifier
-        )
-    }
-}
-
-private struct DictationPostProcessOutcome {
-    let route: DictationRoute
-    let text: String
-    let appliedSkills: [SkillRuleID]
-    let nonBlockingNotice: String?
-}
-
-private struct BrainstormComposeOutcome {
-    let summaryText: String
-    let dialogueText: String
-    let rewriteProvider: String?
-    let rewriteModel: String?
-    let tokenBudget: Int?
-    let appliedSkills: [SkillRuleID]
-    let nonBlockingNotice: String?
-}
-
-private enum DictationRoute {
-    case asrOnly
-    case asrAndTextProcessing
-}
-
-struct DictationTextProcessingPolicy {
-    static let shortCleanLengthThreshold = 10
-
-    static func shouldUseModel(text: String) -> Bool {
-        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
-            return false
-        }
-
-        if normalized.contains("<|") || normalized.contains("|>") {
-            return true
-        }
-
-        if normalized.contains("  ") || hasRepeatedPunctuation(in: normalized) {
-            return true
-        }
-
-        if normalized.split(whereSeparator: \.isNewline).count > 1 {
-            return true
-        }
-
-        return normalized.count > shortCleanLengthThreshold
-    }
-
-    private static func hasRepeatedPunctuation(in text: String) -> Bool {
-        let repeatedTokens = ["。。", "，，", "！！", "？？", "..", ",,", "!!", "??"]
-        return repeatedTokens.contains { text.contains($0) }
-    }
-}
-
-private struct ASRTranscriptionOutcome {
-    let result: SpeechTranscriptionResult
-    let attempts: Int
-}
-
-private struct ASRTranscriptionFailure: Error {
-    let error: SpeechTranscriptionError
-    let attempts: Int
-}
-
 @MainActor
 final class InteractionCoordinator {
     private let sessionStore: SessionStore
@@ -549,10 +461,10 @@ final class InteractionCoordinator {
                     lane: request.lane,
                     provider: configuration.providerName,
                     model: configuration.modelName,
-                    httpStatus: httpStatus(from: speechError),
+                    httpStatus: SpeechTranscriptionErrorPresentation.httpStatus(from: speechError),
                     stage: "asr.attempt.failed",
-                    errorType: transcriptionErrorType(for: speechError),
-                    detail: actionableMessage(for: speechError),
+                    errorType: SpeechTranscriptionErrorPresentation.errorType(for: speechError),
+                    detail: SpeechTranscriptionErrorPresentation.actionableMessage(for: speechError),
                     audioDuration: request.clip.duration
                 )
                 if case .invalidResponse = speechError, attempt == 1 {
@@ -582,10 +494,10 @@ final class InteractionCoordinator {
                     lane: request.lane,
                     provider: configuration.providerName,
                     model: configuration.modelName,
-                    httpStatus: httpStatus(from: wrapped),
+                    httpStatus: SpeechTranscriptionErrorPresentation.httpStatus(from: wrapped),
                     stage: "asr.attempt.failed",
-                    errorType: transcriptionErrorType(for: wrapped),
-                    detail: actionableMessage(for: wrapped),
+                    errorType: SpeechTranscriptionErrorPresentation.errorType(for: wrapped),
+                    detail: SpeechTranscriptionErrorPresentation.actionableMessage(for: wrapped),
                     audioDuration: request.clip.duration
                 )
                 throw ASRTranscriptionFailure(
@@ -599,35 +511,6 @@ final class InteractionCoordinator {
             error: .invalidResponse,
             attempts: 2
         )
-    }
-
-    private func finalTranscriptionErrorMessage(
-        for error: SpeechTranscriptionError,
-        traceID: String,
-        attempts: Int
-    ) -> String {
-        let message = actionableMessage(for: error)
-        if case .invalidResponse = error, attempts >= 2 {
-            return "\(message)（traceID: \(traceID)）"
-        }
-        return message
-    }
-
-    private func transcriptionErrorType(for error: SpeechTranscriptionError) -> String {
-        switch error {
-        case .missingAPIKey:
-            return "missingAPIKey"
-        case .audioFormatUnsupported:
-            return "audioFormatUnsupported"
-        case .networkFailure:
-            return "networkFailure"
-        case .providerFailure:
-            return "providerFailure"
-        case .invalidResponse:
-            return "invalidResponse"
-        case .cancelled:
-            return "cancelled"
-        }
     }
 
     private func armBrainstormDurationGuard(
@@ -850,7 +733,7 @@ final class InteractionCoordinator {
                         lane: .brainstormDiscussion,
                         provider: configuration.providerName,
                         model: configuration.modelName,
-                        httpStatus: httpStatus(from: speechError),
+                        httpStatus: SpeechTranscriptionErrorPresentation.httpStatus(from: speechError),
                         stage: "brainstorm.probe.attempt.success",
                         detail: "durationSeconds=\(durationSeconds),emptyTranscriptAsSuccess"
                     )
@@ -861,10 +744,10 @@ final class InteractionCoordinator {
                     lane: .brainstormDiscussion,
                     provider: configuration.providerName,
                     model: configuration.modelName,
-                    httpStatus: httpStatus(from: speechError),
+                    httpStatus: SpeechTranscriptionErrorPresentation.httpStatus(from: speechError),
                     stage: "brainstorm.probe.attempt.failed",
-                    errorType: transcriptionErrorType(for: speechError),
-                    detail: "durationSeconds=\(durationSeconds),\(actionableMessage(for: speechError))"
+                    errorType: SpeechTranscriptionErrorPresentation.errorType(for: speechError),
+                    detail: "durationSeconds=\(durationSeconds),\(SpeechTranscriptionErrorPresentation.actionableMessage(for: speechError))"
                 )
                 return false
             } catch {
@@ -943,32 +826,6 @@ final class InteractionCoordinator {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         return "\(providerType.rawValue)|\(normalizedModel)"
-    }
-
-    private func httpStatus(from error: SpeechTranscriptionError) -> Int? {
-        switch error {
-        case let .networkFailure(description):
-            return httpStatus(from: description)
-        case let .providerFailure(description):
-            return httpStatus(from: description)
-        case .missingAPIKey, .audioFormatUnsupported, .invalidResponse, .cancelled:
-            return nil
-        }
-    }
-
-    private func httpStatus(from text: String) -> Int? {
-        guard
-            let regex = try? NSRegularExpression(pattern: #"HTTP\s+(\d{3})"#, options: .caseInsensitive),
-            let match = regex.firstMatch(
-                in: text,
-                options: [],
-                range: NSRange(text.startIndex..<text.endIndex, in: text)
-            ),
-            let range = Range(match.range(at: 1), in: text)
-        else {
-            return nil
-        }
-        return Int(text[range])
     }
 
     private func startTranscription(for clip: RecordedAudioClip) {
@@ -1063,7 +920,7 @@ final class InteractionCoordinator {
                 currentDictationTarget = nil
                 audioCaptureService.removeClip(at: clip.fileURL)
                 sessionStore.clearPendingClipReference()
-                let message = finalTranscriptionErrorMessage(
+                let message = SpeechTranscriptionErrorPresentation.finalErrorMessage(
                     for: failure.error,
                     traceID: traceID,
                     attempts: failure.attempts
@@ -1088,9 +945,9 @@ final class InteractionCoordinator {
                     lane: lane,
                     provider: resolvedConfiguration?.providerName,
                     model: resolvedConfiguration?.modelName,
-                    httpStatus: httpStatus(from: failure.error),
+                    httpStatus: SpeechTranscriptionErrorPresentation.httpStatus(from: failure.error),
                     stage: "asr.failed",
-                    errorType: transcriptionErrorType(for: failure.error),
+                    errorType: SpeechTranscriptionErrorPresentation.errorType(for: failure.error),
                     detail: message,
                     audioDuration: clip.duration
                 )
@@ -1127,7 +984,7 @@ final class InteractionCoordinator {
                         transcriptionProvider: resolvedConfiguration?.providerName,
                         transcriptionModel: resolvedConfiguration?.modelName,
                         status: .failed,
-                        errorMessage: actionableMessage(for: speechError),
+                        errorMessage: SpeechTranscriptionErrorPresentation.actionableMessage(for: speechError),
                         audioDurationSeconds: clip.duration
                     )
                 )
@@ -1136,13 +993,13 @@ final class InteractionCoordinator {
                     lane: lane,
                     provider: resolvedConfiguration?.providerName,
                     model: resolvedConfiguration?.modelName,
-                    httpStatus: httpStatus(from: speechError),
+                    httpStatus: SpeechTranscriptionErrorPresentation.httpStatus(from: speechError),
                     stage: "asr.failed",
-                    errorType: transcriptionErrorType(for: speechError),
-                    detail: actionableMessage(for: speechError),
+                    errorType: SpeechTranscriptionErrorPresentation.errorType(for: speechError),
+                    detail: SpeechTranscriptionErrorPresentation.actionableMessage(for: speechError),
                     audioDuration: clip.duration
                 )
-                sessionStore.fail(message: actionableMessage(for: speechError))
+                sessionStore.fail(message: SpeechTranscriptionErrorPresentation.actionableMessage(for: speechError))
                 currentTraceID = nil
             } catch {
                 guard !Task.isCancelled else {
@@ -1151,7 +1008,9 @@ final class InteractionCoordinator {
                 currentDictationTarget = nil
                 audioCaptureService.removeClip(at: clip.fileURL)
                 sessionStore.clearPendingClipReference()
-                let message = actionableMessage(for: .providerFailure(description: error.localizedDescription))
+                let message = SpeechTranscriptionErrorPresentation.actionableMessage(
+                    for: .providerFailure(description: error.localizedDescription)
+                )
                 let focusContext = contextDetector.focusedAppContext()
                 localHistoryStore.append(
                     SessionHistoryEntry(
@@ -1172,7 +1031,7 @@ final class InteractionCoordinator {
                     lane: lane,
                     provider: resolvedConfiguration?.providerName,
                     model: resolvedConfiguration?.modelName,
-                    httpStatus: httpStatus(from: message),
+                    httpStatus: SpeechTranscriptionErrorPresentation.httpStatus(from: message),
                     stage: "asr.failed",
                     errorType: "providerFailure",
                     detail: message,
@@ -1774,7 +1633,7 @@ final class InteractionCoordinator {
                 lane: .brainstormDiscussion,
                 provider: providerSettingsStore.rewriteConfiguration.providerName,
                 model: providerSettingsStore.rewriteConfiguration.modelName,
-                httpStatus: httpStatus(from: message),
+                httpStatus: SpeechTranscriptionErrorPresentation.httpStatus(from: message),
                 stage: "brainstorm.compose.fallback",
                 errorType: "composeFailed",
                 detail: message,
@@ -1794,55 +1653,15 @@ final class InteractionCoordinator {
         tokenBudget: Int? = nil
     ) -> BrainstormComposeOutcome {
         let normalized = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let summaryText = fallbackBrainstormSummary(transcript: normalized)
-        let dialogueText = fallbackBrainstormDialogue(transcript: normalized)
         return BrainstormComposeOutcome(
-            summaryText: summaryText,
-            dialogueText: dialogueText,
+            summaryText: BrainstormFallbackComposer.summary(for: normalized),
+            dialogueText: BrainstormFallbackComposer.dialogue(for: normalized),
             rewriteProvider: nil,
             rewriteModel: nil,
             tokenBudget: tokenBudget,
             appliedSkills: [],
             nonBlockingNotice: notice
         )
-    }
-
-    private func fallbackBrainstormSummary(transcript: String) -> String {
-        var points = [
-            "先确认讨论目标与边界，再推进执行。",
-            "优先完成最小可行版本，复杂项后置。",
-            "按优先级拆分任务并明确负责人。"
-        ]
-        if let firstLine = transcript
-            .split(whereSeparator: \.isNewline)
-            .map(String.init)
-            .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
-        {
-            points[0] = "本次讨论核心为：\(firstLine.prefix(28))。"
-        }
-        return points.map { "- \($0)" }.joined(separator: "\n")
-    }
-
-    private func fallbackBrainstormDialogue(transcript: String) -> String {
-        let normalized = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
-            return "A: （暂无有效转写内容）"
-        }
-
-        let rawLines = normalized
-            .split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        let roles = ["A", "B", "C"]
-        let lines = rawLines.isEmpty ? [normalized] : rawLines
-
-        return lines.enumerated().map { index, line in
-            if line.range(of: #"^[A-Z][A-Z0-9]*\s*[:：]"#, options: .regularExpression) != nil {
-                return line.replacingOccurrences(of: "：", with: ":")
-            }
-            return "\(roles[index % roles.count]): \(line)"
-        }
-        .joined(separator: "\n")
     }
 
     private func outputSelectionRewrite(
@@ -1854,7 +1673,7 @@ final class InteractionCoordinator {
         }
         let traceID = ensureTraceID()
         let rawInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let instructionApplyResult = sanitizeMagicianCommand(rawInstruction)
+        let instructionApplyResult = MagicianCommandSanitizer.sanitize(rawInstruction)
         let processedInstruction = instructionApplyResult.text
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let spokenInstruction = processedInstruction.isEmpty ? rawInstruction : processedInstruction
@@ -2786,23 +2605,6 @@ final class InteractionCoordinator {
         sessionStore.clearPendingClipReference()
     }
 
-    private func actionableMessage(for error: SpeechTranscriptionError) -> String {
-        switch error {
-        case let .missingAPIKey(providerName):
-            return "\(providerName) 缺少 API 密钥，请在设置页服务商配置中填写。"
-        case let .networkFailure(description):
-            return "转写时出现网络问题，请检查网络后重试。（\(description)）"
-        case let .providerFailure(description):
-            return "转写请求失败。\(providerFailureHint(from: description))（\(description)）"
-        case let .audioFormatUnsupported(fileExtension):
-            return "录音格式 \(fileExtension) 不支持，请重新录音后再试。"
-        case .invalidResponse:
-            return "服务商返回内容无法解析，可先重试一次，仍失败请更换模型。"
-        case .cancelled:
-            return "转写已取消。"
-        }
-    }
-
     private func actionableOutputMessage(
         for error: TextOutputError,
         focusContext: FocusedAppContext
@@ -2834,79 +2636,10 @@ final class InteractionCoordinator {
         case .emptyInstruction:
             return "指令为空，可尝试“翻译、润色、精简、结构化整理”等命令。"
         case let .generationFailed(description):
-            return "改写请求失败。\(providerFailureHint(from: description))（\(description)）"
+            return "改写请求失败。\(SpeechTranscriptionErrorPresentation.providerFailureHint(from: description))（\(description)）"
         case .invalidGeneratedText:
             return "改写结果为空，请用更清晰的命令再试一次。"
         }
-    }
-
-    private func providerFailureHint(from description: String) -> String {
-        let lowered = description.lowercased()
-        if lowered.contains("401") || lowered.contains("unauthorized") || lowered.contains("invalid api key") {
-            return "请检查 API 密钥与服务商类型。"
-        }
-        if lowered.contains("403") || lowered.contains("forbidden") {
-            return "请检查账号是否有该模型的调用权限。"
-        }
-        if lowered.contains("404") || lowered.contains("model") {
-            return "请核对模型名与 base URL。"
-        }
-        if lowered.contains("429") || lowered.contains("rate limit") {
-            return "触发频率限制，可稍后再试或切换模型/服务商。"
-        }
-        if lowered.contains("500") || lowered.contains("502") || lowered.contains("503") || lowered.contains("504") {
-            return "服务商接口当前不稳定，请稍后再试。"
-        }
-        return "请检查 Key、模型、接口地址与额度。"
-    }
-
-    private func sanitizeMagicianCommand(_ rawInstruction: String) -> SkillApplyResult {
-        let trimmed = rawInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return SkillApplyResult(text: "", appliedSkills: [])
-        }
-
-        var value = trimmed
-        for token in ["左", "右", "上", "下", "前", "后"] {
-            value = collapseRepeatedMagicianToken(in: value, token: token)
-        }
-        for word in ["shift", "option", "command", "control", "ctrl"] {
-            value = collapseRepeatedMagicianWord(in: value, word: word)
-        }
-        value = value.replacingOccurrences(
-            of: "\\s+",
-            with: " ",
-            options: .regularExpression
-        )
-        return SkillApplyResult(
-            text: value.trimmingCharacters(in: .whitespacesAndNewlines),
-            appliedSkills: []
-        )
-    }
-
-    private func collapseRepeatedMagicianToken(in text: String, token: String) -> String {
-        let escaped = NSRegularExpression.escapedPattern(for: token)
-        let pattern = "(\(escaped))\\s*\\1+"
-        return magicianReplacingMatches(in: text, pattern: pattern, template: "$1")
-    }
-
-    private func collapseRepeatedMagicianWord(in text: String, word: String) -> String {
-        let escaped = NSRegularExpression.escapedPattern(for: word)
-        let pattern = "(?i)\\b(\(escaped))\\b(?:\\s+\\1\\b)+"
-        return magicianReplacingMatches(in: text, pattern: pattern, template: "$1")
-    }
-
-    private func magicianReplacingMatches(in text: String, pattern: String, template: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return text
-        }
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        return regex.stringByReplacingMatches(
-            in: text,
-            options: [],
-            range: range,
-            withTemplate: template
-        )
     }
 
     private func effectiveScenePolicy(for context: FocusedAppContext) -> AppScenePolicy {

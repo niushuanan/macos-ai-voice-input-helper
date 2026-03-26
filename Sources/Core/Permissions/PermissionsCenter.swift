@@ -133,6 +133,7 @@ final class PermissionsCenter: ObservableObject {
     @Published private(set) var snapshot: PermissionSnapshot = .initial
     @Published private(set) var runtimeDiagnostics: PermissionRuntimeDiagnostics
 
+    private let runtimePolicy = AppRuntimePolicy.current()
     private let defaults: UserDefaults
     private let didPromptAccessibilityKey = "permissions.didPromptAccessibility"
     private let accessibilityPromptFingerprintKey = "permissions.accessibilityPromptFingerprint"
@@ -363,7 +364,7 @@ final class PermissionsCenter: ObservableObject {
     private func guidanceText(for kind: PermissionKind) -> String {
         switch kind {
         case .microphone:
-            return "先点“请求”，如果被拒绝，请到 系统设置 > 隐私与安全性 > 麦克风 开启 PulseType。若每次启动都重复弹窗，请确认只保留 /Applications/PulseType.app。"
+            return "先点“请求”，如果被拒绝，请到 系统设置 > 隐私与安全性 > 麦克风 开启 PulseType。若每次启动都重复弹窗，请确认只保留 \(runtimePolicy.installPath)。"
         case .accessibility:
             return "先点“请求”，再到 系统设置 > 隐私与安全性 > 辅助功能 开启 PulseType。若列表里有多个同名项，只保留当前正在运行的 PulseType。"
         }

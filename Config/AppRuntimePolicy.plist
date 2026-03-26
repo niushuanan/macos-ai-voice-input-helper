@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>appName</key>
+	<string>PulseType</string>
+	<key>bundleIdentifier</key>
+	<string>com.niushuanan.PulseType</string>
+	<key>debugRuntimeEnvironmentKey</key>
+	<string>PULSETYPE_ALLOW_DEBUG_RUNTIME</string>
+	<key>installPath</key>
+	<string>/Applications/PulseType.app</string>
+	<key>launchServicesToolPath</key>
+	<string>/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister</string>
+</dict>
+</plist>

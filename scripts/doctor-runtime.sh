@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_ID="com.niushuanan.PulseType"
-APP_NAME="PulseType"
-APP_INSTALL_PATH="/Applications/PulseType.app"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/lib/runtime-policy.sh"
+runtime_policy_init
+
+APP_ID="$PULSETYPE_APP_ID"
+APP_NAME="$PULSETYPE_APP_NAME"
+APP_INSTALL_PATH="$PULSETYPE_INSTALL_PATH"
 CREDENTIAL_FILE="$HOME/Library/Application Support/PulseType/Credentials/credentials.v1.json"
 KEYCHAIN_SERVICE_V1="com.niushuanan.PulseType.provider-profile"
 KEYCHAIN_SERVICE_V2="com.niushuanan.PulseType.provider-profile.v2"
 KEYCHAIN_SERVICE_V3="com.niushuanan.PulseType.provider-profile.v3"
 KEYCHAIN_SERVICE_V4="com.niushuanan.PulseType.provider-profile.v4"
-LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
+LSREGISTER="$PULSETYPE_LSREGISTER_PATH"
 
 print_header() {
   local title="$1"
@@ -18,7 +22,7 @@ print_header() {
 }
 
 print_header "运行进程"
-RUNNING="$(ps aux | rg "/PulseType.app/Contents/MacOS/PulseType" | rg -v "rg /PulseType.app/Contents/MacOS/PulseType" || true)"
+RUNNING="$(ps aux | rg "/$(basename "$APP_INSTALL_PATH")/Contents/MacOS/$(basename "$APP_INSTALL_PATH" .app)" | rg -v "rg /$(basename "$APP_INSTALL_PATH")/Contents/MacOS/$(basename "$APP_INSTALL_PATH" .app)" || true)"
 if [[ -z "$RUNNING" ]]; then
   echo "当前未检测到 PulseType 进程。"
 else

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/lib/runtime-policy.sh"
+runtime_policy_init
+
 usage() {
   cat <<'USAGE'
 用法:
@@ -12,8 +16,6 @@ usage() {
   --skip-install  可选，跳过 /Applications 覆盖安装
 USAGE
 }
-
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEVELOPER_DIR_VALUE="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 commit_message=""
 skip_install=0
@@ -145,5 +147,5 @@ echo "push: origin/$branch_name"
 if [[ "$skip_install" -eq 1 ]]; then
   echo "install: skipped"
 else
-  echo "install: /Applications/PulseType.app"
+  echo "install: $PULSETYPE_INSTALL_PATH"
 fi

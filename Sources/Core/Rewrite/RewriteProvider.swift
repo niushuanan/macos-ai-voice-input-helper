@@ -634,7 +634,7 @@ struct LLMBrainstormContextComposer: BrainstormContextComposer {
         let summarySource = dictionary["summaryPoints"] ?? dictionary["summary"]
         let dialogueSource = dictionary["dialogueLines"] ?? dictionary["dialogue"]
         var summaryPoints = normalizeSummaryPoints(summarySource)
-        var dialogueLines = normalizeDialogueLines(dialogueSource)
+        let dialogueLines = normalizeDialogueLines(dialogueSource)
 
         if summaryPoints.count > 5 {
             summaryPoints = Array(summaryPoints.prefix(5))

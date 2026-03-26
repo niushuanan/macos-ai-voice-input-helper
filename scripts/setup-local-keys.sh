@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$ROOT_DIR/scripts/lib/runtime-policy.sh"
+runtime_policy_init
+
 KEYCHAIN_SERVICE="com.niushuanan.PulseType.provider-profile.v4"
 ASR_ACCOUNT="asr.primary"
 TEXT_ACCOUNT="text.primary"
-TRUSTED_APP="/Applications/PulseType.app"
+TRUSTED_APP="$PULSETYPE_INSTALL_PATH"
 
 save_key() {
   local account="$1"
@@ -70,6 +75,6 @@ fi
 
 echo
 if [[ ! -d "$TRUSTED_APP" ]]; then
-  echo "注意：未检测到 /Applications/PulseType.app，首次使用时可能仍需在 App 内重新保存一次密钥。"
+  echo "注意：未检测到 $TRUSTED_APP，首次使用时可能仍需在 App 内重新保存一次密钥。"
 fi
 echo "完成。你可以打开 PulseType -> 模型页点“测试 ASR / 测试文本模型”验证配置。"

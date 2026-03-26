@@ -473,10 +473,15 @@ final class StatusPulseHUDController {
                 context.duration = visibility.fadeDuration
                 panel.animator().alphaValue = 0
             }, completionHandler: {
-                guard generation == self.visibilityGeneration else {
-                    return
+                Task { @MainActor [weak self] in
+                    guard
+                        let self,
+                        generation == self.visibilityGeneration
+                    else {
+                        return
+                    }
+                    panel.orderOut(nil)
                 }
-                panel.orderOut(nil)
             })
         }
 

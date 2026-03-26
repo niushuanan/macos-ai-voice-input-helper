@@ -2,11 +2,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/lib/runtime-policy.sh"
+runtime_policy_init
+
 PROJECT_PATH="$ROOT_DIR/PulseType.xcodeproj"
 SCHEME="PulseType"
 CONFIGURATION="${CONFIGURATION:-Debug}"
-DEST_APP="/Applications/PulseType.app"
-APP_ID="com.niushuanan.PulseType"
+DEST_APP="$PULSETYPE_INSTALL_PATH"
+APP_ID="$PULSETYPE_APP_ID"
 DEVELOPER_DIR_VALUE="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
 if [[ ! -d "$DEVELOPER_DIR_VALUE" ]]; then
@@ -64,8 +67,8 @@ if [[ ! -d "$SOURCE_APP" ]]; then
 fi
 
 echo "准备覆盖安装到 $DEST_APP ..."
-osascript -e 'try' -e 'tell application id "com.niushuanan.PulseType" to quit' -e 'end try' >/dev/null 2>&1 || true
-pkill -f "/PulseType.app/Contents/MacOS/PulseType" >/dev/null 2>&1 || true
+osascript -e 'try' -e "tell application id \"$APP_ID\" to quit" -e 'end try' >/dev/null 2>&1 || true
+pkill -f "/$(basename "$DEST_APP")/Contents/MacOS/$(basename "$DEST_APP" .app)" >/dev/null 2>&1 || true
 
 if [[ -d "$DEST_APP" ]]; then
   rm -rf "$DEST_APP" || {
@@ -86,7 +89,7 @@ codesign \
   --requirements "=designated => identifier \"$APP_ID\"" \
   "$DEST_APP"
 
-LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
+LSREGISTER="$PULSETYPE_LSREGISTER_PATH"
 if [[ -x "$LSREGISTER" ]]; then
   "$LSREGISTER" -u "$SOURCE_APP" >/dev/null 2>&1 || true
   for stale in "$ROOT_DIR/build/Debug/PulseType.app" "$ROOT_DIR/build/Release/PulseType.app"; do

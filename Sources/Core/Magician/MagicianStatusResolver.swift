@@ -148,9 +148,6 @@ struct MagicianStatusResolver {
     }
 
     private func hasEventAccess(_ status: EKAuthorizationStatus) -> Bool {
-        if #available(macOS 14.0, *) {
-            return status == .fullAccess || status == .writeOnly
-        }
-        return status == .authorized
+        status == .fullAccess || status == .writeOnly
     }
 }

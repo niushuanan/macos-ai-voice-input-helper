@@ -220,10 +220,7 @@ private struct MagicianEventAdapter {
     }
 
     private func hasCalendarAccess(_ status: EKAuthorizationStatus) -> Bool {
-        if #available(macOS 14.0, *) {
-            return status == .fullAccess || status == .writeOnly
-        }
-        return status == .authorized
+        status == .fullAccess || status == .writeOnly
     }
 
     private func requestCalendarAccess(eventStore: EKEventStore) async -> Bool {

@@ -2,9 +2,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_ID="com.niushuanan.PulseType"
-APP_NAME="PulseType"
-LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
+source "$ROOT_DIR/scripts/lib/runtime-policy.sh"
+runtime_policy_init
+
+APP_ID="$PULSETYPE_APP_ID"
+APP_NAME="$PULSETYPE_APP_NAME"
+INSTALL_APP_NAME="$(basename "$PULSETYPE_INSTALL_PATH")"
+INSTALL_BINARY_NAME="$(basename "$PULSETYPE_INSTALL_PATH" .app)"
+LSREGISTER="$PULSETYPE_LSREGISTER_PATH"
 declare -a LEGACY_KEYCHAIN_SERVICES=(
   "com.niushuanan.PulseType.provider-profile"
   "com.niushuanan.PulseType.provider-profile.v2"
@@ -16,7 +21,7 @@ echo "PulseType 一次性修复开始..."
 echo
 echo "1) 退出正在运行的 $APP_NAME"
 osascript -e 'try' -e "tell application id \"$APP_ID\" to quit" -e 'end try' >/dev/null 2>&1 || true
-pkill -f "/PulseType.app/Contents/MacOS/PulseType" >/dev/null 2>&1 || true
+pkill -f "/$INSTALL_APP_NAME/Contents/MacOS/$INSTALL_BINARY_NAME" >/dev/null 2>&1 || true
 sleep 1
 
 echo
