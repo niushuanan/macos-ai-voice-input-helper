@@ -55,6 +55,7 @@ final class InteractionCoordinator {
         speechPipelineLogger: SpeechPipelineLogger,
         skillRuleStore: SkillRuleStore,
         asrDictionaryStore: ASRDictionaryStore,
+        mailAddressBookStore: MailAddressBookStore? = nil,
         magicianFeatureToggleStore: MagicianFeatureToggleStore? = nil,
         magicianStatusResolver: MagicianStatusResolver = MagicianStatusResolver(),
         magicianIntentRouter: (any MagicianIntentRouting)? = nil,
@@ -79,10 +80,14 @@ final class InteractionCoordinator {
         self.asrDictionaryStore = asrDictionaryStore
         self.magicianFeatureToggleStore = magicianFeatureToggleStore ?? MagicianFeatureToggleStore()
         self.magicianStatusResolver = magicianStatusResolver
+        let resolvedMailAddressBookStore = mailAddressBookStore ?? MailAddressBookStore()
         self.magicianIntentRouter = magicianIntentRouter ?? LLMMagicianIntentRouter(
             providerSettingsStore: providerSettingsStore
         )
-        self.magicianToolExecutor = magicianToolExecutor ?? MagicianToolExecutor()
+        self.magicianToolExecutor = magicianToolExecutor ?? MagicianToolExecutor(
+            providerSettingsStore: providerSettingsStore,
+            mailAddressBookStore: resolvedMailAddressBookStore
+        )
         self.toastPresenter = toastPresenter
         self.dictationPostProcessor = dictationPostProcessor
         self.brainstormContextComposer = brainstormContextComposer

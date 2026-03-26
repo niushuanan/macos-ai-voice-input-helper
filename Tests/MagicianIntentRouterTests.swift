@@ -267,7 +267,7 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertEqual(generationProvider.callCount, 2)
     }
 
-    func testLLMRouterUsesSelectionForMailBodyAndKeepsRecipientsFromCommand() async throws {
+    func testLLMRouterUsesDedicatedMailExtractorAndComposer() async throws {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
 
@@ -279,7 +279,8 @@ final class MagicianIntentRouterTests: XCTestCase {
         let generationProvider = TrackingTextGenerationProvider(
             outputTexts: [
                 #"{"intent":"compose_email_draft","confidence":0.9}"#,
-                #"{"sourceText":"发邮件给 team@example.com","params":{"mailTo":["team@example.com"],"mailSubject":"发邮件给 team@example.com","mailBody":"发邮件给 team@example.com"}}"#
+                #"{"sourceText":"路线图同步","params":{"mailRecipientHints":["小庄"],"mailDeliveryMode":"auto_send_if_resolved"}}"#,
+                #"{"mailSubject":"路线图同步","mailBody":"小庄你好，\n\n我把路线图同步的关键信息整理如下：\n- 明天下午三点在 A 会议室一起过一遍路线图。\n\n如有问题我们现场对齐。"}"#
             ]
         )
 
@@ -290,17 +291,55 @@ final class MagicianIntentRouterTests: XCTestCase {
 
         let selection = "大家好，明天下午三点我们在 A 会议室过一遍路线图。"
         let intent = try await router.route(
-            command: "发邮件给 team@example.com",
+            command: "发给小庄",
             selection: selection,
             enabledFeatures: [.composeEmailDraft]
         )
 
         XCTAssertEqual(intent.intent, .composeEmailDraft)
         XCTAssertEqual(intent.sourceText, selection)
-        XCTAssertEqual(intent.params.mailBody, selection)
+        XCTAssertEqual(intent.params.mailBody, "小庄你好，\n\n我把路线图同步的关键信息整理如下：\n- 明天下午三点在 A 会议室一起过一遍路线图。\n\n如有问题我们现场对齐。")
+        XCTAssertEqual(intent.params.mailRecipientHints, ["小庄"])
+        XCTAssertEqual(intent.params.mailDeliveryMode, .autoSendIfResolved)
+        XCTAssertEqual(intent.params.mailSubject, "路线图同步")
+        XCTAssertEqual(generationProvider.callCount, 3)
+        XCTAssertTrue(generationProvider.requests[1].systemPrompt.contains("mail intent extractor"))
+        XCTAssertTrue(generationProvider.requests[2].systemPrompt.contains("mail composer"))
+    }
+
+    func testLLMRouterKeepsDraftOnlyWhenMailCommandExplicitlyAsksForDraft() async throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-test"])
+        )
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputTexts: [
+                #"{"intent":"compose_email_draft","confidence":0.87}"#,
+                #"{"sourceText":"帮我草拟一封邮件","params":{"mailTo":["team@example.com"],"mailDeliveryMode":"draft_only"}}"#,
+                #"{"mailSubject":"活动通知","mailBody":"大家好，\n\n这里是本周活动通知，请查收。"}"#
+            ]
+        )
+
+        let router = LLMMagicianIntentRouter(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider
+        )
+
+        let intent = try await router.route(
+            command: "帮我草拟一封邮件给 team@example.com",
+            selection: "",
+            enabledFeatures: [.composeEmailDraft]
+        )
+
+        XCTAssertEqual(intent.intent, .composeEmailDraft)
         XCTAssertEqual(intent.params.mailTo, ["team@example.com"])
-        XCTAssertEqual(intent.params.mailSubject, String(selection.prefix(24)))
-        XCTAssertEqual(generationProvider.callCount, 2)
+        XCTAssertEqual(intent.params.mailDeliveryMode, .draftOnly)
+        XCTAssertEqual(intent.params.mailSubject, "活动通知")
+        XCTAssertEqual(intent.params.mailBody, "大家好，\n\n这里是本周活动通知，请查收。")
     }
 
     func testLLMRouterStopsAfterClassifierForTextTransform() async throws {

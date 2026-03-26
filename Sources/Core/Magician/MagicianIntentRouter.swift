@@ -155,6 +155,11 @@ protocol MagicianIntentExtractionPromptBuilding {
     func build(command: String, selection: String) -> RewritePromptTemplate
 }
 
+private struct MagicianMailComposerPayload: Codable, Equatable {
+    let mailSubject: String?
+    let mailBody: String?
+}
+
 struct MagicianEventPromptBuilder: MagicianIntentExtractionPromptBuilding {
     func build(command: String, selection: String) -> RewritePromptTemplate {
         let systemPrompt = """
@@ -244,7 +249,7 @@ struct MagicianEmailPromptBuilder: MagicianIntentExtractionPromptBuilding {
         let systemPrompt = """
         \(MagicianPromptProfile.commonSystemPrompt)
 
-        You are a mail draft extractor for PulseType Magician.
+        You are a mail intent extractor for PulseType Magician.
         Return JSON only. Do not add markdown fences.
 
         Output JSON schema:
@@ -252,16 +257,56 @@ struct MagicianEmailPromptBuilder: MagicianIntentExtractionPromptBuilding {
           "sourceText": "string",
           "params": {
             "mailTo": ["a@example.com"],
-            "mailSubject": "string",
-            "mailBody": "string"
+            "mailRecipientHints": ["小庄", "1379804870", "谷歌邮箱"],
+            "mailDeliveryMode": "draft_only | auto_send_if_resolved"
           }
         }
 
         Rules:
-        1) When selected text is non-empty, mailBody should come from selected text.
-        2) The spoken command may supply recipients and subject hints.
+        1) Use the spoken command to identify recipients, recipient hints, and whether the user wants a draft only or wants the message sent immediately when recipients are resolved.
+        2) Put only complete, valid email addresses into mailTo.
+        3) Put nicknames, number fragments, provider hints, and other incomplete recipient clues into mailRecipientHints.
+        4) mailDeliveryMode must be draft_only or auto_send_if_resolved.
+        5) Never invent email addresses in this step.
+        6) Keep sourceText aligned with the real content payload, not with generic command phrases.
+        """
+
+        let userPrompt = """
+        Spoken command:
+        <<<COMMAND
+        \(command)
+        COMMAND>>>
+
+        Selected text:
+        <<<TEXT
+        \(selection.isEmpty ? "(empty)" : selection)
+        TEXT>>>
+        """
+
+        return RewritePromptTemplate(systemPrompt: systemPrompt, userPrompt: userPrompt)
+    }
+}
+
+struct MagicianMailComposerPromptBuilder: MagicianIntentExtractionPromptBuilding {
+    func build(command: String, selection: String) -> RewritePromptTemplate {
+        let systemPrompt = """
+        \(MagicianPromptProfile.commonSystemPrompt)
+
+        You are a mail composer for PulseType Magician.
+        Return JSON only. Do not add markdown fences.
+
+        Output JSON schema:
+        {
+          "mailSubject": "string",
+          "mailBody": "string"
+        }
+
+        Rules:
+        1) When selected text is non-empty, treat it as the primary source material for the email body.
+        2) The spoken command mainly controls recipients, tone, and whether this should be sent now or left as a draft.
         3) Never place generic command phrases into mailSubject or mailBody.
-        4) Only include valid email addresses in mailTo.
+        4) mailSubject should be concise and useful.
+        5) mailBody should be directly sendable as an email draft.
         """
 
         let userPrompt = """
@@ -315,6 +360,7 @@ struct MagicianIntentSchemaValidator {
         params.location = normalized(params.location)
         params.notes = normalized(params.notes)
         params.noteBody = normalized(params.noteBody)
+        params.mailRecipientHints = normalizeRecipientHints(params.mailRecipientHints)
         params.mailSubject = normalized(params.mailSubject)
         params.mailBody = normalized(params.mailBody)
         params.mailTo = normalizeEmails(params.mailTo)
@@ -382,27 +428,50 @@ struct MagicianIntentSchemaValidator {
                 params.noteBody = fallback.isEmpty ? nil : fallback
             }
         case .composeEmailDraft:
+            params.mailDeliveryMode = params.mailDeliveryMode ?? resolvedMailDeliveryMode(from: normalizedCommand)
+            params.mailRecipientHints = mergeRecipientHints(
+                params.mailRecipientHints,
+                fallbackHints: detectedRecipientHints(
+                    from: normalizedCommand,
+                    excludingEmails: params.mailTo ?? []
+                )
+            )
             if hasSelection {
                 sourceText = normalizedSelection
-                params.mailBody = normalizedSelection
+                params.mailBody = sanitizedMailBody(
+                    candidate: params.mailBody,
+                    command: normalizedCommand,
+                    selection: normalizedSelection,
+                    sourceText: normalizedSelection
+                )
+                params.mailSubject = sanitizedMailSubject(
+                    candidate: params.mailSubject,
+                    command: normalizedCommand,
+                    selection: normalizedSelection,
+                    sourceText: normalizedSelection
+                )
                 if (params.mailSubject ?? "").isEmpty || shouldReplaceWithSelectionContent(
                     params.mailSubject,
                     command: normalizedCommand,
                     actionTokens: ["邮件", "草稿", "mail", "email", "主题", "subject"]
                 ) {
-                    params.mailSubject = String(normalizedSelection.prefix(24))
+                    params.mailSubject = defaultMailSubject(from: normalizedSelection)
                 }
                 break
             }
-            if (params.mailBody ?? "").isEmpty {
-                let fallback = sourceText.isEmpty ? normalizedCommand : sourceText
-                params.mailBody = fallback.isEmpty ? nil : fallback
-            }
-            if (params.mailSubject ?? "").isEmpty {
-                let fallbackSource = sourceText.isEmpty ? normalizedCommand : sourceText
-                let subject = fallbackSource.trimmingCharacters(in: .whitespacesAndNewlines)
-                params.mailSubject = subject.isEmpty ? nil : String(subject.prefix(24))
-            }
+            let fallbackSource = sourceText.isEmpty ? normalizedCommand : sourceText
+            params.mailBody = sanitizedMailBody(
+                candidate: params.mailBody,
+                command: normalizedCommand,
+                selection: normalizedSelection,
+                sourceText: fallbackSource
+            )
+            params.mailSubject = sanitizedMailSubject(
+                candidate: params.mailSubject,
+                command: normalizedCommand,
+                selection: normalizedSelection,
+                sourceText: fallbackSource
+            )
         }
 
         return MagicianIntent(
@@ -490,6 +559,137 @@ struct MagicianIntentSchemaValidator {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { Self.emailRegex.firstMatch(in: $0, options: [], range: NSRange(location: 0, length: ($0 as NSString).length)) != nil }
         return filtered.isEmpty ? nil : filtered
+    }
+
+    private func normalizeRecipientHints(_ values: [String]?) -> [String]? {
+        guard let values else {
+            return nil
+        }
+        var deduped: [String] = []
+        var seen = Set<String>()
+        for value in values {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                continue
+            }
+            let key = MailAddressBookStore.normalizedLookupKey(trimmed)
+            guard !key.isEmpty, seen.insert(key).inserted else {
+                continue
+            }
+            deduped.append(trimmed)
+        }
+        return deduped.isEmpty ? nil : deduped
+    }
+
+    private func mergeRecipientHints(
+        _ existing: [String]?,
+        fallbackHints: [String]?
+    ) -> [String]? {
+        normalizeRecipientHints((existing ?? []) + (fallbackHints ?? []))
+    }
+
+    private func resolvedMailDeliveryMode(from command: String) -> MagicianMailDeliveryMode {
+        let lowered = command.lowercased()
+        if ["草拟", "草稿", "整理成邮件", "整理一下邮件", "帮我写邮件", "draft"].contains(where: { lowered.contains($0) }) {
+            return .draftOnly
+        }
+        if ["发送", "发给", "发出", "寄给", "send"].contains(where: { lowered.contains($0) }) {
+            return .autoSendIfResolved
+        }
+        return .draftOnly
+    }
+
+    private func detectedRecipientHints(
+        from command: String,
+        excludingEmails emails: [String]
+    ) -> [String]? {
+        let normalizedEmailKeys = Set(emails.map(MailAddressBookStore.normalizedLookupKey))
+        let markers = ["发给", "给", "寄给", "写给", "to"]
+        var candidates: [String] = []
+        for marker in markers {
+            guard let range = command.range(of: marker, options: [.caseInsensitive]) else {
+                continue
+            }
+            var value = String(command[range.upperBound...])
+            if let stopRange = value.range(of: "主题", options: [.caseInsensitive]) {
+                value = String(value[..<stopRange.lowerBound])
+            }
+            value = value
+                .replacingOccurrences(of: "发邮件", with: "")
+                .replacingOccurrences(of: "写邮件", with: "")
+                .replacingOccurrences(of: "邮件", with: "")
+                .replacingOccurrences(of: "邮箱", with: "邮箱")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if value.isEmpty {
+                continue
+            }
+            candidates.append(value)
+        }
+
+        let normalized = normalizeRecipientHints(candidates) ?? []
+        let filtered = normalized.filter {
+            !normalizedEmailKeys.contains(MailAddressBookStore.normalizedLookupKey($0))
+        }
+        return filtered.isEmpty ? nil : filtered
+    }
+
+    private func sanitizedMailSubject(
+        candidate: String?,
+        command: String,
+        selection: String,
+        sourceText: String
+    ) -> String? {
+        if
+            let candidate,
+            !candidate.isEmpty,
+            !shouldReplaceWithSelectionContent(
+                candidate,
+                command: command,
+                actionTokens: ["邮件", "草稿", "mail", "email", "主题", "subject", "发给", "发送"]
+            )
+        {
+            return String(candidate.prefix(48))
+        }
+
+        let fallback = [sourceText, selection, command]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        guard let fallback else {
+            return nil
+        }
+        return defaultMailSubject(from: fallback)
+    }
+
+    private func defaultMailSubject(from text: String) -> String {
+        String(
+            text
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .prefix(48)
+        )
+    }
+
+    private func sanitizedMailBody(
+        candidate: String?,
+        command: String,
+        selection: String,
+        sourceText: String
+    ) -> String? {
+        if
+            let candidate,
+            !candidate.isEmpty,
+            !shouldReplaceWithSelectionContent(
+                candidate,
+                command: command,
+                actionTokens: ["邮件", "草稿", "mail", "email", "发邮件", "写邮件", "发给", "发送"]
+            )
+        {
+            return candidate
+        }
+
+        let fallback = !sourceText.isEmpty ? sourceText : (!selection.isEmpty ? selection : command)
+        let trimmed = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func detectedEventStartAt(from text: String) -> String? {
@@ -586,6 +786,7 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
                 selection: normalizedSelection
             )
         case .composeEmailDraft:
+            params.mailDeliveryMode = resolvedMailDeliveryMode(from: normalizedCommand)
             params.mailSubject = resolvedMailSubject(
                 command: normalizedCommand,
                 selection: normalizedSelection
@@ -595,6 +796,10 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
                 selection: normalizedSelection
             )
             params.mailTo = detectEmails(from: normalizedCommand)
+            params.mailRecipientHints = detectRecipientHints(
+                from: normalizedCommand,
+                excludingEmails: params.mailTo ?? []
+            )
         }
 
         let draftIntent = MagicianIntent(
@@ -688,6 +893,56 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
         return emails.isEmpty ? nil : emails
     }
 
+    private func detectRecipientHints(
+        from text: String,
+        excludingEmails emails: [String]
+    ) -> [String]? {
+        let excludedKeys = Set(emails.map(MailAddressBookStore.normalizedLookupKey))
+        let markers = ["发给", "给", "寄给", "写给", "to"]
+        var hints: [String] = []
+        for marker in markers {
+            guard let markerRange = text.range(of: marker, options: [.caseInsensitive]) else {
+                continue
+            }
+            var candidate = text[markerRange.upperBound...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let stopTokens = ["主题", "内容", "正文", "发邮件", "写邮件", "邮件"]
+            for stopToken in stopTokens {
+                if let stopRange = candidate.range(of: stopToken, options: [.caseInsensitive]) {
+                    candidate = String(candidate[..<stopRange.lowerBound])
+                }
+            }
+            let value = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else {
+                continue
+            }
+            let key = MailAddressBookStore.normalizedLookupKey(value)
+            guard !excludedKeys.contains(key) else {
+                continue
+            }
+            hints.append(value)
+        }
+        let normalized = hints.reduce(into: [String]()) { partialResult, item in
+            if !partialResult.contains(where: {
+                MailAddressBookStore.normalizedLookupKey($0) == MailAddressBookStore.normalizedLookupKey(item)
+            }) {
+                partialResult.append(item)
+            }
+        }
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private func resolvedMailDeliveryMode(from command: String) -> MagicianMailDeliveryMode {
+        let lowered = command.lowercased()
+        if ["草拟", "草稿", "draft", "整理成邮件", "整理一下邮件"].contains(where: { lowered.contains($0) }) {
+            return .draftOnly
+        }
+        if ["发送", "发给", "寄给", "发出", "send"].contains(where: { lowered.contains($0) }) {
+            return .autoSendIfResolved
+        }
+        return .draftOnly
+    }
+
     private func resolvedEventTitle(command: String, selection: String) -> String {
         if !selection.isEmpty {
             return String(selection.prefix(60))
@@ -718,19 +973,19 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
             in: command,
             markers: ["主题是", "主题:", "主题：", "subject:", "subject is"]
         ) {
-            return String(explicit.prefix(24))
+            return String(explicit.prefix(48))
         }
         if !selection.isEmpty {
-            return String(selection.prefix(24))
+            return String(selection.prefix(48))
         }
         let reduced = compacted(
             command,
             removing: ["帮我", "请", "整理", "邮件", "草稿", "发给", "发邮件", "写邮件", "email", "mail"]
         )
         if !reduced.isEmpty {
-            return String(reduced.prefix(24))
+            return String(reduced.prefix(48))
         }
-        return String(command.prefix(24))
+        return String(command.prefix(48))
     }
 
     private func resolvedMailBody(command: String, selection: String) -> String {
@@ -784,6 +1039,7 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
     private let eventPromptBuilder: MagicianEventPromptBuilder
     private let notePromptBuilder: MagicianNotePromptBuilder
     private let emailPromptBuilder: MagicianEmailPromptBuilder
+    private let mailComposerPromptBuilder: MagicianMailComposerPromptBuilder
 
     init(
         providerSettingsStore: ProviderSettingsStore,
@@ -792,7 +1048,8 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         classifierPromptBuilder: MagicianIntentClassifierPromptBuilder = MagicianIntentClassifierPromptBuilder(),
         eventPromptBuilder: MagicianEventPromptBuilder = MagicianEventPromptBuilder(),
         notePromptBuilder: MagicianNotePromptBuilder = MagicianNotePromptBuilder(),
-        emailPromptBuilder: MagicianEmailPromptBuilder = MagicianEmailPromptBuilder()
+        emailPromptBuilder: MagicianEmailPromptBuilder = MagicianEmailPromptBuilder(),
+        mailComposerPromptBuilder: MagicianMailComposerPromptBuilder = MagicianMailComposerPromptBuilder()
     ) {
         self.providerSettingsStore = providerSettingsStore
         self.generationProvider = generationProvider
@@ -801,6 +1058,7 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         self.eventPromptBuilder = eventPromptBuilder
         self.notePromptBuilder = notePromptBuilder
         self.emailPromptBuilder = emailPromptBuilder
+        self.mailComposerPromptBuilder = mailComposerPromptBuilder
     }
 
     func route(
@@ -944,6 +1202,14 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         selection: String,
         apiKey: String
     ) async throws -> MagicianIntentExtractionPayload {
+        if intent == .composeEmailDraft {
+            return try await extractMailPayload(
+                command: command,
+                selection: selection,
+                apiKey: apiKey
+            )
+        }
+
         let template = extractionPromptTemplate(
             for: intent,
             command: command,
@@ -962,6 +1228,52 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         return try decodePayload(
             from: response.outputText,
             debugPrefix: "\(intent.rawValue) extractor"
+        )
+    }
+
+    private func extractMailPayload(
+        command: String,
+        selection: String,
+        apiKey: String
+    ) async throws -> MagicianIntentExtractionPayload {
+        let extractorTemplate = emailPromptBuilder.build(command: command, selection: selection)
+        let extractorResponse = try await generationProvider.generateText(
+            request: TextGenerationRequest(
+                systemPrompt: extractorTemplate.systemPrompt,
+                userPrompt: extractorTemplate.userPrompt,
+                temperature: 0.1,
+                maxOutputTokens: 260
+            ),
+            configuration: providerSettingsStore.rewriteConfiguration,
+            apiKey: apiKey
+        )
+        let extracted: MagicianIntentExtractionPayload = try decodePayload(
+            from: extractorResponse.outputText,
+            debugPrefix: "compose_email_draft mail intent extractor"
+        )
+
+        let composerTemplate = mailComposerPromptBuilder.build(command: command, selection: selection)
+        let composerResponse = try await generationProvider.generateText(
+            request: TextGenerationRequest(
+                systemPrompt: composerTemplate.systemPrompt,
+                userPrompt: composerTemplate.userPrompt,
+                temperature: 0.15,
+                maxOutputTokens: 420
+            ),
+            configuration: providerSettingsStore.rewriteConfiguration,
+            apiKey: apiKey
+        )
+        let composed: MagicianMailComposerPayload = try decodePayload(
+            from: composerResponse.outputText,
+            debugPrefix: "compose_email_draft mail composer"
+        )
+
+        var params = extracted.params
+        params.mailSubject = composed.mailSubject
+        params.mailBody = composed.mailBody
+        return MagicianIntentExtractionPayload(
+            sourceText: extracted.sourceText,
+            params: params
         )
     }
 
@@ -994,7 +1306,7 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         guard let data = jsonText.data(using: .utf8) else {
             throw MagicianError(
                 code: .intentParseFailed,
-                userMessage: "没听清这条命令的意图，请换个说法再试。",
+                userMessage: userFacingDecodeMessage(for: debugPrefix),
                 debugMessage: "\(debugPrefix) JSON utf8 decode failed",
                 recoverAction: "retry_command"
             )
@@ -1004,11 +1316,18 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         } catch {
             throw MagicianError(
                 code: .intentParseFailed,
-                userMessage: "没听清这条命令的意图，请换个说法再试。",
+                userMessage: userFacingDecodeMessage(for: debugPrefix),
                 debugMessage: "\(debugPrefix) JSON decode error: \(error.localizedDescription)",
                 recoverAction: "retry_command"
             )
         }
+    }
+
+    private func userFacingDecodeMessage(for debugPrefix: String) -> String {
+        if debugPrefix.contains("compose_email_draft") {
+            return "邮件助手没能整理出可发送的主题、正文或收件人提示，请换个说法再试。"
+        }
+        return "没听清这条命令的意图，请换个说法再试。"
     }
 
     private func extractJSONObject(from output: String) -> String {
@@ -1075,22 +1394,39 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
             }
 
         case .composeEmailDraft:
+            if params.mailDeliveryMode == nil {
+                params.mailDeliveryMode = resolvedMailDeliveryMode(from: command)
+            }
             if hasSelection {
                 sourceText = selection
-                if shouldUseSelectionAsContent(
+                params.mailBody = sanitizedMailBody(
                     candidate: params.mailBody,
                     command: command,
-                    actionTokens: ["邮件", "草稿", "mail", "email", "发邮件", "写邮件"]
-                ) {
-                    params.mailBody = selection
-                }
-                if shouldUseSelectionAsContent(
+                    selection: selection,
+                    sourceText: selection
+                )
+                params.mailSubject = sanitizedMailSubject(
                     candidate: params.mailSubject,
                     command: command,
-                    actionTokens: ["邮件", "草稿", "mail", "email", "主题", "subject"]
-                ) {
-                    params.mailSubject = String(selection.prefix(24))
-                }
+                    selection: selection,
+                    sourceText: selection
+                )
+            } else {
+                let fallbackSource = sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? command
+                    : sourceText
+                params.mailBody = sanitizedMailBody(
+                    candidate: params.mailBody,
+                    command: command,
+                    selection: selection,
+                    sourceText: fallbackSource
+                )
+                params.mailSubject = sanitizedMailSubject(
+                    candidate: params.mailSubject,
+                    command: command,
+                    selection: selection,
+                    sourceText: fallbackSource
+                )
             }
         }
 
@@ -1155,5 +1491,67 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         return value.lowercased()
             .components(separatedBy: separators)
             .joined()
+    }
+
+    private func resolvedMailDeliveryMode(from command: String) -> MagicianMailDeliveryMode {
+        let lowered = command.lowercased()
+        if ["草拟", "草稿", "draft", "整理成邮件", "整理一下邮件"].contains(where: { lowered.contains($0) }) {
+            return .draftOnly
+        }
+        if ["发送", "发给", "寄给", "发出", "send"].contains(where: { lowered.contains($0) }) {
+            return .autoSendIfResolved
+        }
+        return .draftOnly
+    }
+
+    private func sanitizedMailSubject(
+        candidate: String?,
+        command: String,
+        selection: String,
+        sourceText: String
+    ) -> String? {
+        if
+            let candidate,
+            !candidate.isEmpty,
+            !shouldUseSelectionAsContent(
+                candidate: candidate,
+                command: command,
+                actionTokens: ["邮件", "草稿", "mail", "email", "主题", "subject", "发送", "发给"]
+            )
+        {
+            return String(candidate.prefix(48))
+        }
+
+        let fallback = [sourceText, selection, command]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        guard let fallback else {
+            return nil
+        }
+        return String(fallback.prefix(48))
+    }
+
+    private func sanitizedMailBody(
+        candidate: String?,
+        command: String,
+        selection: String,
+        sourceText: String
+    ) -> String? {
+        if
+            let candidate,
+            !candidate.isEmpty,
+            !shouldUseSelectionAsContent(
+                candidate: candidate,
+                command: command,
+                actionTokens: ["邮件", "草稿", "mail", "email", "发邮件", "写邮件", "发送", "发给"]
+            )
+        {
+            return candidate
+        }
+
+        let fallback = [sourceText, selection, command]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        return fallback
     }
 }

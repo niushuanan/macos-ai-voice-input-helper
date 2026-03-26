@@ -11,10 +11,32 @@ protocol MagicianToolExecuting {
 }
 
 @MainActor
+protocol MagicianMailExecuting {
+    func execute(
+        intent: MagicianIntent,
+        context: MagicianExecutionContext
+    ) async throws -> MagicianExecutionResult
+}
+
+@MainActor
 final class MagicianToolExecutor: MagicianToolExecuting {
     private let eventAdapter = MagicianEventAdapter()
     private let noteAdapter = MagicianNoteAdapter()
-    private let mailAdapter = MagicianMailDraftAdapter()
+    private let mailAdapter: any MagicianMailExecuting
+
+    init(
+        providerSettingsStore: ProviderSettingsStore? = nil,
+        mailAddressBookStore: MailAddressBookStore? = nil,
+        generationProvider: any TextGenerationProvider = OpenAITextGenerationProvider(),
+        mailAdapter: (any MagicianMailExecuting)? = nil
+    ) {
+        let resolvedMailAddressBookStore = mailAddressBookStore ?? MailAddressBookStore()
+        self.mailAdapter = mailAdapter ?? MagicianMailAdapter(
+            addressBookStore: resolvedMailAddressBookStore,
+            providerSettingsStore: providerSettingsStore,
+            generationProvider: generationProvider
+        )
+    }
 
     func execute(
         intent: MagicianIntent,
@@ -38,7 +60,7 @@ final class MagicianToolExecutor: MagicianToolExecuting {
     }
 }
 
-private struct MagicianProcessResult {
+struct MagicianProcessResult {
     let exitCode: Int32
     let stdout: String
     let stderr: String
@@ -53,7 +75,7 @@ private struct MagicianProcessResult {
     }
 }
 
-private func runProcess(
+func runProcess(
     executablePath: String,
     arguments: [String]
 ) async -> MagicianProcessResult {
@@ -88,7 +110,7 @@ private func runProcess(
     }.value
 }
 
-private func runOsaScript(
+func runOsaScript(
     lines: [String],
     arguments: [String]
 ) async -> MagicianProcessResult {
@@ -105,7 +127,7 @@ private func runOsaScript(
     )
 }
 
-private func compactIntentText(_ value: String) -> String {
+func compactIntentText(_ value: String) -> String {
     let separators = CharacterSet.whitespacesAndNewlines
         .union(.punctuationCharacters)
         .union(.symbols)
@@ -114,7 +136,7 @@ private func compactIntentText(_ value: String) -> String {
         .joined()
 }
 
-private func isLikelyInstructionPhrase(
+func isLikelyInstructionPhrase(
     _ candidate: String,
     command: String,
     actionTokens: [String]
@@ -603,207 +625,7 @@ private struct MagicianNoteAdapter {
     }
 }
 
-private struct MagicianMailDraftAdapter {
-    func execute(
-        intent: MagicianIntent,
-        context: MagicianExecutionContext
-    ) async throws -> MagicianExecutionResult {
-        let recipients = resolvedRecipients(intent: intent)
-        let subject = resolvedSubject(intent: intent, context: context)
-        let body = resolvedBody(intent: intent, context: context)
-        var mailScriptDetail: String?
-
-        if MagicianMailCapability.mailAppAvailable {
-            let scriptResult = await createDraftViaAppleScript(
-                recipients: recipients,
-                subject: subject,
-                body: body
-            )
-            if scriptResult.exitCode == 0 {
-                return MagicianExecutionResult(
-                    intent: .composeEmailDraft,
-                    userMessage: "已在 Mail 打开邮件草稿。",
-                    outputText: body,
-                    historyDisplayText: "已生成邮件草稿：\(summarizedHistoryText(subject))",
-                    fallbackUsed: false
-                )
-            }
-            mailScriptDetail = scriptResult.detail
-        }
-
-        if
-            let service = NSSharingService(named: .composeEmail),
-            service.canPerform(withItems: [body as NSString])
-        {
-            service.recipients = recipients
-            service.subject = subject
-            service.perform(withItems: [body])
-            return MagicianExecutionResult(
-                intent: .composeEmailDraft,
-                userMessage: "已打开邮件草稿窗口。",
-                outputText: body,
-                historyDisplayText: "已生成邮件草稿：\(summarizedHistoryText(subject))",
-                fallbackUsed: true
-            )
-        }
-
-        var components = URLComponents()
-        components.scheme = "mailto"
-        if !recipients.isEmpty {
-            components.path = recipients.joined(separator: ",")
-        }
-        components.queryItems = [
-            URLQueryItem(name: "subject", value: subject),
-            URLQueryItem(name: "body", value: body)
-        ]
-
-        guard
-            let url = components.url,
-            NSWorkspace.shared.open(url)
-        else {
-            let detail = mailScriptDetail ?? "Mail AppleScript 不可用。"
-            throw MagicianError(
-                code: .mailUnavailable,
-                userMessage: "当前无法打开邮件草稿，请先配置 Mail 账号。",
-                debugMessage: "\(detail) composeEmail service unavailable and mailto open failed",
-                recoverAction: "configure_mail_account"
-            )
-        }
-
-        return MagicianExecutionResult(
-            intent: .composeEmailDraft,
-            userMessage: "已通过 mailto 打开邮件草稿。",
-            outputText: body,
-            historyDisplayText: "已生成邮件草稿：\(summarizedHistoryText(subject))",
-            fallbackUsed: true
-        )
-    }
-
-    private func resolvedRecipients(intent: MagicianIntent) -> [String] {
-        intent.params.mailTo?
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty } ?? []
-    }
-
-    private func resolvedSubject(
-        intent: MagicianIntent,
-        context: MagicianExecutionContext
-    ) -> String {
-        let selected = context.selectedText
-        let command = context.command.trimmingCharacters(in: .whitespacesAndNewlines)
-        let subject = intent.params.mailSubject?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !subject.isEmpty {
-            if
-                !selected.isEmpty,
-                isLikelyInstructionPhrase(
-                    subject,
-                    command: command,
-                    actionTokens: ["邮件", "草稿", "写邮件", "发邮件", "mail", "email", "主题", "subject"]
-                )
-            {
-                return String(selected.prefix(24))
-            }
-            return subject
-        }
-        let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !source.isEmpty {
-            if
-                !selected.isEmpty,
-                isLikelyInstructionPhrase(
-                    source,
-                    command: command,
-                    actionTokens: ["邮件", "草稿", "写邮件", "发邮件", "mail", "email", "主题", "subject"]
-                )
-            {
-                return String(selected.prefix(24))
-            }
-            return String(source.prefix(24))
-        }
-        if !selected.isEmpty {
-            return String(selected.prefix(24))
-        }
-        if !command.isEmpty {
-            return String(command.prefix(24))
-        }
-        return "来自 PulseType 的邮件草稿"
-    }
-
-    private func resolvedBody(
-        intent: MagicianIntent,
-        context: MagicianExecutionContext
-    ) -> String {
-        let selected = context.selectedText
-        let command = context.command.trimmingCharacters(in: .whitespacesAndNewlines)
-        let body = intent.params.mailBody?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !body.isEmpty {
-            if
-                !selected.isEmpty,
-                isLikelyInstructionPhrase(
-                    body,
-                    command: command,
-                    actionTokens: ["邮件", "草稿", "写邮件", "发邮件", "mail", "email"]
-                )
-            {
-                return selected
-            }
-            return body
-        }
-        let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !source.isEmpty {
-            if
-                !selected.isEmpty,
-                isLikelyInstructionPhrase(
-                    source,
-                    command: command,
-                    actionTokens: ["邮件", "草稿", "写邮件", "发邮件", "mail", "email"]
-                )
-            {
-                return selected
-            }
-            return source
-        }
-        if !selected.isEmpty {
-            return selected
-        }
-        return command
-    }
-
-    private func createDraftViaAppleScript(
-        recipients: [String],
-        subject: String,
-        body: String
-    ) async -> MagicianProcessResult {
-        var arguments = [subject, body]
-        arguments.append(contentsOf: recipients)
-        return await runOsaScript(
-            lines: [
-                "on run argv",
-                "set mailSubject to item 1 of argv",
-                "set mailBody to item 2 of argv",
-                "set recipientList to {}",
-                "if (count of argv) > 2 then",
-                "repeat with idx from 3 to (count of argv)",
-                "set end of recipientList to (item idx of argv)",
-                "end repeat",
-                "end if",
-                "tell application \"Mail\"",
-                "if not running then launch",
-                "set draftMessage to make new outgoing message with properties {visible:true, subject:mailSubject, content:mailBody & return & return}",
-                "tell draftMessage",
-                "repeat with addr in recipientList",
-                "make new to recipient at end of to recipients with properties {address:(contents of addr)}",
-                "end repeat",
-                "end tell",
-                "activate",
-                "end tell",
-                "end run"
-            ],
-            arguments: arguments
-        )
-    }
-}
-
-private func summarizedHistoryText(_ text: String, limit: Int = 48) -> String {
+func summarizedHistoryText(_ text: String, limit: Int = 48) -> String {
     let normalized = text
         .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         .trimmingCharacters(in: .whitespacesAndNewlines)

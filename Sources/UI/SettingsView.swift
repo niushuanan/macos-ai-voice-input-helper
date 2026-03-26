@@ -62,6 +62,7 @@ struct SettingsView: View {
     @ObservedObject private var permissionsCenter: PermissionsCenter
     @ObservedObject private var providerSettingsStore: ProviderSettingsStore
     @ObservedObject private var asrDictionaryStore: ASRDictionaryStore
+    @ObservedObject private var mailAddressBookStore: MailAddressBookStore
     @ObservedObject private var localSenseVoiceRuntimeManager: LocalSenseVoiceRuntimeManager
     @ObservedObject private var skillRuleStore: SkillRuleStore
     @ObservedObject private var appScenePolicyStore: AppScenePolicyStore
@@ -69,6 +70,7 @@ struct SettingsView: View {
     @ObservedObject private var brainstormDurationProfileStore: BrainstormDurationProfileStore
     @ObservedObject private var toastPresenter: ToastPresenter
     @ObservedObject private var magicianFeatureToggleStore: MagicianFeatureToggleStore
+    @StateObject private var mailAddressBookPanelModel: MailAddressBookPanelModel
 
     @State private var asrTesting = false
     @State private var textTesting = false
@@ -89,6 +91,7 @@ struct SettingsView: View {
     @State private var brainstormFlagsMonitor: Any?
     @State private var brainstormKeyDownMonitor: Any?
     @State private var magicianPermissionPrompt: MagicianPermissionPromptModel?
+    @State private var showingMailAddressBookSheet = false
     @State private var magicianEventAuthorizationStatus: EKAuthorizationStatus = EKEventStore.authorizationStatus(for: .event)
     @State private var magicianShortcutsAvailable = FileManager.default.isExecutableFile(atPath: "/usr/bin/shortcuts")
     @State private var magicianCreateNoteShortcutName = MagicianCreateNoteShortcutSupport().shortcutName
@@ -110,6 +113,7 @@ struct SettingsView: View {
         _permissionsCenter = ObservedObject(wrappedValue: model.permissionsCenter)
         _providerSettingsStore = ObservedObject(wrappedValue: model.providerSettingsStore)
         _asrDictionaryStore = ObservedObject(wrappedValue: model.asrDictionaryStore)
+        _mailAddressBookStore = ObservedObject(wrappedValue: model.mailAddressBookStore)
         _localSenseVoiceRuntimeManager = ObservedObject(wrappedValue: model.localSenseVoiceRuntimeManager)
         _skillRuleStore = ObservedObject(wrappedValue: model.skillRuleStore)
         _appScenePolicyStore = ObservedObject(wrappedValue: model.appScenePolicyStore)
@@ -117,6 +121,9 @@ struct SettingsView: View {
         _brainstormDurationProfileStore = ObservedObject(wrappedValue: model.brainstormDurationProfileStore)
         _toastPresenter = ObservedObject(wrappedValue: model.toastPresenter)
         _magicianFeatureToggleStore = ObservedObject(wrappedValue: model.magicianFeatureToggleStore)
+        _mailAddressBookPanelModel = StateObject(
+            wrappedValue: MailAddressBookPanelModel(store: model.mailAddressBookStore)
+        )
     }
 
     var body: some View {
@@ -203,6 +210,17 @@ struct SettingsView: View {
                 prompt: prompt,
                 onPrimary: { handleMagicianPromptPrimary(prompt) },
                 onCancel: { magicianPermissionPrompt = nil }
+            )
+        }
+        .sheet(isPresented: $showingMailAddressBookSheet) {
+            MailAddressBookManagementSheetView(
+                model: mailAddressBookPanelModel,
+                onOutcome: { outcome in
+                    if let message = outcome.toastText {
+                        showToast(message)
+                    }
+                },
+                onClose: { showingMailAddressBookSheet = false }
             )
         }
     }
@@ -399,10 +417,48 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
+
+            if descriptor.id == .composeEmailDraft {
+                mailAssistantAddressBookSection
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .pulseCard(cornerRadius: 12)
+    }
+
+    private var mailAssistantAddressBookSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("邮箱名库", systemImage: "tray.full")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(mailAddressBookStore.entries.count) 条")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color.white.opacity(0.66))
+                    )
+            }
+
+            Text("系统会先用你自己的名库匹配联系人，再在必要时用文本模型推断新地址。地址不够稳时，只打开 Mail 编辑窗口，不会直接发。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Button("管理邮箱名库") {
+                showingMailAddressBookSheet = true
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.48))
+        )
     }
 
     private var skillsPage: some View {

@@ -512,6 +512,96 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
     }
 
+    func testMagicianMailSuccessPersistsSentHistoryText() async throws {
+        let router = FakeMagicianIntentRouter(
+            intent: MagicianIntent(
+                intent: .composeEmailDraft,
+                confidence: 0.88,
+                sourceText: "路线图同步",
+                params: MagicianIntentParams(
+                    mailRecipientHints: ["小庄"],
+                    mailDeliveryMode: .autoSendIfResolved,
+                    mailSubject: "路线图同步",
+                    mailBody: "这是路线图同步邮件。"
+                )
+            )
+        )
+        let toolExecutor = FakeMagicianToolExecutor()
+        toolExecutor.result = .success(
+            MagicianExecutionResult(
+                intent: .composeEmailDraft,
+                userMessage: "邮件已发送",
+                outputText: "这是路线图同步邮件。",
+                historyDisplayText: "已发送邮件：路线图同步 -> 1379804870zhk@gmail.com",
+                fallbackUsed: false
+            )
+        )
+
+        let fixture = try makeFixture(
+            magicianIntentRouter: router,
+            magicianToolExecutor: toolExecutor,
+            transcriptionText: "发给小庄"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .composeEmailDraft)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.sessionStore.statusMessage, "邮件已发送")
+        XCTAssertEqual(
+            fixture.localHistoryStore.entries.first?.displayText,
+            "已发送邮件：路线图同步 -> 1379804870zhk@gmail.com"
+        )
+    }
+
+    func testMagicianMailDraftSuccessPersistsPendingHistoryText() async throws {
+        let router = FakeMagicianIntentRouter(
+            intent: MagicianIntent(
+                intent: .composeEmailDraft,
+                confidence: 0.84,
+                sourceText: "活动通知",
+                params: MagicianIntentParams(
+                    mailRecipientHints: ["小庄"],
+                    mailDeliveryMode: .autoSendIfResolved,
+                    mailSubject: "活动通知",
+                    mailBody: "这是活动通知邮件。"
+                )
+            )
+        )
+        let toolExecutor = FakeMagicianToolExecutor()
+        toolExecutor.result = .success(
+            MagicianExecutionResult(
+                intent: .composeEmailDraft,
+                userMessage: "邮件已起草，待你确认",
+                outputText: "这是活动通知邮件。",
+                historyDisplayText: "邮件待确认：活动通知",
+                fallbackUsed: false
+            )
+        )
+
+        let fixture = try makeFixture(
+            magicianIntentRouter: router,
+            magicianToolExecutor: toolExecutor,
+            transcriptionText: "发给小庄"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .composeEmailDraft)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.sessionStore.statusMessage, "邮件已起草，待你确认")
+        XCTAssertEqual(
+            fixture.localHistoryStore.entries.first?.displayText,
+            "邮件待确认：活动通知"
+        )
+    }
+
     func testMagicianASRRequestSkipsDictionaryInjection() async throws {
         let router = FakeMagicianIntentRouter(
             intent: MagicianIntent(

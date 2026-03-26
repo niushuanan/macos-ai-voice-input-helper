@@ -44,6 +44,7 @@ final class AppModel: ObservableObject {
     let audioCaptureService: AudioCaptureService
     let skillRuleStore: SkillRuleStore
     let magicianFeatureToggleStore: MagicianFeatureToggleStore
+    let mailAddressBookStore: MailAddressBookStore
     let providerSettingsStore: ProviderSettingsStore
     let asrDictionaryStore: ASRDictionaryStore
     let localSenseVoiceRuntimeManager: LocalSenseVoiceRuntimeManager
@@ -71,6 +72,7 @@ final class AppModel: ObservableObject {
         audioCaptureService: AudioCaptureService,
         skillRuleStore: SkillRuleStore,
         magicianFeatureToggleStore: MagicianFeatureToggleStore,
+        mailAddressBookStore: MailAddressBookStore,
         providerSettingsStore: ProviderSettingsStore,
         asrDictionaryStore: ASRDictionaryStore,
         localSenseVoiceRuntimeManager: LocalSenseVoiceRuntimeManager,
@@ -95,6 +97,7 @@ final class AppModel: ObservableObject {
         self.audioCaptureService = audioCaptureService
         self.skillRuleStore = skillRuleStore
         self.magicianFeatureToggleStore = magicianFeatureToggleStore
+        self.mailAddressBookStore = mailAddressBookStore
         self.providerSettingsStore = providerSettingsStore
         self.asrDictionaryStore = asrDictionaryStore
         self.localSenseVoiceRuntimeManager = localSenseVoiceRuntimeManager
@@ -128,6 +131,7 @@ final class AppModel: ObservableObject {
         let audioCaptureService = AVAudioRecorderCaptureService(temporaryDirectory: store.temporaryAudioDirectory)
         let skillRuleStore = SkillRuleStore()
         let magicianFeatureToggleStore = MagicianFeatureToggleStore()
+        let mailAddressBookStore = MailAddressBookStore()
         let credentialStore = CredentialStoreFactory.makeProviderCredentialStore(
             credentialsDirectory: store.credentialsDirectory
         )
@@ -179,6 +183,7 @@ final class AppModel: ObservableObject {
             speechPipelineLogger: speechPipelineLogger,
             skillRuleStore: skillRuleStore,
             asrDictionaryStore: asrDictionaryStore,
+            mailAddressBookStore: mailAddressBookStore,
             magicianFeatureToggleStore: magicianFeatureToggleStore,
             toastPresenter: toastPresenter
         )
@@ -194,6 +199,7 @@ final class AppModel: ObservableObject {
             audioCaptureService: audioCaptureService,
             skillRuleStore: skillRuleStore,
             magicianFeatureToggleStore: magicianFeatureToggleStore,
+            mailAddressBookStore: mailAddressBookStore,
             providerSettingsStore: providerSettingsStore,
             asrDictionaryStore: asrDictionaryStore,
             localSenseVoiceRuntimeManager: localSenseVoiceRuntimeManager,

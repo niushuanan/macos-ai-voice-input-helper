@@ -109,6 +109,7 @@ final class MagicianStatusResolverTests: XCTestCase {
         )
 
         XCTAssertEqual(resolution.status, .needsPermission)
+        XCTAssertEqual(resolution.reason, "当前无法使用邮件助手，请先打开 Mail 并完成账号配置。")
         XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "打开 Mail")
     }
 

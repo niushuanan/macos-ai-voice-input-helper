@@ -20,6 +20,20 @@ enum MagicianMailCapability {
     }
 }
 
+struct MagicianMailCapabilitySnapshot: Equatable {
+    let composeEmailServiceAvailable: Bool
+    let mailtoAvailable: Bool
+    let mailAppAvailable: Bool
+
+    static func current() -> Self {
+        MagicianMailCapabilitySnapshot(
+            composeEmailServiceAvailable: MagicianMailCapability.composeEmailServiceAvailable,
+            mailtoAvailable: MagicianMailCapability.mailtoAvailable,
+            mailAppAvailable: MagicianMailCapability.mailAppAvailable
+        )
+    }
+}
+
 enum MagicianNotesCapability {
     static var notesAppAvailable: Bool {
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Notes") != nil
@@ -115,7 +129,7 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         case .createNote:
             return "写入备忘录"
         case .composeEmailDraft:
-            return "邮件草稿"
+            return "邮件助手"
         }
     }
 
@@ -128,7 +142,7 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         case .createNote:
             return "写入备忘录中"
         case .composeEmailDraft:
-            return "生成邮件草稿中"
+            return "整理邮件中"
         }
     }
 
@@ -141,7 +155,7 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         case .createNote:
             return "把选中内容快速记到备忘录。"
         case .composeEmailDraft:
-            return "把选中内容整理成邮件草稿，并打开邮件 App。"
+            return "整理主题和正文，打开 Mail；地址明确时可直接发出。"
         }
     }
 
@@ -154,7 +168,7 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         case .createNote:
             return "只新增，不改已有笔记。"
         case .composeEmailDraft:
-            return "只生成草稿，不自动发送。"
+            return "地址明确且模型判断该直接发时，会自动发送；不明确时只打开编辑窗口。"
         }
     }
 
@@ -167,7 +181,7 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         case .createNote:
             return "记到备忘录"
         case .composeEmailDraft:
-            return "整理成邮件草稿"
+            return "给小庄发邮件"
         }
     }
 

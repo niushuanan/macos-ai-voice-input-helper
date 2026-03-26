@@ -134,7 +134,11 @@ final class HUDProgressStateMachineTests: XCTestCase {
     func testCompletionMessageResolverNormalizesMagicianSuccessMessages() {
         XCTAssertEqual(
             StatusPulseHUDMessageResolver.completionTitle(for: "已通过 mailto 打开邮件草稿。"),
-            "邮件草稿已生成"
+            "邮件已起草，待你确认"
+        )
+        XCTAssertEqual(
+            StatusPulseHUDMessageResolver.completionTitle(for: "邮件已发送"),
+            "邮件已发送"
         )
         XCTAssertEqual(
             StatusPulseHUDMessageResolver.completionTitle(for: "已提交到备忘录快捷指令。"),

@@ -21,7 +21,7 @@ enum InputLane: String {
         case .directDictation:
             return "说话后直接把新文本写入当前输入位置。"
         case .selectionRewrite:
-            return "按住主键说指令，执行文字处理、日程、备忘录或邮件草稿。"
+            return "按住主键说指令，执行文字处理、日程、备忘录或邮件助手。"
         case .brainstormDiscussion:
             return "记录多人讨论并输出可直接给 AI 的上下文包。"
         }

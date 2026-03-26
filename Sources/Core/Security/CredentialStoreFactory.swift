@@ -8,12 +8,13 @@ enum CredentialStoreFactory {
 
     static func makeProviderCredentialStore(
         credentialsDirectory: URL,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        legacyStores: [ProviderCredentialStore]? = nil
     ) -> ProviderCredentialStore {
         LocalFileProviderCredentialStore(
             credentialsDirectory: credentialsDirectory,
             fileManager: fileManager,
-            legacyStores: legacyKeychainServices.map { service in
+            legacyStores: legacyStores ?? legacyKeychainServices.map { service in
                 KeychainProviderCredentialStore(service: service)
             }
         )

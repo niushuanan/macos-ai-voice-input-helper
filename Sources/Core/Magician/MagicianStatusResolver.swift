@@ -132,11 +132,11 @@ struct MagicianStatusResolver {
                     || dependencies.mailAppAvailable
             else {
                 return .blocked(
-                    reason: "当前无法创建邮件草稿，请先配置 Mail 账号。",
+                    reason: "当前无法使用邮件助手，请先打开 Mail 并完成账号配置。",
                     prompt: MagicianPermissionPromptModel(
                         feature: feature,
                         title: "邮件服务不可用",
-                        message: "邮件草稿依赖系统 Mail 服务，请先打开 Mail 并完成账号配置。",
+                        message: "邮件助手依赖系统 Mail 服务。请先打开 Mail，并确认系统里已经配置好可用账号。",
                         primaryButtonTitle: "打开 Mail",
                         secondaryButtonTitle: "稍后再说",
                         primaryAction: .openMailApp

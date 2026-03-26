@@ -11,7 +11,10 @@ final class CredentialStoreFactoryTests: XCTestCase {
             try? FileManager.default.removeItem(at: directory)
         }
 
-        let store = CredentialStoreFactory.makeProviderCredentialStore(credentialsDirectory: directory)
+        let store = CredentialStoreFactory.makeProviderCredentialStore(
+            credentialsDirectory: directory,
+            legacyStores: []
+        )
         try store.saveAPIKey(" sk-demo ", for: "asr.primary")
 
         let credentialsFile = directory.appendingPathComponent("credentials.v1.json")

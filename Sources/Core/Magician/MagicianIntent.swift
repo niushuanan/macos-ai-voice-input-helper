@@ -19,6 +19,8 @@ struct MagicianIntentParams: Codable, Equatable {
     var notes: String?
     var noteBody: String?
     var mailTo: [String]?
+    var mailRecipientHints: [String]?
+    var mailDeliveryMode: MagicianMailDeliveryMode?
     var mailSubject: String?
     var mailBody: String?
 
@@ -33,6 +35,8 @@ struct MagicianIntentParams: Codable, Equatable {
         notes: String? = nil,
         noteBody: String? = nil,
         mailTo: [String]? = nil,
+        mailRecipientHints: [String]? = nil,
+        mailDeliveryMode: MagicianMailDeliveryMode? = nil,
         mailSubject: String? = nil,
         mailBody: String? = nil
     ) {
@@ -46,6 +50,8 @@ struct MagicianIntentParams: Codable, Equatable {
         self.notes = notes
         self.noteBody = noteBody
         self.mailTo = mailTo
+        self.mailRecipientHints = mailRecipientHints
+        self.mailDeliveryMode = mailDeliveryMode
         self.mailSubject = mailSubject
         self.mailBody = mailBody
     }
@@ -68,6 +74,9 @@ enum MagicianErrorCode: String, Equatable {
     case eventCreateFailed = "event_create_failed"
     case shortcutNotFound = "shortcut_not_found"
     case mailUnavailable = "mail_unavailable"
+    case mailAutomationDenied = "mail_automation_denied"
+    case mailAppleScriptFailed = "mail_applescript_failed"
+    case mailRecipientUnresolved = "mail_recipient_unresolved"
     case browserUnavailable = "browser_unavailable"
 }
 
