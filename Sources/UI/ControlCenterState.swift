@@ -4,6 +4,7 @@ import Foundation
 enum DesktopSection: String, CaseIterable, Identifiable {
     case home
     case memory
+    case magician
     case skills
     case dictionary
     case model
@@ -18,6 +19,8 @@ enum DesktopSection: String, CaseIterable, Identifiable {
             return "首页"
         case .memory:
             return "记忆"
+        case .magician:
+            return "魔法师"
         case .skills:
             return "Skill"
         case .agentBrainstorm:
@@ -37,6 +40,8 @@ enum DesktopSection: String, CaseIterable, Identifiable {
             return "house"
         case .memory:
             return "clock.arrow.circlepath"
+        case .magician:
+            return "wand.and.stars"
         case .skills:
             return "slider.horizontal.3"
         case .agentBrainstorm:

@@ -3,6 +3,12 @@ import XCTest
 
 @MainActor
 final class ControlCenterStateTests: XCTestCase {
+    func testDesktopSectionIncludesMagician() {
+        XCTAssertTrue(DesktopSection.allCases.contains(.magician))
+        XCTAssertEqual(DesktopSection.magician.title, "魔法师")
+        XCTAssertEqual(DesktopSection.magician.symbolName, "wand.and.stars")
+    }
+
     func testHomeStatsSnapshotTracksLifetimeStatistics() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("control-center-state-\(UUID().uuidString)", isDirectory: true)

@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import EventKit
 import KeyboardShortcuts
 import SwiftUI
 
@@ -21,6 +22,7 @@ struct SettingsView: View {
     @ObservedObject private var localHistoryStore: LocalHistoryStore
     @ObservedObject private var brainstormDurationProfileStore: BrainstormDurationProfileStore
     @ObservedObject private var toastPresenter: ToastPresenter
+    @StateObject private var magicianFeatureToggleStore = MagicianFeatureToggleStore()
 
     @State private var asrTesting = false
     @State private var textTesting = false
@@ -44,6 +46,12 @@ struct SettingsView: View {
     @State private var brainstormCaptureHint: String?
     @State private var brainstormFlagsMonitor: Any?
     @State private var brainstormKeyDownMonitor: Any?
+    @State private var magicianPermissionPrompt: MagicianPermissionPromptModel?
+    @State private var magicianEventAuthorizationStatus: EKAuthorizationStatus = EKEventStore.authorizationStatus(for: .event)
+    @State private var magicianShortcutsAvailable = FileManager.default.isExecutableFile(atPath: "/usr/bin/shortcuts")
+    @State private var magicianComposeEmailAvailable = NSSharingService(named: .composeEmail) != nil
+
+    private let magicianStatusResolver = MagicianStatusResolver()
 
     init(model: AppModel) {
         self.model = model
@@ -78,6 +86,8 @@ struct SettingsView: View {
                         homePage
                     case .memory:
                         memoryPage
+                    case .magician:
+                        magicianPage
                     case .skills:
                         skillsPage
                     case .agentBrainstorm:
@@ -114,6 +124,9 @@ struct SettingsView: View {
             } else if section == .agentBrainstorm {
                 hotkeyStateStore.refresh()
                 model.interactionCoordinator.ensureBrainstormDurationProfile()
+            } else if section == .magician {
+                refreshMagicianCapabilityState()
+                permissionsCenter.refreshStatuses()
             } else if activeBrainstormCaptureMode != nil {
                 stopBrainstormCapture()
             }
@@ -129,6 +142,16 @@ struct SettingsView: View {
                 return
             }
             model.interactionCoordinator.ensureBrainstormDurationProfile()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshMagicianCapabilityState()
+        }
+        .sheet(item: $magicianPermissionPrompt) { prompt in
+            MagicianPermissionSheetView(
+                prompt: prompt,
+                onPrimary: { handleMagicianPromptPrimary(prompt) },
+                onCancel: { magicianPermissionPrompt = nil }
+            )
         }
     }
 
@@ -247,6 +270,95 @@ struct SettingsView: View {
         } message: {
             Text("该操作会删除记忆页全部本地记录，但不影响首页累计指标。")
         }
+    }
+
+    private var magicianPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                pageHeader(
+                    title: "魔法师",
+                    subtitle: "选中文字，下指令，立刻执行。"
+                )
+
+                ForEach(MagicianFeatureDescriptor.all) { descriptor in
+                    magicianFeatureCard(descriptor)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
+        }
+        .onAppear {
+            refreshMagicianCapabilityState()
+            permissionsCenter.refreshStatuses()
+        }
+    }
+
+    private func magicianFeatureCard(_ descriptor: MagicianFeatureDescriptor) -> some View {
+        let resolution = magicianStatusResolver.resolve(
+            feature: descriptor.id,
+            isEnabled: magicianFeatureToggleStore.isEnabled(descriptor.id),
+            dependencies: currentMagicianDependencies
+        )
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                Label(descriptor.name, systemImage: descriptor.symbolName)
+                    .font(.headline)
+                Spacer()
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: {
+                            magicianFeatureToggleStore.isEnabled(descriptor.id)
+                        },
+                        set: { enabled in
+                            handleMagicianToggleChange(
+                                feature: descriptor.id,
+                                enabled: enabled
+                            )
+                        }
+                    )
+                )
+                .labelsHidden()
+                .toggleStyle(SwitchToggleStyle())
+                .scaleEffect(0.8)
+                .fixedSize()
+            }
+
+            Text(descriptor.summary)
+                .font(.subheadline)
+
+            Text("边界：\(descriptor.boundary)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text("示例：\(descriptor.example)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 8) {
+                Text(resolution.status.labelText)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(magicianStatusColor(resolution.status).opacity(0.14))
+                    )
+                    .foregroundStyle(magicianStatusColor(resolution.status))
+                Spacer()
+            }
+
+            if let reason = resolution.reason {
+                Text(reason)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .pulseCard(cornerRadius: 12)
     }
 
     private var skillsPage: some View {
@@ -1147,6 +1259,137 @@ struct SettingsView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var currentMagicianDependencies: MagicianDependencySnapshot {
+        MagicianDependencySnapshot(
+            accessibilityState: permissionsCenter.snapshot.accessibility,
+            eventAuthorizationStatus: magicianEventAuthorizationStatus,
+            shortcutsCLIAvailable: magicianShortcutsAvailable,
+            composeEmailAvailable: magicianComposeEmailAvailable
+        )
+    }
+
+    private func refreshMagicianCapabilityState() {
+        magicianEventAuthorizationStatus = EKEventStore.authorizationStatus(for: .event)
+        magicianShortcutsAvailable = FileManager.default.isExecutableFile(atPath: "/usr/bin/shortcuts")
+        magicianComposeEmailAvailable = NSSharingService(named: .composeEmail) != nil
+    }
+
+    private func handleMagicianToggleChange(
+        feature: MagicianFeatureID,
+        enabled: Bool
+    ) {
+        if !enabled {
+            magicianFeatureToggleStore.setEnabled(false, for: feature)
+            showToast("\(feature.displayName)已关闭。")
+            return
+        }
+
+        let requirement = magicianStatusResolver.requirement(
+            for: feature,
+            dependencies: currentMagicianDependencies
+        )
+        switch requirement {
+        case .ready:
+            magicianFeatureToggleStore.setEnabled(true, for: feature)
+            showToast("\(feature.displayName)已开启。")
+        case let .blocked(reason, prompt):
+            magicianFeatureToggleStore.setEnabled(false, for: feature)
+            magicianPermissionPrompt = prompt
+            showToast(reason)
+        }
+    }
+
+    private func handleMagicianPromptPrimary(_ prompt: MagicianPermissionPromptModel) {
+        Task {
+            await performMagicianPermissionAction(prompt.primaryAction)
+            await MainActor.run {
+                permissionsCenter.refreshStatuses()
+                refreshMagicianCapabilityState()
+                let requirement = magicianStatusResolver.requirement(
+                    for: prompt.feature,
+                    dependencies: currentMagicianDependencies
+                )
+                switch requirement {
+                case .ready:
+                    magicianFeatureToggleStore.setEnabled(true, for: prompt.feature)
+                    showToast("\(prompt.feature.displayName)已开启。")
+                case let .blocked(reason, _):
+                    magicianFeatureToggleStore.setEnabled(false, for: prompt.feature)
+                    showToast(reason)
+                }
+                magicianPermissionPrompt = nil
+            }
+        }
+    }
+
+    private func performMagicianPermissionAction(_ action: MagicianPermissionAction) async {
+        switch action {
+        case .requestAccessibility:
+            await MainActor.run {
+                permissionsCenter.requestAccess(for: .accessibility)
+            }
+        case .requestCalendarAccess:
+            _ = await requestCalendarAccessIfNeeded()
+        case let .openSystemSettings(urlString):
+            guard let url = URL(string: urlString) else {
+                return
+            }
+            _ = await MainActor.run {
+                NSWorkspace.shared.open(url)
+            }
+        case .openShortcutsApp:
+            await MainActor.run {
+                openApplication(
+                    bundleIdentifier: "com.apple.shortcuts",
+                    fallbackPath: "/System/Applications/Shortcuts.app"
+                )
+            }
+        case .openMailApp:
+            await MainActor.run {
+                openApplication(
+                    bundleIdentifier: "com.apple.mail",
+                    fallbackPath: "/System/Applications/Mail.app"
+                )
+            }
+        }
+    }
+
+    private func requestCalendarAccessIfNeeded() async -> Bool {
+        let eventStore = EKEventStore()
+        return await withCheckedContinuation { continuation in
+            eventStore.requestFullAccessToEvents { granted, _ in
+                continuation.resume(returning: granted)
+            }
+        }
+    }
+
+    private func openApplication(
+        bundleIdentifier: String,
+        fallbackPath: String
+    ) {
+        if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
+            NSWorkspace.shared.openApplication(
+                at: appURL,
+                configuration: NSWorkspace.OpenConfiguration()
+            ) { _, _ in }
+            return
+        }
+
+        let fallbackURL = URL(fileURLWithPath: fallbackPath, isDirectory: true)
+        NSWorkspace.shared.open(fallbackURL)
+    }
+
+    private func magicianStatusColor(_ status: MagicianFeatureStatus) -> Color {
+        switch status {
+        case .notEnabled:
+            return .secondary
+        case .needsPermission:
+            return .orange
+        case .enabled:
+            return .green
         }
     }
 
@@ -2583,6 +2826,37 @@ private struct PermissionRowView: View {
         case .notRequired:
             return "不需要"
         }
+    }
+}
+
+private struct MagicianPermissionSheetView: View {
+    let prompt: MagicianPermissionPromptModel
+    let onPrimary: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(prompt.title)
+                .font(.title3.weight(.semibold))
+            Text(prompt.message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Spacer()
+                Button(prompt.secondaryButtonTitle) {
+                    onCancel()
+                }
+                .buttonStyle(.bordered)
+
+                Button(prompt.primaryButtonTitle) {
+                    onPrimary()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+        .frame(width: 430)
     }
 }
 
