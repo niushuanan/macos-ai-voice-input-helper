@@ -505,6 +505,15 @@ final class InteractionCoordinator {
         return newTraceID
     }
 
+    @discardableResult
+    private func abortIfSessionCancelled() -> Bool {
+        guard Task.isCancelled || sessionStore.phase == .cancelled else {
+            return false
+        }
+        currentDictationTarget = nil
+        return true
+    }
+
     private func transcribeWithRetryOnInvalidResponse(
         provider: any SpeechTranscriptionProvider,
         request: SpeechTranscriptionRequest,
@@ -1030,6 +1039,7 @@ final class InteractionCoordinator {
 
                 audioCaptureService.removeClip(at: clip.fileURL)
                 sessionStore.clearPendingClipReference()
+                sessionStore.completeTranscription(result: outcome.result)
                 speechPipelineLogger.log(
                     traceID: traceID,
                     lane: lane,
@@ -1850,6 +1860,9 @@ final class InteractionCoordinator {
         let spokenInstruction = processedInstruction.isEmpty ? rawInstruction : processedInstruction
         let initialFocusContext = contextDetector.focusedAppContext()
         let selectionSnapshot = await resolvedMagicianSelectionSnapshot()
+        if abortIfSessionCancelled() {
+            return
+        }
         let fallbackFocusContext = selectionSnapshot?.focusContext ?? initialFocusContext
         let selectionText = selectionSnapshot?.selectedText ?? ""
 
@@ -1929,6 +1942,9 @@ final class InteractionCoordinator {
                 selection: selectionSnapshot?.selectedText,
                 enabledFeatures: enabledFeatures
             )
+            if abortIfSessionCancelled() {
+                return
+            }
             speechPipelineLogger.log(
                 traceID: traceID,
                 lane: .selectionRewrite,
@@ -1941,6 +1957,9 @@ final class InteractionCoordinator {
                 transcriptLength: spokenInstruction.count
             )
         } catch let magicianError as MagicianError {
+            if abortIfSessionCancelled() {
+                return
+            }
             let message = magicianError.userMessage
             localHistoryStore.append(
                 SessionHistoryEntry(
@@ -1973,6 +1992,9 @@ final class InteractionCoordinator {
             currentTraceID = nil
             return
         } catch {
+            if abortIfSessionCancelled() {
+                return
+            }
             let message = "指令解析失败，请换个说法再试。"
             localHistoryStore.append(
                 SessionHistoryEntry(
@@ -2128,6 +2150,9 @@ final class InteractionCoordinator {
         instructionApplyResult: SkillApplyResult,
         traceID: String
     ) async {
+        if abortIfSessionCancelled() {
+            return
+        }
         let scenePolicy = effectiveScenePolicy(for: snapshot.focusContext)
         let activeSystemPrompt = skillRuleStore.activeSystemPrompt()
         let quickActionLabel = (try? RewriteIntentParser().parse(
@@ -2252,6 +2277,9 @@ final class InteractionCoordinator {
                 configuration: rewriteConfiguration,
                 apiKey: normalizedKey
             )
+            if abortIfSessionCancelled() {
+                return
+            }
             let outputApplyResult = skillRuleStore.applyRewriteOutput(
                 rewriteResult.rewrittenText,
                 outputBias: .neutral
@@ -2317,6 +2345,9 @@ final class InteractionCoordinator {
             )
             currentTraceID = nil
         } catch let rewriteError as RewriteProviderError {
+            if abortIfSessionCancelled() {
+                return
+            }
             let message = actionableRewriteMessage(for: rewriteError)
             localHistoryStore.append(
                 SessionHistoryEntry(
@@ -2351,6 +2382,9 @@ final class InteractionCoordinator {
             sessionStore.fail(message: message)
             currentTraceID = nil
         } catch let outputError as TextOutputError {
+            if abortIfSessionCancelled() {
+                return
+            }
             if
                 shouldFallbackToClipboardForMagician(outputError),
                 let clipboardCandidateText,
@@ -2426,6 +2460,9 @@ final class InteractionCoordinator {
             sessionStore.fail(message: message)
             currentTraceID = nil
         } catch {
+            if abortIfSessionCancelled() {
+                return
+            }
             let message = "改写失败：\(error.localizedDescription)"
             localHistoryStore.append(
                 SessionHistoryEntry(
@@ -2496,6 +2533,9 @@ final class InteractionCoordinator {
         audioDurationSeconds: TimeInterval,
         traceID: String
     ) async {
+        if abortIfSessionCancelled() {
+            return
+        }
         sessionStore.markRewriting(
             actionLabel: intent.intent.progressTitle,
             stage: .toolAction
@@ -2536,6 +2576,9 @@ final class InteractionCoordinator {
             )
             currentTraceID = nil
         } catch let magicianError as MagicianError {
+            if abortIfSessionCancelled() {
+                return
+            }
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -2568,6 +2611,9 @@ final class InteractionCoordinator {
             sessionStore.fail(message: magicianError.userMessage)
             currentTraceID = nil
         } catch {
+            if abortIfSessionCancelled() {
+                return
+            }
             let message = "执行失败：\(error.localizedDescription)"
             localHistoryStore.append(
                 SessionHistoryEntry(

@@ -422,6 +422,38 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "OpenAI o3 mini")
     }
 
+    func testCancelDuringMagicianThinkingKeepsCancelledState() async throws {
+        let router = DelayedFailingMagicianIntentRouter(
+            delayNanoseconds: 180_000_000,
+            error: MagicianError(
+                code: .intentParseFailed,
+                userMessage: "文本模型不可用。",
+                debugMessage: nil,
+                recoverAction: nil
+            )
+        )
+        let fixture = try makeFixture(
+            magicianIntentRouter: router,
+            transcriptionText: "帮我写进备忘录"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createNote)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        fixture.coordinator.handleCancelInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .cancelled)
+        XCTAssertEqual(fixture.sessionStore.statusMessage, "本次会话已取消，目标应用内容未变化。")
+        XCTAssertNil(fixture.sessionStore.errorMessage)
+        XCTAssertEqual(fixture.localHistoryStore.entries.count, 1)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .cancelled)
+        XCTAssertFalse(fixture.sessionStore.statusMessage.contains("文本模型不可用"))
+    }
+
     func testMagicianToolIntentAllowsNoSelection() async throws {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = nil
@@ -1268,6 +1300,28 @@ private final class FakeMagicianIntentRouter: MagicianIntentRouting {
         _ = selection
         _ = enabledFeatures
         return intent
+    }
+}
+
+private final class DelayedFailingMagicianIntentRouter: MagicianIntentRouting {
+    private let delayNanoseconds: UInt64
+    private let error: Error
+
+    init(delayNanoseconds: UInt64, error: Error) {
+        self.delayNanoseconds = delayNanoseconds
+        self.error = error
+    }
+
+    func route(
+        command: String,
+        selection: String?,
+        enabledFeatures: Set<MagicianFeatureID>
+    ) async throws -> MagicianIntent {
+        _ = command
+        _ = selection
+        _ = enabledFeatures
+        try? await Task.sleep(nanoseconds: delayNanoseconds)
+        throw error
     }
 }
 
