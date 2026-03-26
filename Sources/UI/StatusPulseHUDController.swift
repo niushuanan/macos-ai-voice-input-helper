@@ -130,7 +130,7 @@ struct HUDProgressStateMachine {
         case .transcribing:
             return ("转写中", 0.12, 0.46)
         case .rewriting:
-            return ("文本处理", 0.46, 0.78)
+            return ("魔法师执行", 0.46, 0.78)
         case .inserting:
             return ("写入中", 0.78, 0.94)
         case .idle, .listening, .cancelled, .error:
@@ -187,7 +187,12 @@ final class StatusPulseHUDController {
         currentLane = lane
         currentMessage = message
         currentListeningLevel = max(0, min(1, listeningLevel))
-        currentStyle = frame.style
+        currentStyle = resolvedPresentationStyle(
+            from: frame.style,
+            phase: phase,
+            lane: lane,
+            message: message
+        )
         currentProgress = max(0, min(1, frame.progress))
 
         if case .processing = frame.style {
@@ -335,6 +340,51 @@ final class StatusPulseHUDController {
             render(panel: panel)
         }
     }
+
+    private func resolvedPresentationStyle(
+        from style: HUDPresentationStyle,
+        phase: SessionPhase,
+        lane: InputLane,
+        message: String
+    ) -> HUDPresentationStyle {
+        guard case let .processing(defaultTitle) = style else {
+            return style
+        }
+        guard phase == .rewriting, lane == .selectionRewrite else {
+            return style
+        }
+        return .processing(
+            title: magicianProcessingTitle(from: message, fallback: defaultTitle)
+        )
+    }
+
+    private func magicianProcessingTitle(from message: String, fallback: String) -> String {
+        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let explicit = extractMagicianActionTitle(from: normalized) {
+            return explicit
+        }
+
+        let knownTitles = ["文字处理", "快速搜索", "一键建日程", "写入备忘录", "邮件草稿"]
+        if let matched = knownTitles.first(where: { normalized.contains($0) }) {
+            return matched
+        }
+
+        return fallback
+    }
+
+    private func extractMagicianActionTitle(from message: String) -> String? {
+        let prefixes = ["魔法师执行中：", "魔法师文字处理中："]
+        guard let prefix = prefixes.first(where: { message.hasPrefix($0) }) else {
+            return nil
+        }
+
+        var title = message.dropFirst(prefix.count)
+        if let punctuationIndex = title.firstIndex(where: { "。.!！？".contains($0) }) {
+            title = title[..<punctuationIndex]
+        }
+        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
 }
 
 private struct StatusPulseHUDView: View {
@@ -408,7 +458,7 @@ private struct StatusPulseHUDView: View {
         case .directDictation:
             return "语音输入"
         case .selectionRewrite:
-            return "选区改写"
+            return "魔法师"
         case .brainstormDiscussion:
             return "头脑风暴"
         }

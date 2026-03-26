@@ -139,7 +139,7 @@ struct MagicianStatusResolver {
             return .ready
 
         case .composeEmailDraft:
-            guard dependencies.composeEmailAvailable else {
+            guard dependencies.composeEmailAvailable || dependencies.mailtoAvailable else {
                 return .blocked(
                     reason: "当前无法创建邮件草稿，请先配置 Mail 账号。",
                     prompt: MagicianPermissionPromptModel(

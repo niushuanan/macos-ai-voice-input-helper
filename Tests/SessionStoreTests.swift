@@ -69,6 +69,27 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.latestTranscription?.transcript, transcription.transcript)
     }
 
+    func testStartRewriteShowsMagicianListeningMessage() {
+        let store = SessionStore()
+
+        store.startRewrite()
+
+        XCTAssertEqual(store.phase, .listening)
+        XCTAssertTrue(store.statusMessage.contains("魔法师指令"))
+    }
+
+    func testMarkRewritingUsesToolActionMessageWhenNeeded() {
+        let store = SessionStore()
+        store.startRewrite()
+        store.markTranscribing(audioSummary: "0.3 秒，44100Hz")
+
+        store.markRewriting(actionLabel: "一键建日程", stage: .toolAction)
+
+        XCTAssertEqual(store.phase, .rewriting)
+        XCTAssertTrue(store.statusMessage.contains("魔法师执行中"))
+        XCTAssertTrue(store.statusMessage.contains("一键建日程"))
+    }
+
     func testBrainstormStartSwitchesLaneAndListeningState() {
         let store = SessionStore()
 

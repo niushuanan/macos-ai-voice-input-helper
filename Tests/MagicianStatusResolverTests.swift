@@ -80,11 +80,28 @@ final class MagicianStatusResolverTests: XCTestCase {
         let resolution = resolver.resolve(
             feature: .composeEmailDraft,
             isEnabled: true,
-            dependencies: dependencies(composeEmailAvailable: false)
+            dependencies: dependencies(
+                composeEmailAvailable: false,
+                mailtoAvailable: false
+            )
         )
 
         XCTAssertEqual(resolution.status, .needsPermission)
         XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "打开 Mail")
+    }
+
+    func testComposeEmailReadyWhenOnlyMailtoAvailable() {
+        let resolution = resolver.resolve(
+            feature: .composeEmailDraft,
+            isEnabled: true,
+            dependencies: dependencies(
+                composeEmailAvailable: false,
+                mailtoAvailable: true
+            )
+        )
+
+        XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertNil(resolution.prompt)
     }
 
     private func dependencies(
@@ -93,7 +110,8 @@ final class MagicianStatusResolverTests: XCTestCase {
         shortcutsAvailable: Bool = true,
         createNoteShortcutName: String = "PulseType-写入备忘录",
         createNoteShortcutExists: Bool = true,
-        composeEmailAvailable: Bool = true
+        composeEmailAvailable: Bool = true,
+        mailtoAvailable: Bool = true
     ) -> MagicianDependencySnapshot {
         MagicianDependencySnapshot(
             accessibilityState: accessibility,
@@ -101,7 +119,8 @@ final class MagicianStatusResolverTests: XCTestCase {
             shortcutsCLIAvailable: shortcutsAvailable,
             createNoteShortcutName: createNoteShortcutName,
             createNoteShortcutExists: createNoteShortcutExists,
-            composeEmailAvailable: composeEmailAvailable
+            composeEmailAvailable: composeEmailAvailable,
+            mailtoAvailable: mailtoAvailable
         )
     }
 }

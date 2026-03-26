@@ -3,6 +3,11 @@ import Foundation
 
 @MainActor
 final class SessionStore: ObservableObject {
+    enum RewriteStageKind {
+        case textTransform
+        case toolAction
+    }
+
     @Published private(set) var phase: SessionPhase = .idle
     @Published private(set) var activeLane: InputLane = .directDictation
     @Published private(set) var statusMessage: String = "已准备，可通过快捷键开始语音会话。"
@@ -32,7 +37,7 @@ final class SessionStore: ObservableObject {
     func startRewrite() {
         clearRuntimeArtifactsForNewSession()
         activeLane = .selectionRewrite
-        transition(to: .listening, statusMessage: "正在聆听选区改写指令。")
+        transition(to: .listening, statusMessage: "正在聆听魔法师指令。")
     }
 
     func startBrainstorm() {
@@ -100,18 +105,38 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    func markRewriting(actionLabel: String? = nil) {
+    func markRewriting(
+        actionLabel: String? = nil,
+        stage: RewriteStageKind = .textTransform
+    ) {
         activeLane = .selectionRewrite
-        if let actionLabel, !actionLabel.isEmpty {
-            transition(
-                to: .rewriting,
-                statusMessage: "正在对选中文本执行：\(actionLabel)。"
-            )
-        } else {
-            transition(
-                to: .rewriting,
-                statusMessage: "正在按语音指令改写选中文本。"
-            )
+        let normalizedLabel = actionLabel?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        switch stage {
+        case .textTransform:
+            if normalizedLabel.isEmpty {
+                transition(
+                    to: .rewriting,
+                    statusMessage: "魔法师文字处理中。"
+                )
+            } else {
+                transition(
+                    to: .rewriting,
+                    statusMessage: "魔法师文字处理中：\(normalizedLabel)。"
+                )
+            }
+        case .toolAction:
+            if normalizedLabel.isEmpty {
+                transition(
+                    to: .rewriting,
+                    statusMessage: "魔法师执行中。"
+                )
+            } else {
+                transition(
+                    to: .rewriting,
+                    statusMessage: "魔法师执行中：\(normalizedLabel)。"
+                )
+            }
         }
     }
 

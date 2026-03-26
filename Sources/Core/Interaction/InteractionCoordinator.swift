@@ -1924,11 +1924,14 @@ final class InteractionCoordinator {
         }
 
         permissionsCenter.refreshStatuses()
+        let dependencies = currentMagicianDependenciesSnapshot()
         let requirement = magicianStatusResolver.requirement(
             for: routedIntent.intent,
-            dependencies: currentMagicianDependenciesSnapshot()
+            dependencies: dependencies
         )
-        if case let .blocked(reason, _) = requirement {
+        let shouldBypassRequirement = routedIntent.intent == .createEvent
+            && dependencies.eventAuthorizationStatus == .notDetermined
+        if case let .blocked(reason, _) = requirement, !shouldBypassRequirement {
             let message = "\(routedIntent.intent.displayName)：\(reason)"
             localHistoryStore.append(
                 SessionHistoryEntry(
@@ -2140,7 +2143,10 @@ final class InteractionCoordinator {
             return
         }
 
-        sessionStore.markRewriting(actionLabel: quickActionLabel)
+        sessionStore.markRewriting(
+            actionLabel: quickActionLabel,
+            stage: .textTransform
+        )
         do {
             let rewriteResult = try await rewriteProvider.rewrite(
                 request: SelectionRewriteRequest(
@@ -2328,7 +2334,10 @@ final class InteractionCoordinator {
         audioDurationSeconds: TimeInterval,
         traceID: String
     ) async {
-        sessionStore.markRewriting(actionLabel: intent.intent.displayName)
+        sessionStore.markRewriting(
+            actionLabel: intent.intent.displayName,
+            stage: .toolAction
+        )
         do {
             let result = try await magicianToolExecutor.execute(
                 intent: intent,
@@ -2379,6 +2388,7 @@ final class InteractionCoordinator {
                     appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
+            handleMagicianRecoverAction(magicianError.recoverAction)
             speechPipelineLogger.log(
                 traceID: traceID,
                 lane: .selectionRewrite,
@@ -2423,6 +2433,47 @@ final class InteractionCoordinator {
             )
             sessionStore.fail(message: message)
             currentTraceID = nil
+        }
+    }
+
+    private func handleMagicianRecoverAction(_ recoverAction: String?) {
+        guard let recoverAction else {
+            return
+        }
+
+        switch recoverAction {
+        case "open_calendar_permission_settings":
+            guard
+                let settingsURL = URL(
+                    string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
+                )
+            else {
+                return
+            }
+            NSWorkspace.shared.open(settingsURL)
+
+        case "open_shortcuts", "create_note_shortcut":
+            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.shortcuts") {
+                NSWorkspace.shared.openApplication(
+                    at: appURL,
+                    configuration: NSWorkspace.OpenConfiguration()
+                ) { _, _ in }
+            } else {
+                NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Shortcuts.app"))
+            }
+
+        case "configure_mail_account":
+            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.mail") {
+                NSWorkspace.shared.openApplication(
+                    at: appURL,
+                    configuration: NSWorkspace.OpenConfiguration()
+                ) { _, _ in }
+            } else {
+                NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Mail.app"))
+            }
+
+        default:
+            break
         }
     }
 
@@ -2729,7 +2780,8 @@ final class InteractionCoordinator {
             shortcutsCLIAvailable: shortcutSupport.cliAvailable,
             createNoteShortcutName: shortcutSupport.shortcutName,
             createNoteShortcutExists: shortcutSupport.hasShortcut(),
-            composeEmailAvailable: NSSharingService(named: .composeEmail) != nil
+            composeEmailAvailable: MagicianMailCapability.composeEmailServiceAvailable,
+            mailtoAvailable: MagicianMailCapability.mailtoAvailable
         )
     }
 

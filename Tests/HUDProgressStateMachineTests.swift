@@ -32,6 +32,17 @@ final class HUDProgressStateMachineTests: XCTestCase {
         XCTAssertEqual(title, "写入中")
     }
 
+    func testRewritingUsesMagicianFallbackTitle() {
+        var machine = HUDProgressStateMachine()
+
+        let frame = machine.transition(to: .rewriting)
+
+        guard case let .processing(title) = frame.style else {
+            return XCTFail("expected processing style")
+        }
+        XCTAssertEqual(title, "魔法师执行")
+    }
+
     func testIdleAfterBusyEntersCompletionAndSchedulesQuickHide() {
         var machine = HUDProgressStateMachine()
         _ = machine.transition(to: .transcribing)

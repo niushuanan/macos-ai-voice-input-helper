@@ -28,7 +28,7 @@ enum LocalHistoryFilter: String, CaseIterable, Identifiable {
         case .dictation:
             return "普通听写"
         case .selectionRewrite:
-            return "选区改写"
+            return "魔法师"
         case .brainstorm:
             return "头脑风暴（Beta）"
         case .failed:

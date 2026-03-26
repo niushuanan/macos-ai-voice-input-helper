@@ -305,15 +305,6 @@ private struct MagicianNoteAdapter {
         intent: MagicianIntent,
         context: MagicianExecutionContext
     ) async throws -> MagicianExecutionResult {
-        guard shortcutSupport.cliAvailable else {
-            throw MagicianError(
-                code: .shortcutNotFound,
-                userMessage: "系统里没有可用的 shortcuts 命令，请先启用 Shortcuts。",
-                debugMessage: "shortcuts executable missing",
-                recoverAction: "open_shortcuts"
-            )
-        }
-
         let noteBody = resolvedNoteBody(intent: intent, context: context)
         guard !noteBody.isEmpty else {
             throw MagicianError(
@@ -325,17 +316,26 @@ private struct MagicianNoteAdapter {
         }
 
         let shortcutName = shortcutSupport.shortcutName
-        guard shortcutSupport.hasShortcut(named: shortcutName) else {
-            throw MagicianError(
-                code: .shortcutNotFound,
-                userMessage: "没找到快捷指令“\(shortcutName)”。请先在 Shortcuts 创建同名指令。",
-                debugMessage: "shortcut '\(shortcutName)' not found in shortcut list",
-                recoverAction: "create_note_shortcut"
-            )
-        }
+        if shortcutSupport.cliAvailable {
+            guard shortcutSupport.hasShortcut(named: shortcutName) else {
+                throw MagicianError(
+                    code: .shortcutNotFound,
+                    userMessage: "没找到快捷指令“\(shortcutName)”。请先在 Shortcuts 创建同名指令。",
+                    debugMessage: "shortcut '\(shortcutName)' not found in shortcut list",
+                    recoverAction: "create_note_shortcut"
+                )
+            }
 
-        let result = try await runShortcut(name: shortcutName, inputText: noteBody)
-        if result.exitCode != 0 {
+            let result = try await runShortcut(name: shortcutName, inputText: noteBody)
+            if result.exitCode == 0 {
+                return MagicianExecutionResult(
+                    intent: .createNote,
+                    userMessage: "已提交到备忘录快捷指令。",
+                    outputText: noteBody,
+                    fallbackUsed: false
+                )
+            }
+
             let detail = result.stderr.isEmpty ? result.stdout : result.stderr
             let lowered = detail.lowercased()
             if lowered.contains("not found") || lowered.contains("could not find") {
@@ -346,6 +346,16 @@ private struct MagicianNoteAdapter {
                     recoverAction: "create_note_shortcut"
                 )
             }
+
+            if runShortcutViaURLScheme(name: shortcutName, inputText: noteBody) {
+                return MagicianExecutionResult(
+                    intent: .createNote,
+                    userMessage: "CLI 执行失败，已改用 Shortcuts URL 触发写入。",
+                    outputText: noteBody,
+                    fallbackUsed: true
+                )
+            }
+
             throw MagicianError(
                 code: .toolExecutionFailed,
                 userMessage: "写入备忘录失败，请稍后再试。",
@@ -354,11 +364,20 @@ private struct MagicianNoteAdapter {
             )
         }
 
-        return MagicianExecutionResult(
-            intent: .createNote,
-            userMessage: "已提交到备忘录快捷指令。",
-            outputText: noteBody,
-            fallbackUsed: false
+        if runShortcutViaURLScheme(name: shortcutName, inputText: noteBody) {
+            return MagicianExecutionResult(
+                intent: .createNote,
+                userMessage: "已通过 Shortcuts URL 触发写入。",
+                outputText: noteBody,
+                fallbackUsed: true
+            )
+        }
+
+        throw MagicianError(
+            code: .shortcutNotFound,
+            userMessage: "系统里没有可用的 shortcuts 命令，请先启用 Shortcuts。",
+            debugMessage: "shortcuts executable missing and URL scheme launch failed",
+            recoverAction: "open_shortcuts"
         )
     }
 
@@ -422,6 +441,25 @@ private struct MagicianNoteAdapter {
                 stderr: stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             )
         }.value
+    }
+
+    private func runShortcutViaURLScheme(
+        name: String,
+        inputText: String
+    ) -> Bool {
+        var components = URLComponents()
+        components.scheme = "shortcuts"
+        components.host = "run-shortcut"
+        components.queryItems = [
+            URLQueryItem(name: "name", value: name),
+            URLQueryItem(name: "input", value: "text"),
+            URLQueryItem(name: "text", value: inputText)
+        ]
+
+        guard let url = components.url else {
+            return false
+        }
+        return NSWorkspace.shared.open(url)
     }
 
     private struct ProcessResult {

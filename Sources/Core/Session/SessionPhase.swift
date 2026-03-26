@@ -18,7 +18,7 @@ enum SessionPhase: String, CaseIterable {
         case .transcribing:
             return "转写中"
         case .rewriting:
-            return "改写中"
+            return "执行中"
         case .inserting:
             return "写回中"
         case .cancelled:

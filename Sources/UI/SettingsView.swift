@@ -51,7 +51,8 @@ struct SettingsView: View {
     @State private var magicianShortcutsAvailable = FileManager.default.isExecutableFile(atPath: "/usr/bin/shortcuts")
     @State private var magicianCreateNoteShortcutName = MagicianCreateNoteShortcutSupport().shortcutName
     @State private var magicianCreateNoteShortcutExists = MagicianCreateNoteShortcutSupport().hasShortcut()
-    @State private var magicianComposeEmailAvailable = NSSharingService(named: .composeEmail) != nil
+    @State private var magicianComposeEmailAvailable = MagicianMailCapability.composeEmailServiceAvailable
+    @State private var magicianMailtoAvailable = MagicianMailCapability.mailtoAvailable
 
     private let magicianStatusResolver = MagicianStatusResolver()
 
@@ -1311,7 +1312,8 @@ struct SettingsView: View {
             shortcutsCLIAvailable: magicianShortcutsAvailable,
             createNoteShortcutName: magicianCreateNoteShortcutName,
             createNoteShortcutExists: magicianCreateNoteShortcutExists,
-            composeEmailAvailable: magicianComposeEmailAvailable
+            composeEmailAvailable: magicianComposeEmailAvailable,
+            mailtoAvailable: magicianMailtoAvailable
         )
     }
 
@@ -1321,7 +1323,8 @@ struct SettingsView: View {
         magicianShortcutsAvailable = shortcutSupport.cliAvailable
         magicianCreateNoteShortcutName = shortcutSupport.shortcutName
         magicianCreateNoteShortcutExists = shortcutSupport.hasShortcut(named: magicianCreateNoteShortcutName)
-        magicianComposeEmailAvailable = NSSharingService(named: .composeEmail) != nil
+        magicianComposeEmailAvailable = MagicianMailCapability.composeEmailServiceAvailable
+        magicianMailtoAvailable = MagicianMailCapability.mailtoAvailable
     }
 
     private func handleMagicianToggleChange(
@@ -1379,7 +1382,19 @@ struct SettingsView: View {
                 permissionsCenter.requestAccess(for: .accessibility)
             }
         case .requestCalendarAccess:
-            _ = await requestCalendarAccessIfNeeded()
+            let granted = await requestCalendarAccessIfNeeded()
+            if !granted {
+                guard
+                    let url = URL(
+                        string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
+                    )
+                else {
+                    return
+                }
+                _ = await MainActor.run {
+                    NSWorkspace.shared.open(url)
+                }
+            }
         case let .openSystemSettings(urlString):
             guard let url = URL(string: urlString) else {
                 return

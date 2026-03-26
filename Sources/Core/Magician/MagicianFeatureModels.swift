@@ -1,5 +1,19 @@
+import AppKit
 import EventKit
 import Foundation
+
+enum MagicianMailCapability {
+    static var composeEmailServiceAvailable: Bool {
+        NSSharingService(named: .composeEmail) != nil
+    }
+
+    static var mailtoAvailable: Bool {
+        guard let probeURL = URL(string: "mailto:pulsetype@example.com") else {
+            return false
+        }
+        return NSWorkspace.shared.urlForApplication(toOpen: probeURL) != nil
+    }
+}
 
 struct MagicianCreateNoteShortcutSupport {
     static let shortcutsExecutablePath = "/usr/bin/shortcuts"
@@ -201,4 +215,5 @@ struct MagicianDependencySnapshot: Equatable {
     let createNoteShortcutName: String
     let createNoteShortcutExists: Bool
     let composeEmailAvailable: Bool
+    let mailtoAvailable: Bool
 }

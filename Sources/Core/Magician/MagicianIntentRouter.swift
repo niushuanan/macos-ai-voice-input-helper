@@ -169,9 +169,9 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
             candidate = .webSearch
         } else if containsAny(lowered, keywords: ["日程", "会议", "calendar", "约", "安排", "提醒"]) {
             candidate = .createEvent
-        } else if containsAny(lowered, keywords: ["备忘录", "note", "记下来", "记到"]) {
+        } else if containsAny(lowered, keywords: ["备忘录", "note", "记下来", "记到", "记一下", "记一条", "记录一下", "写进备忘录"]) {
             candidate = .createNote
-        } else if containsAny(lowered, keywords: ["邮件", "mail", "email", "草稿", "发给"]) {
+        } else if containsAny(lowered, keywords: ["邮件", "mail", "email", "草稿", "发给", "发邮件", "写邮件", "邮箱"]) {
             candidate = .composeEmailDraft
         } else {
             candidate = .textTransform
@@ -331,7 +331,7 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
         }
         let reduced = compacted(
             command,
-            removing: ["帮我", "请", "记到", "记到备忘录", "记下来", "备忘录", "note"]
+            removing: ["帮我", "请", "记到", "记到备忘录", "记下来", "记一下", "记录一下", "备忘录", "note"]
         )
         return reduced.isEmpty ? command : reduced
     }
@@ -348,7 +348,7 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
         }
         let reduced = compacted(
             command,
-            removing: ["帮我", "请", "整理", "邮件", "草稿", "发给", "email", "mail"]
+            removing: ["帮我", "请", "整理", "邮件", "草稿", "发给", "发邮件", "写邮件", "email", "mail"]
         )
         if !reduced.isEmpty {
             return String(reduced.prefix(24))
@@ -362,7 +362,7 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
         }
         let reduced = compacted(
             command,
-            removing: ["帮我", "请", "整理成", "邮件", "草稿", "发给", "email", "mail", "主题是", "subject"]
+            removing: ["帮我", "请", "整理成", "邮件", "草稿", "发给", "发邮件", "写邮件", "email", "mail", "主题是", "subject"]
         )
         return reduced.isEmpty ? command : reduced
     }

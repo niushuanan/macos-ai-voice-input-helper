@@ -10,7 +10,7 @@ enum InputLane: String {
         case .directDictation:
             return "普通听写"
         case .selectionRewrite:
-            return "选区改写"
+            return "魔法师"
         case .brainstormDiscussion:
             return "头脑风暴（Beta）"
         }
@@ -21,7 +21,7 @@ enum InputLane: String {
         case .directDictation:
             return "说话后直接把新文本写入当前输入位置。"
         case .selectionRewrite:
-            return "说出指令后，直接改写已选中的文本。"
+            return "按住主键说指令，执行文字处理、搜索、日程、备忘录或邮件草稿。"
         case .brainstormDiscussion:
             return "记录多人讨论并输出可直接给 AI 的上下文包。"
         }

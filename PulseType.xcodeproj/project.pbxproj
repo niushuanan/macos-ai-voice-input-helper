@@ -649,10 +649,12 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "PulseType 语音助手";
-				INFOPLIST_KEY_LSUIElement = NO;
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "PulseType 需要自动化权限，用于把文本写回到其他应用。";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PulseType 会在你开始语音会话时录音，用于转写与改写。";
+					INFOPLIST_KEY_CFBundleDisplayName = "PulseType 语音助手";
+					INFOPLIST_KEY_LSUIElement = NO;
+					INFOPLIST_KEY_NSAppleEventsUsageDescription = "PulseType 需要自动化权限，用于把文本写回到其他应用。";
+					INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "PulseType 需要访问日历，用于根据语音指令创建日程。";
+					INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "PulseType 需要写入日历，用于根据语音指令创建日程。";
+					INFOPLIST_KEY_NSMicrophoneUsageDescription = "PulseType 会在你开始语音会话时录音，用于转写与改写。";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -829,10 +831,12 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "PulseType 语音助手";
-				INFOPLIST_KEY_LSUIElement = NO;
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "PulseType 需要自动化权限，用于把文本写回到其他应用。";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PulseType 会在你开始语音会话时录音，用于转写与改写。";
+					INFOPLIST_KEY_CFBundleDisplayName = "PulseType 语音助手";
+					INFOPLIST_KEY_LSUIElement = NO;
+					INFOPLIST_KEY_NSAppleEventsUsageDescription = "PulseType 需要自动化权限，用于把文本写回到其他应用。";
+					INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "PulseType 需要访问日历，用于根据语音指令创建日程。";
+					INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "PulseType 需要写入日历，用于根据语音指令创建日程。";
+					INFOPLIST_KEY_NSMicrophoneUsageDescription = "PulseType 会在你开始语音会话时录音，用于转写与改写。";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
