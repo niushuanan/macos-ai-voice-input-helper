@@ -604,6 +604,10 @@ final class InteractionCoordinatorTests: XCTestCase {
             fixture.localHistoryStore.entries.first?.inputText,
             "4月1日 14:30 在上海办公室和产品团队开路标会"
         )
+        XCTAssertEqual(
+            fixture.localHistoryStore.entries.first?.instructionText,
+            "帮我建立日程"
+        )
     }
 
     func testMagicianTextTransformFailsWithoutSelection() async throws {

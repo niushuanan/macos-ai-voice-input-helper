@@ -2074,7 +2074,9 @@ final class InteractionCoordinator {
             selection: selectionSnapshot,
             focusContext: fallbackFocusContext
         )
-        let historyInputText = selectionText.isEmpty ? routedIntent.sourceText : selectionText
+        let historyInputText = executionContext.selectedText.isEmpty
+            ? routedIntent.sourceText
+            : executionContext.selectedText
 
         await executeMagicianToolIntent(
             routedIntent,

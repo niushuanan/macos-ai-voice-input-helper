@@ -232,6 +232,89 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertEqual(intent.params.title, String(selectionText.prefix(60)))
     }
 
+    func testLLMRouterUsesSelectionForWebSearchWhenSelectionExists() async throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-test"])
+        )
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputText: """
+            {"intent":"web_search","confidence":0.88,"sourceText":"帮我搜索一下","params":{"query":"帮我搜索一下"}}
+            """
+        )
+
+        let router = LLMMagicianIntentRouter(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider
+        )
+
+        let intent = try await router.route(
+            command: "帮我搜索一下",
+            selection: "OpenAI o3 mini release notes",
+            enabledFeatures: [.webSearch]
+        )
+
+        XCTAssertEqual(intent.intent, .webSearch)
+        XCTAssertEqual(intent.sourceText, "OpenAI o3 mini release notes")
+        XCTAssertEqual(intent.params.query, "OpenAI o3 mini release notes")
+    }
+
+    func testLLMRouterUsesSelectionForMailBodyAndKeepsRecipientsFromCommand() async throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-test"])
+        )
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputText: """
+            {"intent":"compose_email_draft","confidence":0.9,"sourceText":"发邮件给 team@example.com","params":{"mailTo":["team@example.com"],"mailSubject":"发邮件给 team@example.com","mailBody":"发邮件给 team@example.com"}}
+            """
+        )
+
+        let router = LLMMagicianIntentRouter(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider
+        )
+
+        let selection = "大家好，明天下午三点我们在 A 会议室过一遍路线图。"
+        let intent = try await router.route(
+            command: "发邮件给 team@example.com",
+            selection: selection,
+            enabledFeatures: [.composeEmailDraft]
+        )
+
+        XCTAssertEqual(intent.intent, .composeEmailDraft)
+        XCTAssertEqual(intent.sourceText, selection)
+        XCTAssertEqual(intent.params.mailBody, selection)
+        XCTAssertEqual(intent.params.mailTo, ["team@example.com"])
+        XCTAssertEqual(intent.params.mailSubject, String(selection.prefix(24)))
+    }
+
+    func testSchemaValidatorAllowsCommandFallbackWithoutSelection() throws {
+        let validator = MagicianIntentSchemaValidator()
+        let validated = try validator.validate(
+            MagicianIntent(
+                intent: .createNote,
+                confidence: 0.81,
+                sourceText: "",
+                params: .empty
+            ),
+            enabledFeatures: [.createNote],
+            command: "记一下周五下午和产品开会",
+            selection: nil
+        )
+
+        XCTAssertEqual(validated.sourceText, "")
+        XCTAssertEqual(validated.params.noteBody, "记一下周五下午和产品开会")
+    }
+
     func testLLMRouterRejectsInvalidJSONWithoutHeuristicFallback() async {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }

@@ -139,6 +139,65 @@ struct HUDProgressStateMachine {
     }
 }
 
+enum StatusPulseHUDTitleResolver {
+    static func listeningTitle(for lane: InputLane) -> String {
+        switch lane {
+        case .directDictation:
+            return "语音输入"
+        case .selectionRewrite:
+            return "魔法师 · 聆听中"
+        case .brainstormDiscussion:
+            return "头脑风暴"
+        }
+    }
+
+    static func processingTitle(
+        phase: SessionPhase,
+        lane: InputLane,
+        message: String,
+        defaultTitle: String
+    ) -> String {
+        guard lane == .selectionRewrite else {
+            return defaultTitle
+        }
+
+        switch phase {
+        case .transcribing:
+            return "魔法师 · 思考中"
+        case .rewriting:
+            return magicianRewritingTitle(from: message, fallback: defaultTitle)
+        case .inserting:
+            return "魔法师 · 写入中"
+        case .idle, .listening, .cancelled, .error:
+            return defaultTitle
+        }
+    }
+
+    private static func magicianRewritingTitle(from message: String, fallback: String) -> String {
+        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let explicit = extractMagicianActionTitle(from: normalized) {
+            return "魔法师 · \(explicit)"
+        }
+
+        let fallbackTitle = fallback == "魔法师执行" ? "执行中" : fallback
+        return "魔法师 · \(fallbackTitle)"
+    }
+
+    private static func extractMagicianActionTitle(from message: String) -> String? {
+        let prefixes = ["魔法师执行中：", "魔法师文字处理中："]
+        guard let prefix = prefixes.first(where: { message.hasPrefix($0) }) else {
+            return nil
+        }
+
+        var title = message.dropFirst(prefix.count)
+        if let punctuationIndex = title.firstIndex(where: { "。.!！？".contains($0) }) {
+            title = title[..<punctuationIndex]
+        }
+        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+}
+
 extension SessionPhase {
     var isHUDBusyPhase: Bool {
         switch self {
@@ -350,40 +409,14 @@ final class StatusPulseHUDController {
         guard case let .processing(defaultTitle) = style else {
             return style
         }
-        guard phase == .rewriting, lane == .selectionRewrite else {
-            return style
-        }
         return .processing(
-            title: magicianProcessingTitle(from: message, fallback: defaultTitle)
+            title: StatusPulseHUDTitleResolver.processingTitle(
+                phase: phase,
+                lane: lane,
+                message: message,
+                defaultTitle: defaultTitle
+            )
         )
-    }
-
-    private func magicianProcessingTitle(from message: String, fallback: String) -> String {
-        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let explicit = extractMagicianActionTitle(from: normalized) {
-            return explicit
-        }
-
-        let knownTitles = ["文字处理", "文字处理中", "快速搜索", "搜索中", "一键建日程", "建日程中", "写入备忘录", "邮件草稿", "生成邮件草稿中"]
-        if let matched = knownTitles.first(where: { normalized.contains($0) }) {
-            return matched
-        }
-
-        return fallback
-    }
-
-    private func extractMagicianActionTitle(from message: String) -> String? {
-        let prefixes = ["魔法师执行中：", "魔法师文字处理中："]
-        guard let prefix = prefixes.first(where: { message.hasPrefix($0) }) else {
-            return nil
-        }
-
-        var title = message.dropFirst(prefix.count)
-        if let punctuationIndex = title.firstIndex(where: { "。.!！？".contains($0) }) {
-            title = title[..<punctuationIndex]
-        }
-        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isEmpty ? nil : normalized
     }
 }
 
@@ -454,14 +487,7 @@ private struct StatusPulseHUDView: View {
     }
 
     private var listeningTitle: String {
-        switch lane {
-        case .directDictation:
-            return "语音输入"
-        case .selectionRewrite:
-            return "魔法师"
-        case .brainstormDiscussion:
-            return "头脑风暴"
-        }
+        StatusPulseHUDTitleResolver.listeningTitle(for: lane)
     }
 
     private var cancelledCapsule: some View {

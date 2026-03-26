@@ -97,6 +97,29 @@ final class MemoryEntryTextResolverTests: XCTestCase {
         XCTAssertEqual(MemoryEntryTextResolver.magicianInstructionText(for: entry), "帮我写进备忘录")
     }
 
+    func testMagicianPrimaryTextStripsLegacyInstructionPrefix() {
+        let entry = SessionHistoryEntry(
+            mode: .selectionRewrite,
+            appName: "Notes",
+            bundleID: "com.apple.Notes",
+            inputText: "周五 15:00 在 A 会议室评审 PRD",
+            outputText: "帮我写进备忘录。周五 15:00 在 A 会议室评审 PRD",
+            instructionText: "帮我写进备忘录",
+            magicianFeatureID: .createNote,
+            displayText: "帮我写进备忘录。已写入备忘录：周五 15:00 在 A 会议室评审 PRD",
+            status: .success
+        )
+
+        XCTAssertEqual(
+            MemoryEntryTextResolver.magicianPrimaryText(for: entry),
+            "已写入备忘录：周五 15:00 在 A 会议室评审 PRD"
+        )
+        XCTAssertEqual(
+            MemoryEntryTextResolver.magicianSecondaryText(for: entry),
+            "周五 15:00 在 A 会议室评审 PRD"
+        )
+    }
+
     func testMagicianFailedEntryShowsErrorSourceAndInstruction() {
         let entry = SessionHistoryEntry(
             mode: .selectionRewrite,

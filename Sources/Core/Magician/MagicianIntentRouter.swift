@@ -13,7 +13,8 @@ struct MagicianIntentSchemaValidator {
     func validate(
         _ intent: MagicianIntent,
         enabledFeatures: Set<MagicianFeatureID>,
-        command: String? = nil
+        command: String? = nil,
+        selection: String? = nil
     ) throws -> MagicianIntent {
         guard enabledFeatures.contains(intent.intent) else {
             throw MagicianError(
@@ -48,10 +49,15 @@ struct MagicianIntentSchemaValidator {
         params.mailTo = normalizeEmails(params.mailTo)
 
         let normalizedCommand = normalized(command) ?? ""
-        let sourceText = normalized(intent.sourceText) ?? ""
+        let normalizedSelection = normalized(selection) ?? ""
+        let hasSelection = !normalizedSelection.isEmpty
+        var sourceText = normalized(intent.sourceText) ?? ""
 
         switch intent.intent {
         case .textTransform:
+            if hasSelection {
+                sourceText = normalizedSelection
+            }
             guard !sourceText.isEmpty else {
                 throw MagicianError(
                     code: .selectionEmpty,
@@ -61,15 +67,31 @@ struct MagicianIntentSchemaValidator {
                 )
             }
         case .webSearch:
+            if hasSelection {
+                sourceText = normalizedSelection
+                params.query = normalizedSelection
+                break
+            }
             if (params.query ?? "").isEmpty {
                 let fallback = sourceText.isEmpty ? normalizedCommand : sourceText
                 params.query = fallback.isEmpty ? nil : fallback
             }
         case .createEvent:
+            if hasSelection {
+                sourceText = normalizedSelection
+            }
             if (params.title ?? "").isEmpty {
-                let fallbackSource = sourceText.isEmpty ? normalizedCommand : sourceText
+                let fallbackSource = hasSelection
+                    ? normalizedSelection
+                    : (sourceText.isEmpty ? normalizedCommand : sourceText)
                 let title = fallbackSource.trimmingCharacters(in: .whitespacesAndNewlines)
                 params.title = title.isEmpty ? nil : String(title.prefix(60))
+            } else if hasSelection, shouldReplaceWithSelectionContent(
+                params.title,
+                command: normalizedCommand,
+                actionTokens: ["日程", "建立日程", "创建日程", "建日程", "会议", "calendar", "event"]
+            ) {
+                params.title = String(normalizedSelection.prefix(60))
             }
             if (params.startAt ?? "").isEmpty {
                 let detectorSource = [sourceText, normalizedCommand]
@@ -86,11 +108,28 @@ struct MagicianIntentSchemaValidator {
                 )
             }
         case .createNote:
+            if hasSelection {
+                sourceText = normalizedSelection
+                params.noteBody = normalizedSelection
+                break
+            }
             if (params.noteBody ?? "").isEmpty {
                 let fallback = sourceText.isEmpty ? normalizedCommand : sourceText
                 params.noteBody = fallback.isEmpty ? nil : fallback
             }
         case .composeEmailDraft:
+            if hasSelection {
+                sourceText = normalizedSelection
+                params.mailBody = normalizedSelection
+                if (params.mailSubject ?? "").isEmpty || shouldReplaceWithSelectionContent(
+                    params.mailSubject,
+                    command: normalizedCommand,
+                    actionTokens: ["邮件", "草稿", "mail", "email", "主题", "subject"]
+                ) {
+                    params.mailSubject = String(normalizedSelection.prefix(24))
+                }
+                break
+            }
             if (params.mailBody ?? "").isEmpty {
                 let fallback = sourceText.isEmpty ? normalizedCommand : sourceText
                 params.mailBody = fallback.isEmpty ? nil : fallback
@@ -110,6 +149,21 @@ struct MagicianIntentSchemaValidator {
         )
     }
 
+    private func shouldReplaceWithSelectionContent(
+        _ value: String?,
+        command: String,
+        actionTokens: [String]
+    ) -> Bool {
+        guard let value = normalized(value) else {
+            return true
+        }
+        return isLikelyInstructionPhrase(
+            value,
+            command: command,
+            actionTokens: actionTokens
+        )
+    }
+
     private func normalized(_ value: String?) -> String? {
         guard let value else {
             return nil
@@ -126,6 +180,42 @@ struct MagicianIntentSchemaValidator {
             return text
         }
         return nil
+    }
+
+    private func isLikelyInstructionPhrase(
+        _ text: String,
+        command: String,
+        actionTokens: [String]
+    ) -> Bool {
+        let compactText = compactIntentText(text)
+        guard !compactText.isEmpty else {
+            return true
+        }
+        if compactText == compactIntentText(command) {
+            return true
+        }
+
+        var reduced = compactText
+        let baseTokens = [
+            "帮我", "请", "一下", "帮忙", "把", "给我", "这段", "这个", "内容", "文字", "文本"
+        ] + actionTokens
+        for token in baseTokens {
+            let compactToken = compactIntentText(token)
+            guard !compactToken.isEmpty else {
+                continue
+            }
+            reduced = reduced.replacingOccurrences(of: compactToken, with: "")
+        }
+        return reduced.isEmpty || reduced.count <= 2
+    }
+
+    private func compactIntentText(_ value: String) -> String {
+        let separators = CharacterSet.whitespacesAndNewlines
+            .union(.punctuationCharacters)
+            .union(.symbols)
+        return value.lowercased()
+            .components(separatedBy: separators)
+            .joined()
     }
 
     private func normalizeEmails(_ values: [String]?) -> [String]? {
@@ -255,7 +345,8 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
         return try schemaValidator.validate(
             draftIntent,
             enabledFeatures: enabledFeatures,
-            command: normalizedCommand
+            command: normalizedCommand,
+            selection: normalizedSelection
         )
     }
 
@@ -517,7 +608,8 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
             return try schemaValidator.validate(
                 normalizedIntent,
                 enabledFeatures: enabledFeatures,
-                command: normalizedCommand
+                command: normalizedCommand,
+                selection: normalizedSelection
             )
         } catch let magicianError as MagicianError {
             throw magicianError

@@ -343,24 +343,34 @@ private struct MagicianEventAdapter {
 
         let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !source.isEmpty {
-            if
-                !selected.isEmpty,
-                isLikelyInstructionPhrase(
-                    source,
-                    command: command,
-                    actionTokens: ["日程", "建立日程", "创建日程", "建日程", "会议", "calendar", "event"]
-                )
-            {
+            if isLikelyInstructionPhrase(
+                source,
+                command: command,
+                actionTokens: ["日程", "建立日程", "创建日程", "建日程", "会议", "calendar", "event"]
+            ) {
+                if !selected.isEmpty {
+                    return String(selected.prefix(20))
+                }
+                return "新建日程"
+            }
+            if !selected.isEmpty {
                 return String(selected.prefix(20))
             }
             return String(source.prefix(20))
         }
 
         if selected.isEmpty {
-            if !command.isEmpty {
+            if
+                !command.isEmpty,
+                !isLikelyInstructionPhrase(
+                    command,
+                    command: command,
+                    actionTokens: ["日程", "建立日程", "创建日程", "建日程", "会议", "calendar", "event"]
+                )
+            {
                 return String(command.prefix(20))
             }
-            return "待办事项"
+            return "新建日程"
         }
         return String(selected.prefix(20))
     }
@@ -580,7 +590,14 @@ private struct MagicianNoteAdapter {
         }
 
         let command = context.command.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !command.isEmpty {
+        if
+            !command.isEmpty,
+            !isLikelyInstructionPhrase(
+                command,
+                command: command,
+                actionTokens: ["备忘录", "写进备忘录", "写入备忘录", "记到", "记下来", "note"]
+            )
+        {
             return String(command.prefix(40))
         }
 

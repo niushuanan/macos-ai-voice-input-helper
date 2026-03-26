@@ -1562,32 +1562,16 @@ struct SettingsView: View {
     }
 
     private var memoryFilterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(memoryFilters) { filter in
-                    let selected = controlCenterState.memoryFilter == filter
-                    Button {
-                        controlCenterState.memoryFilter = filter
-                    } label: {
-                        Text(filter.title)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(selected ? Color.accentColor : Color.primary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                Capsule(style: .continuous)
-                                    .fill(selected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.06))
-                            )
-                            .overlay(
-                                Capsule(style: .continuous)
-                                    .stroke(selected ? Color.accentColor.opacity(0.24) : Color.primary.opacity(0.08), lineWidth: 1)
-                            )
-                    }
-                    .buttonStyle(.plain)
+        Picker("记忆筛选", selection: $controlCenterState.memoryFilter) {
+            ForEach(memoryFilters) { filter in
+                Text(filter.title)
+                    .tag(filter)
                 }
-            }
-            .padding(.vertical, 2)
         }
+        .pickerStyle(.segmented)
+        .controlSize(.small)
+        .labelsHidden()
+        .fixedSize(horizontal: true, vertical: false)
         .frame(maxWidth: 420, alignment: .leading)
     }
 

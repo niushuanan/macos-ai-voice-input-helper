@@ -43,14 +43,14 @@ enum MemoryEntryTextResolver {
         }
 
         if entry.status == .failed {
-            return normalized(entry.displayText)
+            return sanitizedMagicianText(entry.displayText, entry: entry)
                 ?? normalized(entry.errorMessage)
-                ?? normalized(entry.outputText)
+                ?? sanitizedMagicianText(entry.outputText, entry: entry)
                 ?? normalized(entry.inputText)
         }
 
-        return normalized(entry.displayText)
-            ?? normalized(entry.outputText)
+        return sanitizedMagicianText(entry.displayText, entry: entry)
+            ?? sanitizedMagicianText(entry.outputText, entry: entry)
             ?? normalized(entry.errorMessage)
             ?? normalized(entry.inputText)
     }
@@ -109,4 +109,51 @@ enum MemoryEntryTextResolver {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
+
+    private static func sanitizedMagicianText(
+        _ value: String?,
+        entry: SessionHistoryEntry
+    ) -> String? {
+        guard var text = normalized(value) else {
+            return nil
+        }
+        guard entry.mode == .selectionRewrite else {
+            return text
+        }
+        guard let instruction = normalized(entry.instructionText) else {
+            return text
+        }
+
+        let normalizedInstruction = instruction.trimmingCharacters(in: instructionTrimCharacterSet)
+        let prefixes = [instruction, normalizedInstruction].filter { !$0.isEmpty }
+        for prefix in prefixes {
+            guard text.hasPrefix(prefix) else {
+                continue
+            }
+            let stripped = String(text.dropFirst(prefix.count))
+                .trimmingCharacters(in: instructionTrimCharacterSet)
+            if let normalizedStripped = normalized(stripped) {
+                text = normalizedStripped
+            }
+            break
+        }
+
+        guard compact(text) != compact(instruction) else {
+            return nil
+        }
+        return text
+    }
+
+    private static func compact(_ value: String) -> String {
+        value.lowercased()
+            .components(separatedBy: instructionTrimCharacterSet)
+            .joined()
+    }
+
+    private static let instructionTrimCharacterSet: CharacterSet = {
+        CharacterSet.whitespacesAndNewlines
+            .union(.punctuationCharacters)
+            .union(.symbols)
+            .union(CharacterSet(charactersIn: "，。；：、（）【】《》“”‘’「」『』—-"))
+    }()
 }

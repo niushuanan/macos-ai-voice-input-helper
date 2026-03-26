@@ -87,4 +87,37 @@ final class HUDProgressStateMachineTests: XCTestCase {
         XCTAssertLessThanOrEqual(machine.progress, 0.46)
         XCTAssertEqual(machine.progress, 0.46, accuracy: 0.001)
     }
+
+    func testMagicianTitleResolverUsesThinkingDuringTranscribing() {
+        let title = StatusPulseHUDTitleResolver.processingTitle(
+            phase: .transcribing,
+            lane: .selectionRewrite,
+            message: "正在用 OpenAI 转写。",
+            defaultTitle: "转写中"
+        )
+
+        XCTAssertEqual(title, "魔法师 · 思考中")
+    }
+
+    func testMagicianTitleResolverUsesTaskLabelDuringRewriting() {
+        let title = StatusPulseHUDTitleResolver.processingTitle(
+            phase: .rewriting,
+            lane: .selectionRewrite,
+            message: "魔法师执行中：写入备忘录中。",
+            defaultTitle: "魔法师执行"
+        )
+
+        XCTAssertEqual(title, "魔法师 · 写入备忘录中")
+    }
+
+    func testListeningTitleResolverKeepsNonMagicianLaneUnchanged() {
+        XCTAssertEqual(
+            StatusPulseHUDTitleResolver.listeningTitle(for: .directDictation),
+            "语音输入"
+        )
+        XCTAssertEqual(
+            StatusPulseHUDTitleResolver.listeningTitle(for: .selectionRewrite),
+            "魔法师 · 聆听中"
+        )
+    }
 }
