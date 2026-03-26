@@ -130,7 +130,7 @@ struct HUDProgressStateMachine {
         case .transcribing:
             return ("转写中", 0.12, 0.46)
         case .rewriting:
-            return ("魔法师执行", 0.46, 0.78)
+            return ("魔术先生执行", 0.46, 0.78)
         case .inserting:
             return ("写入中", 0.78, 0.94)
         case .idle, .listening, .cancelled, .error:
@@ -145,7 +145,7 @@ enum StatusPulseHUDTitleResolver {
         case .directDictation:
             return "语音输入"
         case .selectionRewrite:
-            return "魔法师 · 聆听中"
+            return "魔术先生 · 聆听中"
         case .brainstormDiscussion:
             return "头脑风暴"
         }
@@ -163,11 +163,11 @@ enum StatusPulseHUDTitleResolver {
 
         switch phase {
         case .transcribing:
-            return "魔法师 · 思考中"
+            return "魔术先生 · 思考中"
         case .rewriting:
             return magicianRewritingTitle(from: message, fallback: defaultTitle)
         case .inserting:
-            return "魔法师 · 写入中"
+            return "魔术先生 · 写入中"
         case .idle, .listening, .cancelled, .error:
             return defaultTitle
         }
@@ -176,15 +176,15 @@ enum StatusPulseHUDTitleResolver {
     private static func magicianRewritingTitle(from message: String, fallback: String) -> String {
         let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines)
         if let explicit = extractMagicianActionTitle(from: normalized) {
-            return "魔法师 · \(explicit)"
+            return "魔术先生 · \(explicit)"
         }
 
-        let fallbackTitle = fallback == "魔法师执行" ? "执行中" : fallback
-        return "魔法师 · \(fallbackTitle)"
+        let fallbackTitle = fallback == "魔术先生执行" ? "执行中" : fallback
+        return "魔术先生 · \(fallbackTitle)"
     }
 
     private static func extractMagicianActionTitle(from message: String) -> String? {
-        let prefixes = ["魔法师执行中：", "魔法师文字处理中："]
+        let prefixes = ["魔术先生执行中：", "魔术先生文字处理中："]
         guard let prefix = prefixes.first(where: { message.hasPrefix($0) }) else {
             return nil
         }

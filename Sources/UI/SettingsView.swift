@@ -277,7 +277,7 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 pageHeader(
-                    title: "魔法师",
+                    title: "魔术先生",
                     subtitle: "选中文字，下指令，立刻执行。"
                 )
 
@@ -958,13 +958,13 @@ struct SettingsView: View {
                 Text("主键单击：普通语音开始/停止。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("主键长按（≥180ms）：进入魔法师，按住说话，松开执行。")
+                Text("主键长按（≥180ms）：进入魔术先生，按住说话，松开执行。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text("脑暴键双击（≤350ms）：进入头脑风暴。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("当主键与脑暴键相同：双击优先脑暴，长按优先魔法师，单击普通语音。")
+                Text("当主键与脑暴键相同：双击优先脑暴，长按优先魔术先生，单击普通语音。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1571,7 +1571,7 @@ struct SettingsView: View {
         .pickerStyle(.segmented)
         .controlSize(.regular)
         .labelsHidden()
-        .frame(maxWidth: 760, alignment: .leading)
+        .frame(width: 800, alignment: .leading)
     }
 
     private var sortedScenePolicies: [AppScenePolicy] {
@@ -1807,7 +1807,7 @@ struct SettingsView: View {
             successMessage = "已复制结论。"
         } else if entry.mode == .selectionRewrite {
             text = MemoryEntryTextResolver.magicianPrimaryText(for: entry)
-            emptyMessage = "这条魔法师记录没有结果可复制。"
+            emptyMessage = "这条魔术先生记录没有结果可复制。"
             successMessage = "已复制结果。"
         } else {
             text = MemoryEntryTextResolver.defaultText(for: entry)
@@ -1842,7 +1842,7 @@ struct SettingsView: View {
             showToast("已复制原始记录。")
         case .selectionRewrite:
             guard let text = MemoryEntryTextResolver.magicianSecondaryText(for: entry) else {
-                showToast("这条魔法师记录没有原文可复制。")
+                showToast("这条魔术先生记录没有原文可复制。")
                 return
             }
             writeTextToPasteboard(text)
@@ -1857,7 +1857,7 @@ struct SettingsView: View {
         }
 
         guard let text = MemoryEntryTextResolver.magicianInstructionText(for: entry) else {
-            showToast("这条魔法师记录没有命令可复制。")
+            showToast("这条魔术先生记录没有命令可复制。")
             return
         }
 

@@ -10,7 +10,7 @@ enum InputLane: String {
         case .directDictation:
             return "普通听写"
         case .selectionRewrite:
-            return "魔法师"
+            return "魔术先生"
         case .brainstormDiscussion:
             return "头脑风暴（Beta）"
         }

@@ -19,7 +19,7 @@ struct MagicianIntentSchemaValidator {
         guard enabledFeatures.contains(intent.intent) else {
             throw MagicianError(
                 code: .intentParseFailed,
-                userMessage: "这条指令对应的能力还没开启，请先到魔法师页面打开开关。",
+                userMessage: "这条指令对应的能力还没开启，请先到魔术先生页面打开开关。",
                 debugMessage: "intent=\(intent.intent.rawValue) not enabled",
                 recoverAction: "open_magician_settings"
             )
@@ -549,7 +549,7 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         if enabledFeatures.isEmpty {
             throw MagicianError(
                 code: .intentParseFailed,
-                userMessage: "魔法师能力都还没开启，请先在设置页打开至少一个开关。",
+                userMessage: "魔术先生能力都还没开启，请先在设置页打开至少一个开关。",
                 debugMessage: "enabledFeatures empty",
                 recoverAction: "open_magician_settings"
             )
@@ -571,7 +571,7 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
                 ?? "文本模型配置无效。"
             throw MagicianError(
                 code: .intentParseFailed,
-                userMessage: "魔法师需要可用的文本模型，请先到设置页修正配置。",
+                userMessage: "魔术先生需要可用的文本模型，请先到设置页修正配置。",
                 debugMessage: message,
                 recoverAction: "open_provider_settings"
             )
@@ -582,7 +582,7 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         guard !key.isEmpty else {
             throw MagicianError(
                 code: .intentParseFailed,
-                userMessage: "魔法师需要文本模型 API 密钥，请先到设置页填写。",
+                userMessage: "魔术先生需要文本模型 API 密钥，请先到设置页填写。",
                 debugMessage: "rewrite API key missing",
                 recoverAction: "open_provider_settings"
             )

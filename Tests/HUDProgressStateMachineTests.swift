@@ -40,7 +40,7 @@ final class HUDProgressStateMachineTests: XCTestCase {
         guard case let .processing(title) = frame.style else {
             return XCTFail("expected processing style")
         }
-        XCTAssertEqual(title, "魔法师执行")
+        XCTAssertEqual(title, "魔术先生执行")
     }
 
     func testIdleAfterBusyEntersCompletionAndSchedulesQuickHide() {
@@ -96,18 +96,18 @@ final class HUDProgressStateMachineTests: XCTestCase {
             defaultTitle: "转写中"
         )
 
-        XCTAssertEqual(title, "魔法师 · 思考中")
+        XCTAssertEqual(title, "魔术先生 · 思考中")
     }
 
     func testMagicianTitleResolverUsesTaskLabelDuringRewriting() {
         let title = StatusPulseHUDTitleResolver.processingTitle(
             phase: .rewriting,
             lane: .selectionRewrite,
-            message: "魔法师执行中：写入备忘录中。",
-            defaultTitle: "魔法师执行"
+            message: "魔术先生执行中：写入备忘录中。",
+            defaultTitle: "魔术先生执行"
         )
 
-        XCTAssertEqual(title, "魔法师 · 写入备忘录中")
+        XCTAssertEqual(title, "魔术先生 · 写入备忘录中")
     }
 
     func testListeningTitleResolverKeepsNonMagicianLaneUnchanged() {
@@ -117,7 +117,7 @@ final class HUDProgressStateMachineTests: XCTestCase {
         )
         XCTAssertEqual(
             StatusPulseHUDTitleResolver.listeningTitle(for: .selectionRewrite),
-            "魔法师 · 聆听中"
+            "魔术先生 · 聆听中"
         )
     }
 }

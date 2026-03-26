@@ -270,7 +270,7 @@ private struct MagicianEventAdapter {
         event.startDate = startAt
         event.endDate = endAt
         event.notes = """
-        来自 PulseType 魔法师
+        来自 PulseType 魔术先生
 
         原文：
         \(context.selectedText.isEmpty ? "（无选中文本）" : context.selectedText)

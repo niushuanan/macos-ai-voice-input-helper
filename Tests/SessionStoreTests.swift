@@ -75,7 +75,7 @@ final class SessionStoreTests: XCTestCase {
         store.startRewrite()
 
         XCTAssertEqual(store.phase, .listening)
-        XCTAssertTrue(store.statusMessage.contains("魔法师指令"))
+        XCTAssertTrue(store.statusMessage.contains("魔术先生指令"))
     }
 
     func testMarkRewritingUsesToolActionMessageWhenNeeded() {
@@ -86,7 +86,7 @@ final class SessionStoreTests: XCTestCase {
         store.markRewriting(actionLabel: "一键建日程", stage: .toolAction)
 
         XCTAssertEqual(store.phase, .rewriting)
-        XCTAssertTrue(store.statusMessage.contains("魔法师执行中"))
+        XCTAssertTrue(store.statusMessage.contains("魔术先生执行中"))
         XCTAssertTrue(store.statusMessage.contains("一键建日程"))
     }
 

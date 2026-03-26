@@ -161,7 +161,7 @@ final class InteractionCoordinator {
             }
 
             if context.source == .magicianHold, !magicianFeatureToggleStore.hasAnyEnabledFeature() {
-                sessionStore.fail(message: "魔法师能力都还没开启，请先在魔法师页面打开开关。")
+                sessionStore.fail(message: "魔术先生能力都还没开启，请先在魔术先生页面打开开关。")
                 return
             }
 
@@ -1859,7 +1859,7 @@ final class InteractionCoordinator {
 
         let enabledFeatures = magicianFeatureToggleStore.enabledFeatures
         guard !enabledFeatures.isEmpty else {
-            let message = "魔法师能力都还没开启，请先在魔法师页面打开开关。"
+            let message = "魔术先生能力都还没开启，请先在魔术先生页面打开开关。"
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,

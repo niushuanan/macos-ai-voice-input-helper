@@ -37,7 +37,7 @@ final class SessionStore: ObservableObject {
     func startRewrite() {
         clearRuntimeArtifactsForNewSession()
         activeLane = .selectionRewrite
-        transition(to: .listening, statusMessage: "正在聆听魔法师指令。")
+        transition(to: .listening, statusMessage: "正在聆听魔术先生指令。")
     }
 
     func startBrainstorm() {
@@ -117,24 +117,24 @@ final class SessionStore: ObservableObject {
             if normalizedLabel.isEmpty {
                 transition(
                     to: .rewriting,
-                    statusMessage: "魔法师文字处理中。"
+                    statusMessage: "魔术先生文字处理中。"
                 )
             } else {
                 transition(
                     to: .rewriting,
-                    statusMessage: "魔法师文字处理中：\(normalizedLabel)。"
+                    statusMessage: "魔术先生文字处理中：\(normalizedLabel)。"
                 )
             }
         case .toolAction:
             if normalizedLabel.isEmpty {
                 transition(
                     to: .rewriting,
-                    statusMessage: "魔法师执行中。"
+                    statusMessage: "魔术先生执行中。"
                 )
             } else {
                 transition(
                     to: .rewriting,
-                    statusMessage: "魔法师执行中：\(normalizedLabel)。"
+                    statusMessage: "魔术先生执行中：\(normalizedLabel)。"
                 )
             }
         }
