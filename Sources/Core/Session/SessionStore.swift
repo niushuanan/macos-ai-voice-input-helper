@@ -17,7 +17,7 @@ final class SessionStore: ObservableObject {
         .idle: [.listening],
         .listening: [.transcribing, .cancelled, .error],
         .transcribing: [.idle, .rewriting, .inserting, .cancelled, .error],
-        .rewriting: [.inserting, .cancelled, .error],
+        .rewriting: [.idle, .inserting, .cancelled, .error],
         .inserting: [.idle, .cancelled, .error],
         .cancelled: [.idle, .listening],
         .error: [.idle, .listening]
@@ -38,7 +38,7 @@ final class SessionStore: ObservableObject {
     func startBrainstorm() {
         clearRuntimeArtifactsForNewSession()
         activeLane = .brainstormDiscussion
-        transition(to: .listening, statusMessage: "正在记录 Agent 头脑风暴讨论。")
+        transition(to: .listening, statusMessage: "正在记录头脑风暴讨论。")
     }
 
     func markTranscribing(audioSummary: String? = nil) {
@@ -123,6 +123,12 @@ final class SessionStore: ObservableObject {
         pendingClip = nil
         listeningLevel = 0
         transition(to: .idle, statusMessage: "已完成，可开始下一次语音会话。")
+    }
+
+    func completeAction(statusMessage: String) {
+        pendingClip = nil
+        listeningLevel = 0
+        transition(to: .idle, statusMessage: statusMessage)
     }
 
     func cancel() {

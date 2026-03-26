@@ -73,7 +73,7 @@ final class MagicianStatusResolverTests: XCTestCase {
 
     private func dependencies(
         accessibility: PermissionState = .granted,
-        eventStatus: EKAuthorizationStatus = .authorized,
+        eventStatus: EKAuthorizationStatus = .fullAccess,
         shortcutsAvailable: Bool = true,
         composeEmailAvailable: Bool = true
     ) -> MagicianDependencySnapshot {
@@ -85,4 +85,3 @@ final class MagicianStatusResolverTests: XCTestCase {
         )
     }
 }
-

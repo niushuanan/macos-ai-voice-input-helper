@@ -22,7 +22,7 @@ struct SettingsView: View {
     @ObservedObject private var localHistoryStore: LocalHistoryStore
     @ObservedObject private var brainstormDurationProfileStore: BrainstormDurationProfileStore
     @ObservedObject private var toastPresenter: ToastPresenter
-    @StateObject private var magicianFeatureToggleStore = MagicianFeatureToggleStore()
+    @ObservedObject private var magicianFeatureToggleStore: MagicianFeatureToggleStore
 
     @State private var asrTesting = false
     @State private var textTesting = false
@@ -66,6 +66,7 @@ struct SettingsView: View {
         _localHistoryStore = ObservedObject(wrappedValue: model.localHistoryStore)
         _brainstormDurationProfileStore = ObservedObject(wrappedValue: model.brainstormDurationProfileStore)
         _toastPresenter = ObservedObject(wrappedValue: model.toastPresenter)
+        _magicianFeatureToggleStore = ObservedObject(wrappedValue: model.magicianFeatureToggleStore)
     }
 
     var body: some View {

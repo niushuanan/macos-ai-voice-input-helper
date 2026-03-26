@@ -329,6 +329,83 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.sessionStore.activeLane, .directDictation)
     }
 
+    func testWakeInputEntersSelectionRewriteWhenMagicianEnabledAndSelectionExists() throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
+            focusContext: FixedContextDetector().focusedAppContext(),
+            selectedText: "选中文本"
+        )
+        let fixture = try makeFixture(textOutputCoordinator: textOutputCoordinator)
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .listening)
+        XCTAssertEqual(fixture.sessionStore.activeLane, .selectionRewrite)
+    }
+
+    func testSelectionRewriteRoutesToMagicianToolIntent() async throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
+            focusContext: FixedContextDetector().focusedAppContext(),
+            selectedText: "OpenAI o3 mini"
+        )
+        let router = FakeMagicianIntentRouter(
+            intent: MagicianIntent(
+                intent: .webSearch,
+                confidence: 0.95,
+                sourceText: "OpenAI o3 mini",
+                params: MagicianIntentParams(
+                    mode: nil,
+                    targetLanguage: nil,
+                    tone: nil,
+                    query: "OpenAI o3 mini",
+                    title: nil,
+                    startAt: nil,
+                    endAt: nil,
+                    location: nil,
+                    noteBody: nil,
+                    mailTo: nil,
+                    mailSubject: nil,
+                    mailBody: nil
+                )
+            )
+        )
+        let toolExecutor = FakeMagicianToolExecutor()
+        toolExecutor.result = .success(
+            MagicianExecutionResult(
+                intent: .webSearch,
+                userMessage: "已打开搜索结果页。",
+                outputText: "https://www.google.com/search?q=OpenAI+o3+mini",
+                fallbackUsed: false
+            )
+        )
+
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutputCoordinator,
+            magicianIntentRouter: router,
+            magicianToolExecutor: toolExecutor,
+            transcriptionText: "帮我搜一下"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .webSearch)
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .idle)
+        XCTAssertEqual(fixture.sessionStore.statusMessage, "已打开搜索结果页。")
+        XCTAssertEqual(toolExecutor.callCount, 1)
+        XCTAssertEqual(toolExecutor.lastIntent?.intent, .webSearch)
+        XCTAssertEqual(toolExecutor.lastSelection?.selectedText, "OpenAI o3 mini")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "https://www.google.com/search?q=OpenAI+o3+mini")
+    }
+
     func testDictationSkipsPostProcessWhenSystemPromptIsEmpty() async throws {
         let postProcessor = CountingDictationPostProcessor(outputText: "不该被用到")
         let fixture = try makeFixture(dictationPostProcessor: postProcessor)
@@ -438,6 +515,8 @@ final class InteractionCoordinatorTests: XCTestCase {
                 dialogueText: "A: 默认对话"
             )
         ),
+        magicianIntentRouter: (any MagicianIntentRouting)? = nil,
+        magicianToolExecutor: (any MagicianToolExecuting)? = nil,
         transcriptionText: String = "hello world",
         transcriptionResponses: [Result<String, SpeechTranscriptionError>]? = nil,
         brainstormDurationProfile: BrainstormDurationProfile? = nil,
@@ -492,6 +571,10 @@ final class InteractionCoordinatorTests: XCTestCase {
         let speechPipelineLogger = SpeechPipelineLogger(diagnosticsDirectory: diagnosticsDirectory)
         let appScenePolicyStore = AppScenePolicyStore(defaults: defaults)
         let skillRuleStore = SkillRuleStore(defaults: defaults, storageKey: "skill.rules.interaction.tests")
+        let magicianFeatureToggleStore = MagicianFeatureToggleStore(
+            defaults: defaults,
+            storageKey: "magician.features.interaction.tests"
+        )
         let transcriptionProvider: FakeTranscriptionProvider
         if let transcriptionResponses {
             transcriptionProvider = FakeTranscriptionProvider(scriptedResponses: transcriptionResponses)
@@ -520,6 +603,9 @@ final class InteractionCoordinatorTests: XCTestCase {
             speechPipelineLogger: speechPipelineLogger,
             skillRuleStore: skillRuleStore,
             asrDictionaryStore: dictionaryStore,
+            magicianFeatureToggleStore: magicianFeatureToggleStore,
+            magicianIntentRouter: magicianIntentRouter,
+            magicianToolExecutor: magicianToolExecutor ?? MagicianToolExecutor(),
             toastPresenter: resolvedToastPresenter,
             dictationPostProcessor: dictationPostProcessor,
             brainstormContextComposer: brainstormContextComposer
@@ -533,6 +619,7 @@ final class InteractionCoordinatorTests: XCTestCase {
             localHistoryStore: localHistoryStore,
             brainstormDurationProfileStore: brainstormDurationProfileStore,
             skillRuleStore: skillRuleStore,
+            magicianFeatureToggleStore: magicianFeatureToggleStore,
             appScenePolicyStore: appScenePolicyStore,
             transcriptionProvider: transcriptionProvider,
             dictionaryStore: dictionaryStore,
@@ -568,6 +655,7 @@ private struct InteractionFixture {
     let localHistoryStore: LocalHistoryStore
     let brainstormDurationProfileStore: BrainstormDurationProfileStore
     let skillRuleStore: SkillRuleStore
+    let magicianFeatureToggleStore: MagicianFeatureToggleStore
     let appScenePolicyStore: AppScenePolicyStore
     let transcriptionProvider: FakeTranscriptionProvider
     let dictionaryStore: ASRDictionaryStore
@@ -846,6 +934,58 @@ private final class FakeBrainstormContextComposer: BrainstormContextComposer {
                 providerName: "Fake Text",
                 modelName: "fake-model"
             )
+        case let .failure(error):
+            throw error
+        }
+    }
+}
+
+private final class FakeMagicianIntentRouter: MagicianIntentRouting {
+    private let intent: MagicianIntent
+
+    init(intent: MagicianIntent) {
+        self.intent = intent
+    }
+
+    func route(
+        command: String,
+        selection: String,
+        enabledFeatures: Set<MagicianFeatureID>
+    ) async throws -> MagicianIntent {
+        _ = command
+        _ = selection
+        _ = enabledFeatures
+        return intent
+    }
+}
+
+@MainActor
+private final class FakeMagicianToolExecutor: MagicianToolExecuting {
+    var result: Result<MagicianExecutionResult, Error> = .failure(
+        MagicianError(
+            code: .toolExecutionFailed,
+            userMessage: "fake error",
+            debugMessage: nil,
+            recoverAction: nil
+        )
+    )
+    private(set) var callCount: Int = 0
+    private(set) var lastIntent: MagicianIntent?
+    private(set) var lastSelection: FocusedSelectionSnapshot?
+    private(set) var lastCommand: String?
+
+    func execute(
+        intent: MagicianIntent,
+        command: String,
+        selection: FocusedSelectionSnapshot
+    ) async throws -> MagicianExecutionResult {
+        callCount += 1
+        lastIntent = intent
+        lastSelection = selection
+        lastCommand = command
+        switch result {
+        case let .success(value):
+            return value
         case let .failure(error):
             throw error
         }

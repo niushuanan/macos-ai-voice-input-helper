@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import EventKit
 import Foundation
 
 struct WakeInvocationContext: Equatable {
@@ -73,6 +74,10 @@ final class InteractionCoordinator {
     private let speechPipelineLogger: SpeechPipelineLogger
     private let skillRuleStore: SkillRuleStore
     private let asrDictionaryStore: ASRDictionaryStore
+    private let magicianFeatureToggleStore: MagicianFeatureToggleStore
+    private let magicianStatusResolver: MagicianStatusResolver
+    private let magicianIntentRouter: any MagicianIntentRouting
+    private let magicianToolExecutor: any MagicianToolExecuting
     private let toastPresenter: ToastPresenter?
     private let dictationPostProcessor: DictationPostProcessor
     private let brainstormContextComposer: BrainstormContextComposer
@@ -103,6 +108,10 @@ final class InteractionCoordinator {
         speechPipelineLogger: SpeechPipelineLogger,
         skillRuleStore: SkillRuleStore,
         asrDictionaryStore: ASRDictionaryStore,
+        magicianFeatureToggleStore: MagicianFeatureToggleStore? = nil,
+        magicianStatusResolver: MagicianStatusResolver = MagicianStatusResolver(),
+        magicianIntentRouter: (any MagicianIntentRouting)? = nil,
+        magicianToolExecutor: (any MagicianToolExecuting)? = nil,
         toastPresenter: ToastPresenter? = nil,
         dictationPostProcessor: DictationPostProcessor = LLMDictationPostProcessor(),
         brainstormContextComposer: BrainstormContextComposer = LLMBrainstormContextComposer()
@@ -121,6 +130,12 @@ final class InteractionCoordinator {
         self.speechPipelineLogger = speechPipelineLogger
         self.skillRuleStore = skillRuleStore
         self.asrDictionaryStore = asrDictionaryStore
+        self.magicianFeatureToggleStore = magicianFeatureToggleStore ?? MagicianFeatureToggleStore()
+        self.magicianStatusResolver = magicianStatusResolver
+        self.magicianIntentRouter = magicianIntentRouter ?? LLMMagicianIntentRouter(
+            providerSettingsStore: providerSettingsStore
+        )
+        self.magicianToolExecutor = magicianToolExecutor ?? MagicianToolExecutor()
         self.toastPresenter = toastPresenter
         self.dictationPostProcessor = dictationPostProcessor
         self.brainstormContextComposer = brainstormContextComposer
@@ -1734,14 +1749,13 @@ final class InteractionCoordinator {
         _ transcription: SpeechTranscriptionResult,
         audioDurationSeconds: TimeInterval
     ) async {
+        let traceID = ensureTraceID()
         let rawInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let instructionApplyResult = skillRuleStore.applyRewriteInstruction(rawInstruction)
         let processedInstruction = instructionApplyResult.text
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let spokenInstruction = processedInstruction.isEmpty ? rawInstruction : processedInstruction
         let initialFocusContext = contextDetector.focusedAppContext()
-        let scenePolicy = effectiveScenePolicy(for: initialFocusContext)
-        let activeSystemPrompt = skillRuleStore.activeSystemPrompt()
         guard !spokenInstruction.isEmpty else {
             let message = "改写指令为空，请重试并说出明确命令。"
             localHistoryStore.append(
@@ -1760,14 +1774,21 @@ final class InteractionCoordinator {
                     appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: transcription.providerName,
+                model: transcription.modelName,
+                httpStatus: nil,
+                stage: "magician.intent.failed",
+                errorType: "emptyCommand",
+                detail: message,
+                audioDuration: audioDurationSeconds
+            )
             sessionStore.fail(message: message)
+            currentTraceID = nil
             return
         }
-
-        let quickActionLabel = (try? RewriteIntentParser().parse(
-            instruction: spokenInstruction,
-            defaultOutputBias: .neutral
-        ).action.label)
 
         guard let snapshot = textOutputCoordinator.currentSelectionSnapshot() else {
             let message = "未检测到选中文本，请先选中内容再触发改写。"
@@ -1787,9 +1808,217 @@ final class InteractionCoordinator {
                     appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: transcription.providerName,
+                model: transcription.modelName,
+                httpStatus: nil,
+                stage: "magician.intent.failed",
+                errorType: "selectionMissing",
+                detail: message,
+                audioDuration: audioDurationSeconds
+            )
             sessionStore.fail(message: message)
+            currentTraceID = nil
             return
         }
+
+        let enabledFeatures = magicianFeatureToggleStore.enabledFeatures
+        guard !enabledFeatures.isEmpty else {
+            let message = "魔法师能力都还没开启，请先在魔法师页面打开开关。"
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: snapshot.focusContext.appName,
+                    bundleID: snapshot.focusContext.bundleID,
+                    inputText: snapshot.selectedText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
+                )
+            )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: transcription.providerName,
+                model: transcription.modelName,
+                httpStatus: nil,
+                stage: "magician.intent.failed",
+                errorType: "featureDisabled",
+                detail: message,
+                audioDuration: audioDurationSeconds
+            )
+            sessionStore.fail(message: message)
+            currentTraceID = nil
+            return
+        }
+
+        let routedIntent: MagicianIntent
+        do {
+            routedIntent = try await magicianIntentRouter.route(
+                command: spokenInstruction,
+                selection: snapshot.selectedText,
+                enabledFeatures: enabledFeatures
+            )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: providerSettingsStore.rewriteConfiguration.providerName,
+                model: providerSettingsStore.rewriteConfiguration.modelName,
+                httpStatus: nil,
+                stage: "magician.intent.routed",
+                detail: "intent=\(routedIntent.intent.rawValue),confidence=\(String(format: "%.2f", routedIntent.confidence))",
+                audioDuration: audioDurationSeconds,
+                transcriptLength: spokenInstruction.count
+            )
+        } catch let magicianError as MagicianError {
+            let message = magicianError.userMessage
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: snapshot.focusContext.appName,
+                    bundleID: snapshot.focusContext.bundleID,
+                    inputText: snapshot.selectedText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
+                )
+            )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: providerSettingsStore.rewriteConfiguration.providerName,
+                model: providerSettingsStore.rewriteConfiguration.modelName,
+                httpStatus: nil,
+                stage: "magician.intent.failed",
+                errorType: magicianError.code.rawValue,
+                detail: magicianError.debugMessage ?? message,
+                audioDuration: audioDurationSeconds
+            )
+            sessionStore.fail(message: message)
+            currentTraceID = nil
+            return
+        } catch {
+            let message = "指令解析失败，请换个说法再试。"
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: snapshot.focusContext.appName,
+                    bundleID: snapshot.focusContext.bundleID,
+                    inputText: snapshot.selectedText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
+                )
+            )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: providerSettingsStore.rewriteConfiguration.providerName,
+                model: providerSettingsStore.rewriteConfiguration.modelName,
+                httpStatus: nil,
+                stage: "magician.intent.failed",
+                errorType: "intent_parse_failed",
+                detail: error.localizedDescription,
+                audioDuration: audioDurationSeconds
+            )
+            sessionStore.fail(message: message)
+            currentTraceID = nil
+            return
+        }
+
+        permissionsCenter.refreshStatuses()
+        let requirement = magicianStatusResolver.requirement(
+            for: routedIntent.intent,
+            dependencies: currentMagicianDependenciesSnapshot()
+        )
+        if case let .blocked(reason, _) = requirement {
+            let message = "\(routedIntent.intent.displayName)：\(reason)"
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: snapshot.focusContext.appName,
+                    bundleID: snapshot.focusContext.bundleID,
+                    inputText: snapshot.selectedText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
+                )
+            )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: transcription.providerName,
+                model: transcription.modelName,
+                httpStatus: nil,
+                stage: "magician.tool.failed",
+                errorType: MagicianErrorCode.permissionDenied.rawValue,
+                detail: message,
+                audioDuration: audioDurationSeconds
+            )
+            sessionStore.fail(message: message)
+            currentTraceID = nil
+            return
+        }
+
+        if routedIntent.intent == .textTransform {
+            await executeTextTransformIntent(
+                transcription: transcription,
+                audioDurationSeconds: audioDurationSeconds,
+                spokenInstruction: spokenInstruction,
+                snapshot: snapshot,
+                instructionApplyResult: instructionApplyResult,
+                traceID: traceID
+            )
+            return
+        }
+
+        await executeMagicianToolIntent(
+            routedIntent,
+            transcription: transcription,
+            spokenInstruction: spokenInstruction,
+            snapshot: snapshot,
+            instructionApplyResult: instructionApplyResult,
+            audioDurationSeconds: audioDurationSeconds,
+            traceID: traceID
+        )
+    }
+
+    private func executeTextTransformIntent(
+        transcription: SpeechTranscriptionResult,
+        audioDurationSeconds: TimeInterval,
+        spokenInstruction: String,
+        snapshot: FocusedSelectionSnapshot,
+        instructionApplyResult: SkillApplyResult,
+        traceID: String
+    ) async {
+        let scenePolicy = effectiveScenePolicy(for: snapshot.focusContext)
+        let activeSystemPrompt = skillRuleStore.activeSystemPrompt()
+        let quickActionLabel = (try? RewriteIntentParser().parse(
+            instruction: spokenInstruction,
+            defaultOutputBias: .neutral
+        ).action.label)
 
         guard providerSettingsStore.isRewriteConfigurationValid else {
             let message = providerSettingsStore.rewriteConfigurationValidationMessage
@@ -1810,9 +2039,8 @@ final class InteractionCoordinator {
                     appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
-            sessionStore.fail(
-                message: message
-            )
+            sessionStore.fail(message: message)
+            currentTraceID = nil
             return
         }
 
@@ -1835,6 +2063,7 @@ final class InteractionCoordinator {
                 )
             )
             sessionStore.fail(message: message)
+            currentTraceID = nil
             return
         }
 
@@ -1858,6 +2087,7 @@ final class InteractionCoordinator {
                 )
             )
             sessionStore.fail(message: message)
+            currentTraceID = nil
             return
         }
 
@@ -1881,11 +2111,11 @@ final class InteractionCoordinator {
                 )
             )
             sessionStore.fail(message: message)
+            currentTraceID = nil
             return
         }
 
         sessionStore.markRewriting(actionLabel: quickActionLabel)
-
         do {
             let rewriteResult = try await rewriteProvider.rewrite(
                 request: SelectionRewriteRequest(
@@ -1927,7 +2157,10 @@ final class InteractionCoordinator {
             )
 
             let outputResult = try await textOutputCoordinator.write(request: outputRequest)
-            sessionStore.completeInsertion(outputResult: outputResult)
+            sessionStore.completeInsertion(
+                outputResult: outputResult,
+                note: "如需回退，可在目标应用按 Command+Z。"
+            )
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -1946,6 +2179,18 @@ final class InteractionCoordinator {
                     appliedSkills: finalAppliedSkills
                 )
             )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: rewriteResult.providerName,
+                model: rewriteResult.modelName,
+                httpStatus: nil,
+                stage: "magician.tool.success",
+                detail: "intent=text_transform,path=\(outputResult.path.rawValue)",
+                audioDuration: audioDurationSeconds,
+                transcriptLength: finalRewriteText.count
+            )
+            currentTraceID = nil
         } catch let rewriteError as RewriteProviderError {
             let message = actionableRewriteMessage(for: rewriteError)
             localHistoryStore.append(
@@ -1966,7 +2211,19 @@ final class InteractionCoordinator {
                     appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: rewriteConfiguration.providerName,
+                model: rewriteConfiguration.modelName,
+                httpStatus: nil,
+                stage: "magician.tool.failed",
+                errorType: "text_transform_failed",
+                detail: message,
+                audioDuration: audioDurationSeconds
+            )
             sessionStore.fail(message: message)
+            currentTraceID = nil
         } catch let outputError as TextOutputError {
             let message = actionableOutputMessage(for: outputError, focusContext: snapshot.focusContext)
             localHistoryStore.append(
@@ -1987,7 +2244,19 @@ final class InteractionCoordinator {
                     appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: rewriteConfiguration.providerName,
+                model: rewriteConfiguration.modelName,
+                httpStatus: nil,
+                stage: "magician.tool.failed",
+                errorType: "text_output_failed",
+                detail: message,
+                audioDuration: audioDurationSeconds
+            )
             sessionStore.fail(message: message)
+            currentTraceID = nil
         } catch {
             let message = "改写失败：\(error.localizedDescription)"
             localHistoryStore.append(
@@ -2008,7 +2277,127 @@ final class InteractionCoordinator {
                     appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: rewriteConfiguration.providerName,
+                model: rewriteConfiguration.modelName,
+                httpStatus: nil,
+                stage: "magician.tool.failed",
+                errorType: "text_transform_failed",
+                detail: message,
+                audioDuration: audioDurationSeconds
+            )
             sessionStore.fail(message: message)
+            currentTraceID = nil
+        }
+    }
+
+    private func executeMagicianToolIntent(
+        _ intent: MagicianIntent,
+        transcription: SpeechTranscriptionResult,
+        spokenInstruction: String,
+        snapshot: FocusedSelectionSnapshot,
+        instructionApplyResult: SkillApplyResult,
+        audioDurationSeconds: TimeInterval,
+        traceID: String
+    ) async {
+        sessionStore.markRewriting(actionLabel: intent.intent.displayName)
+        do {
+            let result = try await magicianToolExecutor.execute(
+                intent: intent,
+                command: spokenInstruction,
+                selection: snapshot
+            )
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: snapshot.focusContext.appName,
+                    bundleID: snapshot.focusContext.bundleID,
+                    inputText: snapshot.selectedText,
+                    outputText: result.outputText,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .success,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
+                )
+            )
+            sessionStore.completeAction(statusMessage: result.userMessage)
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: providerSettingsStore.rewriteConfiguration.providerName,
+                model: providerSettingsStore.rewriteConfiguration.modelName,
+                httpStatus: nil,
+                stage: "magician.tool.success",
+                detail: "intent=\(intent.intent.rawValue),fallback=\(result.fallbackUsed)",
+                audioDuration: audioDurationSeconds,
+                transcriptLength: result.outputText?.count
+            )
+            currentTraceID = nil
+        } catch let magicianError as MagicianError {
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: snapshot.focusContext.appName,
+                    bundleID: snapshot.focusContext.bundleID,
+                    inputText: snapshot.selectedText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: magicianError.userMessage,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
+                )
+            )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: providerSettingsStore.rewriteConfiguration.providerName,
+                model: providerSettingsStore.rewriteConfiguration.modelName,
+                httpStatus: nil,
+                stage: "magician.tool.failed",
+                errorType: magicianError.code.rawValue,
+                detail: magicianError.debugMessage ?? magicianError.userMessage,
+                audioDuration: audioDurationSeconds
+            )
+            sessionStore.fail(message: magicianError.userMessage)
+            currentTraceID = nil
+        } catch {
+            let message = "执行失败：\(error.localizedDescription)"
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: snapshot.focusContext.appName,
+                    bundleID: snapshot.focusContext.bundleID,
+                    inputText: snapshot.selectedText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
+                )
+            )
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: providerSettingsStore.rewriteConfiguration.providerName,
+                model: providerSettingsStore.rewriteConfiguration.modelName,
+                httpStatus: nil,
+                stage: "magician.tool.failed",
+                errorType: MagicianErrorCode.toolExecutionFailed.rawValue,
+                detail: message,
+                audioDuration: audioDurationSeconds
+            )
+            sessionStore.fail(message: message)
+            currentTraceID = nil
         }
     }
 
@@ -2300,7 +2689,26 @@ final class InteractionCoordinator {
 
     private func resolvedLane(context: WakeInvocationContext) -> InputLane {
         _ = context
+        guard magicianFeatureToggleStore.hasAnyEnabledFeature() else {
+            return .directDictation
+        }
+        let accessibility = permissionsCenter.snapshot.accessibility
+        guard accessibility == .granted || accessibility == .notRequired else {
+            return .directDictation
+        }
+        if textOutputCoordinator.currentSelectionSnapshot() != nil {
+            return .selectionRewrite
+        }
         return .directDictation
+    }
+
+    private func currentMagicianDependenciesSnapshot() -> MagicianDependencySnapshot {
+        MagicianDependencySnapshot(
+            accessibilityState: permissionsCenter.snapshot.accessibility,
+            eventAuthorizationStatus: EKEventStore.authorizationStatus(for: .event),
+            shortcutsCLIAvailable: FileManager.default.isExecutableFile(atPath: "/usr/bin/shortcuts"),
+            composeEmailAvailable: NSSharingService(named: .composeEmail) != nil
+        )
     }
 
     private func historyMode(for lane: InputLane) -> SessionHistoryMode {

@@ -22,6 +22,16 @@ final class MagicianFeatureToggleStore: ObservableObject {
         toggles[feature] ?? false
     }
 
+    var enabledFeatures: Set<MagicianFeatureID> {
+        Set(toggles.compactMap { key, value in
+            value ? key : nil
+        })
+    }
+
+    func hasAnyEnabledFeature() -> Bool {
+        toggles.values.contains(true)
+    }
+
     func setEnabled(_ enabled: Bool, for feature: MagicianFeatureID) {
         guard isEnabled(feature) != enabled else {
             return
@@ -66,4 +76,3 @@ final class MagicianFeatureToggleStore: ObservableObject {
         return result
     }
 }
-

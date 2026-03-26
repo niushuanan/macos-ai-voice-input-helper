@@ -43,6 +43,7 @@ final class AppModel: ObservableObject {
     let interactionCoordinator: InteractionCoordinator
     let audioCaptureService: AudioCaptureService
     let skillRuleStore: SkillRuleStore
+    let magicianFeatureToggleStore: MagicianFeatureToggleStore
     let providerSettingsStore: ProviderSettingsStore
     let asrDictionaryStore: ASRDictionaryStore
     let localSenseVoiceRuntimeManager: LocalSenseVoiceRuntimeManager
@@ -68,6 +69,7 @@ final class AppModel: ObservableObject {
         interactionCoordinator: InteractionCoordinator,
         audioCaptureService: AudioCaptureService,
         skillRuleStore: SkillRuleStore,
+        magicianFeatureToggleStore: MagicianFeatureToggleStore,
         providerSettingsStore: ProviderSettingsStore,
         asrDictionaryStore: ASRDictionaryStore,
         localSenseVoiceRuntimeManager: LocalSenseVoiceRuntimeManager,
@@ -91,6 +93,7 @@ final class AppModel: ObservableObject {
         self.interactionCoordinator = interactionCoordinator
         self.audioCaptureService = audioCaptureService
         self.skillRuleStore = skillRuleStore
+        self.magicianFeatureToggleStore = magicianFeatureToggleStore
         self.providerSettingsStore = providerSettingsStore
         self.asrDictionaryStore = asrDictionaryStore
         self.localSenseVoiceRuntimeManager = localSenseVoiceRuntimeManager
@@ -123,6 +126,7 @@ final class AppModel: ObservableObject {
         let permissionsCenter = PermissionsCenter()
         let audioCaptureService = AVAudioRecorderCaptureService(temporaryDirectory: store.temporaryAudioDirectory)
         let skillRuleStore = SkillRuleStore()
+        let magicianFeatureToggleStore = MagicianFeatureToggleStore()
         let credentialStore = LocalFileProviderCredentialStore(
             credentialsDirectory: store.credentialsDirectory,
             legacyStores: [
@@ -178,6 +182,7 @@ final class AppModel: ObservableObject {
             speechPipelineLogger: speechPipelineLogger,
             skillRuleStore: skillRuleStore,
             asrDictionaryStore: asrDictionaryStore,
+            magicianFeatureToggleStore: magicianFeatureToggleStore,
             toastPresenter: toastPresenter
         )
         return AppModel(
@@ -191,6 +196,7 @@ final class AppModel: ObservableObject {
             interactionCoordinator: interactionCoordinator,
             audioCaptureService: audioCaptureService,
             skillRuleStore: skillRuleStore,
+            magicianFeatureToggleStore: magicianFeatureToggleStore,
             providerSettingsStore: providerSettingsStore,
             asrDictionaryStore: asrDictionaryStore,
             localSenseVoiceRuntimeManager: localSenseVoiceRuntimeManager,
