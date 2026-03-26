@@ -1180,13 +1180,15 @@ struct SettingsView: View {
             Text("核心特点")
                 .font(.headline)
 
-            Label("单击主键就是普通听写，边说边出字，不用频繁切输入法。", systemImage: "text.bubble")
+            Label("比敲键盘更轻松，也比普通语音输入法更懂你的表达习惯，目标是把日常输入慢慢变成纯语音交互。", systemImage: "text.bubble")
+                .font(.subheadline)
+            Label("本地模型和云端模型一起工作，历史与配置默认留在本地，效果和安全感可以一起兼顾。", systemImage: "lock.shield")
                 .font(.subheadline)
             Label("长按主键唤起魔术先生，翻译、润色、日程、备忘录、邮件一句搞定。", systemImage: "wand.and.stars")
                 .font(.subheadline)
-            Label("双击主键进入一口气全念对，碎片想法会自动整理成清晰内容。", systemImage: "brain.head.profile")
+            Label("双击主键进入一口气全念对，特别适合多人讨论和短会议纪要，边聊边记也能快速理清重点。", systemImage: "brain.head.profile")
                 .font(.subheadline)
-            Label("不同应用可配不同提示词，记忆页也能回看原文、结果和指令。", systemImage: "arrow.triangle.2.circlepath.circle")
+            Label("不同应用可配不同提示词和风格，聊天、邮件、文档各有各的语气，满足多元场景需求。", systemImage: "arrow.triangle.2.circlepath.circle")
                 .font(.subheadline)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
