@@ -25,6 +25,261 @@ private func unsupportedSearchIntentError() -> MagicianError {
     )
 }
 
+struct MagicianPromptProfile {
+    static let commonSystemPrompt = """
+    You are the dedicated LLM orchestration layer for PulseType's Magician lane on macOS.
+
+    Hard rules:
+    1) The spoken command is the highest-priority instruction.
+    2) Selected text and the spoken command are separate channels. Never mix or merge them.
+    3) When selected text is non-empty, treat it as the primary content payload.
+    4) Never put generic command phrases into titles, subjects, bodies, or notes.
+    5) Never invent missing facts, dates, times, recipients, or locations.
+    6) Follow the requested output format exactly.
+    """
+}
+
+struct MagicianIntentClassification: Codable, Equatable {
+    let intent: MagicianFeatureID
+    let confidence: Double
+}
+
+struct MagicianIntentExtractionPayload: Codable, Equatable {
+    let sourceText: String?
+    let params: MagicianIntentParams
+}
+
+struct MagicianTextTransformLabelResolver {
+    static func label(for instruction: String) -> String {
+        let trimmed = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "按指令处理"
+        }
+        if trimmed.count <= 14 {
+            return trimmed
+        }
+        return "\(trimmed.prefix(14))..."
+    }
+}
+
+struct MagicianTextTransformPromptBuilder {
+    func build(
+        intent _: RewriteIntent,
+        request: SelectionRewriteRequest
+    ) -> RewritePromptTemplate {
+        let systemPrompt = """
+        \(MagicianPromptProfile.commonSystemPrompt)
+
+        You are a precise text transformation engine for PulseType Magician.
+        The spoken command is the highest-priority instruction and must be followed exactly.
+        Return only the final transformed text with no explanations, notes, or quotation marks.
+        Transform only the selected text.
+        Preserve key facts, names, numbers, and intent unless the spoken command explicitly asks you to change them.
+        Do not summarize, reorder, structure into bullet points, sort, shorten, polish, or translate by default.
+        Only do those things when the spoken command explicitly asks for them.
+        If the spoken command asks for a style transformation, rewrite fully in that style.
+        """
+
+        let userPrompt = """
+        Spoken command (authoritative):
+        <<<COMMAND
+        \(request.spokenInstruction)
+        COMMAND>>>
+
+        Selected text:
+        <<<TEXT
+        \(request.selectedText)
+        TEXT>>>
+        """
+
+        return RewritePromptTemplate(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt
+        )
+    }
+}
+
+struct MagicianIntentClassifierPromptBuilder {
+    func build(
+        enabledFeatures: Set<MagicianFeatureID>,
+        command: String,
+        selection: String
+    ) -> RewritePromptTemplate {
+        let allowedIntents = MagicianFeatureID.allCases
+            .filter { enabledFeatures.contains($0) }
+            .map(\.rawValue)
+            .joined(separator: ", ")
+
+        let systemPrompt = """
+        \(MagicianPromptProfile.commonSystemPrompt)
+
+        You are an intent classifier for PulseType Magician.
+        Return JSON only. Do not add markdown fences.
+
+        Allowed intent values:
+        \(allowedIntents)
+
+        Output JSON schema:
+        {
+          "intent": "text_transform | create_event | create_note | compose_email_draft",
+          "confidence": 0.0
+        }
+
+        Rules:
+        1) Pick exactly one allowed intent.
+        2) Confidence must be a number between 0 and 1.
+        3) Use the spoken command to identify the action category.
+        4) Use selected text only as supporting context for classification.
+        """
+
+        let userPrompt = """
+        Spoken command:
+        <<<COMMAND
+        \(command)
+        COMMAND>>>
+
+        Selected text:
+        <<<TEXT
+        \(selection.isEmpty ? "(empty)" : selection)
+        TEXT>>>
+        """
+
+        return RewritePromptTemplate(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt
+        )
+    }
+}
+
+protocol MagicianIntentExtractionPromptBuilding {
+    func build(command: String, selection: String) -> RewritePromptTemplate
+}
+
+struct MagicianEventPromptBuilder: MagicianIntentExtractionPromptBuilding {
+    func build(command: String, selection: String) -> RewritePromptTemplate {
+        let systemPrompt = """
+        \(MagicianPromptProfile.commonSystemPrompt)
+
+        You are a calendar event extractor for PulseType Magician.
+        Return JSON only. Do not add markdown fences.
+
+        Output JSON schema:
+        {
+          "sourceText": "string",
+          "params": {
+            "title": "string",
+            "startAt": "ISO8601",
+            "endAt": "ISO8601",
+            "location": "string",
+            "notes": "string"
+          }
+        }
+
+        Rules:
+        1) When selected text is non-empty, use it as the primary content source.
+        2) The spoken command may only supplement date, time, location, or tone.
+        3) Never place generic command phrases into title or notes.
+        4) Do not invent startAt or endAt. Leave them empty if not explicit.
+        5) Title should describe the real event, not the command.
+        """
+
+        let userPrompt = """
+        Spoken command:
+        <<<COMMAND
+        \(command)
+        COMMAND>>>
+
+        Selected text:
+        <<<TEXT
+        \(selection.isEmpty ? "(empty)" : selection)
+        TEXT>>>
+        """
+
+        return RewritePromptTemplate(systemPrompt: systemPrompt, userPrompt: userPrompt)
+    }
+}
+
+struct MagicianNotePromptBuilder: MagicianIntentExtractionPromptBuilding {
+    func build(command: String, selection: String) -> RewritePromptTemplate {
+        let systemPrompt = """
+        \(MagicianPromptProfile.commonSystemPrompt)
+
+        You are a note capture extractor for PulseType Magician.
+        Return JSON only. Do not add markdown fences.
+
+        Output JSON schema:
+        {
+          "sourceText": "string",
+          "params": {
+            "title": "string",
+            "noteBody": "string"
+          }
+        }
+
+        Rules:
+        1) When selected text is non-empty, noteBody should come from selected text.
+        2) The spoken command may only supplement title or intent.
+        3) Never place generic command phrases into title or noteBody.
+        4) Keep sourceText aligned with the real content payload.
+        """
+
+        let userPrompt = """
+        Spoken command:
+        <<<COMMAND
+        \(command)
+        COMMAND>>>
+
+        Selected text:
+        <<<TEXT
+        \(selection.isEmpty ? "(empty)" : selection)
+        TEXT>>>
+        """
+
+        return RewritePromptTemplate(systemPrompt: systemPrompt, userPrompt: userPrompt)
+    }
+}
+
+struct MagicianEmailPromptBuilder: MagicianIntentExtractionPromptBuilding {
+    func build(command: String, selection: String) -> RewritePromptTemplate {
+        let systemPrompt = """
+        \(MagicianPromptProfile.commonSystemPrompt)
+
+        You are a mail draft extractor for PulseType Magician.
+        Return JSON only. Do not add markdown fences.
+
+        Output JSON schema:
+        {
+          "sourceText": "string",
+          "params": {
+            "mailTo": ["a@example.com"],
+            "mailSubject": "string",
+            "mailBody": "string"
+          }
+        }
+
+        Rules:
+        1) When selected text is non-empty, mailBody should come from selected text.
+        2) The spoken command may supply recipients and subject hints.
+        3) Never place generic command phrases into mailSubject or mailBody.
+        4) Only include valid email addresses in mailTo.
+        """
+
+        let userPrompt = """
+        Spoken command:
+        <<<COMMAND
+        \(command)
+        COMMAND>>>
+
+        Selected text:
+        <<<TEXT
+        \(selection.isEmpty ? "(empty)" : selection)
+        TEXT>>>
+        """
+
+        return RewritePromptTemplate(systemPrompt: systemPrompt, userPrompt: userPrompt)
+    }
+}
+
 struct MagicianIntentSchemaValidator {
     func validate(
         _ intent: MagicianIntent,
@@ -58,6 +313,7 @@ struct MagicianIntentSchemaValidator {
         params.startAt = normalizeISO8601String(params.startAt)
         params.endAt = normalizeISO8601String(params.endAt)
         params.location = normalized(params.location)
+        params.notes = normalized(params.notes)
         params.noteBody = normalized(params.noteBody)
         params.mailSubject = normalized(params.mailSubject)
         params.mailBody = normalized(params.mailBody)
@@ -97,6 +353,9 @@ struct MagicianIntentSchemaValidator {
                 actionTokens: ["日程", "建立日程", "创建日程", "建日程", "会议", "calendar", "event"]
             ) {
                 params.title = String(normalizedSelection.prefix(60))
+            }
+            if hasSelection, (params.notes ?? "").isEmpty {
+                params.notes = normalizedSelection
             }
             if (params.startAt ?? "").isEmpty {
                 let detectorSource = [sourceText, normalizedCommand]
@@ -521,15 +780,27 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
     private let providerSettingsStore: ProviderSettingsStore
     private let generationProvider: any TextGenerationProvider
     private let schemaValidator: MagicianIntentSchemaValidator
+    private let classifierPromptBuilder: MagicianIntentClassifierPromptBuilder
+    private let eventPromptBuilder: MagicianEventPromptBuilder
+    private let notePromptBuilder: MagicianNotePromptBuilder
+    private let emailPromptBuilder: MagicianEmailPromptBuilder
 
     init(
         providerSettingsStore: ProviderSettingsStore,
         generationProvider: any TextGenerationProvider = OpenAITextGenerationProvider(),
-        schemaValidator: MagicianIntentSchemaValidator = MagicianIntentSchemaValidator()
+        schemaValidator: MagicianIntentSchemaValidator = MagicianIntentSchemaValidator(),
+        classifierPromptBuilder: MagicianIntentClassifierPromptBuilder = MagicianIntentClassifierPromptBuilder(),
+        eventPromptBuilder: MagicianEventPromptBuilder = MagicianEventPromptBuilder(),
+        notePromptBuilder: MagicianNotePromptBuilder = MagicianNotePromptBuilder(),
+        emailPromptBuilder: MagicianEmailPromptBuilder = MagicianEmailPromptBuilder()
     ) {
         self.providerSettingsStore = providerSettingsStore
         self.generationProvider = generationProvider
         self.schemaValidator = schemaValidator
+        self.classifierPromptBuilder = classifierPromptBuilder
+        self.eventPromptBuilder = eventPromptBuilder
+        self.notePromptBuilder = notePromptBuilder
+        self.emailPromptBuilder = emailPromptBuilder
     }
 
     func route(
@@ -584,19 +855,41 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         }
 
         do {
-            let response = try await generationProvider.generateText(
-                request: TextGenerationRequest(
-                    systemPrompt: llmSystemPrompt(enabledFeatures: enabledFeatures),
-                    userPrompt: llmUserPrompt(command: normalizedCommand, selection: normalizedSelection),
-                    temperature: 0.1,
-                    maxOutputTokens: 360
-                ),
-                configuration: providerSettingsStore.rewriteConfiguration,
+            let classified = try await classifyIntent(
+                command: normalizedCommand,
+                selection: normalizedSelection,
+                enabledFeatures: enabledFeatures,
                 apiKey: key
             )
-            let decoded = try decodeIntent(from: response.outputText)
+
+            if classified.intent == .textTransform {
+                return try schemaValidator.validate(
+                    MagicianIntent(
+                        intent: .textTransform,
+                        confidence: classified.confidence,
+                        sourceText: normalizedSelection,
+                        params: .empty
+                    ),
+                    enabledFeatures: enabledFeatures,
+                    command: normalizedCommand,
+                    selection: normalizedSelection
+                )
+            }
+
+            let extraction = try await extractPayload(
+                for: classified.intent,
+                command: normalizedCommand,
+                selection: normalizedSelection,
+                apiKey: key
+            )
+            let draftIntent = MagicianIntent(
+                intent: classified.intent,
+                confidence: classified.confidence,
+                sourceText: extraction.sourceText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+                params: extraction.params
+            )
             let normalizedIntent = normalizeLLMIntent(
-                decoded,
+                draftIntent,
                 command: normalizedCommand,
                 selection: normalizedSelection
             )
@@ -618,23 +911,101 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         }
     }
 
-    private func decodeIntent(from outputText: String) throws -> MagicianIntent {
+    private func classifyIntent(
+        command: String,
+        selection: String,
+        enabledFeatures: Set<MagicianFeatureID>,
+        apiKey: String
+    ) async throws -> MagicianIntentClassification {
+        let template = classifierPromptBuilder.build(
+            enabledFeatures: enabledFeatures,
+            command: command,
+            selection: selection
+        )
+        let response = try await generationProvider.generateText(
+            request: TextGenerationRequest(
+                systemPrompt: template.systemPrompt,
+                userPrompt: template.userPrompt,
+                temperature: 0.1,
+                maxOutputTokens: 180
+            ),
+            configuration: providerSettingsStore.rewriteConfiguration,
+            apiKey: apiKey
+        )
+        return try decodePayload(
+            from: response.outputText,
+            debugPrefix: "intent classifier"
+        )
+    }
+
+    private func extractPayload(
+        for intent: MagicianFeatureID,
+        command: String,
+        selection: String,
+        apiKey: String
+    ) async throws -> MagicianIntentExtractionPayload {
+        let template = extractionPromptTemplate(
+            for: intent,
+            command: command,
+            selection: selection
+        )
+        let response = try await generationProvider.generateText(
+            request: TextGenerationRequest(
+                systemPrompt: template.systemPrompt,
+                userPrompt: template.userPrompt,
+                temperature: 0.1,
+                maxOutputTokens: 320
+            ),
+            configuration: providerSettingsStore.rewriteConfiguration,
+            apiKey: apiKey
+        )
+        return try decodePayload(
+            from: response.outputText,
+            debugPrefix: "\(intent.rawValue) extractor"
+        )
+    }
+
+    private func extractionPromptTemplate(
+        for intent: MagicianFeatureID,
+        command: String,
+        selection: String
+    ) -> RewritePromptTemplate {
+        switch intent {
+        case .textTransform:
+            return classifierPromptBuilder.build(
+                enabledFeatures: [.textTransform],
+                command: command,
+                selection: selection
+            )
+        case .createEvent:
+            return eventPromptBuilder.build(command: command, selection: selection)
+        case .createNote:
+            return notePromptBuilder.build(command: command, selection: selection)
+        case .composeEmailDraft:
+            return emailPromptBuilder.build(command: command, selection: selection)
+        }
+    }
+
+    private func decodePayload<T: Decodable>(
+        from outputText: String,
+        debugPrefix: String
+    ) throws -> T {
         let jsonText = extractJSONObject(from: outputText)
         guard let data = jsonText.data(using: .utf8) else {
             throw MagicianError(
                 code: .intentParseFailed,
                 userMessage: "没听清这条命令的意图，请换个说法再试。",
-                debugMessage: "intent JSON utf8 decode failed",
+                debugMessage: "\(debugPrefix) JSON utf8 decode failed",
                 recoverAction: "retry_command"
             )
         }
         do {
-            return try JSONDecoder().decode(MagicianIntent.self, from: data)
+            return try JSONDecoder().decode(T.self, from: data)
         } catch {
             throw MagicianError(
                 code: .intentParseFailed,
                 userMessage: "没听清这条命令的意图，请换个说法再试。",
-                debugMessage: "intent JSON decode error: \(error.localizedDescription)",
+                debugMessage: "\(debugPrefix) JSON decode error: \(error.localizedDescription)",
                 recoverAction: "retry_command"
             )
         }
@@ -661,67 +1032,6 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         return String(stripped[firstBrace...lastBrace])
     }
 
-    private func llmSystemPrompt(enabledFeatures: Set<MagicianFeatureID>) -> String {
-        let allowedIntents = MagicianFeatureID.allCases
-            .filter { enabledFeatures.contains($0) }
-            .map(\.rawValue)
-            .joined(separator: ", ")
-
-        return """
-        You are an intent router for a macOS voice assistant.
-        Return JSON only and never output markdown fences.
-
-        Allowed intent values (must choose one):
-        \(allowedIntents)
-
-        Output JSON schema:
-        {
-          "intent": "text_transform | create_event | create_note | compose_email_draft",
-          "confidence": 0.0,
-          "sourceText": "string",
-          "params": {
-            "mode": "translate | polish | expand | shorten | fix",
-            "targetLanguage": "string",
-            "tone": "string",
-            "title": "string",
-            "startAt": "ISO8601",
-            "endAt": "ISO8601",
-            "location": "string",
-            "noteBody": "string",
-            "mailTo": ["a@example.com"],
-            "mailSubject": "string",
-            "mailBody": "string"
-          }
-        }
-
-        Rules:
-        1) intent must be one of allowed values above.
-        2) confidence between 0 and 1.
-        3) Keep params minimal and only include useful fields.
-        4) Treat spoken command as action intent only. Treat selected text as the primary content payload.
-        5) If intent is text_transform, sourceText must be the selected text and cannot be empty.
-        6) For other intents, sourceText can be empty when there is no selected text.
-        7) When selected text is non-empty, treat it as the primary content source for create_note / create_event / compose_email_draft.
-        8) Never place generic command phrases into content fields. Examples of forbidden literal content:
-           - "帮我写进备忘录"
-           - "帮我建立日程"
-           - "整理成邮件草稿"
-        9) For create_event, extract title/time/location from selected text first, then command.
-        10) Do not invent startAt. If there is no explicit date/time, leave startAt empty.
-        11) For create_note / compose_email_draft with selected text, noteBody / mailBody should usually come from the selected text, not the spoken command.
-        """
-    }
-
-    private func llmUserPrompt(command: String, selection: String) -> String {
-        """
-        Spoken command:
-        \(command)
-
-        Selected text:
-        \(selection.isEmpty ? "(empty)" : selection)
-        """
-    }
-
     private func normalizeLLMIntent(
         _ intent: MagicianIntent,
         command: String,
@@ -742,10 +1052,13 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
                 sourceText = selection
                 if shouldUseSelectionAsContent(
                     candidate: params.title,
-                    command: command,
-                    actionTokens: ["日程", "建立日程", "创建日程", "建日程", "会议", "calendar", "event"]
-                ) {
-                    params.title = String(selection.prefix(60))
+                        command: command,
+                        actionTokens: ["日程", "建立日程", "创建日程", "建日程", "会议", "calendar", "event"]
+                    ) {
+                        params.title = String(selection.prefix(60))
+                    }
+                if (params.notes ?? "").isEmpty {
+                    params.notes = selection
                 }
             }
 

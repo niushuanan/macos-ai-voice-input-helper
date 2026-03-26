@@ -333,83 +333,19 @@ struct DictationPostProcessPromptBuilder {
     }
 }
 
-struct RewritePromptBuilder {
-    func build(
-        intent _: RewriteIntent,
-        request: SelectionRewriteRequest
-    ) -> RewritePromptTemplate {
-        var systemPrompt = """
-        You are a precise text transformation engine for selected text.
-        The spoken instruction is the highest-priority instruction and must be followed exactly.
-        Return only the final transformed text with no explanations, notes, or quotation marks.
-        Preserve key facts, names, numbers, and intent unless the spoken instruction explicitly asks you to change them.
-        Do not summarize, reorder, structure into bullet points, sort, shorten, or polish by default.
-        Only do those things when the spoken instruction explicitly asks for them.
-        If the spoken instruction asks for a style transformation, rewrite fully in that style.
-        User preference system instruction and app-specific instruction are secondary. Ignore them when they conflict with the spoken instruction.
-        """
-
-        if
-            let userSystemPrompt = request.userSystemPrompt?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            !userSystemPrompt.isEmpty
-        {
-            systemPrompt += """
-
-            User preference system instruction:
-            \(userSystemPrompt)
-            """
-        }
-
-        if
-            let appPrompt = request.appPrompt?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            !appPrompt.isEmpty
-        {
-            systemPrompt += """
-
-            App-specific instruction:
-            \(appPrompt)
-            """
-        }
-
-        let userPrompt = """
-        App context:
-        - appName: \(request.focusContext.appName)
-        - bundleID: \(request.focusContext.bundleID)
-
-        Spoken instruction (authoritative):
-        <<<INSTRUCTION
-        \(request.spokenInstruction)
-        INSTRUCTION>>>
-
-        Selected text:
-        <<<TEXT
-        \(request.selectedText)
-        TEXT>>>
-        """
-
-        return RewritePromptTemplate(
-            systemPrompt: systemPrompt,
-            userPrompt: userPrompt
-        )
-    }
-}
+typealias RewritePromptBuilder = MagicianTextTransformPromptBuilder
 
 struct OpenAIRewriteProvider: RewriteProvider {
     let supportedProviderTypes: [ProviderType] = [.openAI, .openAICompatible]
 
     private let generationProvider: any TextGenerationProvider
-    private let intentParser: RewriteIntentParser
     private let promptBuilder: RewritePromptBuilder
 
     init(
         generationProvider: any TextGenerationProvider = OpenAITextGenerationProvider(),
-        intentParser: RewriteIntentParser = RewriteIntentParser(),
         promptBuilder: RewritePromptBuilder = RewritePromptBuilder()
     ) {
         self.generationProvider = generationProvider
-        self.intentParser = intentParser
         self.promptBuilder = promptBuilder
     }
 
@@ -423,12 +359,11 @@ struct OpenAIRewriteProvider: RewriteProvider {
             throw RewriteProviderError.noSelectedText
         }
 
-        let intent = try intentParser.parse(
-            instruction: request.spokenInstruction,
-            defaultOutputBias: request.outputBias
-        )
         let template = promptBuilder.build(
-            intent: intent,
+            intent: RewriteIntent(
+                action: .custom(command: request.spokenInstruction),
+                sourceInstruction: request.spokenInstruction
+            ),
             request: request
         )
 
@@ -436,7 +371,7 @@ struct OpenAIRewriteProvider: RewriteProvider {
             request: TextGenerationRequest(
                 systemPrompt: template.systemPrompt,
                 userPrompt: template.userPrompt,
-                temperature: temperature(for: intent.action),
+                temperature: 0.35,
                 maxOutputTokens: 900
             ),
             configuration: configuration,
@@ -450,21 +385,10 @@ struct OpenAIRewriteProvider: RewriteProvider {
 
         return SelectionRewriteResult(
             rewrittenText: output,
-            actionLabel: intent.action.label,
+            actionLabel: MagicianTextTransformLabelResolver.label(for: request.spokenInstruction),
             providerName: generation.providerName,
             modelName: generation.modelName
         )
-    }
-
-    private func temperature(for action: RewriteAction) -> Double {
-        switch action {
-        case .translate:
-            return 0.2
-        case .polish, .condense, .structure:
-            return 0.3
-        case .custom:
-            return 0.45
-        }
     }
 }
 

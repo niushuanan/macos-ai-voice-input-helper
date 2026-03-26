@@ -705,6 +705,60 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .failed)
     }
 
+    func testMagicianTextTransformDoesNotPassAppOrSystemPromptToRewriteProvider() async throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
+            focusContext: FixedContextDetector().focusedAppContext(),
+            selectedText: "今天下午三点在会议室开产品评审会。"
+        )
+        let router = FakeMagicianIntentRouter(
+            intent: MagicianIntent(
+                intent: .textTransform,
+                confidence: 0.93,
+                sourceText: "今天下午三点在会议室开产品评审会。",
+                params: .empty
+            )
+        )
+        let rewriteProvider = CapturingRewriteProvider(
+            result: .success(
+                SelectionRewriteResult(
+                    rewrittenText: "今日申时会于堂中议策。",
+                    actionLabel: "转换为中国古诗风格",
+                    providerName: "Fake OpenAI",
+                    modelName: "fake-model"
+                )
+            )
+        )
+
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutputCoordinator,
+            magicianIntentRouter: router,
+            rewriteProviders: [rewriteProvider],
+            transcriptionText: "转换为中国古诗风格"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
+        fixture.skillRuleStore.setEnabled(true, for: .systemPrompt)
+        fixture.skillRuleStore.setParameter("请更简洁。", for: .systemPrompt)
+        fixture.skillRuleStore.setEnabled(true, for: .appPreferenceBoost)
+        fixture.appScenePolicyStore.upsertPolicy(
+            appName: "TextEdit",
+            bundleID: "com.apple.TextEdit",
+            appPrompt: "优先输出清晰结论。"
+        )
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(rewriteProvider.callCount, 1)
+        XCTAssertNil(rewriteProvider.lastRequest?.appPrompt)
+        XCTAssertNil(rewriteProvider.lastRequest?.userSystemPrompt)
+        XCTAssertEqual(rewriteProvider.lastRequest?.spokenInstruction, "转换为中国古诗风格")
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "今日申时会于堂中议策。")
+    }
+
     func testDictationSkipsPostProcessWhenSystemPromptIsEmpty() async throws {
         let postProcessor = CountingDictationPostProcessor(outputText: "不该被用到")
         let fixture = try makeFixture(dictationPostProcessor: postProcessor)
@@ -854,6 +908,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         ),
         magicianIntentRouter: (any MagicianIntentRouting)? = nil,
         magicianToolExecutor: (any MagicianToolExecuting)? = nil,
+        rewriteProviders: [any RewriteProvider] = [],
         transcriptionText: String = "hello world",
         transcriptionResponses: [Result<String, SpeechTranscriptionError>]? = nil,
         brainstormDurationProfile: BrainstormDurationProfile? = nil,
@@ -931,7 +986,7 @@ final class InteractionCoordinatorTests: XCTestCase {
             audioCaptureService: audioCapture,
             providerSettingsStore: providerSettingsStore,
             providerRegistry: SpeechProviderRegistry(providers: [transcriptionProvider]),
-            rewriteProviderRegistry: RewriteProviderRegistry(providers: []),
+            rewriteProviderRegistry: RewriteProviderRegistry(providers: rewriteProviders),
             textOutputCoordinator: resolvedTextOutputCoordinator,
             contextDetector: FixedContextDetector(),
             appScenePolicyStore: appScenePolicyStore,
@@ -1044,6 +1099,30 @@ private final class FakeAudioCaptureService: AudioCaptureService {
 
     func purgeStaleTemporaryFiles(olderThan age: TimeInterval) -> Int {
         0
+    }
+}
+
+private final class CapturingRewriteProvider: RewriteProvider {
+    let supportedProviderTypes: [ProviderType] = [.openAI, .openAICompatible]
+
+    private(set) var callCount: Int = 0
+    private(set) var lastRequest: SelectionRewriteRequest?
+    var result: Result<SelectionRewriteResult, Error>
+
+    init(result: Result<SelectionRewriteResult, Error>) {
+        self.result = result
+    }
+
+    func rewrite(
+        request: SelectionRewriteRequest,
+        configuration: TextGenerationProviderConfiguration,
+        apiKey: String
+    ) async throws -> SelectionRewriteResult {
+        _ = configuration
+        _ = apiKey
+        callCount += 1
+        lastRequest = request
+        return try result.get()
     }
 }
 

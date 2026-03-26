@@ -16,10 +16,39 @@ struct MagicianIntentParams: Codable, Equatable {
     var startAt: String?
     var endAt: String?
     var location: String?
+    var notes: String?
     var noteBody: String?
     var mailTo: [String]?
     var mailSubject: String?
     var mailBody: String?
+
+    init(
+        mode: MagicianTransformMode? = nil,
+        targetLanguage: String? = nil,
+        tone: String? = nil,
+        title: String? = nil,
+        startAt: String? = nil,
+        endAt: String? = nil,
+        location: String? = nil,
+        notes: String? = nil,
+        noteBody: String? = nil,
+        mailTo: [String]? = nil,
+        mailSubject: String? = nil,
+        mailBody: String? = nil
+    ) {
+        self.mode = mode
+        self.targetLanguage = targetLanguage
+        self.tone = tone
+        self.title = title
+        self.startAt = startAt
+        self.endAt = endAt
+        self.location = location
+        self.notes = notes
+        self.noteBody = noteBody
+        self.mailTo = mailTo
+        self.mailSubject = mailSubject
+        self.mailBody = mailBody
+    }
 
     static let empty = MagicianIntentParams()
 }

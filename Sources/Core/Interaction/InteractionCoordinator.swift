@@ -2153,12 +2153,7 @@ final class InteractionCoordinator {
         if abortIfSessionCancelled() {
             return
         }
-        let scenePolicy = effectiveScenePolicy(for: snapshot.focusContext)
-        let activeSystemPrompt = skillRuleStore.activeSystemPrompt()
-        let quickActionLabel = (try? RewriteIntentParser().parse(
-            instruction: spokenInstruction,
-            defaultOutputBias: .neutral
-        ).action.label)
+        let quickActionLabel = MagicianTextTransformLabelResolver.label(for: spokenInstruction)
 
         guard providerSettingsStore.isRewriteConfigurationValid else {
             let message = providerSettingsStore.rewriteConfigurationValidationMessage
@@ -2271,8 +2266,8 @@ final class InteractionCoordinator {
                     spokenInstruction: spokenInstruction,
                     focusContext: snapshot.focusContext,
                     outputBias: .neutral,
-                    appPrompt: scenePolicy.appPrompt,
-                    userSystemPrompt: activeSystemPrompt
+                    appPrompt: nil,
+                    userSystemPrompt: nil
                 ),
                 configuration: rewriteConfiguration,
                 apiKey: normalizedKey
@@ -2288,9 +2283,6 @@ final class InteractionCoordinator {
                 lhs: instructionApplyResult.appliedSkills,
                 rhs: outputApplyResult.appliedSkills
             )
-            let finalAppliedSkills = activeSystemPrompt == nil
-                ? combinedSkills
-                : mergedSkills(lhs: combinedSkills, rhs: [.systemPrompt])
             let finalRewriteText: String = {
                 let normalized = outputApplyResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 return normalized.isEmpty ? rewriteResult.rewrittenText : normalized
@@ -2329,7 +2321,7 @@ final class InteractionCoordinator {
                     outputPath: outputResult.path,
                     status: .success,
                     audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: finalAppliedSkills
+                    appliedSkills: combinedSkills
                 )
             )
             speechPipelineLogger.log(

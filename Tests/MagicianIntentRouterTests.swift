@@ -174,11 +174,14 @@ final class MagicianIntentRouterTests: XCTestCase {
         )
 
         let generationProvider = TrackingTextGenerationProvider(
-            outputText: """
-            ```json
-            {"intent":"create_note","confidence":0.91,"sourceText":"记录这段内容","params":{"noteBody":"记录这段内容"}}
-            ```
-            """
+            outputTexts: [
+                #"{"intent":"create_note","confidence":0.91}"#,
+                """
+                ```json
+                {"sourceText":"记录这段内容","params":{"noteBody":"记录这段内容"}}
+                ```
+                """
+            ]
         )
 
         let router = LLMMagicianIntentRouter(
@@ -194,7 +197,7 @@ final class MagicianIntentRouterTests: XCTestCase {
 
         XCTAssertEqual(intent.intent, .createNote)
         XCTAssertEqual(intent.params.noteBody, "记录这段内容")
-        XCTAssertEqual(generationProvider.callCount, 1)
+        XCTAssertEqual(generationProvider.callCount, 2)
     }
 
     func testLLMRouterNormalizesInstructionPhraseToSelectionForCreateNote() async throws {
@@ -207,9 +210,10 @@ final class MagicianIntentRouterTests: XCTestCase {
         )
 
         let generationProvider = TrackingTextGenerationProvider(
-            outputText: """
-            {"intent":"create_note","confidence":0.83,"sourceText":"帮我写进备忘录","params":{"noteBody":"帮我写进备忘录"}}
-            """
+            outputTexts: [
+                #"{"intent":"create_note","confidence":0.83}"#,
+                #"{"sourceText":"帮我写进备忘录","params":{"noteBody":"帮我写进备忘录"}}"#
+            ]
         )
 
         let router = LLMMagicianIntentRouter(
@@ -226,6 +230,7 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertEqual(intent.intent, .createNote)
         XCTAssertEqual(intent.sourceText, "周五 15:00 在 A 会议室评审 PRD")
         XCTAssertEqual(intent.params.noteBody, "周五 15:00 在 A 会议室评审 PRD")
+        XCTAssertEqual(generationProvider.callCount, 2)
     }
 
     func testLLMRouterNormalizesInstructionPhraseToSelectionForCreateEvent() async throws {
@@ -238,9 +243,10 @@ final class MagicianIntentRouterTests: XCTestCase {
         )
 
         let generationProvider = TrackingTextGenerationProvider(
-            outputText: """
-            {"intent":"create_event","confidence":0.82,"sourceText":"帮我建立日程","params":{"title":"帮我建立日程"}}
-            """
+            outputTexts: [
+                #"{"intent":"create_event","confidence":0.82}"#,
+                #"{"sourceText":"帮我建立日程","params":{"title":"帮我建立日程"}}"#
+            ]
         )
 
         let router = LLMMagicianIntentRouter(
@@ -258,6 +264,7 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertEqual(intent.intent, .createEvent)
         XCTAssertEqual(intent.sourceText, selectionText)
         XCTAssertEqual(intent.params.title, String(selectionText.prefix(60)))
+        XCTAssertEqual(generationProvider.callCount, 2)
     }
 
     func testLLMRouterUsesSelectionForMailBodyAndKeepsRecipientsFromCommand() async throws {
@@ -270,9 +277,10 @@ final class MagicianIntentRouterTests: XCTestCase {
         )
 
         let generationProvider = TrackingTextGenerationProvider(
-            outputText: """
-            {"intent":"compose_email_draft","confidence":0.9,"sourceText":"发邮件给 team@example.com","params":{"mailTo":["team@example.com"],"mailSubject":"发邮件给 team@example.com","mailBody":"发邮件给 team@example.com"}}
-            """
+            outputTexts: [
+                #"{"intent":"compose_email_draft","confidence":0.9}"#,
+                #"{"sourceText":"发邮件给 team@example.com","params":{"mailTo":["team@example.com"],"mailSubject":"发邮件给 team@example.com","mailBody":"发邮件给 team@example.com"}}"#
+            ]
         )
 
         let router = LLMMagicianIntentRouter(
@@ -292,6 +300,73 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertEqual(intent.params.mailBody, selection)
         XCTAssertEqual(intent.params.mailTo, ["team@example.com"])
         XCTAssertEqual(intent.params.mailSubject, String(selection.prefix(24)))
+        XCTAssertEqual(generationProvider.callCount, 2)
+    }
+
+    func testLLMRouterStopsAfterClassifierForTextTransform() async throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-test"])
+        )
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputTexts: [
+                #"{"intent":"text_transform","confidence":0.88}"#
+            ]
+        )
+
+        let router = LLMMagicianIntentRouter(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider
+        )
+
+        let intent = try await router.route(
+            command: "转换为中国古诗风格",
+            selection: "春风又绿江南岸",
+            enabledFeatures: [.textTransform]
+        )
+
+        XCTAssertEqual(intent.intent, .textTransform)
+        XCTAssertEqual(intent.sourceText, "春风又绿江南岸")
+        XCTAssertEqual(generationProvider.callCount, 1)
+    }
+
+    func testLLMRouterUsesDedicatedClassifierThenNotePrompt() async throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-test"])
+        )
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputTexts: [
+                #"{"intent":"create_note","confidence":0.91}"#,
+                #"{"sourceText":"记录这段内容","params":{"title":"会议纪要","noteBody":"记录这段内容"}}"#
+            ]
+        )
+
+        let router = LLMMagicianIntentRouter(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider
+        )
+
+        let intent = try await router.route(
+            command: "帮我写进备忘录",
+            selection: "记录这段内容",
+            enabledFeatures: [.createNote]
+        )
+
+        XCTAssertEqual(intent.intent, .createNote)
+        XCTAssertEqual(generationProvider.callCount, 2)
+        XCTAssertTrue(generationProvider.requests[0].systemPrompt.contains("intent classifier"))
+        XCTAssertTrue(generationProvider.requests[1].systemPrompt.contains("note capture extractor"))
+        XCTAssertFalse(generationProvider.requests[0].systemPrompt.contains("App-specific instruction"))
+        XCTAssertFalse(generationProvider.requests[1].systemPrompt.contains("User preference system instruction"))
     }
 
     func testSchemaValidatorAllowsCommandFallbackWithoutSelection() throws {
@@ -385,10 +460,15 @@ private final class MemoryCredentialStore: ProviderCredentialStore {
 private final class TrackingTextGenerationProvider: TextGenerationProvider {
     let supportedProviderTypes: [ProviderType] = [.openAI, .openAICompatible]
     private(set) var callCount: Int = 0
-    private let outputText: String
+    private(set) var requests: [TextGenerationRequest] = []
+    private let outputTexts: [String]
 
     init(outputText: String) {
-        self.outputText = outputText
+        self.outputTexts = [outputText]
+    }
+
+    init(outputTexts: [String]) {
+        self.outputTexts = outputTexts
     }
 
     func generateText(
@@ -396,15 +476,16 @@ private final class TrackingTextGenerationProvider: TextGenerationProvider {
         configuration: TextGenerationProviderConfiguration,
         apiKey: String
     ) async throws -> TextGenerationResult {
-        _ = request
         _ = configuration
         _ = apiKey
+        requests.append(request)
         callCount += 1
+        let outputIndex = min(callCount - 1, outputTexts.count - 1)
         return TextGenerationResult(
             providerType: .openAI,
             providerName: "Fake OpenAI",
             modelName: "fake-model",
-            outputText: outputText
+            outputText: outputTexts[outputIndex]
         )
     }
 }

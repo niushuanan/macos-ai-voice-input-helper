@@ -193,15 +193,7 @@ private struct MagicianEventAdapter {
         event.location = location
         event.startDate = startAt
         event.endDate = endAt
-        event.notes = """
-        来自 PulseType 魔术先生
-
-        原文：
-        \(context.selectedText.isEmpty ? "（无选中文本）" : context.selectedText)
-
-        指令：
-        \(context.command)
-        """
+        event.notes = resolvedEventNotes(intent: intent, context: context)
 
         do {
             try eventStore.save(event, span: .thisEvent)
@@ -329,6 +321,24 @@ private struct MagicianEventAdapter {
             return date
         }
         return startAt.addingTimeInterval(60 * 60)
+    }
+
+    private func resolvedEventNotes(
+        intent: MagicianIntent,
+        context: MagicianExecutionContext
+    ) -> String {
+        let extractedNotes = intent.params.notes?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let header = extractedNotes.isEmpty ? "" : "\(extractedNotes)\n\n"
+        return """
+        \(header)来自 PulseType 魔术先生
+
+        原文：
+        \(context.selectedText.isEmpty ? "（无选中文本）" : context.selectedText)
+
+        指令：
+        \(context.command)
+        """
     }
 
     private func parseISO8601(_ value: String) -> Date? {
