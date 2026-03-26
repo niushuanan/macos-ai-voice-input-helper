@@ -741,7 +741,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         let postProcessor = CountingDictationPostProcessor(outputText: "不该被用到")
         let fixture = try makeFixture(
             dictationPostProcessor: postProcessor,
-            transcriptionText: "hello world"
+            transcriptionText: "hello"
         )
         defer { fixture.cleanUp() }
 
@@ -753,7 +753,45 @@ final class InteractionCoordinatorTests: XCTestCase {
         await waitForPipeline(using: fixture.sessionStore)
 
         XCTAssertEqual(postProcessor.callCount, 0)
-        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "hello world")
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "hello")
+    }
+
+    func testDictationUsesTextProcessingForCleanTranscriptLongerThanTenCharacters() async throws {
+        let postProcessor = CountingDictationPostProcessor(outputText: "模型已处理")
+        let fixture = try makeFixture(
+            dictationPostProcessor: postProcessor,
+            transcriptionText: "abcdefghijk"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.skillRuleStore.setEnabled(true, for: .systemPrompt)
+        fixture.skillRuleStore.setParameter("默认更简洁，保留重点。", for: .systemPrompt)
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(postProcessor.callCount, 1)
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "模型已处理")
+    }
+
+    func testDictationUsesTextProcessingForShortDirtyTranscript() async throws {
+        let postProcessor = CountingDictationPostProcessor(outputText: "模型已处理")
+        let fixture = try makeFixture(
+            dictationPostProcessor: postProcessor,
+            transcriptionText: "你好。。"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.skillRuleStore.setEnabled(true, for: .systemPrompt)
+        fixture.skillRuleStore.setParameter("默认更简洁，保留重点。", for: .systemPrompt)
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(postProcessor.callCount, 1)
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "模型已处理")
     }
 
     func testSavedDictionaryIsInjectedIntoNextASRRequestImmediately() async throws {

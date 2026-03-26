@@ -4,6 +4,55 @@ import EventKit
 import KeyboardShortcuts
 import SwiftUI
 
+enum MemoryToolbarLayoutMode: Equatable {
+    case singleRow
+    case stacked
+
+    static func resolve(
+        availableWidth: CGFloat,
+        filterBarWidth: CGFloat,
+        clearButtonWidth: CGFloat,
+        spacing: CGFloat
+    ) -> Self {
+        guard availableWidth > 0, filterBarWidth > 0, clearButtonWidth > 0 else {
+            return .singleRow
+        }
+
+        let requiredWidth = filterBarWidth + clearButtonWidth + spacing
+        return requiredWidth <= availableWidth ? .singleRow : .stacked
+    }
+}
+
+private enum MemoryToolbarMeasureID: Hashable {
+    case container
+    case filterBar
+    case clearButton
+}
+
+private struct MemoryToolbarWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: [MemoryToolbarMeasureID: CGFloat] = [:]
+
+    static func reduce(
+        value: inout [MemoryToolbarMeasureID: CGFloat],
+        nextValue: () -> [MemoryToolbarMeasureID: CGFloat]
+    ) {
+        value.merge(nextValue(), uniquingKeysWith: { _, next in next })
+    }
+}
+
+private extension View {
+    func reportMemoryToolbarWidth(_ id: MemoryToolbarMeasureID) -> some View {
+        background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: MemoryToolbarWidthPreferenceKey.self,
+                    value: [id: proxy.size.width]
+                )
+            }
+        )
+    }
+}
+
 struct SettingsView: View {
     let model: AppModel
 
@@ -55,6 +104,9 @@ struct SettingsView: View {
     @State private var magicianComposeEmailAvailable = MagicianMailCapability.composeEmailServiceAvailable
     @State private var magicianMailtoAvailable = MagicianMailCapability.mailtoAvailable
     @State private var magicianMailAppAvailable = MagicianMailCapability.mailAppAvailable
+    @State private var memoryToolbarAvailableWidth: CGFloat = 0
+    @State private var memoryFilterBarWidth: CGFloat = 0
+    @State private var clearMemoryButtonWidth: CGFloat = 0
 
     private let magicianStatusResolver = MagicianStatusResolver()
 
@@ -1539,6 +1591,7 @@ struct SettingsView: View {
         .controlSize(.regular)
         .labelsHidden()
         .fixedSize(horizontal: true, vertical: false)
+        .reportMemoryToolbarWidth(.filterBar)
     }
 
     private var clearMemoryButton: some View {
@@ -1547,23 +1600,51 @@ struct SettingsView: View {
         }
         .buttonStyle(.bordered)
         .disabled(localHistoryStore.entries.isEmpty)
+        .reportMemoryToolbarWidth(.clearButton)
+    }
+
+    private var memoryToolbarLayoutMode: MemoryToolbarLayoutMode {
+        MemoryToolbarLayoutMode.resolve(
+            availableWidth: memoryToolbarAvailableWidth,
+            filterBarWidth: memoryFilterBarWidth,
+            clearButtonWidth: clearMemoryButtonWidth,
+            spacing: 12
+        )
     }
 
     private var memoryToolbar: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) {
-                memoryFilterBar
-                Spacer(minLength: 12)
-                clearMemoryButton
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                memoryFilterBar
-                HStack {
-                    Spacer()
+        Group {
+            switch memoryToolbarLayoutMode {
+            case .singleRow:
+                HStack(spacing: 12) {
+                    memoryFilterBar
+                    Spacer(minLength: 12)
                     clearMemoryButton
                 }
+            case .stacked:
+                VStack(alignment: .leading, spacing: 10) {
+                    memoryFilterBar
+                    HStack {
+                        Spacer()
+                        clearMemoryButton
+                    }
+                }
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .reportMemoryToolbarWidth(.container)
+        .onPreferenceChange(MemoryToolbarWidthPreferenceKey.self, perform: updateMemoryToolbarMeasurements)
+    }
+
+    private func updateMemoryToolbarMeasurements(_ widths: [MemoryToolbarMeasureID: CGFloat]) {
+        if let containerWidth = widths[.container], abs(memoryToolbarAvailableWidth - containerWidth) > 0.5 {
+            memoryToolbarAvailableWidth = containerWidth
+        }
+        if let filterBarWidth = widths[.filterBar], abs(memoryFilterBarWidth - filterBarWidth) > 0.5 {
+            memoryFilterBarWidth = filterBarWidth
+        }
+        if let clearButtonWidth = widths[.clearButton], abs(clearMemoryButtonWidth - clearButtonWidth) > 0.5 {
+            clearMemoryButtonWidth = clearButtonWidth
         }
     }
 

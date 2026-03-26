@@ -51,6 +51,36 @@ private enum DictationRoute {
     case asrAndTextProcessing
 }
 
+struct DictationTextProcessingPolicy {
+    static let shortCleanLengthThreshold = 10
+
+    static func shouldUseModel(text: String) -> Bool {
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return false
+        }
+
+        if normalized.contains("<|") || normalized.contains("|>") {
+            return true
+        }
+
+        if normalized.contains("  ") || hasRepeatedPunctuation(in: normalized) {
+            return true
+        }
+
+        if normalized.split(whereSeparator: \.isNewline).count > 1 {
+            return true
+        }
+
+        return normalized.count > shortCleanLengthThreshold
+    }
+
+    private static func hasRepeatedPunctuation(in text: String) -> Bool {
+        let repeatedTokens = ["。。", "，，", "！！", "？？", "..", ",,", "!!", "??"]
+        return repeatedTokens.contains { text.contains($0) }
+    }
+}
+
 private struct ASRTranscriptionOutcome {
     let result: SpeechTranscriptionResult
     let attempts: Int
@@ -2960,38 +2990,11 @@ final class InteractionCoordinator {
         userSystemPrompt: String,
         appPrompt: String
     ) -> Bool {
-        _ = userSystemPrompt
-        _ = appPrompt
-
-        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
+        guard !userSystemPrompt.isEmpty || !appPrompt.isEmpty else {
             return false
         }
 
-        if normalized.contains("<|") || normalized.contains("|>") {
-            return true
-        }
-
-        if normalized.contains("  ") || normalized.contains("。。") || normalized.contains("，，") {
-            return true
-        }
-
-        if normalized.count >= 80 {
-            return true
-        }
-
-        let punctuationSet = CharacterSet(charactersIn: "。！？.!?,，；;：:")
-        let punctuationCount = normalized.unicodeScalars.filter { punctuationSet.contains($0) }.count
-        if punctuationCount == 0, normalized.count >= 24 {
-            return true
-        }
-
-        let lineCount = normalized.split(whereSeparator: \.isNewline).count
-        if lineCount > 1 {
-            return true
-        }
-
-        return false
+        return DictationTextProcessingPolicy.shouldUseModel(text: text)
     }
 
     private func resolvedLane(context: WakeInvocationContext) -> InputLane {

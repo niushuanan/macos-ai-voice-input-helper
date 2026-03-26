@@ -120,4 +120,35 @@ final class HUDProgressStateMachineTests: XCTestCase {
             "魔术先生 · 聆听中"
         )
     }
+
+    func testCompletionMessageResolverRemovesAppNameAndPathDetails() {
+        let title = StatusPulseHUDMessageResolver.completionTitle(
+            for: "文本已写入 TextEdit（AX 直写路径）。"
+        )
+
+        XCTAssertEqual(title, "已写入")
+        XCTAssertFalse(title.contains("TextEdit"))
+        XCTAssertFalse(title.contains("AX"))
+    }
+
+    func testCompletionMessageResolverNormalizesMagicianSuccessMessages() {
+        XCTAssertEqual(
+            StatusPulseHUDMessageResolver.completionTitle(for: "已通过 mailto 打开邮件草稿。"),
+            "邮件草稿已生成"
+        )
+        XCTAssertEqual(
+            StatusPulseHUDMessageResolver.completionTitle(for: "已提交到备忘录快捷指令。"),
+            "已写入备忘录"
+        )
+    }
+
+    func testErrorMessageResolverRemovesAppNameAndImplementationDetails() {
+        let title = StatusPulseHUDMessageResolver.errorTitle(
+            for: "TextEdit 写回失败。AX 路径原因：目标控件失效。"
+        )
+
+        XCTAssertEqual(title, "写入失败")
+        XCTAssertFalse(title.contains("TextEdit"))
+        XCTAssertFalse(title.contains("AX"))
+    }
 }

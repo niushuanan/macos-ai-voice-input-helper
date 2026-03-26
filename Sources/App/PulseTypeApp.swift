@@ -8,7 +8,7 @@ struct PulseTypeApp: App {
     var body: some Scene {
         WindowGroup("PulseType", id: "control-center") {
             SettingsView(model: model)
-                .frame(minWidth: 1080, minHeight: 700)
+                .frame(minWidth: 920, minHeight: 700)
         }
 
         MenuBarExtra {

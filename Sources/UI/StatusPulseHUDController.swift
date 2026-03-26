@@ -198,6 +198,129 @@ enum StatusPulseHUDTitleResolver {
     }
 }
 
+enum StatusPulseHUDMessageResolver {
+    static func completionTitle(for message: String) -> String {
+        let normalized = normalizedMessage(message)
+        guard !normalized.isEmpty else {
+            return "已完成"
+        }
+
+        if normalized.contains("复制到剪贴板") {
+            return "已复制到剪贴板"
+        }
+        if isCreateNoteSuccess(normalized) {
+            return "已写入备忘录"
+        }
+        if isComposeEmailSuccess(normalized) {
+            return "邮件草稿已生成"
+        }
+        if isCreateEventSuccess(normalized) {
+            return "已创建日程"
+        }
+        if normalized.contains("文本已写入") {
+            return "已写入"
+        }
+        if normalized.contains("已完成") || normalized.contains("下一次语音会话") {
+            return "已完成"
+        }
+
+        return "已完成"
+    }
+
+    static func feedbackMessage(for message: String) -> String {
+        let normalized = normalizedMessage(message)
+        guard !normalized.isEmpty else {
+            return "已准备"
+        }
+
+        if normalized.contains("已准备") {
+            return "已准备"
+        }
+
+        return completionTitle(for: normalized)
+    }
+
+    static func cancelledTitle(for message: String) -> String {
+        let normalized = normalizedMessage(message)
+        if normalized.contains("已取消") {
+            return "已取消"
+        }
+        return "已取消"
+    }
+
+    static func errorTitle(for message: String) -> String {
+        let normalized = normalizedMessage(message)
+        guard !normalized.isEmpty else {
+            return "未完成"
+        }
+
+        if normalized.contains("辅助功能权限") {
+            return "需要辅助功能权限"
+        }
+        if normalized.contains("日历权限") {
+            return "需要日历权限"
+        }
+        if normalized.contains("未识别到明确时间") {
+            return "未识别到明确时间"
+        }
+        if containsAny(normalized, tokens: ["可写入输入框", "可写入焦点", "焦点不可编辑", "输入区域"]) {
+            return "未检测到输入区域"
+        }
+        if containsAny(normalized, tokens: ["写回失败", "写入失败", "AX 直写失败"]) {
+            return "写入失败"
+        }
+        if normalized.contains("改写失败") {
+            return "文字处理失败"
+        }
+        if normalized.contains("失败") {
+            return "执行失败"
+        }
+        if normalized.contains("执行失败") {
+            return "执行失败"
+        }
+        if normalized.contains("没听清") {
+            return "没听清指令"
+        }
+        if normalized.contains("缺少") && normalized.contains("API") && normalized.contains("密钥") {
+            return "缺少 API 密钥"
+        }
+        if containsAny(normalized, tokens: ["文本模型配置无效", "文本模型没能稳定解析", "文本模型", "文本处理模型"]) {
+            return "文本模型不可用"
+        }
+
+        return "未完成"
+    }
+
+    private static func normalizedMessage(_ message: String) -> String {
+        message.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func containsAny(_ message: String, tokens: [String]) -> Bool {
+        tokens.contains { message.contains($0) }
+    }
+
+    private static func isCreateNoteSuccess(_ message: String) -> Bool {
+        containsAny(
+            message,
+            tokens: ["备忘录", "Notes", "快捷指令", "Shortcuts URL 触发写入"]
+        )
+    }
+
+    private static func isComposeEmailSuccess(_ message: String) -> Bool {
+        containsAny(
+            message,
+            tokens: ["邮件草稿", "Mail", "mailto"]
+        )
+    }
+
+    private static func isCreateEventSuccess(_ message: String) -> Bool {
+        containsAny(
+            message,
+            tokens: ["已建日程", "已创建日程", "日程："]
+        )
+    }
+}
+
 extension SessionPhase {
     var isHUDBusyPhase: Bool {
         switch self {
@@ -441,7 +564,7 @@ private struct StatusPulseHUDView: View {
             case let .processing(title):
                 processingCapsule(title: title, completion: false)
             case .completion:
-                processingCapsule(title: "完成", completion: true)
+                processingCapsule(title: completionTitle, completion: true)
             case .cancelled:
                 cancelledCapsule
             case .error:
@@ -490,8 +613,24 @@ private struct StatusPulseHUDView: View {
         StatusPulseHUDTitleResolver.listeningTitle(for: lane)
     }
 
+    private var completionTitle: String {
+        StatusPulseHUDMessageResolver.completionTitle(for: message)
+    }
+
+    private var cancelledTitle: String {
+        StatusPulseHUDMessageResolver.cancelledTitle(for: message)
+    }
+
+    private var errorTitle: String {
+        StatusPulseHUDMessageResolver.errorTitle(for: message)
+    }
+
+    private var feedbackText: String {
+        StatusPulseHUDMessageResolver.feedbackMessage(for: message)
+    }
+
     private var cancelledCapsule: some View {
-        statusSplitCapsule(title: "已取消") {
+        statusSplitCapsule(title: cancelledTitle) {
             Circle()
                 .stroke(Color.primary.opacity(0.42), lineWidth: s(0.8))
                 .frame(width: s(11), height: s(11))
@@ -504,7 +643,7 @@ private struct StatusPulseHUDView: View {
     }
 
     private var errorCapsule: some View {
-        statusSplitCapsule(title: "未完成") {
+        statusSplitCapsule(title: errorTitle) {
             Circle()
                 .stroke(Color(red: 0.56, green: 0.26, blue: 0.26).opacity(0.66), lineWidth: s(0.9))
                 .frame(width: s(11), height: s(11))
@@ -572,7 +711,7 @@ private struct StatusPulseHUDView: View {
             Image(systemName: phase.menuBarSymbol)
                 .font(.system(size: s(9.5), weight: .semibold))
                 .foregroundStyle(phaseAccentColor)
-            Text(message)
+            Text(feedbackText)
                 .font(.system(size: s(10.2), weight: .medium))
                 .foregroundStyle(Color.primary.opacity(0.80))
                 .lineLimit(1)

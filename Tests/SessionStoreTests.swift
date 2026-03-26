@@ -184,6 +184,41 @@ final class SessionStoreTests: XCTestCase {
     }
 }
 
+final class MemoryToolbarLayoutModeTests: XCTestCase {
+    func testResolvePrefersSingleRowWhenWidthIsEnough() {
+        let mode = MemoryToolbarLayoutMode.resolve(
+            availableWidth: 720,
+            filterBarWidth: 520,
+            clearButtonWidth: 92,
+            spacing: 12
+        )
+
+        XCTAssertEqual(mode, .singleRow)
+    }
+
+    func testResolveFallsBackToStackedWhenWidthIsTight() {
+        let mode = MemoryToolbarLayoutMode.resolve(
+            availableWidth: 620,
+            filterBarWidth: 520,
+            clearButtonWidth: 92,
+            spacing: 12
+        )
+
+        XCTAssertEqual(mode, .stacked)
+    }
+
+    func testResolveUsesSingleRowBeforeMeasurementsArrive() {
+        let mode = MemoryToolbarLayoutMode.resolve(
+            availableWidth: 0,
+            filterBarWidth: 0,
+            clearButtonWidth: 0,
+            spacing: 12
+        )
+
+        XCTAssertEqual(mode, .singleRow)
+    }
+}
+
 @MainActor
 final class TextOutputCoordinatorTests: XCTestCase {
     func testEditableTargetUsesDirectInsertionPath() async throws {
