@@ -4,12 +4,12 @@ import Foundation
 enum DesktopSection: String, CaseIterable, Identifiable {
     case home
     case memory
-    case magician
-    case skills
     case dictionary
+    case skills
     case model
-    case settings
+    case magician
     case agentBrainstorm
+    case settings
 
     var id: String { rawValue }
 
@@ -19,16 +19,16 @@ enum DesktopSection: String, CaseIterable, Identifiable {
             return "首页"
         case .memory:
             return "记忆"
-        case .magician:
-            return "魔法师"
-        case .skills:
-            return "Skill"
-        case .agentBrainstorm:
-            return "Agent-头脑风暴（Beta）"
         case .dictionary:
             return "词典"
+        case .skills:
+            return "Skill"
         case .model:
             return "模型"
+        case .magician:
+            return "魔法师"
+        case .agentBrainstorm:
+            return "头脑风暴（Beta）"
         case .settings:
             return "设置"
         }
@@ -40,16 +40,16 @@ enum DesktopSection: String, CaseIterable, Identifiable {
             return "house"
         case .memory:
             return "clock.arrow.circlepath"
-        case .magician:
-            return "wand.and.stars"
-        case .skills:
-            return "slider.horizontal.3"
-        case .agentBrainstorm:
-            return "person.2.wave.2"
         case .dictionary:
             return "text.book.closed"
+        case .skills:
+            return "slider.horizontal.3"
         case .model:
             return "cpu"
+        case .magician:
+            return "wand.and.stars"
+        case .agentBrainstorm:
+            return "person.2.wave.2"
         case .settings:
             return "gearshape"
         }

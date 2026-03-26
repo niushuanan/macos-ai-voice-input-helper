@@ -30,7 +30,7 @@ enum LocalHistoryFilter: String, CaseIterable, Identifiable {
         case .selectionRewrite:
             return "选区改写"
         case .brainstorm:
-            return "Agent-头脑风暴（Beta）"
+            return "头脑风暴（Beta）"
         case .failed:
             return "失败"
         }

@@ -12,7 +12,7 @@ enum InputLane: String {
         case .selectionRewrite:
             return "选区改写"
         case .brainstormDiscussion:
-            return "Agent-头脑风暴（Beta）"
+            return "头脑风暴（Beta）"
         }
     }
 

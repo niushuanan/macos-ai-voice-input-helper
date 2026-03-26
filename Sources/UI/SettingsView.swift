@@ -728,7 +728,7 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 pageHeader(
-                    title: "Agent-头脑风暴（Beta）",
+                    title: "头脑风暴（Beta）",
                     subtitle: "用于短时讨论记录，自动整理为可直接给 AI 分析的上下文。"
                 )
 

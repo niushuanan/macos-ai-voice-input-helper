@@ -9,6 +9,13 @@ final class ControlCenterStateTests: XCTestCase {
         XCTAssertEqual(DesktopSection.magician.symbolName, "wand.and.stars")
     }
 
+    func testDesktopSectionOrderMatchesSidebarDesign() {
+        XCTAssertEqual(
+            DesktopSection.allCases,
+            [.home, .memory, .dictionary, .skills, .model, .magician, .agentBrainstorm, .settings]
+        )
+    }
+
     func testHomeStatsSnapshotTracksLifetimeStatistics() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("control-center-state-\(UUID().uuidString)", isDirectory: true)
