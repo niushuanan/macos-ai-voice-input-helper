@@ -3,30 +3,22 @@ import XCTest
 
 @MainActor
 final class MagicianIntentRouterTests: XCTestCase {
-    func testHeuristicRouterDetectsWebSearch() async throws {
+    func testHeuristicRouterRejectsRemovedSearchIntent() async {
         let router = HeuristicMagicianIntentRouter()
 
-        let intent = try await router.route(
-            command: "帮我搜索一下",
-            selection: "OpenAI o3",
-            enabledFeatures: [.webSearch]
-        )
-
-        XCTAssertEqual(intent.intent, .webSearch)
-        XCTAssertEqual(intent.params.query, "OpenAI o3")
-    }
-
-    func testHeuristicRouterParsesWebSearchWithoutSelection() async throws {
-        let router = HeuristicMagicianIntentRouter()
-
-        let intent = try await router.route(
-            command: "帮我搜索 OpenAI 最新发布",
-            selection: nil,
-            enabledFeatures: [.webSearch]
-        )
-
-        XCTAssertEqual(intent.intent, .webSearch)
-        XCTAssertEqual(intent.params.query, "OpenAI 最新发布")
+        do {
+            _ = try await router.route(
+                command: "帮我搜索一下",
+                selection: "OpenAI o3",
+                enabledFeatures: [.createNote]
+            )
+            XCTFail("Expected removed feature error")
+        } catch let error as MagicianError {
+            XCTAssertEqual(error.code, .intentParseFailed)
+            XCTAssertTrue(error.userMessage.contains("快速搜索已下线"))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
 
     func testHeuristicRouterRejectsTextTransformWhenSelectionMissing() async {
@@ -56,7 +48,7 @@ final class MagicianIntentRouterTests: XCTestCase {
         )
 
         XCTAssertThrowsError(
-            try validator.validate(intent, enabledFeatures: [.webSearch])
+            try validator.validate(intent, enabledFeatures: [.createNote])
         ) { error in
             let magicianError = error as? MagicianError
             XCTAssertEqual(magicianError?.code, .intentParseFailed)
@@ -86,14 +78,50 @@ final class MagicianIntentRouterTests: XCTestCase {
 
         do {
             _ = try await router.route(
-                command: "帮我搜索一下",
+                command: "记到备忘录",
                 selection: "OpenAI",
-                enabledFeatures: [.webSearch]
+                enabledFeatures: [.createNote]
             )
             XCTFail("Expected intentParseFailed error")
         } catch let error as MagicianError {
             XCTAssertEqual(error.code, .intentParseFailed)
             XCTAssertTrue(error.userMessage.contains("文本模型"))
+            XCTAssertEqual(generationProvider.callCount, 0)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testLLMRouterRejectsRemovedSearchIntentBeforeCallingModel() async {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-test"])
+        )
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputText: """
+            {"intent":"create_note","confidence":0.8,"sourceText":"x","params":{"noteBody":"x"}}
+            """
+        )
+
+        let router = LLMMagicianIntentRouter(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider
+        )
+
+        do {
+            _ = try await router.route(
+                command: "帮我搜索一下",
+                selection: "OpenAI 最新发布",
+                enabledFeatures: [.createNote]
+            )
+            XCTFail("Expected removed feature error")
+        } catch let error as MagicianError {
+            XCTAssertEqual(error.code, .intentParseFailed)
+            XCTAssertTrue(error.userMessage.contains("快速搜索已下线"))
             XCTAssertEqual(generationProvider.callCount, 0)
         } catch {
             XCTFail("Unexpected error: \(error)")
@@ -232,37 +260,6 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertEqual(intent.params.title, String(selectionText.prefix(60)))
     }
 
-    func testLLMRouterUsesSelectionForWebSearchWhenSelectionExists() async throws {
-        let defaults = makeDefaults()
-        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
-
-        let providerStore = ProviderSettingsStore(
-            defaults: defaults,
-            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-test"])
-        )
-
-        let generationProvider = TrackingTextGenerationProvider(
-            outputText: """
-            {"intent":"web_search","confidence":0.88,"sourceText":"帮我搜索一下","params":{"query":"帮我搜索一下"}}
-            """
-        )
-
-        let router = LLMMagicianIntentRouter(
-            providerSettingsStore: providerStore,
-            generationProvider: generationProvider
-        )
-
-        let intent = try await router.route(
-            command: "帮我搜索一下",
-            selection: "OpenAI o3 mini release notes",
-            enabledFeatures: [.webSearch]
-        )
-
-        XCTAssertEqual(intent.intent, .webSearch)
-        XCTAssertEqual(intent.sourceText, "OpenAI o3 mini release notes")
-        XCTAssertEqual(intent.params.query, "OpenAI o3 mini release notes")
-    }
-
     func testLLMRouterUsesSelectionForMailBodyAndKeepsRecipientsFromCommand() async throws {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
@@ -335,9 +332,9 @@ final class MagicianIntentRouterTests: XCTestCase {
 
         do {
             _ = try await router.route(
-                command: "帮我搜索一下",
+                command: "记到备忘录",
                 selection: "OpenAI o3",
-                enabledFeatures: [.webSearch]
+                enabledFeatures: [.createNote]
             )
             XCTFail("Expected intentParseFailed error")
         } catch let error as MagicianError {

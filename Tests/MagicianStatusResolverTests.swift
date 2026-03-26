@@ -27,9 +27,9 @@ final class MagicianStatusResolverTests: XCTestCase {
         XCTAssertNil(resolution.prompt)
     }
 
-    func testWebSearchNotEnabledWhenToggleOff() {
+    func testCreateEventNotEnabledWhenToggleOff() {
         let resolution = resolver.resolve(
-            feature: .webSearch,
+            feature: .createEvent,
             isEnabled: false,
             dependencies: dependencies()
         )

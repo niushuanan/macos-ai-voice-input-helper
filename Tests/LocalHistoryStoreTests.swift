@@ -276,6 +276,38 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertEqual(store.entries.count, 1)
     }
 
+    func testLegacyWebSearchHistoryFeatureIDDoesNotBreakLoading() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("history-web-search-compat-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let payload = """
+        [
+          {
+            "id": "\(UUID().uuidString)",
+            "timestamp": "2026-03-26T12:00:00Z",
+            "mode": "selectionRewrite",
+            "appName": "WeChat",
+            "bundleID": "com.tencent.xinWeChat",
+            "inputText": "旧搜索原文",
+            "outputText": "https://www.google.com/search?q=OpenAI",
+            "instructionText": "帮我搜索一下",
+            "magicianFeatureID": "web_search",
+            "status": "success",
+            "appliedSkills": []
+          }
+        ]
+        """
+        let fileURL = directory.appendingPathComponent("session-history-v1.json", isDirectory: false)
+        try XCTUnwrap(payload.data(using: .utf8)).write(to: fileURL, options: .atomic)
+
+        let store = LocalHistoryStore(historyDirectory: directory)
+        XCTAssertEqual(store.entries.count, 1)
+        XCTAssertNil(store.entries.first?.magicianFeatureID)
+        XCTAssertEqual(store.entries.first?.instructionText, "帮我搜索一下")
+    }
+
     func testClearAllDoesNotChangeLifetimeStatistics() throws {
         let (store, directory) = makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }

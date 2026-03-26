@@ -12,7 +12,6 @@ struct MagicianIntentParams: Codable, Equatable {
     var mode: MagicianTransformMode?
     var targetLanguage: String?
     var tone: String?
-    var query: String?
     var title: String?
     var startAt: String?
     var endAt: String?

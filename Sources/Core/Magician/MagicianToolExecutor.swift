@@ -12,7 +12,6 @@ protocol MagicianToolExecuting {
 
 @MainActor
 final class MagicianToolExecutor: MagicianToolExecuting {
-    private let webSearchAdapter = MagicianWebSearchAdapter()
     private let eventAdapter = MagicianEventAdapter()
     private let noteAdapter = MagicianNoteAdapter()
     private let mailAdapter = MagicianMailDraftAdapter()
@@ -29,8 +28,6 @@ final class MagicianToolExecutor: MagicianToolExecuting {
                 debugMessage: "textTransform routed to MagicianToolExecutor",
                 recoverAction: "check_router_logic"
             )
-        case .webSearch:
-            return try webSearchAdapter.execute(intent: intent, context: context)
         case .createEvent:
             return try await eventAdapter.execute(intent: intent, context: context)
         case .createNote:
@@ -142,79 +139,6 @@ private func isLikelyInstructionPhrase(
         reduced = reduced.replacingOccurrences(of: compactToken, with: "")
     }
     return reduced.isEmpty || reduced.count <= 2
-}
-
-private struct MagicianWebSearchAdapter {
-    func execute(
-        intent: MagicianIntent,
-        context: MagicianExecutionContext
-    ) throws -> MagicianExecutionResult {
-        let query = resolvedQuery(intent: intent, context: context)
-        guard !query.isEmpty else {
-            throw MagicianError(
-                code: .selectionEmpty,
-                userMessage: "搜索内容为空，请补一句要搜什么再试。",
-                debugMessage: "web search query empty",
-                recoverAction: "retry_command"
-            )
-        }
-
-        guard
-            let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-            let url = URL(string: "https://www.google.com/search?q=\(encoded)")
-        else {
-            throw MagicianError(
-                code: .browserUnavailable,
-                userMessage: "搜索链接生成失败，请换个指令再试。",
-                debugMessage: "failed to build google URL",
-                recoverAction: "retry_command"
-            )
-        }
-
-        let usedFallback: Bool
-        if let chromeURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
-            NSWorkspace.shared.open(
-                [url],
-                withApplicationAt: chromeURL,
-                configuration: NSWorkspace.OpenConfiguration()
-            ) { _, _ in }
-            usedFallback = false
-        } else {
-            let opened = NSWorkspace.shared.open(url)
-            guard opened else {
-                throw MagicianError(
-                    code: .browserUnavailable,
-                    userMessage: "无法打开浏览器，请检查系统默认浏览器设置。",
-                    debugMessage: "NSWorkspace open url failed",
-                    recoverAction: "check_browser"
-                )
-            }
-            usedFallback = true
-        }
-
-        return MagicianExecutionResult(
-            intent: .webSearch,
-            userMessage: usedFallback ? "已用默认浏览器打开搜索结果。" : "已用 Chrome 打开搜索结果。",
-            outputText: url.absoluteString,
-            historyDisplayText: "已打开搜索：\(query)",
-            fallbackUsed: usedFallback
-        )
-    }
-
-    private func resolvedQuery(
-        intent: MagicianIntent,
-        context: MagicianExecutionContext
-    ) -> String {
-        let query = intent.params.query?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !query.isEmpty {
-            return query
-        }
-        let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !source.isEmpty {
-            return source
-        }
-        return context.command.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 }
 
 private struct MagicianEventAdapter {

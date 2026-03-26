@@ -9,6 +9,22 @@ protocol MagicianIntentRouting {
     ) async throws -> MagicianIntent
 }
 
+private func containsUnsupportedSearchIntent(_ command: String) -> Bool {
+    let lowered = command.lowercased()
+    return ["搜索", "搜一下", "搜一搜", "查一下", "查一查", "google", "search"].contains {
+        lowered.contains($0)
+    }
+}
+
+private func unsupportedSearchIntentError() -> MagicianError {
+    MagicianError(
+        code: .intentParseFailed,
+        userMessage: "快速搜索已下线，请改用别的魔术先生能力。",
+        debugMessage: "web_search removed from magician",
+        recoverAction: nil
+    )
+}
+
 struct MagicianIntentSchemaValidator {
     func validate(
         _ intent: MagicianIntent,
@@ -38,7 +54,6 @@ struct MagicianIntentSchemaValidator {
         var params = intent.params
         params.targetLanguage = normalized(params.targetLanguage)
         params.tone = normalized(params.tone)
-        params.query = normalized(params.query)
         params.title = normalized(params.title)
         params.startAt = normalizeISO8601String(params.startAt)
         params.endAt = normalizeISO8601String(params.endAt)
@@ -65,16 +80,6 @@ struct MagicianIntentSchemaValidator {
                     debugMessage: "text_transform sourceText empty",
                     recoverAction: "select_text_first"
                 )
-            }
-        case .webSearch:
-            if hasSelection {
-                sourceText = normalizedSelection
-                params.query = normalizedSelection
-                break
-            }
-            if (params.query ?? "").isEmpty {
-                let fallback = sourceText.isEmpty ? normalizedCommand : sourceText
-                params.query = fallback.isEmpty ? nil : fallback
             }
         case .createEvent:
             if hasSelection {
@@ -289,11 +294,13 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
             )
         }
 
+        if containsUnsupportedSearchIntent(normalizedCommand) {
+            throw unsupportedSearchIntentError()
+        }
+
         let lowered = normalizedCommand.lowercased()
         let candidate: MagicianFeatureID
-        if containsAny(lowered, keywords: ["搜索", "查一下", "查一查", "google", "search"]) {
-            candidate = .webSearch
-        } else if containsAny(lowered, keywords: ["日程", "会议", "calendar", "约", "安排", "提醒"]) {
+        if containsAny(lowered, keywords: ["日程", "会议", "calendar", "约", "安排", "提醒"]) {
             candidate = .createEvent
         } else if containsAny(lowered, keywords: ["备忘录", "note", "记下来", "记到", "记一下", "记一条", "记录一下", "写进备忘录"]) {
             candidate = .createNote
@@ -309,11 +316,6 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
         case .textTransform:
             params.mode = resolveTransformMode(from: lowered)
             params.targetLanguage = detectTargetLanguage(from: lowered)
-        case .webSearch:
-            params.query = resolvedWebQuery(
-                command: normalizedCommand,
-                selection: normalizedSelection
-            )
         case .createEvent:
             params.title = resolvedEventTitle(
                 command: normalizedCommand,
@@ -425,17 +427,6 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
             return String(text[matchRange])
         }
         return emails.isEmpty ? nil : emails
-    }
-
-    private func resolvedWebQuery(command: String, selection: String) -> String {
-        if !selection.isEmpty {
-            return selection
-        }
-        let reduced = compacted(
-            command,
-            removing: ["帮我", "请", "一下", "搜索", "查一下", "查一查", "google", "search"]
-        )
-        return reduced.isEmpty ? command : reduced
     }
 
     private func resolvedEventTitle(command: String, selection: String) -> String {
@@ -566,6 +557,10 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
             )
         }
 
+        if containsUnsupportedSearchIntent(normalizedCommand) {
+            throw unsupportedSearchIntentError()
+        }
+
         if !providerSettingsStore.isRewriteConfigurationValid {
             let message = providerSettingsStore.rewriteConfigurationValidationMessage
                 ?? "文本模型配置无效。"
@@ -681,14 +676,13 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
 
         Output JSON schema:
         {
-          "intent": "text_transform | web_search | create_event | create_note | compose_email_draft",
+          "intent": "text_transform | create_event | create_note | compose_email_draft",
           "confidence": 0.0,
           "sourceText": "string",
           "params": {
             "mode": "translate | polish | expand | shorten | fix",
             "targetLanguage": "string",
             "tone": "string",
-            "query": "string",
             "title": "string",
             "startAt": "ISO8601",
             "endAt": "ISO8601",
@@ -707,15 +701,14 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         4) Treat spoken command as action intent only. Treat selected text as the primary content payload.
         5) If intent is text_transform, sourceText must be the selected text and cannot be empty.
         6) For other intents, sourceText can be empty when there is no selected text.
-        7) When selected text is non-empty, treat it as the primary content source for create_note / create_event / compose_email_draft / web_search.
+        7) When selected text is non-empty, treat it as the primary content source for create_note / create_event / compose_email_draft.
         8) Never place generic command phrases into content fields. Examples of forbidden literal content:
            - "帮我写进备忘录"
            - "帮我建立日程"
-           - "帮我搜索一下"
            - "整理成邮件草稿"
         9) For create_event, extract title/time/location from selected text first, then command.
         10) Do not invent startAt. If there is no explicit date/time, leave startAt empty.
-        11) For create_note / compose_email_draft / web_search with selected text, noteBody / mailBody / query should usually come from the selected text, not the spoken command.
+        11) For create_note / compose_email_draft with selected text, noteBody / mailBody should usually come from the selected text, not the spoken command.
         """
     }
 
@@ -742,18 +735,6 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         case .textTransform:
             if hasSelection {
                 sourceText = selection
-            }
-
-        case .webSearch:
-            if hasSelection {
-                sourceText = selection
-                if shouldUseSelectionAsContent(
-                    candidate: params.query,
-                    command: command,
-                    actionTokens: ["搜索", "查一下", "查一查", "google", "search"]
-                ) {
-                    params.query = selection
-                }
             }
 
         case .createEvent:

@@ -80,6 +80,7 @@ struct SettingsView: View {
                 Label(section.title, systemImage: section.symbolName)
                     .tag(section)
             }
+            .navigationSplitViewColumnWidth(min: 188, ideal: 204, max: 220)
             .navigationTitle("PulseType")
         } detail: {
             ZStack {
@@ -211,17 +212,7 @@ struct SettingsView: View {
                     subtitle: "这里会保存每次会话的本地记录，你可以筛选、复制或删除。"
                 )
 
-                HStack {
-                    memoryFilterBar
-
-                    Spacer()
-
-                    Button("清空记录", role: .destructive) {
-                        showClearMemoryConfirmation = true
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(localHistoryStore.entries.isEmpty)
-                }
+                memoryToolbar
 
                 if filteredHistoryEntries.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
@@ -278,7 +269,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 pageHeader(
                     title: "魔术先生",
-                    subtitle: "选中文字，下指令，立刻执行。"
+                    subtitle: "选中文字，开口一句，立马搞定。哎呦不错哦～"
                 )
 
                 magicianTriggerGuideCard
@@ -306,7 +297,7 @@ struct SettingsView: View {
             Text("文字处理必须先选中内容；其余能力可直接说命令，无选中也能执行。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("示例：先选中一段文本后长按主键说“翻成日语”；或直接长按说“搜索 OpenAI 最新发布”。")
+            Text("示例：先选中一段文本后长按主键说“翻成日语”；或选中一段活动通知后说“帮我建立日程”。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -357,19 +348,6 @@ struct SettingsView: View {
             Text("示例：\(descriptor.example)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-
-            HStack(spacing: 8) {
-                Text(resolution.status.labelText)
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(magicianStatusColor(resolution.status).opacity(0.14))
-                    )
-                    .foregroundStyle(magicianStatusColor(resolution.status))
-                Spacer()
-            }
 
             if let reason = resolution.reason {
                 Text(reason)
@@ -749,7 +727,7 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 pageHeader(
-                    title: "头脑风暴（Beta）",
+                    title: "一口气全念对",
                     subtitle: "用于短时讨论记录，自动整理为可直接给 AI 分析的上下文。"
                 )
 
@@ -961,10 +939,10 @@ struct SettingsView: View {
                 Text("主键长按（≥180ms）：进入魔术先生，按住说话，松开执行。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("脑暴键双击（≤350ms）：进入头脑风暴。")
+                Text("一口气全念对键双击（≤350ms）：进入一口气全念对。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("当主键与脑暴键相同：双击优先脑暴，长按优先魔术先生，单击普通语音。")
+                Text("当主键与一口气全念对键相同：双击优先一口气全念对，长按优先魔术先生，单击普通语音。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1452,17 +1430,6 @@ struct SettingsView: View {
         NSWorkspace.shared.open(fallbackURL)
     }
 
-    private func magicianStatusColor(_ status: MagicianFeatureStatus) -> Color {
-        switch status {
-        case .notEnabled:
-            return .secondary
-        case .needsPermission:
-            return .orange
-        case .enabled:
-            return .green
-        }
-    }
-
     private func baseURLPlaceholder(for type: ProviderType) -> String {
         if type == .localSenseVoice {
             return "本地模式无需接口地址"
@@ -1571,7 +1538,33 @@ struct SettingsView: View {
         .pickerStyle(.segmented)
         .controlSize(.regular)
         .labelsHidden()
-        .frame(width: 800, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var clearMemoryButton: some View {
+        Button("清空记录", role: .destructive) {
+            showClearMemoryConfirmation = true
+        }
+        .buttonStyle(.bordered)
+        .disabled(localHistoryStore.entries.isEmpty)
+    }
+
+    private var memoryToolbar: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                memoryFilterBar
+                Spacer(minLength: 12)
+                clearMemoryButton
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                memoryFilterBar
+                HStack {
+                    Spacer()
+                    clearMemoryButton
+                }
+            }
+        }
     }
 
     private var sortedScenePolicies: [AppScenePolicy] {
@@ -2033,7 +2026,7 @@ struct SettingsView: View {
             }
             let updated = hotkeyStateStore.setModifier(modifier, for: .wakeSession)
             guard updated else {
-                showToast("主键不能与头脑风暴单击修饰键相同，请先调整脑暴触发键。")
+                showToast("主键不能与一口气全念对单击修饰键相同，请先调整一口气全念对触发键。")
                 return nil
             }
             showToast("主键已改为单键触发 · \(modifier.displayName)。")
@@ -2110,12 +2103,12 @@ struct SettingsView: View {
                 return nil
             }
             hotkeyStateStore.setBrainstormModifier(pendingBrainstormModifier)
-            showToast("头脑风暴修饰键已更新。")
+            showToast("一口气全念对修饰键已更新。")
             stopBrainstormCapture()
             return nil
         case 53:
             stopBrainstormCapture()
-            showToast("已取消头脑风暴修饰键修改。")
+            showToast("已取消一口气全念对修饰键修改。")
             return nil
         default:
             if pendingBrainstormModifier == nil {

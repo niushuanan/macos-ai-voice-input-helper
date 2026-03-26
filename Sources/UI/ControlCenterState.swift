@@ -28,7 +28,7 @@ enum DesktopSection: String, CaseIterable, Identifiable {
         case .magician:
             return "魔术先生"
         case .agentBrainstorm:
-            return "头脑风暴（Beta）"
+            return "一口气全念对"
         case .settings:
             return "设置"
         }

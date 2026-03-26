@@ -72,9 +72,6 @@ struct MagicianStatusResolver {
                 )
             }
 
-        case .webSearch:
-            return .ready
-
         case .createEvent:
             let eventStatus = dependencies.eventAuthorizationStatus
             if hasEventAccess(eventStatus) {

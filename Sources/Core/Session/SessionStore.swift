@@ -43,7 +43,7 @@ final class SessionStore: ObservableObject {
     func startBrainstorm() {
         clearRuntimeArtifactsForNewSession()
         activeLane = .brainstormDiscussion
-        transition(to: .listening, statusMessage: "正在记录头脑风暴讨论。")
+        transition(to: .listening, statusMessage: "正在记录一口气全念对内容。")
     }
 
     func markTranscribing(audioSummary: String? = nil) {

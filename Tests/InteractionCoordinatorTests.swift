@@ -371,19 +371,18 @@ final class InteractionCoordinatorTests: XCTestCase {
         )
         let router = FakeMagicianIntentRouter(
             intent: MagicianIntent(
-                intent: .webSearch,
+                intent: .createNote,
                 confidence: 0.95,
                 sourceText: "OpenAI o3 mini",
                 params: MagicianIntentParams(
                     mode: nil,
                     targetLanguage: nil,
                     tone: nil,
-                    query: "OpenAI o3 mini",
                     title: nil,
                     startAt: nil,
                     endAt: nil,
                     location: nil,
-                    noteBody: nil,
+                    noteBody: "OpenAI o3 mini",
                     mailTo: nil,
                     mailSubject: nil,
                     mailBody: nil
@@ -393,9 +392,9 @@ final class InteractionCoordinatorTests: XCTestCase {
         let toolExecutor = FakeMagicianToolExecutor()
         toolExecutor.result = .success(
             MagicianExecutionResult(
-                intent: .webSearch,
-                userMessage: "已打开搜索结果页。",
-                outputText: "https://www.google.com/search?q=OpenAI+o3+mini",
+                intent: .createNote,
+                userMessage: "已写入备忘录。",
+                outputText: "OpenAI o3 mini",
                 fallbackUsed: false
             )
         )
@@ -404,23 +403,23 @@ final class InteractionCoordinatorTests: XCTestCase {
             textOutputCoordinator: textOutputCoordinator,
             magicianIntentRouter: router,
             magicianToolExecutor: toolExecutor,
-            transcriptionText: "帮我搜一下"
+            transcriptionText: "帮我写进备忘录"
         )
         defer { fixture.cleanUp() }
 
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .webSearch)
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createNote)
 
         fixture.coordinator.handleWakeInput(context: .magicianHold)
         fixture.coordinator.handleStopInput()
         await waitForPipeline(using: fixture.sessionStore)
 
         XCTAssertEqual(fixture.sessionStore.phase, .idle)
-        XCTAssertEqual(fixture.sessionStore.statusMessage, "已打开搜索结果页。")
+        XCTAssertEqual(fixture.sessionStore.statusMessage, "已写入备忘录。")
         XCTAssertEqual(toolExecutor.callCount, 1)
-        XCTAssertEqual(toolExecutor.lastIntent?.intent, .webSearch)
+        XCTAssertEqual(toolExecutor.lastIntent?.intent, .createNote)
         XCTAssertEqual(toolExecutor.lastExecutionContext?.selection?.selectedText, "OpenAI o3 mini")
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
-        XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "https://www.google.com/search?q=OpenAI+o3+mini")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "OpenAI o3 mini")
     }
 
     func testMagicianToolIntentAllowsNoSelection() async throws {
@@ -429,19 +428,18 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         let router = FakeMagicianIntentRouter(
             intent: MagicianIntent(
-                intent: .webSearch,
+                intent: .createNote,
                 confidence: 0.81,
                 sourceText: "",
                 params: MagicianIntentParams(
                     mode: nil,
                     targetLanguage: nil,
                     tone: nil,
-                    query: "OpenAI 发布会",
                     title: nil,
                     startAt: nil,
                     endAt: nil,
                     location: nil,
-                    noteBody: nil,
+                    noteBody: "周五和产品开会",
                     mailTo: nil,
                     mailSubject: nil,
                     mailBody: nil
@@ -451,9 +449,9 @@ final class InteractionCoordinatorTests: XCTestCase {
         let toolExecutor = FakeMagicianToolExecutor()
         toolExecutor.result = .success(
             MagicianExecutionResult(
-                intent: .webSearch,
-                userMessage: "已打开搜索结果页。",
-                outputText: "https://www.google.com/search?q=OpenAI+发布会",
+                intent: .createNote,
+                userMessage: "已写入备忘录。",
+                outputText: "周五和产品开会",
                 fallbackUsed: false
             )
         )
@@ -462,11 +460,11 @@ final class InteractionCoordinatorTests: XCTestCase {
             textOutputCoordinator: textOutputCoordinator,
             magicianIntentRouter: router,
             magicianToolExecutor: toolExecutor,
-            transcriptionText: "帮我搜索 OpenAI 发布会"
+            transcriptionText: "记一下周五和产品开会"
         )
         defer { fixture.cleanUp() }
 
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .webSearch)
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createNote)
 
         fixture.coordinator.handleWakeInput(context: .magicianHold)
         fixture.coordinator.handleStopInput()
@@ -477,7 +475,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertNil(toolExecutor.lastExecutionContext?.selection)
         XCTAssertEqual(
             toolExecutor.lastExecutionContext?.command,
-            "帮我搜索 OpenAI 发布会"
+            "记一下周五和产品开会"
         )
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
     }
@@ -485,19 +483,18 @@ final class InteractionCoordinatorTests: XCTestCase {
     func testMagicianASRRequestSkipsDictionaryInjection() async throws {
         let router = FakeMagicianIntentRouter(
             intent: MagicianIntent(
-                intent: .webSearch,
+                intent: .createNote,
                 confidence: 0.93,
                 sourceText: "",
                 params: MagicianIntentParams(
                     mode: nil,
                     targetLanguage: nil,
                     tone: nil,
-                    query: "OpenAI o3",
                     title: nil,
                     startAt: nil,
                     endAt: nil,
                     location: nil,
-                    noteBody: nil,
+                    noteBody: "OpenAI o3",
                     mailTo: nil,
                     mailSubject: nil,
                     mailBody: nil
@@ -507,10 +504,10 @@ final class InteractionCoordinatorTests: XCTestCase {
         let toolExecutor = FakeMagicianToolExecutor()
         toolExecutor.result = .success(
             MagicianExecutionResult(
-                intent: .webSearch,
-                userMessage: "已打开搜索结果页。",
-                outputText: "https://www.google.com/search?q=OpenAI+o3",
-                historyDisplayText: "已打开搜索：OpenAI o3",
+                intent: .createNote,
+                userMessage: "已写入备忘录。",
+                outputText: "OpenAI o3",
+                historyDisplayText: "已写入备忘录：OpenAI o3",
                 fallbackUsed: false
             )
         )
@@ -518,12 +515,12 @@ final class InteractionCoordinatorTests: XCTestCase {
         let fixture = try makeFixture(
             magicianIntentRouter: router,
             magicianToolExecutor: toolExecutor,
-            transcriptionText: "帮我搜索一下"
+            transcriptionText: "帮我记到备忘录"
         )
         defer { fixture.cleanUp() }
 
         fixture.dictionaryStore.save(rawText: "OpenAI\n词典热词")
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .webSearch)
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createNote)
 
         fixture.coordinator.handleWakeInput(context: .magicianHold)
         fixture.coordinator.handleStopInput()
@@ -533,6 +530,28 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.transcriptionProvider.lastRequest?.dictionaryTerms, [])
         XCTAssertEqual(fixture.transcriptionProvider.lastRequest?.dictionaryPromptHint, nil)
         XCTAssertEqual(fixture.transcriptionProvider.lastRequest?.dictionaryHotwordText, nil)
+    }
+
+    func testRemovedSearchCommandDoesNotRouteIntoOtherTool() async throws {
+        let toolExecutor = FakeMagicianToolExecutor()
+        let fixture = try makeFixture(
+            magicianIntentRouter: HeuristicMagicianIntentRouter(),
+            magicianToolExecutor: toolExecutor,
+            transcriptionText: "帮我搜索一下"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createNote)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .error)
+        XCTAssertEqual(toolExecutor.callCount, 0)
+        XCTAssertTrue(fixture.sessionStore.statusMessage.contains("快速搜索已下线"))
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .failed)
+        XCTAssertTrue((fixture.localHistoryStore.entries.first?.errorMessage ?? "").contains("快速搜索已下线"))
     }
 
     func testMagicianClipboardFallbackSelectionIsLockedIntoExecutionContext() async throws {
@@ -558,7 +577,6 @@ final class InteractionCoordinatorTests: XCTestCase {
                     mode: nil,
                     targetLanguage: nil,
                     tone: nil,
-                    query: nil,
                     title: "产品团队路标会",
                     startAt: "2026-04-01T14:30:00+08:00",
                     endAt: "2026-04-01T15:30:00+08:00",
@@ -622,7 +640,6 @@ final class InteractionCoordinatorTests: XCTestCase {
                     mode: .polish,
                     targetLanguage: nil,
                     tone: nil,
-                    query: nil,
                     title: nil,
                     startAt: nil,
                     endAt: nil,

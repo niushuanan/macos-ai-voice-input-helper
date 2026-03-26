@@ -97,7 +97,7 @@ final class SessionStoreTests: XCTestCase {
 
         XCTAssertEqual(store.phase, .listening)
         XCTAssertEqual(store.activeLane, .brainstormDiscussion)
-        XCTAssertTrue(store.statusMessage.contains("头脑风暴"))
+        XCTAssertTrue(store.statusMessage.contains("一口气全念对"))
     }
 
     func testClipboardOnlyInsertionUsesClipboardStatusMessage() {

@@ -34,7 +34,7 @@ struct MenuBarMenuView: View {
         Text("取消键：\(hotkeyStateStore.cancelShortcutText)")
             .font(.caption2)
             .foregroundStyle(.secondary)
-        Text("脑暴触发：\(hotkeyStateStore.brainstormShortcutText)")
+        Text("一口气全念对触发：\(hotkeyStateStore.brainstormShortcutText)")
             .font(.caption2)
             .foregroundStyle(.secondary)
 
@@ -125,8 +125,8 @@ struct MenuBarMenuView: View {
 
     private var brainstormToggleTitle: String {
         if model.sessionStore.phase == .listening, model.sessionStore.activeLane == .brainstormDiscussion {
-            return "停止并整理脑暴"
+            return "停止并整理一口气全念对"
         }
-        return "开始头脑风暴"
+        return "开始一口气全念对"
     }
 }

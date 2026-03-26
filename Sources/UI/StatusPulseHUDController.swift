@@ -147,7 +147,7 @@ enum StatusPulseHUDTitleResolver {
         case .selectionRewrite:
             return "魔术先生 · 聆听中"
         case .brainstormDiscussion:
-            return "头脑风暴"
+            return "一口气全念对"
         }
     }
 

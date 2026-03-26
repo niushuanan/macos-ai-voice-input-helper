@@ -100,7 +100,6 @@ struct MagicianCreateNoteShortcutSupport {
 
 enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
     case textTransform = "text_transform"
-    case webSearch = "web_search"
     case createEvent = "create_event"
     case createNote = "create_note"
     case composeEmailDraft = "compose_email_draft"
@@ -111,8 +110,6 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .textTransform:
             return "文字处理"
-        case .webSearch:
-            return "快速搜索"
         case .createEvent:
             return "一键建日程"
         case .createNote:
@@ -126,8 +123,6 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .textTransform:
             return "文字处理中"
-        case .webSearch:
-            return "搜索中"
         case .createEvent:
             return "建日程中"
         case .createNote:
@@ -141,8 +136,6 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .textTransform:
             return "把选中内容改成你想要的表达。"
-        case .webSearch:
-            return "把选中内容直接放进 Chrome 的 Google 搜索。"
         case .createEvent:
             return "从选中内容里识别时间和主题，直接加入日历。"
         case .createNote:
@@ -156,8 +149,6 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .textTransform:
             return "仅作用于当前选中内容。"
-        case .webSearch:
-            return "只打开结果页，不自动浏览网页。"
         case .createEvent:
             return "信息不完整时按默认规则自动推断。"
         case .createNote:
@@ -171,8 +162,6 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .textTransform:
             return "翻成日语"
-        case .webSearch:
-            return "帮我搜索一下"
         case .createEvent:
             return "周五下午和产品开评审会"
         case .createNote:
@@ -186,8 +175,6 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .textTransform:
             return "text.bubble"
-        case .webSearch:
-            return "magnifyingglass"
         case .createEvent:
             return "calendar"
         case .createNote:

@@ -34,7 +34,7 @@ final class MagicianFeatureToggleStoreTests: XCTestCase {
         )
         XCTAssertTrue(second.isEnabled(.textTransform))
         XCTAssertTrue(second.isEnabled(.createEvent))
-        XCTAssertFalse(second.isEnabled(.webSearch))
+        XCTAssertFalse(second.isEnabled(.createNote))
     }
 
     func testResetAllWritesDisabledState() {
@@ -56,6 +56,27 @@ final class MagicianFeatureToggleStoreTests: XCTestCase {
         XCTAssertFalse(second.isEnabled(.createNote))
     }
 
+    func testLegacyWebSearchKeyIsIgnoredDuringDecode() throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let payload = [
+            "web_search": true,
+            "text_transform": true
+        ]
+        let data = try JSONEncoder().encode(payload)
+        defaults.set(data, forKey: "magician.features.tests")
+
+        let store = MagicianFeatureToggleStore(
+            defaults: defaults,
+            storageKey: "magician.features.tests"
+        )
+
+        XCTAssertTrue(store.isEnabled(.textTransform))
+        XCTAssertFalse(store.isEnabled(.createEvent))
+        XCTAssertEqual(store.enabledFeatures, [.textTransform])
+    }
+
     private var defaultsSuiteName: String {
         "MagicianFeatureToggleStoreTests.\(name)"
     }
@@ -68,4 +89,3 @@ final class MagicianFeatureToggleStoreTests: XCTestCase {
         return defaults
     }
 }
-

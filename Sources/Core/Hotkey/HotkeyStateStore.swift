@@ -370,7 +370,7 @@ final class HotkeyStateStore: ObservableObject {
                 changes.append("取消键已锁定为 Esc")
             }
             if previousBrainstormShortcutText != brainstormShortcutText {
-                changes.append("头脑风暴触发已更新")
+                changes.append("一口气全念对触发已更新")
             }
             if !changes.isEmpty {
                 latestChangeMessage = changes.joined(separator: "，") + "，现在已经生效。"
@@ -405,7 +405,7 @@ final class HotkeyStateStore: ObservableObject {
         case .cancelSession:
             return cancelShortcutRegistered ? "取消键监听已生效（Esc）" : "取消键还没有生效（Esc）"
         case .brainstormSession:
-            return "头脑风暴监听已生效（双击\(brainstormModifier.displayName)）"
+            return "一口气全念对监听已生效（双击\(brainstormModifier.displayName)）"
         default:
             return "监听状态未知"
         }

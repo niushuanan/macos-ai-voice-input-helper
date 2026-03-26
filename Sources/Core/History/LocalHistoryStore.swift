@@ -30,7 +30,7 @@ enum LocalHistoryFilter: String, CaseIterable, Identifiable {
         case .selectionRewrite:
             return "魔术先生"
         case .brainstorm:
-            return "头脑风暴（Beta）"
+            return "一口气全念对"
         case .failed:
             return "失败"
         }
@@ -137,7 +137,11 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         outputText = try container.decodeIfPresent(String.self, forKey: .outputText)
         brainstormDialogueText = try container.decodeIfPresent(String.self, forKey: .brainstormDialogueText)
         instructionText = try container.decodeIfPresent(String.self, forKey: .instructionText)
-        magicianFeatureID = try container.decodeIfPresent(MagicianFeatureID.self, forKey: .magicianFeatureID)
+        if let rawFeatureID = try container.decodeIfPresent(String.self, forKey: .magicianFeatureID) {
+            magicianFeatureID = MagicianFeatureID(rawValue: rawFeatureID)
+        } else {
+            magicianFeatureID = nil
+        }
         displayText = try container.decodeIfPresent(String.self, forKey: .displayText)
         transcriptionProvider = try container.decodeIfPresent(String.self, forKey: .transcriptionProvider)
         transcriptionModel = try container.decodeIfPresent(String.self, forKey: .transcriptionModel)
