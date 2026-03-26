@@ -5,6 +5,7 @@ enum MagicianPermissionAction: Equatable {
     case requestCalendarAccess
     case openSystemSettings(urlString: String)
     case openShortcutsApp
+    case openNotesApp
     case openMailApp
 }
 
@@ -18,4 +19,3 @@ struct MagicianPermissionPromptModel: Identifiable, Equatable {
 
     var id: String { feature.rawValue }
 }
-

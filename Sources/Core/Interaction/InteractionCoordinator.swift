@@ -1931,7 +1931,8 @@ final class InteractionCoordinator {
         )
         let shouldBypassRequirement = routedIntent.intent == .createEvent
             && dependencies.eventAuthorizationStatus == .notDetermined
-        if case let .blocked(reason, _) = requirement, !shouldBypassRequirement {
+        if case let .blocked(reason, prompt) = requirement, !shouldBypassRequirement {
+            handleMagicianPermissionAction(prompt.primaryAction)
             let message = "\(routedIntent.intent.displayName)：\(reason)"
             localHistoryStore.append(
                 SessionHistoryEntry(
@@ -2477,6 +2478,52 @@ final class InteractionCoordinator {
         }
     }
 
+    private func handleMagicianPermissionAction(_ action: MagicianPermissionAction) {
+        switch action {
+        case .requestAccessibility:
+            permissionsCenter.requestAccess(for: .accessibility)
+
+        case .requestCalendarAccess:
+            break
+
+        case let .openSystemSettings(urlString):
+            guard let url = URL(string: urlString) else {
+                return
+            }
+            NSWorkspace.shared.open(url)
+
+        case .openShortcutsApp:
+            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.shortcuts") {
+                NSWorkspace.shared.openApplication(
+                    at: appURL,
+                    configuration: NSWorkspace.OpenConfiguration()
+                ) { _, _ in }
+            } else {
+                NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Shortcuts.app"))
+            }
+
+        case .openNotesApp:
+            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Notes") {
+                NSWorkspace.shared.openApplication(
+                    at: appURL,
+                    configuration: NSWorkspace.OpenConfiguration()
+                ) { _, _ in }
+            } else {
+                NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Notes.app"))
+            }
+
+        case .openMailApp:
+            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.mail") {
+                NSWorkspace.shared.openApplication(
+                    at: appURL,
+                    configuration: NSWorkspace.OpenConfiguration()
+                ) { _, _ in }
+            } else {
+                NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Mail.app"))
+            }
+        }
+    }
+
     private func mergedSkills(
         lhs: [SkillRuleID],
         rhs: [SkillRuleID]
@@ -2780,8 +2827,10 @@ final class InteractionCoordinator {
             shortcutsCLIAvailable: shortcutSupport.cliAvailable,
             createNoteShortcutName: shortcutSupport.shortcutName,
             createNoteShortcutExists: shortcutSupport.hasShortcut(),
+            notesAppAvailable: MagicianNotesCapability.notesAppAvailable,
             composeEmailAvailable: MagicianMailCapability.composeEmailServiceAvailable,
-            mailtoAvailable: MagicianMailCapability.mailtoAvailable
+            mailtoAvailable: MagicianMailCapability.mailtoAvailable,
+            mailAppAvailable: MagicianMailCapability.mailAppAvailable
         )
     }
 

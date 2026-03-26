@@ -13,6 +13,18 @@ enum MagicianMailCapability {
         }
         return NSWorkspace.shared.urlForApplication(toOpen: probeURL) != nil
     }
+
+    static var mailAppAvailable: Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.mail") != nil
+            || FileManager.default.fileExists(atPath: "/System/Applications/Mail.app")
+    }
+}
+
+enum MagicianNotesCapability {
+    static var notesAppAvailable: Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Notes") != nil
+            || FileManager.default.fileExists(atPath: "/System/Applications/Notes.app")
+    }
 }
 
 struct MagicianCreateNoteShortcutSupport {
@@ -214,6 +226,8 @@ struct MagicianDependencySnapshot: Equatable {
     let shortcutsCLIAvailable: Bool
     let createNoteShortcutName: String
     let createNoteShortcutExists: Bool
+    let notesAppAvailable: Bool
     let composeEmailAvailable: Bool
     let mailtoAvailable: Bool
+    let mailAppAvailable: Bool
 }

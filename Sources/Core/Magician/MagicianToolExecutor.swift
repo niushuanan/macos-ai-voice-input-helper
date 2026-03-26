@@ -36,9 +36,76 @@ final class MagicianToolExecutor: MagicianToolExecuting {
         case .createNote:
             return try await noteAdapter.execute(intent: intent, context: context)
         case .composeEmailDraft:
-            return try mailAdapter.execute(intent: intent, context: context)
+            return try await mailAdapter.execute(intent: intent, context: context)
         }
     }
+}
+
+private struct MagicianProcessResult {
+    let exitCode: Int32
+    let stdout: String
+    let stderr: String
+
+    var detail: String {
+        let trimmedStderr = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedStderr.isEmpty {
+            return trimmedStderr
+        }
+        let trimmedStdout = stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedStdout.isEmpty ? "unknown" : trimmedStdout
+    }
+}
+
+private func runProcess(
+    executablePath: String,
+    arguments: [String]
+) async -> MagicianProcessResult {
+    await Task.detached(priority: .userInitiated) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return MagicianProcessResult(
+                exitCode: -1,
+                stdout: "",
+                stderr: error.localizedDescription
+            )
+        }
+
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return MagicianProcessResult(
+            exitCode: process.terminationStatus,
+            stdout: stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            stderr: stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }.value
+}
+
+private func runOsaScript(
+    lines: [String],
+    arguments: [String]
+) async -> MagicianProcessResult {
+    var commandArguments: [String] = []
+    for line in lines {
+        commandArguments.append("-e")
+        commandArguments.append(line)
+    }
+    commandArguments.append("--")
+    commandArguments.append(contentsOf: arguments)
+    return await runProcess(
+        executablePath: "/usr/bin/osascript",
+        arguments: commandArguments
+    )
 }
 
 private struct MagicianWebSearchAdapter {
@@ -315,28 +382,38 @@ private struct MagicianNoteAdapter {
             )
         }
 
-        let shortcutName = shortcutSupport.shortcutName
-        if shortcutSupport.cliAvailable {
-            guard shortcutSupport.hasShortcut(named: shortcutName) else {
-                throw MagicianError(
-                    code: .shortcutNotFound,
-                    userMessage: "没找到快捷指令“\(shortcutName)”。请先在 Shortcuts 创建同名指令。",
-                    debugMessage: "shortcut '\(shortcutName)' not found in shortcut list",
-                    recoverAction: "create_note_shortcut"
+        let noteTitle = resolvedNoteTitle(intent: intent, context: context, noteBody: noteBody)
+        var notesScriptDetail: String?
+        if MagicianNotesCapability.notesAppAvailable {
+            let notesResult = await createNoteViaAppleScript(
+                title: noteTitle,
+                body: noteBody
+            )
+            if notesResult.exitCode == 0 {
+                return MagicianExecutionResult(
+                    intent: .createNote,
+                    userMessage: "已写入 Notes。",
+                    outputText: noteBody,
+                    fallbackUsed: false
                 )
             }
+            notesScriptDetail = notesResult.detail
+        }
 
+        let shortcutName = shortcutSupport.shortcutName
+        let shortcutExists = shortcutSupport.hasShortcut(named: shortcutName)
+        if shortcutSupport.cliAvailable, shortcutExists {
             let result = try await runShortcut(name: shortcutName, inputText: noteBody)
             if result.exitCode == 0 {
                 return MagicianExecutionResult(
                     intent: .createNote,
                     userMessage: "已提交到备忘录快捷指令。",
                     outputText: noteBody,
-                    fallbackUsed: false
+                    fallbackUsed: notesScriptDetail != nil
                 )
             }
 
-            let detail = result.stderr.isEmpty ? result.stdout : result.stderr
+            let detail = result.detail
             let lowered = detail.lowercased()
             if lowered.contains("not found") || lowered.contains("could not find") {
                 throw MagicianError(
@@ -356,10 +433,11 @@ private struct MagicianNoteAdapter {
                 )
             }
 
+            let notesHint = notesScriptDetail.map { "Notes 直写失败：\($0)" } ?? "Notes 直写不可用。"
             throw MagicianError(
                 code: .toolExecutionFailed,
-                userMessage: "写入备忘录失败，请稍后再试。",
-                debugMessage: detail,
+                userMessage: "写入备忘录失败，请检查 Notes 自动化权限或 Shortcuts 配置后再试。",
+                debugMessage: "\(notesHint) Shortcuts 失败：\(detail)",
                 recoverAction: "retry_later"
             )
         }
@@ -373,11 +451,15 @@ private struct MagicianNoteAdapter {
             )
         }
 
+        let noteDetail = notesScriptDetail ?? "Notes 直写未执行。"
+        let shortcutDetail = shortcutSupport.cliAvailable
+            ? "没找到快捷指令“\(shortcutName)”。"
+            : "系统里没有可用的 shortcuts 命令。"
         throw MagicianError(
-            code: .shortcutNotFound,
-            userMessage: "系统里没有可用的 shortcuts 命令，请先启用 Shortcuts。",
-            debugMessage: "shortcuts executable missing and URL scheme launch failed",
-            recoverAction: "open_shortcuts"
+            code: shortcutSupport.cliAvailable ? .shortcutNotFound : .toolExecutionFailed,
+            userMessage: "写入备忘录失败，请先打开 Notes，或在 Shortcuts 配置“\(shortcutName)”后再试。",
+            debugMessage: "\(noteDetail) \(shortcutDetail)",
+            recoverAction: shortcutSupport.cliAvailable ? "create_note_shortcut" : "open_shortcuts"
         )
     }
 
@@ -399,10 +481,34 @@ private struct MagicianNoteAdapter {
         return context.command.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private func resolvedNoteTitle(
+        intent: MagicianIntent,
+        context: MagicianExecutionContext,
+        noteBody: String
+    ) -> String {
+        if
+            let title = intent.params.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !title.isEmpty
+        {
+            return String(title.prefix(40))
+        }
+
+        let command = context.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !command.isEmpty {
+            return String(command.prefix(40))
+        }
+
+        let preview = noteBody.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !preview.isEmpty {
+            return String(preview.prefix(40))
+        }
+        return "PulseType 速记"
+    }
+
     private func runShortcut(
         name: String,
         inputText: String
-    ) async throws -> ProcessResult {
+    ) async throws -> MagicianProcessResult {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("magician-note-\(UUID().uuidString)")
             .appendingPathExtension("txt")
@@ -412,35 +518,10 @@ private struct MagicianNoteAdapter {
             try? FileManager.default.removeItem(at: tempURL)
         }
 
-        return await Task.detached(priority: .userInitiated) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: MagicianCreateNoteShortcutSupport.shortcutsExecutablePath)
-            process.arguments = ["run", name, "--input-path", tempURL.path]
-
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
-
-            do {
-                try process.run()
-                process.waitUntilExit()
-            } catch {
-                return ProcessResult(
-                    exitCode: -1,
-                    stdout: "",
-                    stderr: error.localizedDescription
-                )
-            }
-
-            let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            return ProcessResult(
-                exitCode: process.terminationStatus,
-                stdout: stdout.trimmingCharacters(in: .whitespacesAndNewlines),
-                stderr: stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        }.value
+        return await runProcess(
+            executablePath: MagicianCreateNoteShortcutSupport.shortcutsExecutablePath,
+            arguments: ["run", name, "--input-path", tempURL.path]
+        )
     }
 
     private func runShortcutViaURLScheme(
@@ -462,10 +543,29 @@ private struct MagicianNoteAdapter {
         return NSWorkspace.shared.open(url)
     }
 
-    private struct ProcessResult {
-        let exitCode: Int32
-        let stdout: String
-        let stderr: String
+    private func createNoteViaAppleScript(
+        title: String,
+        body: String
+    ) async -> MagicianProcessResult {
+        await runOsaScript(
+            lines: [
+                "on run argv",
+                "set noteTitle to item 1 of argv",
+                "set noteBody to item 2 of argv",
+                "tell application \"Notes\"",
+                "if not running then launch",
+                "activate",
+                "if (count of accounts) is 0 then error \"no notes account\"",
+                "set targetAccount to first account",
+                "if (count of folders of targetAccount) is 0 then error \"no notes folder\"",
+                "set targetFolder to first folder of targetAccount",
+                "set createdNote to make new note at targetFolder with properties {name:noteTitle, body:noteBody}",
+                "show createdNote",
+                "end tell",
+                "end run"
+            ],
+            arguments: [title, body]
+        )
     }
 }
 
@@ -473,12 +573,33 @@ private struct MagicianMailDraftAdapter {
     func execute(
         intent: MagicianIntent,
         context: MagicianExecutionContext
-    ) throws -> MagicianExecutionResult {
+    ) async throws -> MagicianExecutionResult {
         let recipients = resolvedRecipients(intent: intent)
         let subject = resolvedSubject(intent: intent, context: context)
         let body = resolvedBody(intent: intent, context: context)
+        var mailScriptDetail: String?
 
-        if let service = NSSharingService(named: .composeEmail) {
+        if MagicianMailCapability.mailAppAvailable {
+            let scriptResult = await createDraftViaAppleScript(
+                recipients: recipients,
+                subject: subject,
+                body: body
+            )
+            if scriptResult.exitCode == 0 {
+                return MagicianExecutionResult(
+                    intent: .composeEmailDraft,
+                    userMessage: "已在 Mail 打开邮件草稿。",
+                    outputText: body,
+                    fallbackUsed: false
+                )
+            }
+            mailScriptDetail = scriptResult.detail
+        }
+
+        if
+            let service = NSSharingService(named: .composeEmail),
+            service.canPerform(withItems: [body as NSString])
+        {
             service.recipients = recipients
             service.subject = subject
             service.perform(withItems: [body])
@@ -486,7 +607,7 @@ private struct MagicianMailDraftAdapter {
                 intent: .composeEmailDraft,
                 userMessage: "已打开邮件草稿窗口。",
                 outputText: body,
-                fallbackUsed: false
+                fallbackUsed: true
             )
         }
 
@@ -504,10 +625,11 @@ private struct MagicianMailDraftAdapter {
             let url = components.url,
             NSWorkspace.shared.open(url)
         else {
+            let detail = mailScriptDetail ?? "Mail AppleScript 不可用。"
             throw MagicianError(
                 code: .mailUnavailable,
                 userMessage: "当前无法打开邮件草稿，请先配置 Mail 账号。",
-                debugMessage: "composeEmail service unavailable and mailto open failed",
+                debugMessage: "\(detail) composeEmail service unavailable and mailto open failed",
                 recoverAction: "configure_mail_account"
             )
         }
@@ -565,5 +687,39 @@ private struct MagicianMailDraftAdapter {
             return context.selectedText
         }
         return context.command.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func createDraftViaAppleScript(
+        recipients: [String],
+        subject: String,
+        body: String
+    ) async -> MagicianProcessResult {
+        var arguments = [subject, body]
+        arguments.append(contentsOf: recipients)
+        return await runOsaScript(
+            lines: [
+                "on run argv",
+                "set mailSubject to item 1 of argv",
+                "set mailBody to item 2 of argv",
+                "set recipientList to {}",
+                "if (count of argv) > 2 then",
+                "repeat with idx from 3 to (count of argv)",
+                "set end of recipientList to (item idx of argv)",
+                "end repeat",
+                "end if",
+                "tell application \"Mail\"",
+                "if not running then launch",
+                "set draftMessage to make new outgoing message with properties {visible:true, subject:mailSubject, content:mailBody & return & return}",
+                "tell draftMessage",
+                "repeat with addr in recipientList",
+                "make new to recipient at end of to recipients with properties {address:(contents of addr)}",
+                "end repeat",
+                "end tell",
+                "activate",
+                "end tell",
+                "end run"
+            ],
+            arguments: arguments
+        )
     }
 }

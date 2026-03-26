@@ -51,8 +51,10 @@ struct SettingsView: View {
     @State private var magicianShortcutsAvailable = FileManager.default.isExecutableFile(atPath: "/usr/bin/shortcuts")
     @State private var magicianCreateNoteShortcutName = MagicianCreateNoteShortcutSupport().shortcutName
     @State private var magicianCreateNoteShortcutExists = MagicianCreateNoteShortcutSupport().hasShortcut()
+    @State private var magicianNotesAppAvailable = MagicianNotesCapability.notesAppAvailable
     @State private var magicianComposeEmailAvailable = MagicianMailCapability.composeEmailServiceAvailable
     @State private var magicianMailtoAvailable = MagicianMailCapability.mailtoAvailable
+    @State private var magicianMailAppAvailable = MagicianMailCapability.mailAppAvailable
 
     private let magicianStatusResolver = MagicianStatusResolver()
 
@@ -1312,8 +1314,10 @@ struct SettingsView: View {
             shortcutsCLIAvailable: magicianShortcutsAvailable,
             createNoteShortcutName: magicianCreateNoteShortcutName,
             createNoteShortcutExists: magicianCreateNoteShortcutExists,
+            notesAppAvailable: magicianNotesAppAvailable,
             composeEmailAvailable: magicianComposeEmailAvailable,
-            mailtoAvailable: magicianMailtoAvailable
+            mailtoAvailable: magicianMailtoAvailable,
+            mailAppAvailable: magicianMailAppAvailable
         )
     }
 
@@ -1323,8 +1327,10 @@ struct SettingsView: View {
         magicianShortcutsAvailable = shortcutSupport.cliAvailable
         magicianCreateNoteShortcutName = shortcutSupport.shortcutName
         magicianCreateNoteShortcutExists = shortcutSupport.hasShortcut(named: magicianCreateNoteShortcutName)
+        magicianNotesAppAvailable = MagicianNotesCapability.notesAppAvailable
         magicianComposeEmailAvailable = MagicianMailCapability.composeEmailServiceAvailable
         magicianMailtoAvailable = MagicianMailCapability.mailtoAvailable
+        magicianMailAppAvailable = MagicianMailCapability.mailAppAvailable
     }
 
     private func handleMagicianToggleChange(
@@ -1407,6 +1413,13 @@ struct SettingsView: View {
                 openApplication(
                     bundleIdentifier: "com.apple.shortcuts",
                     fallbackPath: "/System/Applications/Shortcuts.app"
+                )
+            }
+        case .openNotesApp:
+            await MainActor.run {
+                openApplication(
+                    bundleIdentifier: "com.apple.Notes",
+                    fallbackPath: "/System/Applications/Notes.app"
                 )
             }
         case .openMailApp:

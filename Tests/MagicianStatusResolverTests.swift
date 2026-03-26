@@ -53,27 +53,48 @@ final class MagicianStatusResolverTests: XCTestCase {
         let resolution = resolver.resolve(
             feature: .createNote,
             isEnabled: true,
-            dependencies: dependencies(shortcutsAvailable: false)
+            dependencies: dependencies(
+                shortcutsAvailable: false,
+                createNoteShortcutExists: false,
+                notesAppAvailable: false
+            )
         )
 
         XCTAssertEqual(resolution.status, .needsPermission)
-        XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "打开 Shortcuts")
+        XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "打开 Notes")
     }
 
-    func testCreateNoteNeedsPermissionWhenShortcutNameMissing() {
+    func testCreateNoteEnabledWhenNotesAppAvailableWithoutShortcut() {
+        let resolution = resolver.resolve(
+            feature: .createNote,
+            isEnabled: true,
+            dependencies: dependencies(
+                shortcutsAvailable: false,
+                createNoteShortcutExists: false,
+                notesAppAvailable: true
+            )
+        )
+
+        XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertNil(resolution.reason)
+        XCTAssertNil(resolution.prompt)
+    }
+
+    func testCreateNoteNeedsPermissionWhenShortcutNameMissingAndNotesUnavailable() {
         let resolution = resolver.resolve(
             feature: .createNote,
             isEnabled: true,
             dependencies: dependencies(
                 shortcutsAvailable: true,
                 createNoteShortcutName: "PulseType-写入备忘录",
-                createNoteShortcutExists: false
+                createNoteShortcutExists: false,
+                notesAppAvailable: false
             )
         )
 
         XCTAssertEqual(resolution.status, .needsPermission)
-        XCTAssertEqual(resolution.reason, "没找到快捷指令“PulseType-写入备忘录”。")
-        XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "打开 Shortcuts")
+        XCTAssertEqual(resolution.reason, "备忘录服务不可用，请先打开 Notes 或配置 Shortcut“PulseType-写入备忘录”。")
+        XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "打开 Notes")
     }
 
     func testComposeEmailNeedsPermissionWhenMailUnavailable() {
@@ -82,7 +103,8 @@ final class MagicianStatusResolverTests: XCTestCase {
             isEnabled: true,
             dependencies: dependencies(
                 composeEmailAvailable: false,
-                mailtoAvailable: false
+                mailtoAvailable: false,
+                mailAppAvailable: false
             )
         )
 
@@ -96,7 +118,23 @@ final class MagicianStatusResolverTests: XCTestCase {
             isEnabled: true,
             dependencies: dependencies(
                 composeEmailAvailable: false,
-                mailtoAvailable: true
+                mailtoAvailable: true,
+                mailAppAvailable: false
+            )
+        )
+
+        XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertNil(resolution.prompt)
+    }
+
+    func testComposeEmailReadyWhenOnlyMailAppAvailable() {
+        let resolution = resolver.resolve(
+            feature: .composeEmailDraft,
+            isEnabled: true,
+            dependencies: dependencies(
+                composeEmailAvailable: false,
+                mailtoAvailable: false,
+                mailAppAvailable: true
             )
         )
 
@@ -110,8 +148,10 @@ final class MagicianStatusResolverTests: XCTestCase {
         shortcutsAvailable: Bool = true,
         createNoteShortcutName: String = "PulseType-写入备忘录",
         createNoteShortcutExists: Bool = true,
+        notesAppAvailable: Bool = true,
         composeEmailAvailable: Bool = true,
-        mailtoAvailable: Bool = true
+        mailtoAvailable: Bool = true,
+        mailAppAvailable: Bool = true
     ) -> MagicianDependencySnapshot {
         MagicianDependencySnapshot(
             accessibilityState: accessibility,
@@ -119,8 +159,10 @@ final class MagicianStatusResolverTests: XCTestCase {
             shortcutsCLIAvailable: shortcutsAvailable,
             createNoteShortcutName: createNoteShortcutName,
             createNoteShortcutExists: createNoteShortcutExists,
+            notesAppAvailable: notesAppAvailable,
             composeEmailAvailable: composeEmailAvailable,
-            mailtoAvailable: mailtoAvailable
+            mailtoAvailable: mailtoAvailable,
+            mailAppAvailable: mailAppAvailable
         )
     }
 }
