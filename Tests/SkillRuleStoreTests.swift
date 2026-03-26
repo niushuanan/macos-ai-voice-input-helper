@@ -52,6 +52,32 @@ final class SkillRuleStoreTests: XCTestCase {
         XCTAssertEqual(output.appliedSkills, [.spokenFilter])
     }
 
+    func testApplyDictationCollapsesCommonASRStutterForModifiers() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let store = SkillRuleStore(defaults: defaults, storageKey: "skill.rules.tests")
+        store.setEnabled(false, for: .spokenFilter)
+
+        let output = store.applyDictation("右右 shift shift 开始", outputBias: .neutral)
+
+        XCTAssertEqual(output.text, "右 shift 开始")
+        XCTAssertTrue(output.appliedSkills.isEmpty)
+    }
+
+    func testApplyDictationKeepsNormalRepeatedWords() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let store = SkillRuleStore(defaults: defaults, storageKey: "skill.rules.tests")
+        store.setEnabled(false, for: .spokenFilter)
+
+        let output = store.applyDictation("哈哈 哈哈 真好", outputBias: .neutral)
+
+        XCTAssertEqual(output.text, "哈哈 哈哈 真好")
+        XCTAssertTrue(output.appliedSkills.isEmpty)
+    }
+
     func testLegacyRulesRemainDecodableButNoLongerAffectPipeline() throws {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }

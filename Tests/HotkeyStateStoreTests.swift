@@ -65,8 +65,8 @@ final class HotkeyStateStoreTests: XCTestCase {
         store.resetToDefaults()
 
         XCTAssertEqual(store.wakeTriggerMode, .modifierTap)
-        XCTAssertEqual(store.wakeModifier, .leftOption)
-        XCTAssertEqual(store.wakeShortcutText, "单键触发 · 左 Option")
+        XCTAssertEqual(store.wakeModifier, .rightShift)
+        XCTAssertEqual(store.wakeShortcutText, "单键触发 · 右 Shift")
         XCTAssertEqual(store.cancelShortcutText, KeyboardShortcuts.Shortcut(.escape).description.replacingOccurrences(of: "-", with: " + "))
         XCTAssertEqual(store.brainstormTriggerType, .doubleTapModifier)
         XCTAssertEqual(store.brainstormModifier, .rightShift)
@@ -74,14 +74,14 @@ final class HotkeyStateStoreTests: XCTestCase {
         XCTAssertFalse(store.hasConflict)
     }
 
-    func testDefaultWakeHotkeyUsesOptionModifierTap() {
+    func testDefaultWakeHotkeyUsesRightShiftModifierTap() {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
         let store = HotkeyStateStore(defaults: defaults)
 
         XCTAssertEqual(store.wakeTriggerMode, .modifierTap)
-        XCTAssertEqual(store.wakeModifier, .leftOption)
-        XCTAssertEqual(store.wakeShortcutText, "单键触发 · 左 Option")
+        XCTAssertEqual(store.wakeModifier, .rightShift)
+        XCTAssertEqual(store.wakeShortcutText, "单键触发 · 右 Shift")
     }
 
     func testModifierTapModeSupportsCommandAndPersists() {
@@ -122,6 +122,17 @@ final class HotkeyStateStoreTests: XCTestCase {
 
         XCTAssertEqual(store.wakeModifier, .leftOption)
         XCTAssertEqual(store.wakeShortcutText, "单键触发 · 左 Option")
+    }
+
+    func testLegacyShiftModifierMigratesToRightShift() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        defaults.set("shift", forKey: "hotkeys.wake.modifier.v1")
+
+        let store = HotkeyStateStore(defaults: defaults)
+
+        XCTAssertEqual(store.wakeModifier, .rightShift)
+        XCTAssertEqual(store.wakeShortcutText, "单键触发 · 右 Shift")
     }
 
     func testModifierKeyCodeMappingSupportsLeftAndRight() {

@@ -209,6 +209,7 @@ final class SkillRuleStore: ObservableObject {
         }
 
         var value = base
+        value = normalizeCommonASRStutter(value)
         var appliedSkills: [SkillRuleID] = []
 
         if allowSpokenFilter, rule(for: .spokenFilter).isEnabled {
@@ -247,6 +248,51 @@ final class SkillRuleStore: ObservableObject {
             of: "\\s+",
             with: " ",
             options: .regularExpression
+        )
+    }
+
+    private func normalizeCommonASRStutter(_ text: String) -> String {
+        var value = text
+
+        // Direction words are often duplicated by ASR in short bursts, e.g. "右右 shift".
+        for token in ["左", "右", "上", "下", "前", "后"] {
+            value = collapseRepeatedToken(value, token: token)
+        }
+
+        // English modifier keys can also be repeated, e.g. "shift shift".
+        for word in ["shift", "option", "command", "control", "ctrl"] {
+            value = collapseRepeatedWord(value, word: word)
+        }
+
+        return value
+    }
+
+    private func collapseRepeatedToken(_ text: String, token: String) -> String {
+        let escaped = NSRegularExpression.escapedPattern(for: token)
+        let pattern = "(\(escaped))\\s*\\1+"
+        return replacingMatches(in: text, pattern: pattern, withTemplate: "$1")
+    }
+
+    private func collapseRepeatedWord(_ text: String, word: String) -> String {
+        let escaped = NSRegularExpression.escapedPattern(for: word)
+        let pattern = "(?i)\\b(\(escaped))\\b(?:\\s+\\1\\b)+"
+        return replacingMatches(in: text, pattern: pattern, withTemplate: "$1")
+    }
+
+    private func replacingMatches(
+        in text: String,
+        pattern: String,
+        withTemplate template: String
+    ) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return text
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.stringByReplacingMatches(
+            in: text,
+            options: [],
+            range: range,
+            withTemplate: template
         )
     }
 

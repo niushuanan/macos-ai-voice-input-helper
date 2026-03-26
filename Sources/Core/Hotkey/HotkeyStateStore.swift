@@ -136,7 +136,7 @@ enum HotkeyModifier: String, CaseIterable, Identifiable {
         case "control":
             return .leftControl
         case "shift":
-            return .leftShift
+            return .rightShift
         default:
             return nil
         }
@@ -197,7 +197,7 @@ final class HotkeyStateStore: ObservableObject {
         self.wakeModifier = Self.loadModifier(
             defaults: defaults,
             key: wakeModifierStorageKey,
-            fallback: .leftOption
+            fallback: .rightShift
         )
         self.cancelModifier = .leftOption
         self.brainstormTriggerType = BrainstormTriggerType.loadCompatible(
@@ -385,7 +385,7 @@ final class HotkeyStateStore: ObservableObject {
         KeyboardShortcuts.setShortcut(fixedCancelShortcut, for: .cancelSession)
         wakeTriggerMode = .modifierTap
         cancelTriggerMode = .shortcut
-        wakeModifier = .leftOption
+        wakeModifier = .rightShift
         cancelModifier = .leftOption
         brainstormTriggerType = .doubleTapModifier
         brainstormModifier = .rightShift
