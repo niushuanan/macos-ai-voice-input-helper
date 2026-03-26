@@ -212,13 +212,7 @@ struct SettingsView: View {
                 )
 
                 HStack {
-                    Picker("过滤", selection: $controlCenterState.memoryFilter) {
-                        ForEach(memoryFilters) { filter in
-                            Text(filter.title).tag(filter)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
+                    memoryFilterBar
 
                     Spacer()
 
@@ -247,6 +241,7 @@ struct SettingsView: View {
                                 onCopyPrimary: { copyPrimaryMemoryText(entry) },
                                 onCopyDialogue: { copyBrainstormDialogueText(entry) },
                                 onCopyRaw: { copyRawMemoryText(entry) },
+                                onCopyCommand: { copyInstructionMemoryText(entry) },
                                 onDelete: {
                                     localHistoryStore.delete(entryID: entry.id)
                                     showToast("已删除一条记录。")
@@ -1563,7 +1558,37 @@ struct SettingsView: View {
     }
 
     private var memoryFilters: [LocalHistoryFilter] {
-        [.all, .dictation, .brainstorm, .failed]
+        [.all, .dictation, .selectionRewrite, .brainstorm, .failed]
+    }
+
+    private var memoryFilterBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(memoryFilters) { filter in
+                    let selected = controlCenterState.memoryFilter == filter
+                    Button {
+                        controlCenterState.memoryFilter = filter
+                    } label: {
+                        Text(filter.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(selected ? Color.accentColor : Color.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(selected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.06))
+                            )
+                            .overlay(
+                                Capsule(style: .continuous)
+                                    .stroke(selected ? Color.accentColor.opacity(0.24) : Color.primary.opacity(0.08), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .frame(maxWidth: 420, alignment: .leading)
     }
 
     private var sortedScenePolicies: [AppScenePolicy] {
@@ -1797,6 +1822,10 @@ struct SettingsView: View {
             text = MemoryEntryTextResolver.brainstormSummaryText(for: entry)
             emptyMessage = "这条脑暴记录没有结论可复制。"
             successMessage = "已复制结论。"
+        } else if entry.mode == .selectionRewrite {
+            text = MemoryEntryTextResolver.magicianPrimaryText(for: entry)
+            emptyMessage = "这条魔法师记录没有结果可复制。"
+            successMessage = "已复制结果。"
         } else {
             text = MemoryEntryTextResolver.defaultText(for: entry)
             emptyMessage = "这条记录没有可复制的文本。"
@@ -1829,8 +1858,28 @@ struct SettingsView: View {
             writeTextToPasteboard(text)
             showToast("已复制原始记录。")
         case .selectionRewrite:
-            showToast("当前模式没有原始记录。")
+            guard let text = MemoryEntryTextResolver.magicianSecondaryText(for: entry) else {
+                showToast("这条魔法师记录没有原文可复制。")
+                return
+            }
+            writeTextToPasteboard(text)
+            showToast("已复制原文。")
         }
+    }
+
+    private func copyInstructionMemoryText(_ entry: SessionHistoryEntry) {
+        guard entry.mode == .selectionRewrite else {
+            showToast("当前模式没有命令文本。")
+            return
+        }
+
+        guard let text = MemoryEntryTextResolver.magicianInstructionText(for: entry) else {
+            showToast("这条魔法师记录没有命令可复制。")
+            return
+        }
+
+        writeTextToPasteboard(text)
+        showToast("已复制命令。")
     }
 
     private func copyBrainstormDialogueText(_ entry: SessionHistoryEntry) {
@@ -2119,6 +2168,7 @@ private struct MemoryRowView: View {
     let onCopyPrimary: () -> Void
     let onCopyDialogue: () -> Void
     let onCopyRaw: () -> Void
+    let onCopyCommand: () -> Void
     let onDelete: () -> Void
     @State private var brainstormDetailsExpanded = false
 
@@ -2241,6 +2291,63 @@ private struct MemoryRowView: View {
                         }
                     }
                 }
+            } else if entry.mode == .selectionRewrite {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(magicianPrimaryText ?? "暂无结果")
+                            .font(.callout)
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+
+                        Menu {
+                            Button("复制结果") {
+                                onCopyPrimary()
+                            }
+                            .disabled(magicianPrimaryText == nil)
+
+                            Button("复制原文") {
+                                onCopyRaw()
+                            }
+                            .disabled(magicianSecondaryText == nil)
+
+                            Button("复制命令") {
+                                onCopyCommand()
+                            }
+                            .disabled(magicianInstructionText == nil)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 24, height: 24)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                        .fill(Color.primary.opacity(0.06))
+                                )
+                        }
+                        .menuStyle(.borderlessButton)
+                        .help("复制文本")
+                    }
+
+                    if let magicianSecondaryText {
+                        Text(magicianSecondaryText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+
+                    if let magicianInstructionText {
+                        Text(magicianInstructionText)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                }
             } else {
                 Text(singleTextPreview)
                     .font(.callout)
@@ -2270,13 +2377,7 @@ private struct MemoryRowView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
 
-                if entry.mode == .selectionRewrite {
-                    Button("复制") {
-                        onCopyPrimary()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(singleCopyText == nil)
-                } else if entry.mode == .brainstorm {
+                if entry.mode == .brainstorm {
                     Button(brainstormDetailsExpanded ? "隐藏详情" : "展开详情") {
                         brainstormDetailsExpanded.toggle()
                     }
@@ -2351,6 +2452,18 @@ private struct MemoryRowView: View {
 
     private var singleCopyText: String? {
         MemoryEntryTextResolver.defaultText(for: entry)
+    }
+
+    private var magicianPrimaryText: String? {
+        MemoryEntryTextResolver.magicianPrimaryText(for: entry)
+    }
+
+    private var magicianSecondaryText: String? {
+        MemoryEntryTextResolver.magicianSecondaryText(for: entry)
+    }
+
+    private var magicianInstructionText: String? {
+        MemoryEntryTextResolver.magicianInstructionText(for: entry)
     }
 
     private var singleTextPreview: String {

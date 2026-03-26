@@ -37,11 +37,53 @@ enum MemoryEntryTextResolver {
         return normalized(entry.inputText)
     }
 
+    static func magicianPrimaryText(for entry: SessionHistoryEntry) -> String? {
+        guard entry.mode == .selectionRewrite else {
+            return nil
+        }
+
+        if entry.status == .failed {
+            return normalized(entry.displayText)
+                ?? normalized(entry.errorMessage)
+                ?? normalized(entry.outputText)
+                ?? normalized(entry.inputText)
+        }
+
+        return normalized(entry.displayText)
+            ?? normalized(entry.outputText)
+            ?? normalized(entry.errorMessage)
+            ?? normalized(entry.inputText)
+    }
+
+    static func magicianSecondaryText(for entry: SessionHistoryEntry) -> String? {
+        guard entry.mode == .selectionRewrite else {
+            return nil
+        }
+
+        let source = normalized(entry.inputText)
+        let primary = magicianPrimaryText(for: entry)
+        guard let source else {
+            return nil
+        }
+        return source == primary ? nil : source
+    }
+
+    static func magicianInstructionText(for entry: SessionHistoryEntry) -> String? {
+        guard entry.mode == .selectionRewrite else {
+            return nil
+        }
+        return normalized(entry.instructionText)
+    }
+
     static func defaultText(for entry: SessionHistoryEntry) -> String? {
         if entry.mode == .dictation {
             return primaryText(for: entry)
                 ?? rawText(for: entry)
                 ?? normalized(entry.errorMessage)
+        }
+
+        if entry.mode == .selectionRewrite {
+            return magicianPrimaryText(for: entry)
         }
 
         if entry.mode == .brainstorm {

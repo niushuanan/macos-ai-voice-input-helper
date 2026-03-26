@@ -196,6 +196,7 @@ private struct MagicianWebSearchAdapter {
             intent: .webSearch,
             userMessage: usedFallback ? "已用默认浏览器打开搜索结果。" : "已用 Chrome 打开搜索结果。",
             outputText: url.absoluteString,
+            historyDisplayText: "已打开搜索：\(query)",
             fallbackUsed: usedFallback
         )
     }
@@ -252,7 +253,14 @@ private struct MagicianEventAdapter {
 
         let title = resolvedTitle(intent: intent, context: context)
         let location = intent.params.location?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let startAt = resolvedStartDate(intent: intent, context: context)
+        guard let startAt = resolvedStartDate(intent: intent, context: context) else {
+            throw MagicianError(
+                code: .eventCreateFailed,
+                userMessage: "未识别到明确时间，请补充具体日期和时间。",
+                debugMessage: "event start date unresolved",
+                recoverAction: "retry_command"
+            )
+        }
         let endAt = resolvedEndDate(intent: intent, startAt: startAt)
 
         let event = EKEvent(eventStore: eventStore)
@@ -290,6 +298,7 @@ private struct MagicianEventAdapter {
             intent: .createEvent,
             userMessage: "已建日程：\(summary)",
             outputText: summary,
+            historyDisplayText: "已建日程：\(summary)",
             fallbackUsed: false
         )
     }
@@ -359,7 +368,7 @@ private struct MagicianEventAdapter {
     private func resolvedStartDate(
         intent: MagicianIntent,
         context: MagicianExecutionContext
-    ) -> Date {
+    ) -> Date? {
         if
             let startString = intent.params.startAt,
             let date = parseISO8601(startString)
@@ -371,7 +380,7 @@ private struct MagicianEventAdapter {
         if let detected = detectDate(in: detectorInput) {
             return detected
         }
-        return defaultStartDate()
+        return nil
     }
 
     private func resolvedEndDate(
@@ -401,16 +410,6 @@ private struct MagicianEventAdapter {
         }
         let range = NSRange(location: 0, length: (text as NSString).length)
         return detector.matches(in: text, options: [], range: range).first?.date
-    }
-
-    private func defaultStartDate() -> Date {
-        let now = Date()
-        let nextHour = Calendar.current.nextDate(
-            after: now,
-            matching: DateComponents(minute: 0, second: 0),
-            matchingPolicy: .nextTime
-        ) ?? now
-        return nextHour
     }
 
     private let iso: ISO8601DateFormatter = {
@@ -455,6 +454,7 @@ private struct MagicianNoteAdapter {
                     intent: .createNote,
                     userMessage: "已写入 Notes。",
                     outputText: noteBody,
+                    historyDisplayText: "已写入备忘录：\(summarizedHistoryText(noteBody))",
                     fallbackUsed: false
                 )
             }
@@ -470,6 +470,7 @@ private struct MagicianNoteAdapter {
                     intent: .createNote,
                     userMessage: "已提交到备忘录快捷指令。",
                     outputText: noteBody,
+                    historyDisplayText: "已写入备忘录：\(summarizedHistoryText(noteBody))",
                     fallbackUsed: notesScriptDetail != nil
                 )
             }
@@ -490,6 +491,7 @@ private struct MagicianNoteAdapter {
                     intent: .createNote,
                     userMessage: "CLI 执行失败，已改用 Shortcuts URL 触发写入。",
                     outputText: noteBody,
+                    historyDisplayText: "已写入备忘录：\(summarizedHistoryText(noteBody))",
                     fallbackUsed: true
                 )
             }
@@ -508,6 +510,7 @@ private struct MagicianNoteAdapter {
                 intent: .createNote,
                 userMessage: "已通过 Shortcuts URL 触发写入。",
                 outputText: noteBody,
+                historyDisplayText: "已写入备忘录：\(summarizedHistoryText(noteBody))",
                 fallbackUsed: true
             )
         }
@@ -673,6 +676,7 @@ private struct MagicianMailDraftAdapter {
                     intent: .composeEmailDraft,
                     userMessage: "已在 Mail 打开邮件草稿。",
                     outputText: body,
+                    historyDisplayText: "已生成邮件草稿：\(summarizedHistoryText(subject))",
                     fallbackUsed: false
                 )
             }
@@ -690,6 +694,7 @@ private struct MagicianMailDraftAdapter {
                 intent: .composeEmailDraft,
                 userMessage: "已打开邮件草稿窗口。",
                 outputText: body,
+                historyDisplayText: "已生成邮件草稿：\(summarizedHistoryText(subject))",
                 fallbackUsed: true
             )
         }
@@ -721,6 +726,7 @@ private struct MagicianMailDraftAdapter {
             intent: .composeEmailDraft,
             userMessage: "已通过 mailto 打开邮件草稿。",
             outputText: body,
+            historyDisplayText: "已生成邮件草稿：\(summarizedHistoryText(subject))",
             fallbackUsed: true
         )
     }
@@ -847,4 +853,14 @@ private struct MagicianMailDraftAdapter {
             arguments: arguments
         )
     }
+}
+
+private func summarizedHistoryText(_ text: String, limit: Int = 48) -> String {
+    let normalized = text
+        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalized.isEmpty else {
+        return "无内容"
+    }
+    return normalized.count > limit ? "\(normalized.prefix(limit))…" : normalized
 }

@@ -47,6 +47,8 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
     let outputText: String?
     let brainstormDialogueText: String?
     let instructionText: String?
+    let magicianFeatureID: MagicianFeatureID?
+    let displayText: String?
     let transcriptionProvider: String?
     let transcriptionModel: String?
     let rewriteProvider: String?
@@ -67,6 +69,8 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         outputText: String?,
         brainstormDialogueText: String? = nil,
         instructionText: String? = nil,
+        magicianFeatureID: MagicianFeatureID? = nil,
+        displayText: String? = nil,
         transcriptionProvider: String? = nil,
         transcriptionModel: String? = nil,
         rewriteProvider: String? = nil,
@@ -86,6 +90,8 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         self.outputText = outputText
         self.brainstormDialogueText = brainstormDialogueText
         self.instructionText = instructionText
+        self.magicianFeatureID = magicianFeatureID
+        self.displayText = displayText
         self.transcriptionProvider = transcriptionProvider
         self.transcriptionModel = transcriptionModel
         self.rewriteProvider = rewriteProvider
@@ -107,6 +113,8 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         case outputText
         case brainstormDialogueText
         case instructionText
+        case magicianFeatureID
+        case displayText
         case transcriptionProvider
         case transcriptionModel
         case rewriteProvider
@@ -129,6 +137,8 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         outputText = try container.decodeIfPresent(String.self, forKey: .outputText)
         brainstormDialogueText = try container.decodeIfPresent(String.self, forKey: .brainstormDialogueText)
         instructionText = try container.decodeIfPresent(String.self, forKey: .instructionText)
+        magicianFeatureID = try container.decodeIfPresent(MagicianFeatureID.self, forKey: .magicianFeatureID)
+        displayText = try container.decodeIfPresent(String.self, forKey: .displayText)
         transcriptionProvider = try container.decodeIfPresent(String.self, forKey: .transcriptionProvider)
         transcriptionModel = try container.decodeIfPresent(String.self, forKey: .transcriptionModel)
         rewriteProvider = try container.decodeIfPresent(String.self, forKey: .rewriteProvider)
@@ -151,6 +161,8 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(outputText, forKey: .outputText)
         try container.encodeIfPresent(brainstormDialogueText, forKey: .brainstormDialogueText)
         try container.encodeIfPresent(instructionText, forKey: .instructionText)
+        try container.encodeIfPresent(magicianFeatureID, forKey: .magicianFeatureID)
+        try container.encodeIfPresent(displayText, forKey: .displayText)
         try container.encodeIfPresent(transcriptionProvider, forKey: .transcriptionProvider)
         try container.encodeIfPresent(transcriptionModel, forKey: .transcriptionModel)
         try container.encodeIfPresent(rewriteProvider, forKey: .rewriteProvider)

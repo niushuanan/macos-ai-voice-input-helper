@@ -364,7 +364,7 @@ final class StatusPulseHUDController {
             return explicit
         }
 
-        let knownTitles = ["文字处理", "快速搜索", "一键建日程", "写入备忘录", "邮件草稿"]
+        let knownTitles = ["文字处理", "文字处理中", "快速搜索", "搜索中", "一键建日程", "建日程中", "写入备忘录", "邮件草稿", "生成邮件草稿中"]
         if let matched = knownTitles.first(where: { normalized.contains($0) }) {
             return matched
         }

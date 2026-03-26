@@ -37,8 +37,9 @@ final class MemoryEntryTextResolverTests: XCTestCase {
             status: .success
         )
 
-        XCTAssertNil(MemoryEntryTextResolver.primaryText(for: entry))
-        XCTAssertNil(MemoryEntryTextResolver.rawText(for: entry))
+        XCTAssertEqual(MemoryEntryTextResolver.magicianPrimaryText(for: entry), "改写结果")
+        XCTAssertEqual(MemoryEntryTextResolver.magicianSecondaryText(for: entry), "选中文本")
+        XCTAssertNil(MemoryEntryTextResolver.magicianInstructionText(for: entry))
         XCTAssertEqual(MemoryEntryTextResolver.defaultText(for: entry), "改写结果")
     }
 
@@ -52,6 +53,70 @@ final class MemoryEntryTextResolverTests: XCTestCase {
         )
 
         XCTAssertEqual(MemoryEntryTextResolver.placeholder(for: entry), "模型请求失败")
+    }
+
+    func testMagicianTextTransformEntrySeparatesResultSourceAndInstruction() {
+        let entry = SessionHistoryEntry(
+            mode: .selectionRewrite,
+            appName: "TextEdit",
+            bundleID: "com.apple.TextEdit",
+            inputText: "你好，世界",
+            outputText: "Hello, world",
+            instructionText: "翻译成英文",
+            magicianFeatureID: .textTransform,
+            displayText: nil,
+            status: .success
+        )
+
+        XCTAssertEqual(MemoryEntryTextResolver.magicianPrimaryText(for: entry), "Hello, world")
+        XCTAssertEqual(MemoryEntryTextResolver.magicianSecondaryText(for: entry), "你好，世界")
+        XCTAssertEqual(MemoryEntryTextResolver.magicianInstructionText(for: entry), "翻译成英文")
+    }
+
+    func testMagicianToolEntryPrefersDisplayText() {
+        let entry = SessionHistoryEntry(
+            mode: .selectionRewrite,
+            appName: "Notes",
+            bundleID: "com.apple.Notes",
+            inputText: "周五 15:00 在 A 会议室评审 PRD",
+            outputText: "周五 15:00 在 A 会议室评审 PRD",
+            instructionText: "帮我写进备忘录",
+            magicianFeatureID: .createNote,
+            displayText: "已写入备忘录：周五 15:00 在 A 会议室评审 PRD",
+            status: .success
+        )
+
+        XCTAssertEqual(
+            MemoryEntryTextResolver.magicianPrimaryText(for: entry),
+            "已写入备忘录：周五 15:00 在 A 会议室评审 PRD"
+        )
+        XCTAssertEqual(
+            MemoryEntryTextResolver.magicianSecondaryText(for: entry),
+            "周五 15:00 在 A 会议室评审 PRD"
+        )
+        XCTAssertEqual(MemoryEntryTextResolver.magicianInstructionText(for: entry), "帮我写进备忘录")
+    }
+
+    func testMagicianFailedEntryShowsErrorSourceAndInstruction() {
+        let entry = SessionHistoryEntry(
+            mode: .selectionRewrite,
+            appName: "WeChat",
+            bundleID: "com.tencent.xinWeChat",
+            inputText: "这周找个时间聊一下",
+            outputText: nil,
+            instructionText: "帮我建立日程",
+            magicianFeatureID: .createEvent,
+            displayText: nil,
+            status: .failed,
+            errorMessage: "未识别到明确时间，请补充具体日期和时间。"
+        )
+
+        XCTAssertEqual(
+            MemoryEntryTextResolver.magicianPrimaryText(for: entry),
+            "未识别到明确时间，请补充具体日期和时间。"
+        )
+        XCTAssertEqual(MemoryEntryTextResolver.magicianSecondaryText(for: entry), "这周找个时间聊一下")
+        XCTAssertEqual(MemoryEntryTextResolver.magicianInstructionText(for: entry), "帮我建立日程")
     }
 
     func testBrainstormEntryUsesOutputThenInputFallback() {

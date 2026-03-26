@@ -63,7 +63,7 @@ final class MagicianIntentRouterTests: XCTestCase {
         }
     }
 
-    func testLLMRouterFallsBackWhenRewriteConfigurationInvalid() async throws {
+    func testLLMRouterFailsWhenRewriteConfigurationInvalid() async {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
 
@@ -84,14 +84,56 @@ final class MagicianIntentRouterTests: XCTestCase {
             generationProvider: generationProvider
         )
 
-        let intent = try await router.route(
-            command: "帮我搜索一下",
-            selection: "OpenAI",
-            enabledFeatures: [.webSearch]
+        do {
+            _ = try await router.route(
+                command: "帮我搜索一下",
+                selection: "OpenAI",
+                enabledFeatures: [.webSearch]
+            )
+            XCTFail("Expected intentParseFailed error")
+        } catch let error as MagicianError {
+            XCTAssertEqual(error.code, .intentParseFailed)
+            XCTAssertTrue(error.userMessage.contains("文本模型"))
+            XCTAssertEqual(generationProvider.callCount, 0)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testLLMRouterFailsWhenRewriteAPIKeyMissing() async {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: [:])
         )
 
-        XCTAssertEqual(intent.intent, .webSearch)
-        XCTAssertEqual(generationProvider.callCount, 0)
+        let generationProvider = TrackingTextGenerationProvider(
+            outputText: """
+            {"intent":"create_note","confidence":0.8,"sourceText":"x","params":{"noteBody":"x"}}
+            """
+        )
+
+        let router = LLMMagicianIntentRouter(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider
+        )
+
+        do {
+            _ = try await router.route(
+                command: "记到备忘录",
+                selection: "会议纪要",
+                enabledFeatures: [.createNote]
+            )
+            XCTFail("Expected intentParseFailed error")
+        } catch let error as MagicianError {
+            XCTAssertEqual(error.code, .intentParseFailed)
+            XCTAssertTrue(error.userMessage.contains("API"))
+            XCTAssertEqual(generationProvider.callCount, 0)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
 
     func testLLMRouterParsesJSONFromCodeFence() async throws {
@@ -188,6 +230,39 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertEqual(intent.intent, .createEvent)
         XCTAssertEqual(intent.sourceText, selectionText)
         XCTAssertEqual(intent.params.title, String(selectionText.prefix(60)))
+    }
+
+    func testLLMRouterRejectsInvalidJSONWithoutHeuristicFallback() async {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-test"])
+        )
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputText: "这不是合法 JSON"
+        )
+
+        let router = LLMMagicianIntentRouter(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider
+        )
+
+        do {
+            _ = try await router.route(
+                command: "帮我搜索一下",
+                selection: "OpenAI o3",
+                enabledFeatures: [.webSearch]
+            )
+            XCTFail("Expected intentParseFailed error")
+        } catch let error as MagicianError {
+            XCTAssertEqual(error.code, .intentParseFailed)
+            XCTAssertEqual(generationProvider.callCount, 1)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
 
     private var defaultsSuiteName: String {

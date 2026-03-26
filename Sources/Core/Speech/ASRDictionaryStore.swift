@@ -11,6 +11,17 @@ struct ASRDictionarySnapshot: Equatable {
     var injectedCharacterCount: Int {
         promptHintText.count
     }
+
+    static func empty(maxCharacters: Int = ASRDictionaryStore.defaultMaxPromptCharacters) -> ASRDictionarySnapshot {
+        ASRDictionarySnapshot(
+            effectiveTerms: [],
+            injectedTerms: [],
+            promptHintText: "",
+            hotwordText: "",
+            didTruncate: false,
+            maxCharacters: maxCharacters
+        )
+    }
 }
 
 @MainActor

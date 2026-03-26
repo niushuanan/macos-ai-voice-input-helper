@@ -96,6 +96,7 @@ final class InteractionCoordinator {
     private var brainstormProbeTask: Task<Void, Never>?
     private var probingProfileKey: String?
     private var pendingMagicianSelectionSnapshot: FocusedSelectionSnapshot?
+    private var pendingMagicianSelectionCaptureTask: Task<FocusedSelectionSnapshot?, Never>?
 
     init(
         sessionStore: SessionStore,
@@ -299,7 +300,7 @@ final class InteractionCoordinator {
             return
         }
         cancelBrainstormDurationGuard()
-        pendingMagicianSelectionSnapshot = nil
+        clearPendingMagicianSelectionState()
 
         let focusContext = contextDetector.focusedAppContext()
         let mode = historyMode(for: sessionStore.activeLane)
@@ -347,7 +348,7 @@ final class InteractionCoordinator {
             return
         }
         cancelBrainstormDurationGuard()
-        pendingMagicianSelectionSnapshot = nil
+        clearPendingMagicianSelectionState()
         currentDictationTarget = nil
         discardPendingClipIfNeeded()
         sessionStore.completeInsertion()
@@ -356,7 +357,7 @@ final class InteractionCoordinator {
 
     func handleResetInput() {
         cancelBrainstormDurationGuard()
-        pendingMagicianSelectionSnapshot = nil
+        clearPendingMagicianSelectionState()
         transcriptionTask?.cancel()
         transcriptionTask = nil
         currentDictationTarget = nil
@@ -382,9 +383,9 @@ final class InteractionCoordinator {
                 currentDictationTarget = nil
             }
             if lane == .selectionRewrite {
-                pendingMagicianSelectionSnapshot = textOutputCoordinator.currentSelectionSnapshot()
+                prepareMagicianSelectionCapture()
             } else {
-                pendingMagicianSelectionSnapshot = nil
+                clearPendingMagicianSelectionState()
             }
             try audioCaptureService.startRecording()
             switch lane {
@@ -414,7 +415,7 @@ final class InteractionCoordinator {
             }
         } catch {
             cancelBrainstormDurationGuard()
-            pendingMagicianSelectionSnapshot = nil
+            clearPendingMagicianSelectionState()
             currentDictationTarget = nil
             sessionStore.fail(message: "无法开始录音：\(error.localizedDescription)")
             speechPipelineLogger.log(
@@ -429,6 +430,40 @@ final class InteractionCoordinator {
             )
             currentTraceID = nil
         }
+    }
+
+    private func prepareMagicianSelectionCapture() {
+        pendingMagicianSelectionSnapshot = textOutputCoordinator.currentSelectionSnapshot()
+        pendingMagicianSelectionCaptureTask?.cancel()
+        pendingMagicianSelectionCaptureTask = Task { [textOutputCoordinator] in
+            await textOutputCoordinator.captureSelectionSnapshot()
+        }
+    }
+
+    private func clearPendingMagicianSelectionState() {
+        pendingMagicianSelectionCaptureTask?.cancel()
+        pendingMagicianSelectionCaptureTask = nil
+        pendingMagicianSelectionSnapshot = nil
+    }
+
+    private func resolvedMagicianSelectionSnapshot() async -> FocusedSelectionSnapshot? {
+        if
+            let pendingMagicianSelectionSnapshot,
+            !pendingMagicianSelectionSnapshot.selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            return pendingMagicianSelectionSnapshot
+        }
+
+        if let capturedSnapshot = await pendingMagicianSelectionCaptureTask?.value {
+            pendingMagicianSelectionSnapshot = capturedSnapshot
+            pendingMagicianSelectionCaptureTask = nil
+            return capturedSnapshot
+        }
+
+        let fallbackSnapshot = textOutputCoordinator.currentSelectionSnapshot()
+        pendingMagicianSelectionSnapshot = fallbackSnapshot
+        pendingMagicianSelectionCaptureTask = nil
+        return fallbackSnapshot
     }
 
     private func ensureTraceID() -> String {
@@ -922,8 +957,13 @@ final class InteractionCoordinator {
                     throw SpeechTranscriptionError.providerFailure(description: "当前构建不含所选 provider。")
                 }
 
-                let dictionarySnapshot = asrDictionaryStore.currentSnapshot()
-                notifyIfDictionaryTruncated(snapshot: dictionarySnapshot)
+                let dictionarySnapshot: ASRDictionarySnapshot
+                if sessionStore.activeLane == .selectionRewrite {
+                    dictionarySnapshot = .empty()
+                } else {
+                    dictionarySnapshot = asrDictionaryStore.currentSnapshot()
+                    notifyIfDictionaryTruncated(snapshot: dictionarySnapshot)
+                }
 
                 let apiKey: String
                 if configuration.providerType.requiresAPIKey {
@@ -1770,16 +1810,16 @@ final class InteractionCoordinator {
         audioDurationSeconds: TimeInterval
     ) async {
         defer {
-            pendingMagicianSelectionSnapshot = nil
+            clearPendingMagicianSelectionState()
         }
         let traceID = ensureTraceID()
         let rawInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let instructionApplyResult = skillRuleStore.applyRewriteInstruction(rawInstruction)
+        let instructionApplyResult = sanitizeMagicianCommand(rawInstruction)
         let processedInstruction = instructionApplyResult.text
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let spokenInstruction = processedInstruction.isEmpty ? rawInstruction : processedInstruction
         let initialFocusContext = contextDetector.focusedAppContext()
-        let selectionSnapshot = pendingMagicianSelectionSnapshot ?? textOutputCoordinator.currentSelectionSnapshot()
+        let selectionSnapshot = await resolvedMagicianSelectionSnapshot()
         let fallbackFocusContext = selectionSnapshot?.focusContext ?? initialFocusContext
         let selectionText = selectionSnapshot?.selectedText ?? ""
 
@@ -1986,16 +2026,17 @@ final class InteractionCoordinator {
             else {
                 let message = "文字处理需要先选中一段文本，再长按主键说指令。"
                 localHistoryStore.append(
-                    SessionHistoryEntry(
-                        mode: .selectionRewrite,
-                        appName: fallbackFocusContext.appName,
-                        bundleID: fallbackFocusContext.bundleID,
-                        inputText: "",
-                        outputText: nil,
-                        instructionText: spokenInstruction,
-                        transcriptionProvider: transcription.providerName,
-                        transcriptionModel: transcription.modelName,
-                        status: .failed,
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: fallbackFocusContext.appName,
+                    bundleID: fallbackFocusContext.bundleID,
+                    inputText: "",
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    magicianFeatureID: .textTransform,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
                         errorMessage: message,
                         audioDurationSeconds: audioDurationSeconds,
                         appliedSkills: instructionApplyResult.appliedSkills
@@ -2073,6 +2114,7 @@ final class InteractionCoordinator {
                     inputText: snapshot.selectedText,
                     outputText: nil,
                     instructionText: spokenInstruction,
+                    magicianFeatureID: .textTransform,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     status: .failed,
@@ -2096,6 +2138,7 @@ final class InteractionCoordinator {
                     inputText: snapshot.selectedText,
                     outputText: nil,
                     instructionText: spokenInstruction,
+                    magicianFeatureID: .textTransform,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     status: .failed,
@@ -2120,6 +2163,7 @@ final class InteractionCoordinator {
                     inputText: snapshot.selectedText,
                     outputText: nil,
                     instructionText: spokenInstruction,
+                    magicianFeatureID: .textTransform,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     status: .failed,
@@ -2144,6 +2188,7 @@ final class InteractionCoordinator {
                     inputText: snapshot.selectedText,
                     outputText: nil,
                     instructionText: spokenInstruction,
+                    magicianFeatureID: .textTransform,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     status: .failed,
@@ -2216,6 +2261,7 @@ final class InteractionCoordinator {
                     inputText: snapshot.selectedText,
                     outputText: finalRewriteText,
                     instructionText: spokenInstruction,
+                    magicianFeatureID: .textTransform,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     rewriteProvider: rewriteResult.providerName,
@@ -2248,6 +2294,7 @@ final class InteractionCoordinator {
                     inputText: snapshot.selectedText,
                     outputText: nil,
                     instructionText: spokenInstruction,
+                    magicianFeatureID: .textTransform,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     rewriteProvider: rewriteConfiguration.providerName,
@@ -2279,16 +2326,17 @@ final class InteractionCoordinator {
             {
                 let message = "未检测到可写入输入框，结果已复制到剪贴板。"
                 localHistoryStore.append(
-                    SessionHistoryEntry(
-                        mode: .selectionRewrite,
-                        appName: snapshot.focusContext.appName,
-                        bundleID: snapshot.focusContext.bundleID,
-                        inputText: snapshot.selectedText,
-                        outputText: clipboardCandidateText,
-                        instructionText: spokenInstruction,
-                        transcriptionProvider: transcription.providerName,
-                        transcriptionModel: transcription.modelName,
-                        rewriteProvider: rewriteConfiguration.providerName,
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: snapshot.focusContext.appName,
+                    bundleID: snapshot.focusContext.bundleID,
+                    inputText: snapshot.selectedText,
+                    outputText: clipboardCandidateText,
+                    instructionText: spokenInstruction,
+                    magicianFeatureID: .textTransform,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    rewriteProvider: rewriteConfiguration.providerName,
                         rewriteModel: rewriteConfiguration.modelName,
                         outputPath: .clipboardOnly,
                         status: .success,
@@ -2321,6 +2369,7 @@ final class InteractionCoordinator {
                     inputText: snapshot.selectedText,
                     outputText: nil,
                     instructionText: spokenInstruction,
+                    magicianFeatureID: .textTransform,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     rewriteProvider: rewriteConfiguration.providerName,
@@ -2354,6 +2403,7 @@ final class InteractionCoordinator {
                     inputText: snapshot.selectedText,
                     outputText: nil,
                     instructionText: spokenInstruction,
+                    magicianFeatureID: .textTransform,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     rewriteProvider: rewriteConfiguration.providerName,
@@ -2415,7 +2465,7 @@ final class InteractionCoordinator {
         traceID: String
     ) async {
         sessionStore.markRewriting(
-            actionLabel: intent.intent.displayName,
+            actionLabel: intent.intent.progressTitle,
             stage: .toolAction
         )
         do {
@@ -2431,6 +2481,8 @@ final class InteractionCoordinator {
                     inputText: historyInputText,
                     outputText: result.outputText,
                     instructionText: spokenInstruction,
+                    magicianFeatureID: intent.intent,
+                    displayText: result.historyDisplayText,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     status: .success,
@@ -2460,6 +2512,7 @@ final class InteractionCoordinator {
                     inputText: historyInputText,
                     outputText: nil,
                     instructionText: spokenInstruction,
+                    magicianFeatureID: intent.intent,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     status: .failed,
@@ -2492,6 +2545,7 @@ final class InteractionCoordinator {
                     inputText: historyInputText,
                     outputText: nil,
                     instructionText: spokenInstruction,
+                    magicianFeatureID: intent.intent,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     status: .failed,
@@ -2734,6 +2788,55 @@ final class InteractionCoordinator {
             return "服务商接口当前不稳定，请稍后再试。"
         }
         return "请检查 Key、模型、接口地址与额度。"
+    }
+
+    private func sanitizeMagicianCommand(_ rawInstruction: String) -> SkillApplyResult {
+        let trimmed = rawInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return SkillApplyResult(text: "", appliedSkills: [])
+        }
+
+        var value = trimmed
+        for token in ["左", "右", "上", "下", "前", "后"] {
+            value = collapseRepeatedMagicianToken(in: value, token: token)
+        }
+        for word in ["shift", "option", "command", "control", "ctrl"] {
+            value = collapseRepeatedMagicianWord(in: value, word: word)
+        }
+        value = value.replacingOccurrences(
+            of: "\\s+",
+            with: " ",
+            options: .regularExpression
+        )
+        return SkillApplyResult(
+            text: value.trimmingCharacters(in: .whitespacesAndNewlines),
+            appliedSkills: []
+        )
+    }
+
+    private func collapseRepeatedMagicianToken(in text: String, token: String) -> String {
+        let escaped = NSRegularExpression.escapedPattern(for: token)
+        let pattern = "(\(escaped))\\s*\\1+"
+        return magicianReplacingMatches(in: text, pattern: pattern, template: "$1")
+    }
+
+    private func collapseRepeatedMagicianWord(in text: String, word: String) -> String {
+        let escaped = NSRegularExpression.escapedPattern(for: word)
+        let pattern = "(?i)\\b(\(escaped))\\b(?:\\s+\\1\\b)+"
+        return magicianReplacingMatches(in: text, pattern: pattern, template: "$1")
+    }
+
+    private func magicianReplacingMatches(in text: String, pattern: String, template: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return text
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.stringByReplacingMatches(
+            in: text,
+            options: [],
+            range: range,
+            withTemplate: template
+        )
     }
 
     private func effectiveScenePolicy(for context: FocusedAppContext) -> AppScenePolicy {

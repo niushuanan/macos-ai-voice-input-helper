@@ -482,6 +482,130 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
     }
 
+    func testMagicianASRRequestSkipsDictionaryInjection() async throws {
+        let router = FakeMagicianIntentRouter(
+            intent: MagicianIntent(
+                intent: .webSearch,
+                confidence: 0.93,
+                sourceText: "",
+                params: MagicianIntentParams(
+                    mode: nil,
+                    targetLanguage: nil,
+                    tone: nil,
+                    query: "OpenAI o3",
+                    title: nil,
+                    startAt: nil,
+                    endAt: nil,
+                    location: nil,
+                    noteBody: nil,
+                    mailTo: nil,
+                    mailSubject: nil,
+                    mailBody: nil
+                )
+            )
+        )
+        let toolExecutor = FakeMagicianToolExecutor()
+        toolExecutor.result = .success(
+            MagicianExecutionResult(
+                intent: .webSearch,
+                userMessage: "已打开搜索结果页。",
+                outputText: "https://www.google.com/search?q=OpenAI+o3",
+                historyDisplayText: "已打开搜索：OpenAI o3",
+                fallbackUsed: false
+            )
+        )
+
+        let fixture = try makeFixture(
+            magicianIntentRouter: router,
+            magicianToolExecutor: toolExecutor,
+            transcriptionText: "帮我搜索一下"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.dictionaryStore.save(rawText: "OpenAI\n词典热词")
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .webSearch)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.transcriptionProvider.lastRequest?.lane, .selectionRewrite)
+        XCTAssertEqual(fixture.transcriptionProvider.lastRequest?.dictionaryTerms, [])
+        XCTAssertEqual(fixture.transcriptionProvider.lastRequest?.dictionaryPromptHint, nil)
+        XCTAssertEqual(fixture.transcriptionProvider.lastRequest?.dictionaryHotwordText, nil)
+    }
+
+    func testMagicianClipboardFallbackSelectionIsLockedIntoExecutionContext() async throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = nil
+        textOutputCoordinator.capturedSelectionSnapshot = FocusedSelectionSnapshot(
+            focusContext: FocusedAppContext(
+                appName: "WeChat",
+                bundleID: "com.tencent.xinWeChat",
+                focusedRole: nil,
+                hasEditableTarget: false,
+                strategyHint: "copy-fallback"
+            ),
+            selectedText: "4月1日 14:30 在上海办公室和产品团队开路标会"
+        )
+
+        let router = FakeMagicianIntentRouter(
+            intent: MagicianIntent(
+                intent: .createEvent,
+                confidence: 0.95,
+                sourceText: "4月1日 14:30 在上海办公室和产品团队开路标会",
+                params: MagicianIntentParams(
+                    mode: nil,
+                    targetLanguage: nil,
+                    tone: nil,
+                    query: nil,
+                    title: "产品团队路标会",
+                    startAt: "2026-04-01T14:30:00+08:00",
+                    endAt: "2026-04-01T15:30:00+08:00",
+                    location: "上海办公室",
+                    noteBody: nil,
+                    mailTo: nil,
+                    mailSubject: nil,
+                    mailBody: nil
+                )
+            )
+        )
+        let toolExecutor = FakeMagicianToolExecutor()
+        toolExecutor.result = .success(
+            MagicianExecutionResult(
+                intent: .createEvent,
+                userMessage: "已建日程：产品团队路标会",
+                outputText: "产品团队路标会",
+                historyDisplayText: "已建日程：产品团队路标会",
+                fallbackUsed: false
+            )
+        )
+
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutputCoordinator,
+            magicianIntentRouter: router,
+            magicianToolExecutor: toolExecutor,
+            transcriptionText: "帮我建立日程"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createEvent)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(textOutputCoordinator.captureSelectionCallCount, 1)
+        XCTAssertEqual(
+            toolExecutor.lastExecutionContext?.selection?.selectedText,
+            "4月1日 14:30 在上海办公室和产品团队开路标会"
+        )
+        XCTAssertEqual(
+            fixture.localHistoryStore.entries.first?.inputText,
+            "4月1日 14:30 在上海办公室和产品团队开路标会"
+        )
+    }
+
     func testMagicianTextTransformFailsWithoutSelection() async throws {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = nil
@@ -836,11 +960,18 @@ private final class FakeAudioCaptureService: AudioCaptureService {
 private final class FakeTextOutputCoordinator: TextOutputCoordinator {
     var insertionStrategy: String = "test"
     var selectionSnapshot: FocusedSelectionSnapshot?
+    var capturedSelectionSnapshot: FocusedSelectionSnapshot?
     var errorToThrow: Error?
     private(set) var lastRequest: TextOutputRequest?
+    private(set) var captureSelectionCallCount: Int = 0
 
     func currentSelectionSnapshot() -> FocusedSelectionSnapshot? {
         selectionSnapshot
+    }
+
+    func captureSelectionSnapshot() async -> FocusedSelectionSnapshot? {
+        captureSelectionCallCount += 1
+        return capturedSelectionSnapshot ?? selectionSnapshot
     }
 
     func write(request: TextOutputRequest) async throws -> TextOutputResult {

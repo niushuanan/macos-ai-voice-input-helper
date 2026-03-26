@@ -122,6 +122,21 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    var progressTitle: String {
+        switch self {
+        case .textTransform:
+            return "文字处理中"
+        case .webSearch:
+            return "搜索中"
+        case .createEvent:
+            return "建日程中"
+        case .createNote:
+            return "写入备忘录中"
+        case .composeEmailDraft:
+            return "生成邮件草稿中"
+        }
+    }
+
     var summaryLine: String {
         switch self {
         case .textTransform:

@@ -71,6 +71,20 @@ struct MagicianIntentSchemaValidator {
                 let title = fallbackSource.trimmingCharacters(in: .whitespacesAndNewlines)
                 params.title = title.isEmpty ? nil : String(title.prefix(60))
             }
+            if (params.startAt ?? "").isEmpty {
+                let detectorSource = [sourceText, normalizedCommand]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+                params.startAt = detectedEventStartAt(from: detectorSource)
+            }
+            guard (params.startAt ?? "").isEmpty == false else {
+                throw MagicianError(
+                    code: .intentParseFailed,
+                    userMessage: "未识别到明确时间，请补充具体日期和时间。",
+                    debugMessage: "create_event missing startAt",
+                    recoverAction: "retry_command"
+                )
+            }
         case .createNote:
             if (params.noteBody ?? "").isEmpty {
                 let fallback = sourceText.isEmpty ? normalizedCommand : sourceText
@@ -124,6 +138,21 @@ struct MagicianIntentSchemaValidator {
         return filtered.isEmpty ? nil : filtered
     }
 
+    private func detectedEventStartAt(from text: String) -> String? {
+        let normalizedText = normalized(text) ?? ""
+        guard !normalizedText.isEmpty else {
+            return nil
+        }
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else {
+            return nil
+        }
+        let range = NSRange(location: 0, length: (normalizedText as NSString).length)
+        guard let date = detector.matches(in: normalizedText, options: [], range: range).first?.date else {
+            return nil
+        }
+        return Self.iso8601Local.string(from: date)
+    }
+
     private static let iso8601: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
@@ -133,6 +162,13 @@ struct MagicianIntentSchemaValidator {
     private static let iso8601WithFractional: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso8601Local: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = .current
         return formatter
     }()
 
@@ -440,20 +476,24 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         }
 
         if !providerSettingsStore.isRewriteConfigurationValid {
-            return try await HeuristicMagicianIntentRouter().route(
-                command: normalizedCommand,
-                selection: normalizedSelection,
-                enabledFeatures: enabledFeatures
+            let message = providerSettingsStore.rewriteConfigurationValidationMessage
+                ?? "文本模型配置无效。"
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "魔法师需要可用的文本模型，请先到设置页修正配置。",
+                debugMessage: message,
+                recoverAction: "open_provider_settings"
             )
         }
 
         let key = (try? providerSettingsStore.loadAPIKeyForRewriteProvider())?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !key.isEmpty else {
-            return try await HeuristicMagicianIntentRouter().route(
-                command: normalizedCommand,
-                selection: normalizedSelection,
-                enabledFeatures: enabledFeatures
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "魔法师需要文本模型 API 密钥，请先到设置页填写。",
+                debugMessage: "rewrite API key missing",
+                recoverAction: "open_provider_settings"
             )
         }
 
@@ -479,11 +519,14 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
                 enabledFeatures: enabledFeatures,
                 command: normalizedCommand
             )
+        } catch let magicianError as MagicianError {
+            throw magicianError
         } catch {
-            return try await HeuristicMagicianIntentRouter().route(
-                command: normalizedCommand,
-                selection: normalizedSelection,
-                enabledFeatures: enabledFeatures
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "文本模型没能稳定解析这条指令，请重试或检查设置。",
+                debugMessage: error.localizedDescription,
+                recoverAction: "retry_command"
             )
         }
     }
@@ -569,15 +612,18 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         1) intent must be one of allowed values above.
         2) confidence between 0 and 1.
         3) Keep params minimal and only include useful fields.
-        4) If intent is text_transform, sourceText must be the selected text and cannot be empty.
-        5) For other intents, sourceText can be empty when there is no selected text.
-        6) When selected text is non-empty, treat it as the primary content source for create_note / create_event / compose_email_draft / web_search.
-        7) Never place generic command phrases into content fields. Examples of forbidden literal content:
+        4) Treat spoken command as action intent only. Treat selected text as the primary content payload.
+        5) If intent is text_transform, sourceText must be the selected text and cannot be empty.
+        6) For other intents, sourceText can be empty when there is no selected text.
+        7) When selected text is non-empty, treat it as the primary content source for create_note / create_event / compose_email_draft / web_search.
+        8) Never place generic command phrases into content fields. Examples of forbidden literal content:
            - "帮我写进备忘录"
            - "帮我建立日程"
            - "帮我搜索一下"
            - "整理成邮件草稿"
-        8) For create_event, extract title/time/location from selected text first, then command.
+        9) For create_event, extract title/time/location from selected text first, then command.
+        10) Do not invent startAt. If there is no explicit date/time, leave startAt empty.
+        11) For create_note / compose_email_draft / web_search with selected text, noteBody / mailBody / query should usually come from the selected text, not the spoken command.
         """
     }
 

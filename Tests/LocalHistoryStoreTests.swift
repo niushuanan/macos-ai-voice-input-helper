@@ -320,6 +320,31 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertEqual(decoded.first?.brainstormDialogueText, "A: 先做核心\nB: 再看扩展")
     }
 
+    func testSelectionRewriteMetadataRoundTripCodable() throws {
+        let entry = SessionHistoryEntry(
+            mode: .selectionRewrite,
+            appName: "Notes",
+            bundleID: "com.apple.Notes",
+            inputText: "周五 15:00 在 A 会议室评审 PRD",
+            outputText: "周五 15:00 在 A 会议室评审 PRD",
+            instructionText: "帮我写进备忘录",
+            magicianFeatureID: .createNote,
+            displayText: "已写入备忘录：周五 15:00 在 A 会议室评审 PRD",
+            status: .success
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode([entry])
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode([SessionHistoryEntry].self, from: data)
+
+        XCTAssertEqual(decoded.first?.magicianFeatureID, .createNote)
+        XCTAssertEqual(decoded.first?.displayText, "已写入备忘录：周五 15:00 在 A 会议室评审 PRD")
+    }
+
     private func makeStore() -> (LocalHistoryStore, URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("history-tests-\(UUID().uuidString)", isDirectory: true)

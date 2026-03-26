@@ -54,7 +54,22 @@ struct MagicianExecutionResult: Equatable {
     let intent: MagicianFeatureID
     let userMessage: String
     let outputText: String?
+    let historyDisplayText: String?
     let fallbackUsed: Bool
+
+    init(
+        intent: MagicianFeatureID,
+        userMessage: String,
+        outputText: String?,
+        historyDisplayText: String? = nil,
+        fallbackUsed: Bool
+    ) {
+        self.intent = intent
+        self.userMessage = userMessage
+        self.outputText = outputText
+        self.historyDisplayText = historyDisplayText
+        self.fallbackUsed = fallbackUsed
+    }
 }
 
 struct MagicianExecutionContext: Equatable {

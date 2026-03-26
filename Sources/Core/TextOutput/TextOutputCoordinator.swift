@@ -89,6 +89,7 @@ enum TextOutputError: LocalizedError {
 protocol TextOutputCoordinator {
     var insertionStrategy: String { get }
     func currentSelectionSnapshot() -> FocusedSelectionSnapshot?
+    func captureSelectionSnapshot() async -> FocusedSelectionSnapshot?
     func write(request: TextOutputRequest) async throws -> TextOutputResult
 }
 
@@ -108,14 +109,7 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
     }
 
     func currentSelectionSnapshot() -> FocusedSelectionSnapshot? {
-        let app = NSWorkspace.shared.frontmostApplication
-        let focusContext = FocusedAppContext(
-            appName: app?.localizedName ?? "未知应用",
-            bundleID: app?.bundleIdentifier ?? "unknown.bundle",
-            focusedRole: nil,
-            hasEditableTarget: true,
-            strategyHint: "AX 选区路径"
-        )
+        let focusContext = contextDetector.focusedAppContext()
 
         guard AXIsProcessTrusted() else {
             return nil
@@ -154,6 +148,13 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             focusContext: focusContext,
             selectedText: text.substring(with: nsRange)
         )
+    }
+
+    func captureSelectionSnapshot() async -> FocusedSelectionSnapshot? {
+        if let snapshot = currentSelectionSnapshot() {
+            return snapshot
+        }
+        return await captureSelectionSnapshotViaCopyFallback()
     }
 
     func write(request: TextOutputRequest) async throws -> TextOutputResult {
@@ -400,41 +401,55 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         try postGlobalCommandV()
     }
 
-    func postCommandV(to processIdentifier: pid_t) throws {
-        guard
-            let source = CGEventSource(stateID: .combinedSessionState),
-            let keyDown = CGEvent(
-                keyboardEventSource: source,
-                virtualKey: CGKeyCode(kVK_ANSI_V),
-                keyDown: true
-            ),
-            let keyUp = CGEvent(
-                keyboardEventSource: source,
-                virtualKey: CGKeyCode(kVK_ANSI_V),
-                keyDown: false
-            )
-        else {
-            throw TextOutputError.pasteShortcutInjectionFailed
+    func triggerCommandC(targetProcessIdentifier: pid_t?) throws {
+        if
+            let targetProcessIdentifier,
+            targetProcessIdentifier > 0
+        {
+            do {
+                try postCommandKey("c", targetProcessIdentifier: targetProcessIdentifier, postToPID: true)
+                return
+            } catch {
+                logger.log("[selection] target-copy-failed pid=\(targetProcessIdentifier) reason=\(error.localizedDescription)")
+            }
         }
 
-        keyDown.flags = .maskCommand
-        keyUp.flags = .maskCommand
+        try postCommandKey("c", targetProcessIdentifier: nil, postToPID: false)
+    }
 
-        keyDown.postToPid(processIdentifier)
-        keyUp.postToPid(processIdentifier)
+    func postCommandV(to processIdentifier: pid_t) throws {
+        try postCommandKey("v", targetProcessIdentifier: processIdentifier, postToPID: true)
     }
 
     func postGlobalCommandV() throws {
+        try postCommandKey("v", targetProcessIdentifier: nil, postToPID: false)
+    }
+
+    private func postCommandKey(
+        _ key: Character,
+        targetProcessIdentifier: pid_t?,
+        postToPID: Bool
+    ) throws {
+        let virtualKey: CGKeyCode
+        switch String(key).lowercased() {
+        case "c":
+            virtualKey = CGKeyCode(kVK_ANSI_C)
+        case "v":
+            virtualKey = CGKeyCode(kVK_ANSI_V)
+        default:
+            throw TextOutputError.pasteShortcutInjectionFailed
+        }
+
         guard
             let source = CGEventSource(stateID: .combinedSessionState),
             let keyDown = CGEvent(
                 keyboardEventSource: source,
-                virtualKey: CGKeyCode(kVK_ANSI_V),
+                virtualKey: virtualKey,
                 keyDown: true
             ),
             let keyUp = CGEvent(
                 keyboardEventSource: source,
-                virtualKey: CGKeyCode(kVK_ANSI_V),
+                virtualKey: virtualKey,
                 keyDown: false
             )
         else {
@@ -444,8 +459,97 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
 
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
+        if postToPID, let targetProcessIdentifier, targetProcessIdentifier > 0 {
+            keyDown.postToPid(targetProcessIdentifier)
+            keyUp.postToPid(targetProcessIdentifier)
+        } else {
+            keyDown.post(tap: .cghidEventTap)
+            keyUp.post(tap: .cghidEventTap)
+        }
+    }
+
+    private func captureSelectionSnapshotViaCopyFallback() async -> FocusedSelectionSnapshot? {
+        guard AXIsProcessTrusted() else {
+            return nil
+        }
+
+        let focusContext = contextDetector.focusedAppContext()
+        let pasteboard = NSPasteboard.general
+        let snapshot = pasteboardSnapshot(pasteboard)
+        let originalChangeCount = pasteboard.changeCount
+
+        defer {
+            restorePasteboard(snapshot, to: pasteboard)
+        }
+
+        do {
+            try triggerCommandC(targetProcessIdentifier: currentFrontmostApplication()?.processIdentifier)
+        } catch {
+            logger.log("[selection] copy-fallback-trigger-failed reason=\(error.localizedDescription)")
+            return nil
+        }
+
+        guard let copiedText = await waitForCopiedString(after: originalChangeCount, pasteboard: pasteboard) else {
+            logger.log("[selection] copy-fallback-no-text")
+            return nil
+        }
+
+        return FocusedSelectionSnapshot(
+            focusContext: focusContext,
+            selectedText: copiedText
+        )
+    }
+
+    private func waitForCopiedString(
+        after originalChangeCount: Int,
+        pasteboard: NSPasteboard,
+        timeoutNanoseconds: UInt64 = 420_000_000
+    ) async -> String? {
+        let start = DispatchTime.now().uptimeNanoseconds
+        while DispatchTime.now().uptimeNanoseconds - start < timeoutNanoseconds {
+            if pasteboard.changeCount != originalChangeCount {
+                let copiedText = pasteboard.string(forType: .string)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if let copiedText, !copiedText.isEmpty {
+                    return copiedText
+                }
+                return nil
+            }
+            try? await Task.sleep(nanoseconds: 35_000_000)
+        }
+        return nil
+    }
+
+    private struct PasteboardSnapshot {
+        let items: [[NSPasteboard.PasteboardType: Data]]
+    }
+
+    private func pasteboardSnapshot(_ pasteboard: NSPasteboard) -> PasteboardSnapshot {
+        let items: [[NSPasteboard.PasteboardType: Data]] = pasteboard.pasteboardItems?.map { item in
+            Dictionary<NSPasteboard.PasteboardType, Data>(uniqueKeysWithValues: item.types.compactMap { type in
+                guard let data = item.data(forType: type) else {
+                    return nil
+                }
+                return (type, data)
+            })
+        } ?? []
+        return PasteboardSnapshot(items: items)
+    }
+
+    private func restorePasteboard(_ snapshot: PasteboardSnapshot, to pasteboard: NSPasteboard) {
+        pasteboard.clearContents()
+        guard !snapshot.items.isEmpty else {
+            return
+        }
+
+        let restoredItems = snapshot.items.map { itemData in
+            let item = NSPasteboardItem()
+            for (type, data) in itemData {
+                item.setData(data, forType: type)
+            }
+            return item
+        }
+        _ = pasteboard.writeObjects(restoredItems)
     }
 
     func focusedElement() -> AXUIElement? {
