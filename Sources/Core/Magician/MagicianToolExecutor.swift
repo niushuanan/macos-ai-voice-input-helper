@@ -764,3 +764,141 @@ func summarizedHistoryText(_ text: String, limit: Int = 48) -> String {
     }
     return normalized.count > limit ? "\(normalized.prefix(limit))…" : normalized
 }
+
+struct MagicianWorkflowStepExecutionRequest {
+    let step: MagicianWorkflowStep
+    let index: Int
+    let stepExecutionKey: String
+    let context: MagicianWorkflowExecutionContext
+    let latestOutputText: String?
+}
+
+struct MagicianWorkflowStepExecutionResponse {
+    let userMessage: String
+    let outputText: String?
+    let historyDisplayText: String?
+    let fallbackUsed: Bool
+}
+
+@MainActor
+final class MagicianWorkflowExecutor {
+    typealias StepExecutionHandler = (MagicianWorkflowStepExecutionRequest) async throws -> MagicianWorkflowStepExecutionResponse
+
+    func execute(
+        plan: MagicianWorkflowPlan,
+        context: MagicianWorkflowExecutionContext,
+        stepHandler: StepExecutionHandler
+    ) async throws -> MagicianWorkflowExecutionResult {
+        var stepResults: [MagicianWorkflowStepResult] = []
+        var latestOutputText: String?
+        var executedKeys = Set<String>()
+
+        for (index, step) in plan.steps.enumerated() {
+            let stepExecutionKey = "\(context.traceID):\(index):\(step.stepID):\(step.feature.rawValue)"
+            guard executedKeys.insert(stepExecutionKey).inserted else {
+                continue
+            }
+            let response = try await executeWithRetry(
+                step: step,
+                index: index,
+                stepExecutionKey: stepExecutionKey,
+                context: context,
+                latestOutputText: latestOutputText,
+                handler: stepHandler
+            )
+            let result = MagicianWorkflowStepResult(
+                step: step,
+                userMessage: response.userMessage,
+                outputText: response.outputText,
+                historyDisplayText: response.historyDisplayText,
+                fallbackUsed: response.fallbackUsed
+            )
+            stepResults.append(result)
+            if
+                let output = response.outputText?.trimmingCharacters(in: .whitespacesAndNewlines),
+                !output.isEmpty
+            {
+                latestOutputText = output
+            }
+        }
+
+        let finalStatus = stepResults.last?.userMessage ?? "流程已完成。"
+        return MagicianWorkflowExecutionResult(
+            stepResults: stepResults,
+            finalStatusMessage: finalStatus,
+            finalOutputText: latestOutputText
+        )
+    }
+
+    private func executeWithRetry(
+        step: MagicianWorkflowStep,
+        index: Int,
+        stepExecutionKey: String,
+        context: MagicianWorkflowExecutionContext,
+        latestOutputText: String?,
+        handler: StepExecutionHandler
+    ) async throws -> MagicianWorkflowStepExecutionResponse {
+        let policy = step.retryPolicy ?? .default
+        let maxAttempts = max(1, policy.maxAttempts)
+
+        for attempt in 1...maxAttempts {
+            do {
+                return try await handler(
+                    MagicianWorkflowStepExecutionRequest(
+                        step: step,
+                        index: index,
+                        stepExecutionKey: stepExecutionKey,
+                        context: context,
+                        latestOutputText: latestOutputText
+                    )
+                )
+            } catch {
+                guard attempt < maxAttempts, isTransient(error) else {
+                    throw error
+                }
+                let delayMs = attempt - 1 < policy.backoffMilliseconds.count
+                    ? policy.backoffMilliseconds[attempt - 1]
+                    : policy.backoffMilliseconds.last ?? 0
+                if delayMs > 0 {
+                    try await Task.sleep(nanoseconds: UInt64(delayMs) * 1_000_000)
+                }
+            }
+        }
+
+        throw MagicianError(
+            code: .toolExecutionFailed,
+            userMessage: "步骤执行失败，请稍后重试。",
+            debugMessage: "workflow retry exhausted",
+            recoverAction: "retry_command"
+        )
+    }
+
+    private func isTransient(_ error: Error) -> Bool {
+        if let magicianError = error as? MagicianError {
+            switch magicianError.code {
+            case .toolExecutionFailed, .mailAppleScriptFailed, .browserUnavailable:
+                return true
+            default:
+                return false
+            }
+        }
+
+        if let rewriteError = error as? RewriteProviderError {
+            if case .generationFailed = rewriteError {
+                return true
+            }
+            return false
+        }
+
+        if let outputError = error as? TextOutputError {
+            switch outputError {
+            case .accessibilityPathFailed, .fallbackFailed, .pasteShortcutInjectionFailed:
+                return true
+            default:
+                return false
+            }
+        }
+
+        return false
+    }
+}

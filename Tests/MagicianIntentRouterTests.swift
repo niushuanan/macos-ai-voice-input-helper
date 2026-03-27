@@ -484,6 +484,100 @@ final class MagicianIntentRouterTests: XCTestCase {
         }
     }
 
+    func testLLMWorkflowPlannerBuildsOrderedSteps() async throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-test"])
+        )
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputText: """
+            {"steps":[{"feature":"create_note","command":"先写进备忘录","inputBinding":"selection_text"},{"feature":"compose_email_draft","command":"再发给小庄","inputBinding":"previous_output"}],"confidence":0.93,"rationale":"two_step_flow"}
+            """
+        )
+
+        let planner = LLMMagicianWorkflowPlanner(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider,
+            intentRouter: HeuristicMagicianIntentRouter()
+        )
+
+        let plan = try await planner.plan(
+            command: "先写进备忘录，然后发给小庄",
+            selection: "路线图同步纪要",
+            enabledFeatures: [.createNote, .composeEmailDraft]
+        )
+
+        XCTAssertEqual(plan.steps.count, 2)
+        XCTAssertEqual(plan.steps[0].feature, .createNote)
+        XCTAssertEqual(plan.steps[1].feature, .composeEmailDraft)
+        XCTAssertEqual(plan.steps[0].inputBinding, .selectionText)
+        XCTAssertEqual(plan.steps[1].inputBinding, .previousOutput)
+        XCTAssertEqual(generationProvider.callCount, 1)
+    }
+
+    func testLLMWorkflowPlannerFallsBackToHeuristicWhenPlannerOutputInvalid() async throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-test"])
+        )
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputText: "invalid json"
+        )
+
+        let planner = LLMMagicianWorkflowPlanner(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider,
+            intentRouter: HeuristicMagicianIntentRouter(),
+            fallbackPlanner: HeuristicMagicianWorkflowPlanner(intentRouter: HeuristicMagicianIntentRouter())
+        )
+
+        let plan = try await planner.plan(
+            command: "先写进备忘录，然后发给小庄",
+            selection: "路线图同步纪要",
+            enabledFeatures: [.createNote, .composeEmailDraft]
+        )
+
+        XCTAssertEqual(plan.steps.count, 2)
+        XCTAssertEqual(plan.steps[0].feature, .createNote)
+        XCTAssertEqual(plan.steps[1].feature, .composeEmailDraft)
+        XCTAssertEqual(generationProvider.callCount, 1)
+    }
+
+    func testStepRegistryRejectsPlansLongerThanFiveSteps() {
+        let registry = MagicianStepRegistry()
+        let plan = MagicianWorkflowPlan(
+            steps: (1...6).map { index in
+                MagicianWorkflowStep(
+                    stepID: "step-\(index)",
+                    feature: .createNote,
+                    params: .empty,
+                    inputBinding: .selectionText
+                )
+            },
+            confidence: 0.8
+        )
+
+        XCTAssertThrowsError(
+            try registry.validatedPlan(
+                plan,
+                enabledFeatures: [.createNote],
+                fallbackCommand: "写进备忘录",
+                fallbackSelection: "内容"
+            )
+        ) { error in
+            let magicianError = error as? MagicianError
+            XCTAssertEqual(magicianError?.code, .intentParseFailed)
+        }
+    }
+
     private var defaultsSuiteName: String {
         "MagicianIntentRouterTests.\(name)"
     }

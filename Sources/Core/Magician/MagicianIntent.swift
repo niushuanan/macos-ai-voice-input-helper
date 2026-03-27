@@ -118,3 +118,101 @@ struct MagicianExecutionContext: Equatable {
         selection?.selectedText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 }
+
+enum MagicianWorkflowInputBinding: String, Codable, Equatable {
+    case selectionText = "selection_text"
+    case previousOutput = "previous_output"
+    case commandOnly = "command_only"
+}
+
+struct MagicianWorkflowStepRetryPolicy: Codable, Equatable {
+    let maxAttempts: Int
+    let backoffMilliseconds: [Int]
+
+    init(
+        maxAttempts: Int = 2,
+        backoffMilliseconds: [Int] = [200, 600]
+    ) {
+        self.maxAttempts = max(1, min(maxAttempts, 3))
+        self.backoffMilliseconds = backoffMilliseconds
+            .map { max(0, $0) }
+            .prefix(3)
+            .map { $0 }
+    }
+
+    static let `default` = MagicianWorkflowStepRetryPolicy()
+}
+
+struct MagicianWorkflowStep: Codable, Equatable, Identifiable {
+    let stepID: String
+    let feature: MagicianFeatureID
+    let params: MagicianIntentParams
+    let inputBinding: MagicianWorkflowInputBinding
+    let retryPolicy: MagicianWorkflowStepRetryPolicy?
+    let timeoutMs: Int?
+    let command: String?
+
+    var id: String { stepID }
+
+    init(
+        stepID: String,
+        feature: MagicianFeatureID,
+        params: MagicianIntentParams = .empty,
+        inputBinding: MagicianWorkflowInputBinding = .selectionText,
+        retryPolicy: MagicianWorkflowStepRetryPolicy? = nil,
+        timeoutMs: Int? = nil,
+        command: String? = nil
+    ) {
+        self.stepID = stepID
+        self.feature = feature
+        self.params = params
+        self.inputBinding = inputBinding
+        self.retryPolicy = retryPolicy
+        self.timeoutMs = timeoutMs
+        self.command = command
+    }
+}
+
+struct MagicianWorkflowPlan: Codable, Equatable {
+    let version: Int
+    let steps: [MagicianWorkflowStep]
+    let rationale: String?
+    let confidence: Double
+
+    init(
+        version: Int = 1,
+        steps: [MagicianWorkflowStep],
+        rationale: String? = nil,
+        confidence: Double = 0.8
+    ) {
+        self.version = version
+        self.steps = steps
+        self.rationale = rationale
+        self.confidence = confidence
+    }
+}
+
+struct MagicianWorkflowStepResult: Equatable {
+    let step: MagicianWorkflowStep
+    let userMessage: String
+    let outputText: String?
+    let historyDisplayText: String?
+    let fallbackUsed: Bool
+}
+
+struct MagicianWorkflowExecutionResult: Equatable {
+    let stepResults: [MagicianWorkflowStepResult]
+    let finalStatusMessage: String
+    let finalOutputText: String?
+}
+
+struct MagicianWorkflowExecutionContext: Equatable {
+    let command: String
+    let selection: FocusedSelectionSnapshot?
+    let focusContext: FocusedAppContext
+    let traceID: String
+
+    var selectedText: String {
+        selection?.selectedText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+}

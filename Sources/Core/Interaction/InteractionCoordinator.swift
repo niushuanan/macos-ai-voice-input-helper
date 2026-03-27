@@ -22,6 +22,8 @@ final class InteractionCoordinator {
     private let magicianFeatureToggleStore: MagicianFeatureToggleStore
     private let magicianStatusResolver: MagicianStatusResolver
     private let magicianIntentRouter: any MagicianIntentRouting
+    private let magicianWorkflowPlanner: any MagicianWorkflowPlanning
+    private let magicianWorkflowExecutor: MagicianWorkflowExecutor
     private let magicianToolExecutor: any MagicianToolExecuting
     private let toastPresenter: ToastPresenter?
     private let dictationPostProcessor: DictationPostProcessor
@@ -59,6 +61,8 @@ final class InteractionCoordinator {
         magicianFeatureToggleStore: MagicianFeatureToggleStore? = nil,
         magicianStatusResolver: MagicianStatusResolver = MagicianStatusResolver(),
         magicianIntentRouter: (any MagicianIntentRouting)? = nil,
+        magicianWorkflowPlanner: (any MagicianWorkflowPlanning)? = nil,
+        magicianWorkflowExecutor: MagicianWorkflowExecutor? = nil,
         magicianToolExecutor: (any MagicianToolExecuting)? = nil,
         toastPresenter: ToastPresenter? = nil,
         dictationPostProcessor: DictationPostProcessor = LLMDictationPostProcessor(),
@@ -81,9 +85,23 @@ final class InteractionCoordinator {
         self.magicianFeatureToggleStore = magicianFeatureToggleStore ?? MagicianFeatureToggleStore()
         self.magicianStatusResolver = magicianStatusResolver
         let resolvedMailAddressBookStore = mailAddressBookStore ?? MailAddressBookStore()
-        self.magicianIntentRouter = magicianIntentRouter ?? LLMMagicianIntentRouter(
+        let resolvedIntentRouter = magicianIntentRouter ?? LLMMagicianIntentRouter(
             providerSettingsStore: providerSettingsStore
         )
+        self.magicianIntentRouter = resolvedIntentRouter
+        if let magicianWorkflowPlanner {
+            self.magicianWorkflowPlanner = magicianWorkflowPlanner
+        } else if magicianIntentRouter != nil {
+            self.magicianWorkflowPlanner = MagicianSingleIntentWorkflowPlannerAdapter(
+                intentRouter: resolvedIntentRouter
+            )
+        } else {
+            self.magicianWorkflowPlanner = LLMMagicianWorkflowPlanner(
+                providerSettingsStore: providerSettingsStore,
+                intentRouter: resolvedIntentRouter
+            )
+        }
+        self.magicianWorkflowExecutor = magicianWorkflowExecutor ?? MagicianWorkflowExecutor()
         self.magicianToolExecutor = magicianToolExecutor ?? MagicianToolExecutor(
             providerSettingsStore: providerSettingsStore,
             mailAddressBookStore: resolvedMailAddressBookStore
@@ -1759,9 +1777,9 @@ final class InteractionCoordinator {
             return
         }
 
-        let routedIntent: MagicianIntent
+        let workflowPlan: MagicianWorkflowPlan
         do {
-            routedIntent = try await magicianIntentRouter.route(
+            workflowPlan = try await magicianWorkflowPlanner.plan(
                 command: spokenInstruction,
                 selection: selectionSnapshot?.selectedText,
                 enabledFeatures: enabledFeatures
@@ -1775,8 +1793,8 @@ final class InteractionCoordinator {
                 provider: providerSettingsStore.rewriteConfiguration.providerName,
                 model: providerSettingsStore.rewriteConfiguration.modelName,
                 httpStatus: nil,
-                stage: "magician.intent.routed",
-                detail: "intent=\(routedIntent.intent.rawValue),confidence=\(String(format: "%.2f", routedIntent.confidence))",
+                stage: "workflow.plan.success",
+                detail: "steps=\(workflowPlan.steps.map(\.feature.rawValue).joined(separator: "->")),confidence=\(String(format: "%.2f", workflowPlan.confidence))",
                 audioDuration: audioDurationSeconds,
                 transcriptLength: spokenInstruction.count
             )
@@ -1807,7 +1825,7 @@ final class InteractionCoordinator {
                 provider: providerSettingsStore.rewriteConfiguration.providerName,
                 model: providerSettingsStore.rewriteConfiguration.modelName,
                 httpStatus: nil,
-                stage: "magician.intent.failed",
+                stage: "workflow.plan.failed",
                 errorType: magicianError.code.rawValue,
                 detail: magicianError.debugMessage ?? message,
                 audioDuration: audioDurationSeconds
@@ -1819,7 +1837,7 @@ final class InteractionCoordinator {
             if abortIfSessionCancelled() {
                 return
             }
-            let message = "指令解析失败，请换个说法再试。"
+            let message = "流程解析失败，请换个说法再试。"
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -1842,8 +1860,8 @@ final class InteractionCoordinator {
                 provider: providerSettingsStore.rewriteConfiguration.providerName,
                 model: providerSettingsStore.rewriteConfiguration.modelName,
                 httpStatus: nil,
-                stage: "magician.intent.failed",
-                errorType: "intent_parse_failed",
+                stage: "workflow.plan.failed",
+                errorType: "workflow_parse_failed",
                 detail: error.localizedDescription,
                 audioDuration: audioDurationSeconds
             )
@@ -1852,23 +1870,125 @@ final class InteractionCoordinator {
             return
         }
 
-        permissionsCenter.refreshStatuses()
-        let dependencies = currentMagicianDependenciesSnapshot()
-        let requirement = magicianStatusResolver.requirement(
-            for: routedIntent.intent,
-            dependencies: dependencies
+        if abortIfSessionCancelled() {
+            return
+        }
+        sessionStore.markRewriting(
+            actionLabel: "流程预览：\(workflowPreviewLabel(workflowPlan))",
+            stage: .toolAction
         )
-        let shouldBypassRequirement = routedIntent.intent == .createEvent
-            && dependencies.eventAuthorizationStatus == .notDetermined
-        if case let .blocked(reason, prompt) = requirement, !shouldBypassRequirement {
-            handleMagicianPermissionAction(prompt.primaryAction)
-            let message = "\(routedIntent.intent.displayName)：\(reason)"
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        if abortIfSessionCancelled() {
+            return
+        }
+
+        let workflowContext = MagicianWorkflowExecutionContext(
+            command: spokenInstruction,
+            selection: selectionSnapshot,
+            focusContext: fallbackFocusContext,
+            traceID: traceID
+        )
+
+        do {
+            let executionResult = try await magicianWorkflowExecutor.execute(
+                plan: workflowPlan,
+                context: workflowContext
+            ) { [weak self] request in
+                guard let self else {
+                    throw MagicianError(
+                        code: .toolExecutionFailed,
+                        userMessage: "流程执行被中断，请重试。",
+                        debugMessage: "interaction coordinator released during workflow",
+                        recoverAction: "retry_command"
+                    )
+                }
+                return try await self.executeWorkflowStep(
+                    request,
+                    isFinalStep: request.index == workflowPlan.steps.count - 1,
+                    transcription: transcription,
+                    spokenInstruction: spokenInstruction,
+                    instructionApplyResult: instructionApplyResult,
+                    audioDurationSeconds: audioDurationSeconds
+                )
+            }
+            if abortIfSessionCancelled() {
+                return
+            }
+            let summaryDisplay = workflowExecutionDisplayText(executionResult)
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
                     appName: fallbackFocusContext.appName,
                     bundleID: fallbackFocusContext.bundleID,
-                    inputText: selectionText.isEmpty ? routedIntent.sourceText : selectionText,
+                    inputText: selectionText,
+                    outputText: executionResult.finalOutputText,
+                    instructionText: spokenInstruction,
+                    displayText: summaryDisplay,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .success,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
+                )
+            )
+            sessionStore.completeAction(statusMessage: executionResult.finalStatusMessage)
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: providerSettingsStore.rewriteConfiguration.providerName,
+                model: providerSettingsStore.rewriteConfiguration.modelName,
+                httpStatus: nil,
+                stage: "workflow.done",
+                detail: "steps=\(executionResult.stepResults.count),final=\(executionResult.finalStatusMessage)",
+                audioDuration: audioDurationSeconds,
+                transcriptLength: executionResult.finalOutputText?.count
+            )
+            currentTraceID = nil
+        } catch let magicianError as MagicianError {
+            if abortIfSessionCancelled() {
+                return
+            }
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: fallbackFocusContext.appName,
+                    bundleID: fallbackFocusContext.bundleID,
+                    inputText: selectionText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: magicianError.userMessage,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
+                )
+            )
+            handleMagicianRecoverAction(magicianError.recoverAction)
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: providerSettingsStore.rewriteConfiguration.providerName,
+                model: providerSettingsStore.rewriteConfiguration.modelName,
+                httpStatus: nil,
+                stage: "workflow.failed",
+                errorType: magicianError.code.rawValue,
+                detail: magicianError.debugMessage ?? magicianError.userMessage,
+                audioDuration: audioDurationSeconds
+            )
+            sessionStore.fail(message: magicianError.userMessage)
+            currentTraceID = nil
+        } catch {
+            if abortIfSessionCancelled() {
+                return
+            }
+            let message = "流程执行失败：\(error.localizedDescription)"
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: fallbackFocusContext.appName,
+                    bundleID: fallbackFocusContext.bundleID,
+                    inputText: selectionText,
                     outputText: nil,
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
@@ -1882,88 +2002,318 @@ final class InteractionCoordinator {
             speechPipelineLogger.log(
                 traceID: traceID,
                 lane: .selectionRewrite,
-                provider: transcription.providerName,
-                model: transcription.modelName,
+                provider: providerSettingsStore.rewriteConfiguration.providerName,
+                model: providerSettingsStore.rewriteConfiguration.modelName,
                 httpStatus: nil,
-                stage: "magician.tool.failed",
-                errorType: MagicianErrorCode.permissionDenied.rawValue,
+                stage: "workflow.failed",
+                errorType: MagicianErrorCode.toolExecutionFailed.rawValue,
                 detail: message,
                 audioDuration: audioDurationSeconds
             )
             sessionStore.fail(message: message)
             currentTraceID = nil
-            return
         }
+    }
 
-        if routedIntent.intent == .textTransform {
-            guard
-                let snapshot = selectionSnapshot,
-                !snapshot.selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            else {
-                let message = "文字处理需要先选中一段文本，再长按主键说指令。"
-                localHistoryStore.append(
-                SessionHistoryEntry(
-                    mode: .selectionRewrite,
-                    appName: fallbackFocusContext.appName,
-                    bundleID: fallbackFocusContext.bundleID,
-                    inputText: "",
-                    outputText: nil,
-                    instructionText: spokenInstruction,
-                    magicianFeatureID: .textTransform,
-                    transcriptionProvider: transcription.providerName,
-                    transcriptionModel: transcription.modelName,
-                    status: .failed,
-                        errorMessage: message,
-                        audioDurationSeconds: audioDurationSeconds,
-                        appliedSkills: instructionApplyResult.appliedSkills
-                    )
-                )
-                speechPipelineLogger.log(
-                    traceID: traceID,
-                    lane: .selectionRewrite,
-                    provider: transcription.providerName,
-                    model: transcription.modelName,
-                    httpStatus: nil,
-                    stage: "magician.tool.failed",
-                    errorType: MagicianErrorCode.selectionEmpty.rawValue,
-                    detail: message,
-                    audioDuration: audioDurationSeconds
-                )
-                sessionStore.fail(message: message)
-                currentTraceID = nil
-                return
-            }
+    private func workflowPreviewLabel(_ plan: MagicianWorkflowPlan) -> String {
+        let labels = plan.steps.map { $0.feature.displayName }
+        if labels.isEmpty {
+            return "空流程"
+        }
+        return labels.joined(separator: " -> ")
+    }
 
-            await executeTextTransformIntent(
-                transcription: transcription,
-                audioDurationSeconds: audioDurationSeconds,
-                spokenInstruction: spokenInstruction,
-                snapshot: snapshot,
-                instructionApplyResult: instructionApplyResult,
-                traceID: traceID
+    private func workflowExecutionDisplayText(_ result: MagicianWorkflowExecutionResult) -> String {
+        let labels = result.stepResults.map { $0.step.feature.displayName }
+        if labels.isEmpty {
+            return "流程已完成"
+        }
+        let summary = labels.joined(separator: " -> ")
+        return "流程：\(summary)"
+    }
+
+    private func workflowStepInputText(from request: MagicianWorkflowStepExecutionRequest) -> String {
+        switch request.step.inputBinding {
+        case .selectionText:
+            return request.context.selectedText
+        case .previousOutput:
+            return request.latestOutputText ?? request.context.selectedText
+        case .commandOnly:
+            return ""
+        }
+    }
+
+    private func executeWorkflowStep(
+        _ request: MagicianWorkflowStepExecutionRequest,
+        isFinalStep: Bool,
+        transcription: SpeechTranscriptionResult,
+        spokenInstruction: String,
+        instructionApplyResult _: SkillApplyResult,
+        audioDurationSeconds: TimeInterval
+    ) async throws -> MagicianWorkflowStepExecutionResponse {
+        if abortIfSessionCancelled() {
+            throw MagicianError(
+                code: .toolExecutionFailed,
+                userMessage: "流程已取消。",
+                debugMessage: "workflow cancelled",
+                recoverAction: nil
             )
-            return
         }
 
-        let executionContext = MagicianExecutionContext(
-            command: spokenInstruction,
-            selection: selectionSnapshot,
-            focusContext: fallbackFocusContext
+        permissionsCenter.refreshStatuses()
+        let dependencies = currentMagicianDependenciesSnapshot()
+        let requirement = magicianStatusResolver.requirement(
+            for: request.step.feature,
+            dependencies: dependencies
         )
-        let historyInputText = executionContext.selectedText.isEmpty
-            ? routedIntent.sourceText
-            : executionContext.selectedText
+        let shouldBypassRequirement = request.step.feature == .createEvent
+            && dependencies.eventAuthorizationStatus == .notDetermined
+        if case let .blocked(reason, prompt) = requirement, !shouldBypassRequirement {
+            handleMagicianPermissionAction(prompt.primaryAction)
+            throw MagicianError(
+                code: .permissionDenied,
+                userMessage: "\(request.step.feature.displayName)：\(reason)",
+                debugMessage: "workflow requirement blocked for \(request.step.feature.rawValue)",
+                recoverAction: nil
+            )
+        }
 
-        await executeMagicianToolIntent(
-            routedIntent,
-            transcription: transcription,
-            spokenInstruction: spokenInstruction,
-            executionContext: executionContext,
-            historyInputText: historyInputText,
-            instructionApplyResult: instructionApplyResult,
-            audioDurationSeconds: audioDurationSeconds,
-            traceID: traceID
+        let stepCommand = request.step.command?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedCommand = (stepCommand?.isEmpty == false) ? stepCommand! : spokenInstruction
+        let stepInputText = workflowStepInputText(from: request)
+        sessionStore.markRewriting(
+            actionLabel: "第\(request.index + 1)步：\(request.step.feature.progressTitle)",
+            stage: .toolAction
         )
+
+        if request.step.feature == .textTransform {
+            return try await executeWorkflowTextTransformStep(
+                request: request,
+                stepCommand: resolvedCommand,
+                stepInputText: stepInputText,
+                isFinalStep: isFinalStep,
+                transcription: transcription,
+                audioDurationSeconds: audioDurationSeconds
+            )
+        }
+
+        var params = request.step.params
+        if request.step.feature == .composeEmailDraft, params.mailDeliveryMode == nil {
+            params.mailDeliveryMode = .autoSendIfResolved
+        }
+        let sourceText = stepInputText.isEmpty
+            ? (request.latestOutputText ?? request.context.selectedText)
+            : stepInputText
+        let intent = MagicianIntent(
+            intent: request.step.feature,
+            confidence: 0.86,
+            sourceText: sourceText,
+            params: params
+        )
+        let stepSelectionSnapshot: FocusedSelectionSnapshot? = {
+            if sourceText.isEmpty {
+                return request.context.selection
+            }
+            return FocusedSelectionSnapshot(
+                focusContext: request.context.focusContext,
+                selectedText: sourceText
+            )
+        }()
+        let executionContext = MagicianExecutionContext(
+            command: resolvedCommand,
+            selection: stepSelectionSnapshot,
+            focusContext: request.context.focusContext
+        )
+
+        do {
+            let result = try await magicianToolExecutor.execute(
+                intent: intent,
+                context: executionContext
+            )
+            speechPipelineLogger.log(
+                traceID: request.context.traceID,
+                lane: .selectionRewrite,
+                provider: providerSettingsStore.rewriteConfiguration.providerName,
+                model: providerSettingsStore.rewriteConfiguration.modelName,
+                httpStatus: nil,
+                stage: "workflow.step.success",
+                detail: "index=\(request.index + 1),feature=\(request.step.feature.rawValue)",
+                audioDuration: audioDurationSeconds,
+                transcriptLength: result.outputText?.count
+            )
+            return MagicianWorkflowStepExecutionResponse(
+                userMessage: result.userMessage,
+                outputText: result.outputText,
+                historyDisplayText: result.historyDisplayText,
+                fallbackUsed: result.fallbackUsed
+            )
+        } catch let magicianError as MagicianError {
+            speechPipelineLogger.log(
+                traceID: request.context.traceID,
+                lane: .selectionRewrite,
+                provider: providerSettingsStore.rewriteConfiguration.providerName,
+                model: providerSettingsStore.rewriteConfiguration.modelName,
+                httpStatus: nil,
+                stage: "workflow.step.failed",
+                errorType: magicianError.code.rawValue,
+                detail: magicianError.debugMessage ?? magicianError.userMessage,
+                audioDuration: audioDurationSeconds
+            )
+            throw magicianError
+        }
+    }
+
+    private func executeWorkflowTextTransformStep(
+        request: MagicianWorkflowStepExecutionRequest,
+        stepCommand: String,
+        stepInputText: String,
+        isFinalStep: Bool,
+        transcription: SpeechTranscriptionResult,
+        audioDurationSeconds: TimeInterval
+    ) async throws -> MagicianWorkflowStepExecutionResponse {
+        let normalizedInput = stepInputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedInput.isEmpty else {
+            throw MagicianError(
+                code: .selectionEmpty,
+                userMessage: "文字处理步骤需要先选中一段文本。",
+                debugMessage: "workflow text transform input empty",
+                recoverAction: "select_text_first"
+            )
+        }
+
+        guard providerSettingsStore.isRewriteConfigurationValid else {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: providerSettingsStore.rewriteConfigurationValidationMessage ?? "改写模型配置无效。",
+                debugMessage: providerSettingsStore.rewriteConfigurationValidationMessage,
+                recoverAction: "open_provider_settings"
+            )
+        }
+
+        let loadedKey = try providerSettingsStore.loadAPIKeyForRewriteProvider()
+        let apiKey = loadedKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !apiKey.isEmpty else {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "缺少服务商 API 密钥，请到设置页填写。",
+                debugMessage: "workflow text transform api key missing",
+                recoverAction: "open_provider_settings"
+            )
+        }
+
+        let rewriteConfiguration = providerSettingsStore.rewriteConfiguration
+        guard let rewriteProvider = rewriteProviderRegistry.provider(for: rewriteConfiguration.providerType) else {
+            throw MagicianError(
+                code: .toolExecutionFailed,
+                userMessage: "当前构建不含所选改写 provider。",
+                debugMessage: "rewrite provider unavailable for workflow",
+                recoverAction: "open_provider_settings"
+            )
+        }
+
+        let rewriteResult: SelectionRewriteResult
+        do {
+            rewriteResult = try await rewriteProvider.rewrite(
+                request: SelectionRewriteRequest(
+                    selectedText: normalizedInput,
+                    spokenInstruction: stepCommand,
+                    focusContext: request.context.focusContext,
+                    outputBias: .neutral,
+                    appPrompt: nil,
+                    userSystemPrompt: nil
+                ),
+                configuration: rewriteConfiguration,
+                apiKey: apiKey
+            )
+        } catch let rewriteError as RewriteProviderError {
+            throw MagicianError(
+                code: .toolExecutionFailed,
+                userMessage: actionableRewriteMessage(for: rewriteError),
+                debugMessage: rewriteError.localizedDescription,
+                recoverAction: "retry_command"
+            )
+        }
+
+        let outputApplyResult = skillRuleStore.applyRewriteOutput(
+            rewriteResult.rewrittenText,
+            outputBias: .neutral
+        )
+        let finalRewriteText: String = {
+            let normalized = outputApplyResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalized.isEmpty ? rewriteResult.rewrittenText : normalized
+        }()
+
+        if !isFinalStep {
+            speechPipelineLogger.log(
+                traceID: request.context.traceID,
+                lane: .selectionRewrite,
+                provider: rewriteResult.providerName,
+                model: rewriteResult.modelName,
+                httpStatus: nil,
+                stage: "workflow.step.success",
+                detail: "index=\(request.index + 1),feature=text_transform,path=memory_only",
+                audioDuration: audioDurationSeconds,
+                transcriptLength: finalRewriteText.count
+            )
+            return MagicianWorkflowStepExecutionResponse(
+                userMessage: "文字处理已完成",
+                outputText: finalRewriteText,
+                historyDisplayText: "文字处理：\(summarizedHistoryText(finalRewriteText))",
+                fallbackUsed: false
+            )
+        }
+
+        do {
+            sessionStore.markInserting(
+                transcription: transcription,
+                focusContext: request.context.focusContext
+            )
+            let outputResult = try await textOutputCoordinator.write(
+                request: TextOutputRequest(
+                    text: finalRewriteText,
+                    operation: .replaceSelectedText,
+                    focusContext: request.context.focusContext
+                )
+            )
+            speechPipelineLogger.log(
+                traceID: request.context.traceID,
+                lane: .selectionRewrite,
+                provider: rewriteResult.providerName,
+                model: rewriteResult.modelName,
+                httpStatus: nil,
+                stage: "workflow.step.success",
+                detail: "index=\(request.index + 1),feature=text_transform,path=\(outputResult.path.rawValue)",
+                audioDuration: audioDurationSeconds,
+                transcriptLength: finalRewriteText.count
+            )
+            return MagicianWorkflowStepExecutionResponse(
+                userMessage: "文字处理并写入完成",
+                outputText: finalRewriteText,
+                historyDisplayText: "文字处理：\(summarizedHistoryText(finalRewriteText))",
+                fallbackUsed: outputResult.usedFallback
+            )
+        } catch let outputError as TextOutputError {
+            if
+                shouldFallbackToClipboardForMagician(outputError),
+                persistTextToClipboard(finalRewriteText)
+            {
+                return MagicianWorkflowStepExecutionResponse(
+                    userMessage: "未检测到可写入输入框，结果已复制到剪贴板。",
+                    outputText: finalRewriteText,
+                    historyDisplayText: "文字处理：\(summarizedHistoryText(finalRewriteText))",
+                    fallbackUsed: true
+                )
+            }
+            throw MagicianError(
+                code: .toolExecutionFailed,
+                userMessage: actionableOutputMessage(
+                    for: outputError,
+                    focusContext: request.context.focusContext
+                ),
+                debugMessage: outputError.localizedDescription,
+                recoverAction: "retry_command"
+            )
+        }
     }
 
     private func executeTextTransformIntent(

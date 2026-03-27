@@ -199,6 +199,114 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+struct MagicianStepRegistryEntry: Equatable {
+    let feature: MagicianFeatureID
+    let defaultInputBinding: MagicianWorkflowInputBinding
+    let timeoutMs: Int?
+}
+
+struct MagicianStepRegistry {
+    static let maxStepCount = 5
+
+    private let entriesByFeature: [MagicianFeatureID: MagicianStepRegistryEntry]
+
+    init(entries: [MagicianStepRegistryEntry] = MagicianFeatureID.allCases.map { feature in
+        MagicianStepRegistryEntry(
+            feature: feature,
+            defaultInputBinding: feature == .textTransform ? .selectionText : .previousOutput,
+            timeoutMs: feature == .textTransform ? 20_000 : 15_000
+        )
+    }) {
+        self.entriesByFeature = Dictionary(uniqueKeysWithValues: entries.map { ($0.feature, $0) })
+    }
+
+    func entry(for feature: MagicianFeatureID) -> MagicianStepRegistryEntry? {
+        entriesByFeature[feature]
+    }
+
+    func validatedPlan(
+        _ plan: MagicianWorkflowPlan,
+        enabledFeatures: Set<MagicianFeatureID>,
+        fallbackCommand: String,
+        fallbackSelection: String
+    ) throws -> MagicianWorkflowPlan {
+        guard !plan.steps.isEmpty else {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "没有识别到可执行步骤，请换个说法再试。",
+                debugMessage: "workflow steps empty",
+                recoverAction: "retry_command"
+            )
+        }
+
+        guard plan.steps.count <= Self.maxStepCount else {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "步骤过多，当前最多支持 5 步，请简化指令再试。",
+                debugMessage: "workflow step overflow: \(plan.steps.count)",
+                recoverAction: "retry_command"
+            )
+        }
+
+        var normalizedSteps: [MagicianWorkflowStep] = []
+        for (index, step) in plan.steps.enumerated() {
+            guard enabledFeatures.contains(step.feature) else {
+                throw MagicianError(
+                    code: .intentParseFailed,
+                    userMessage: "流程里包含未开启能力，请先到设置页打开开关。",
+                    debugMessage: "workflow includes disabled feature: \(step.feature.rawValue)",
+                    recoverAction: "open_magician_settings"
+                )
+            }
+
+            guard let entry = entry(for: step.feature) else {
+                throw MagicianError(
+                    code: .intentParseFailed,
+                    userMessage: "流程里包含暂不支持的步骤。",
+                    debugMessage: "workflow registry missing feature: \(step.feature.rawValue)",
+                    recoverAction: "retry_command"
+                )
+            }
+
+            let rawStepID = step.stepID.trimmingCharacters(in: .whitespacesAndNewlines)
+            let stepID = rawStepID.isEmpty ? "step-\(index + 1)" : rawStepID
+            let timeoutMs = min(max(step.timeoutMs ?? entry.timeoutMs ?? 15_000, 3_000), 40_000)
+            let command = step.command?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            normalizedSteps.append(
+                MagicianWorkflowStep(
+                    stepID: stepID,
+                    feature: step.feature,
+                    params: step.params,
+                    inputBinding: index == 0 ? .selectionText : step.inputBinding,
+                    retryPolicy: step.retryPolicy ?? .default,
+                    timeoutMs: timeoutMs,
+                    command: (command?.isEmpty == false) ? command : fallbackCommand
+                )
+            )
+        }
+
+        let normalizedConfidence = max(0, min(1, plan.confidence.isFinite ? plan.confidence : 0.6))
+        let normalizedRationale = plan.rationale?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if normalizedSteps.first?.feature == .textTransform, fallbackSelection.isEmpty {
+            throw MagicianError(
+                code: .selectionEmpty,
+                userMessage: "文字处理步骤需要先选中一段文本。",
+                debugMessage: "text_transform step requires selection",
+                recoverAction: "select_text_first"
+            )
+        }
+
+        return MagicianWorkflowPlan(
+            version: plan.version,
+            steps: normalizedSteps,
+            rationale: normalizedRationale?.isEmpty == true ? nil : normalizedRationale,
+            confidence: normalizedConfidence
+        )
+    }
+}
+
 struct MagicianFeatureDescriptor: Identifiable, Equatable {
     let id: MagicianFeatureID
     let name: String

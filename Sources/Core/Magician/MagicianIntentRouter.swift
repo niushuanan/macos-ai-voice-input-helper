@@ -9,6 +9,15 @@ protocol MagicianIntentRouting {
     ) async throws -> MagicianIntent
 }
 
+@MainActor
+protocol MagicianWorkflowPlanning {
+    func plan(
+        command: String,
+        selection: String?,
+        enabledFeatures: Set<MagicianFeatureID>
+    ) async throws -> MagicianWorkflowPlan
+}
+
 private func containsUnsupportedSearchIntent(_ command: String) -> Bool {
     let lowered = command.lowercased()
     return ["搜索", "搜一下", "搜一搜", "查一下", "查一查", "google", "search"].contains {
@@ -1599,5 +1608,430 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
             extraCommandTokens: ["主题", "正文", "内容", "整理", "写", "写一封", "写个", "一个", "一封"],
             stripRecipientDirectives: true
         )
+    }
+}
+
+struct MagicianSingleIntentWorkflowPlannerAdapter: MagicianWorkflowPlanning {
+    private let intentRouter: any MagicianIntentRouting
+    private let stepRegistry: MagicianStepRegistry
+
+    init(
+        intentRouter: any MagicianIntentRouting,
+        stepRegistry: MagicianStepRegistry = MagicianStepRegistry()
+    ) {
+        self.intentRouter = intentRouter
+        self.stepRegistry = stepRegistry
+    }
+
+    func plan(
+        command: String,
+        selection: String?,
+        enabledFeatures: Set<MagicianFeatureID>
+    ) async throws -> MagicianWorkflowPlan {
+        let trimmedSelection = selection?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let intent = try await intentRouter.route(
+            command: command,
+            selection: selection,
+            enabledFeatures: enabledFeatures
+        )
+
+        let draftPlan = MagicianWorkflowPlan(
+            version: 1,
+            steps: [
+                MagicianWorkflowStep(
+                    stepID: "step-1",
+                    feature: intent.intent,
+                    params: intent.params,
+                    inputBinding: .selectionText,
+                    retryPolicy: .default,
+                    timeoutMs: nil,
+                    command: command
+                )
+            ],
+            rationale: "single_intent_adapter",
+            confidence: intent.confidence
+        )
+
+        return try stepRegistry.validatedPlan(
+            draftPlan,
+            enabledFeatures: enabledFeatures,
+            fallbackCommand: command,
+            fallbackSelection: trimmedSelection
+        )
+    }
+}
+
+struct HeuristicMagicianWorkflowPlanner: MagicianWorkflowPlanning {
+    private let intentRouter: any MagicianIntentRouting
+    private let stepRegistry: MagicianStepRegistry
+
+    init(
+        intentRouter: (any MagicianIntentRouting)? = nil,
+        stepRegistry: MagicianStepRegistry = MagicianStepRegistry()
+    ) {
+        self.intentRouter = intentRouter ?? HeuristicMagicianIntentRouter()
+        self.stepRegistry = stepRegistry
+    }
+
+    func plan(
+        command: String,
+        selection: String?,
+        enabledFeatures: Set<MagicianFeatureID>
+    ) async throws -> MagicianWorkflowPlan {
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSelection = selection?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedCommand.isEmpty else {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "指令为空，请再说一次。",
+                debugMessage: "workflow command empty",
+                recoverAction: "retry_command"
+            )
+        }
+
+        let segments = splitWorkflowCommand(trimmedCommand)
+        var steps: [MagicianWorkflowStep] = []
+        for (index, segment) in segments.prefix(MagicianStepRegistry.maxStepCount).enumerated() {
+            let intent = try await intentRouter.route(
+                command: segment,
+                selection: selection,
+                enabledFeatures: enabledFeatures
+            )
+            let step = MagicianWorkflowStep(
+                stepID: "step-\(index + 1)",
+                feature: intent.intent,
+                params: intent.params,
+                inputBinding: index == 0 ? .selectionText : .previousOutput,
+                retryPolicy: .default,
+                timeoutMs: nil,
+                command: segment
+            )
+            steps.append(step)
+        }
+
+        if steps.isEmpty {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "没有识别到可执行步骤，请换个说法再试。",
+                debugMessage: "heuristic workflow steps empty",
+                recoverAction: "retry_command"
+            )
+        }
+
+        let draftPlan = MagicianWorkflowPlan(
+            version: 1,
+            steps: steps,
+            rationale: "heuristic_segmented",
+            confidence: 0.72
+        )
+        return try stepRegistry.validatedPlan(
+            draftPlan,
+            enabledFeatures: enabledFeatures,
+            fallbackCommand: trimmedCommand,
+            fallbackSelection: trimmedSelection
+        )
+    }
+
+    private func splitWorkflowCommand(_ command: String) -> [String] {
+        let patterns = [
+            #"(?i)\s*(然后|再|接着|随后|并且|并|之后)\s*"#,
+            #"(?i)\s*[，,；;。]\s*"#
+        ]
+        var segments = [command]
+        for pattern in patterns {
+            segments = segments.flatMap { segment -> [String] in
+                segment.split(
+                    separator: "\n",
+                    maxSplits: 0,
+                    omittingEmptySubsequences: true
+                ).map(String.init)
+            }
+            segments = segments.flatMap { segment in
+                segment.components(separatedByRegex: pattern)
+            }
+        }
+        let cleaned = segments
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return cleaned.isEmpty ? [command] : cleaned
+    }
+}
+
+struct MagicianWorkflowPlannerPromptBuilder {
+    func build(
+        enabledFeatures: Set<MagicianFeatureID>,
+        command: String,
+        selection: String
+    ) -> RewritePromptTemplate {
+        let allowed = MagicianFeatureID.allCases
+            .filter { enabledFeatures.contains($0) }
+            .map(\.rawValue)
+            .joined(separator: ", ")
+
+        let systemPrompt = """
+        \(MagicianPromptProfile.commonSystemPrompt)
+
+        You are a workflow planner for PulseType Magician.
+        Return JSON only. Do not add markdown fences.
+
+        Allowed step feature values:
+        \(allowed)
+
+        Output JSON schema:
+        {
+          "steps": [
+            {
+              "feature": "text_transform | create_event | create_note | compose_email_draft",
+              "command": "string",
+              "inputBinding": "selection_text | previous_output | command_only"
+            }
+          ],
+          "confidence": 0.0,
+          "rationale": "string"
+        }
+
+        Rules:
+        1) Steps must be between 1 and 5.
+        2) Use only allowed features.
+        3) Keep order exactly as intended by the spoken command.
+        4) Prefer linear steps and avoid duplicated adjacent steps.
+        """
+
+        let userPrompt = """
+        Spoken command:
+        <<<COMMAND
+        \(command)
+        COMMAND>>>
+
+        Selected text:
+        <<<TEXT
+        \(selection.isEmpty ? "(empty)" : selection)
+        TEXT>>>
+        """
+
+        return RewritePromptTemplate(systemPrompt: systemPrompt, userPrompt: userPrompt)
+    }
+}
+
+private struct MagicianWorkflowPlanDraft: Codable {
+    struct DraftStep: Codable {
+        let feature: MagicianFeatureID
+        let command: String?
+        let inputBinding: MagicianWorkflowInputBinding?
+    }
+
+    let steps: [DraftStep]
+    let confidence: Double?
+    let rationale: String?
+}
+
+struct LLMMagicianWorkflowPlanner: MagicianWorkflowPlanning {
+    private let providerSettingsStore: ProviderSettingsStore
+    private let generationProvider: any TextGenerationProvider
+    private let intentRouter: any MagicianIntentRouting
+    private let fallbackPlanner: HeuristicMagicianWorkflowPlanner
+    private let promptBuilder: MagicianWorkflowPlannerPromptBuilder
+    private let stepRegistry: MagicianStepRegistry
+
+    init(
+        providerSettingsStore: ProviderSettingsStore,
+        generationProvider: any TextGenerationProvider = OpenAITextGenerationProvider(),
+        intentRouter: (any MagicianIntentRouting)? = nil,
+        fallbackPlanner: HeuristicMagicianWorkflowPlanner? = nil,
+        promptBuilder: MagicianWorkflowPlannerPromptBuilder = MagicianWorkflowPlannerPromptBuilder(),
+        stepRegistry: MagicianStepRegistry = MagicianStepRegistry()
+    ) {
+        self.providerSettingsStore = providerSettingsStore
+        self.generationProvider = generationProvider
+        self.intentRouter = intentRouter ?? LLMMagicianIntentRouter(
+            providerSettingsStore: providerSettingsStore,
+            generationProvider: generationProvider
+        )
+        self.fallbackPlanner = fallbackPlanner ?? HeuristicMagicianWorkflowPlanner()
+        self.promptBuilder = promptBuilder
+        self.stepRegistry = stepRegistry
+    }
+
+    func plan(
+        command: String,
+        selection: String?,
+        enabledFeatures: Set<MagicianFeatureID>
+    ) async throws -> MagicianWorkflowPlan {
+        let normalizedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedSelection = selection?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        guard !normalizedCommand.isEmpty else {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "指令为空，请再说一次。",
+                debugMessage: "workflow command empty",
+                recoverAction: "retry_command"
+            )
+        }
+
+        if containsUnsupportedSearchIntent(normalizedCommand) {
+            throw unsupportedSearchIntentError()
+        }
+
+        if enabledFeatures.isEmpty {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "魔术先生能力都还没开启，请先在设置页打开至少一个开关。",
+                debugMessage: "enabledFeatures empty for workflow planner",
+                recoverAction: "open_magician_settings"
+            )
+        }
+
+        do {
+            guard providerSettingsStore.isRewriteConfigurationValid else {
+                throw MagicianError(
+                    code: .intentParseFailed,
+                    userMessage: "文本模型配置无效，请先到设置页修正。",
+                    debugMessage: providerSettingsStore.rewriteConfigurationValidationMessage,
+                    recoverAction: "open_provider_settings"
+                )
+            }
+
+            let key = (try? providerSettingsStore.loadAPIKeyForRewriteProvider())?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !key.isEmpty else {
+                throw MagicianError(
+                    code: .intentParseFailed,
+                    userMessage: "缺少文本模型 API 密钥，请先到设置页填写。",
+                    debugMessage: "workflow planner api key missing",
+                    recoverAction: "open_provider_settings"
+                )
+            }
+
+            let draft = try await classifyPlan(
+                command: normalizedCommand,
+                selection: normalizedSelection,
+                enabledFeatures: enabledFeatures,
+                apiKey: key
+            )
+
+            var steps: [MagicianWorkflowStep] = []
+            for (index, draftStep) in draft.steps.prefix(MagicianStepRegistry.maxStepCount).enumerated() {
+                guard enabledFeatures.contains(draftStep.feature) else {
+                    continue
+                }
+                let stepCommand = draftStep.command?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let resolvedCommand = (stepCommand?.isEmpty == false) ? stepCommand! : normalizedCommand
+                let forcedFeatures: Set<MagicianFeatureID> = [draftStep.feature]
+                let intent = try await intentRouter.route(
+                    command: resolvedCommand,
+                    selection: selection,
+                    enabledFeatures: forcedFeatures
+                )
+                steps.append(
+                    MagicianWorkflowStep(
+                        stepID: "step-\(index + 1)",
+                        feature: draftStep.feature,
+                        params: intent.params,
+                        inputBinding: draftStep.inputBinding ?? (index == 0 ? .selectionText : .previousOutput),
+                        retryPolicy: .default,
+                        timeoutMs: nil,
+                        command: resolvedCommand
+                    )
+                )
+            }
+
+            if steps.isEmpty {
+                throw MagicianError(
+                    code: .intentParseFailed,
+                    userMessage: "没有识别到可执行步骤，请换个说法再试。",
+                    debugMessage: "workflow planner returned empty steps",
+                    recoverAction: "retry_command"
+                )
+            }
+
+            return try stepRegistry.validatedPlan(
+                MagicianWorkflowPlan(
+                    version: 1,
+                    steps: steps,
+                    rationale: draft.rationale,
+                    confidence: draft.confidence ?? 0.75
+                ),
+                enabledFeatures: enabledFeatures,
+                fallbackCommand: normalizedCommand,
+                fallbackSelection: normalizedSelection
+            )
+        } catch {
+            return try await fallbackPlanner.plan(
+                command: normalizedCommand,
+                selection: normalizedSelection,
+                enabledFeatures: enabledFeatures
+            )
+        }
+    }
+
+    private func classifyPlan(
+        command: String,
+        selection: String,
+        enabledFeatures: Set<MagicianFeatureID>,
+        apiKey: String
+    ) async throws -> MagicianWorkflowPlanDraft {
+        let template = promptBuilder.build(
+            enabledFeatures: enabledFeatures,
+            command: command,
+            selection: selection
+        )
+        let response = try await generationProvider.generateText(
+            request: TextGenerationRequest(
+                systemPrompt: template.systemPrompt,
+                userPrompt: template.userPrompt,
+                temperature: 0.1,
+                maxOutputTokens: 360
+            ),
+            configuration: providerSettingsStore.rewriteConfiguration,
+            apiKey: apiKey
+        )
+        let text = response.outputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = text.data(using: .utf8) else {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "流程规划结果不可解析，请重试。",
+                debugMessage: "workflow planner output is not utf8",
+                recoverAction: "retry_command"
+            )
+        }
+        do {
+            return try JSONDecoder().decode(MagicianWorkflowPlanDraft.self, from: data)
+        } catch {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "流程规划结果格式不合法，请重试。",
+                debugMessage: "workflow planner decode failed: \(error.localizedDescription)",
+                recoverAction: "retry_command"
+            )
+        }
+    }
+}
+
+private extension String {
+    func components(separatedByRegex pattern: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return [self]
+        }
+        let range = NSRange(location: 0, length: (self as NSString).length)
+        var splitRanges: [Range<String.Index>] = []
+        var lastLocation = startIndex
+
+        regex.enumerateMatches(in: self, options: [], range: range) { match, _, _ in
+            guard
+                let match,
+                let fullRange = Range(match.range, in: self)
+            else {
+                return
+            }
+            splitRanges.append(lastLocation..<fullRange.lowerBound)
+            lastLocation = fullRange.upperBound
+        }
+        splitRanges.append(lastLocation..<endIndex)
+
+        return splitRanges
+            .map { String(self[$0]).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 }
