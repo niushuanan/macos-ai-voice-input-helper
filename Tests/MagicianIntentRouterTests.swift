@@ -551,6 +551,42 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertEqual(generationProvider.callCount, 1)
     }
 
+    func testLLMWorkflowPlannerPrefersHeuristicMultiStepPlanWhenLLMCollapsesExplicitWorkflow() async throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-test"])
+        )
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputText: """
+            {"steps":[{"feature":"create_note","command":"写进备忘录","inputBinding":"previous_output"}],"confidence":0.81,"rationale":"collapsed"}
+            """
+        )
+
+        let planner = LLMMagicianWorkflowPlanner(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider,
+            intentRouter: HeuristicMagicianIntentRouter(),
+            fallbackPlanner: HeuristicMagicianWorkflowPlanner(intentRouter: HeuristicMagicianIntentRouter())
+        )
+
+        let plan = try await planner.plan(
+            command: "翻译成日语并写进备忘录",
+            selection: "Hello world",
+            enabledFeatures: [.textTransform, .createNote]
+        )
+
+        XCTAssertEqual(plan.steps.count, 2)
+        XCTAssertEqual(plan.steps[0].feature, .textTransform)
+        XCTAssertEqual(plan.steps[1].feature, .createNote)
+        XCTAssertEqual(plan.steps[0].inputBinding, .selectionText)
+        XCTAssertEqual(plan.steps[1].inputBinding, .previousOutput)
+        XCTAssertEqual(generationProvider.callCount, 1)
+    }
+
     func testStepRegistryRejectsPlansLongerThanFiveSteps() {
         let registry = MagicianStepRegistry()
         let plan = MagicianWorkflowPlan(

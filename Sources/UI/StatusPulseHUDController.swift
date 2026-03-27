@@ -725,6 +725,7 @@ private struct StatusPulseHUDView: View {
         GeometryReader { proxy in
             let width = proxy.size.width
             let fillWidth = max(s(20), width * normalizedProgress)
+            let layout = HUDInlineTrackLayout.processing(totalWidth: width, scale: scale)
 
             ZStack(alignment: .leading) {
                 HUDNativeMaterialCapsule(scale: scale)
@@ -752,7 +753,8 @@ private struct StatusPulseHUDView: View {
                         speed: s(28),
                         gap: s(18)
                     )
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(width: layout.titleWidth, alignment: .leading)
+                    .clipped()
 
                     Capsule(style: .continuous)
                         .fill(Color.primary.opacity(0.16))
@@ -769,28 +771,36 @@ private struct StatusPulseHUDView: View {
                 }
                 .padding(.horizontal, s(10))
             }
+            .clipShape(Capsule(style: .continuous))
         }
         .frame(height: s(22))
     }
 
     private var feedbackCapsule: some View {
-        HStack(spacing: s(6)) {
-            Image(systemName: phase.menuBarSymbol)
-                .font(.system(size: s(9.5), weight: .semibold))
-                .foregroundStyle(phaseAccentColor)
-            HUDMarqueeText(
-                text: feedbackText,
-                font: .system(size: s(10.2), weight: .medium),
-                foregroundColor: Color.primary.opacity(0.80),
-                speed: s(28),
-                gap: s(18)
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
+        GeometryReader { proxy in
+            let layout = HUDInlineTrackLayout.feedback(totalWidth: proxy.size.width, scale: scale)
+
+            HStack(spacing: s(6)) {
+                Image(systemName: phase.menuBarSymbol)
+                    .font(.system(size: s(9.5), weight: .semibold))
+                    .foregroundStyle(phaseAccentColor)
+                    .frame(width: s(10), alignment: .center)
+                HUDMarqueeText(
+                    text: feedbackText,
+                    font: .system(size: s(10.2), weight: .medium),
+                    foregroundColor: Color.primary.opacity(0.80),
+                    speed: s(28),
+                    gap: s(18)
+                )
+                .frame(width: layout.titleWidth, alignment: .leading)
+                .clipped()
+            }
+            .padding(.horizontal, s(9))
+            .padding(.vertical, s(4.5))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .background(HUDNativeMaterialCapsule(scale: scale))
         }
-        .padding(.horizontal, s(9))
-        .padding(.vertical, s(4.5))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(HUDNativeMaterialCapsule(scale: scale))
+        .frame(height: s(22))
     }
 
     @ViewBuilder
@@ -798,27 +808,34 @@ private struct StatusPulseHUDView: View {
         title: String,
         @ViewBuilder indicator: () -> Indicator
     ) -> some View {
-        HStack(spacing: s(7)) {
-            HUDMarqueeText(
-                text: title,
-                font: .system(size: s(11.5), weight: .semibold, design: .rounded),
-                foregroundColor: Color.primary.opacity(0.84),
-                speed: s(28),
-                gap: s(18)
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
+        let indicatorView = indicator()
+        GeometryReader { proxy in
+            let layout = HUDInlineTrackLayout.status(totalWidth: proxy.size.width, scale: scale)
 
-            Capsule(style: .continuous)
-                .fill(Color.primary.opacity(0.16))
-                .frame(width: s(0.7), height: s(9))
+            HStack(spacing: s(7)) {
+                HUDMarqueeText(
+                    text: title,
+                    font: .system(size: s(11.5), weight: .semibold, design: .rounded),
+                    foregroundColor: Color.primary.opacity(0.84),
+                    speed: s(28),
+                    gap: s(18)
+                )
+                .frame(width: layout.titleWidth, alignment: .leading)
+                .clipped()
 
-            indicator()
-                .frame(width: s(20), height: s(10), alignment: .center)
+                Capsule(style: .continuous)
+                    .fill(Color.primary.opacity(0.16))
+                    .frame(width: s(0.7), height: s(9))
+
+                indicatorView
+                    .frame(width: s(20), height: s(10), alignment: .center)
+            }
+            .padding(.horizontal, s(11))
+            .padding(.vertical, s(4.5))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .background(HUDNativeMaterialCapsule(scale: scale))
         }
-        .padding(.horizontal, s(11))
-        .padding(.vertical, s(4.5))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(HUDNativeMaterialCapsule(scale: scale))
+        .frame(height: s(22))
     }
 }
 
@@ -873,6 +890,63 @@ struct HUDMarqueePlan: Equatable {
         let cycle = max(0.01, cycleDuration)
         let travel = CGFloat(activeElapsed.truncatingRemainder(dividingBy: cycle)) * speed
         return -min(travel, cycleDistance)
+    }
+}
+
+struct HUDInlineTrackLayout: Equatable {
+    let totalWidth: CGFloat
+    let horizontalPadding: CGFloat
+    let leadingAccessoryWidth: CGFloat
+    let trailingAccessoryWidth: CGFloat
+    let spacingCount: Int
+    let spacing: CGFloat
+
+    var titleWidth: CGFloat {
+        max(
+            0,
+            totalWidth
+                - (horizontalPadding * 2)
+                - leadingAccessoryWidth
+                - trailingAccessoryWidth
+                - (CGFloat(spacingCount) * spacing)
+        )
+    }
+
+    static func processing(totalWidth: CGFloat, scale: CGFloat) -> Self {
+        let separatorWidth = 0.7 * scale
+        let indicatorWidth = 22 * scale
+        return HUDInlineTrackLayout(
+            totalWidth: totalWidth,
+            horizontalPadding: 10 * scale,
+            leadingAccessoryWidth: 0,
+            trailingAccessoryWidth: separatorWidth + indicatorWidth,
+            spacingCount: 2,
+            spacing: 7 * scale
+        )
+    }
+
+    static func status(totalWidth: CGFloat, scale: CGFloat) -> Self {
+        let separatorWidth = 0.7 * scale
+        let indicatorWidth = 20 * scale
+        return HUDInlineTrackLayout(
+            totalWidth: totalWidth,
+            horizontalPadding: 11 * scale,
+            leadingAccessoryWidth: 0,
+            trailingAccessoryWidth: separatorWidth + indicatorWidth,
+            spacingCount: 2,
+            spacing: 7 * scale
+        )
+    }
+
+    static func feedback(totalWidth: CGFloat, scale: CGFloat) -> Self {
+        HUDInlineTrackLayout(
+            totalWidth: totalWidth,
+            horizontalPadding: 9 * scale,
+            leadingAccessoryWidth: 10 * scale,
+            trailingAccessoryWidth: 0,
+            spacingCount: 1,
+            spacing: 6 * scale
+        )
     }
 }
 

@@ -270,3 +270,17 @@ final class HUDMarqueePlanTests: XCTestCase {
         XCTAssertEqual(plan.offset(elapsed: 0), 0, accuracy: 0.0001)
     }
 }
+
+final class HUDInlineTrackLayoutTests: XCTestCase {
+    func testProcessingLayoutReservesRightIndicatorLane() {
+        let layout = HUDInlineTrackLayout.processing(totalWidth: 286, scale: 1.3)
+
+        XCTAssertEqual(layout.titleWidth, 212.29, accuracy: 0.01)
+    }
+
+    func testFeedbackLayoutSubtractsLeadingAccessorySpace() {
+        let layout = HUDInlineTrackLayout.feedback(totalWidth: 286, scale: 1.3)
+
+        XCTAssertEqual(layout.titleWidth, 241.8, accuracy: 0.01)
+    }
+}

@@ -1795,6 +1795,10 @@ struct MagicianWorkflowPlannerPromptBuilder {
         2) Use only allowed features.
         3) Keep order exactly as intended by the spoken command.
         4) Prefer linear steps and avoid duplicated adjacent steps.
+        5) If the spoken command uses explicit connectors such as “然后”, “再”, “接着”, “随后”, “并”, or “并且” between distinct actions, keep them as separate steps instead of collapsing them.
+        6) Example: “翻译成日语并写进备忘录” should become two steps:
+           - text_transform with command “翻译成日语” and inputBinding “selection_text”
+           - create_note with command “写进备忘录” and inputBinding “previous_output”
         """
 
         let userPrompt = """
@@ -1946,7 +1950,7 @@ struct LLMMagicianWorkflowPlanner: MagicianWorkflowPlanning {
                 )
             }
 
-            return try stepRegistry.validatedPlan(
+            let llmPlan = try stepRegistry.validatedPlan(
                 MagicianWorkflowPlan(
                     version: 1,
                     steps: steps,
@@ -1957,6 +1961,13 @@ struct LLMMagicianWorkflowPlanner: MagicianWorkflowPlanning {
                 fallbackCommand: normalizedCommand,
                 fallbackSelection: normalizedSelection
             )
+
+            return try await preferredPlan(
+                llmPlan: llmPlan,
+                command: normalizedCommand,
+                selection: normalizedSelection,
+                enabledFeatures: enabledFeatures
+            )
         } catch {
             return try await fallbackPlanner.plan(
                 command: normalizedCommand,
@@ -1964,6 +1975,55 @@ struct LLMMagicianWorkflowPlanner: MagicianWorkflowPlanning {
                 enabledFeatures: enabledFeatures
             )
         }
+    }
+
+    private func preferredPlan(
+        llmPlan: MagicianWorkflowPlan,
+        command: String,
+        selection: String,
+        enabledFeatures: Set<MagicianFeatureID>
+    ) async throws -> MagicianWorkflowPlan {
+        guard shouldCheckHeuristicPromotion(command: command, llmPlan: llmPlan) else {
+            return llmPlan
+        }
+
+        guard let heuristicPlan = try? await fallbackPlanner.plan(
+            command: command,
+            selection: selection,
+            enabledFeatures: enabledFeatures
+        ) else {
+            return llmPlan
+        }
+
+        return shouldPreferHeuristicPlan(heuristicPlan, over: llmPlan, command: command)
+            ? heuristicPlan
+            : llmPlan
+    }
+
+    private func shouldCheckHeuristicPromotion(
+        command: String,
+        llmPlan: MagicianWorkflowPlan
+    ) -> Bool {
+        llmPlan.steps.count == 1 && commandContainsExplicitWorkflowConnector(command)
+    }
+
+    private func shouldPreferHeuristicPlan(
+        _ heuristicPlan: MagicianWorkflowPlan,
+        over llmPlan: MagicianWorkflowPlan,
+        command: String
+    ) -> Bool {
+        guard commandContainsExplicitWorkflowConnector(command) else {
+            return false
+        }
+        guard heuristicPlan.steps.count > llmPlan.steps.count else {
+            return false
+        }
+        return heuristicPlan.steps.count > 1
+    }
+
+    private func commandContainsExplicitWorkflowConnector(_ command: String) -> Bool {
+        let tokens = ["然后", "接着", "随后", "并且", "并", "之后", "最后"]
+        return tokens.contains(where: command.contains)
     }
 
     private func classifyPlan(

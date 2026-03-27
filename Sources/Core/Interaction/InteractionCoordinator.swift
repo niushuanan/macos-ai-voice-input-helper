@@ -2093,6 +2093,48 @@ final class InteractionCoordinator {
         }
     }
 
+    private func resolvedWorkflowToolParams(
+        for request: MagicianWorkflowStepExecutionRequest,
+        sourceText: String,
+        command: String
+    ) -> MagicianIntentParams {
+        var params = request.step.params
+        let normalizedSource = sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard request.step.inputBinding == .previousOutput, !normalizedSource.isEmpty else {
+            return params
+        }
+
+        switch request.step.feature {
+        case .createNote:
+            params.noteBody = normalizedSource
+        case .composeEmailDraft:
+            params.mailBody = normalizedSource
+            if params.mailDeliveryMode == nil {
+                params.mailDeliveryMode = .autoSendIfResolved
+            }
+        case .createEvent:
+            let normalizedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+            if
+                let title = params.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+                !title.isEmpty,
+                isLikelyInstructionPhrase(
+                    title,
+                    command: normalizedCommand,
+                    actionTokens: ["日程", "建立日程", "创建日程", "建日程", "会议", "calendar", "event"]
+                )
+            {
+                params.title = nil
+            }
+            if params.notes?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+                params.notes = normalizedSource
+            }
+        case .textTransform:
+            break
+        }
+
+        return params
+    }
+
     private func isAutoSendMailResult(_ result: MagicianExecutionResult) -> Bool {
         result.userMessage.contains("邮件已发出")
     }
@@ -2174,13 +2216,17 @@ final class InteractionCoordinator {
             )
         }
 
-        var params = request.step.params
-        if request.step.feature == .composeEmailDraft, params.mailDeliveryMode == nil {
-            params.mailDeliveryMode = .autoSendIfResolved
-        }
         let sourceText = stepInputText.isEmpty
             ? (request.latestOutputText ?? request.context.selectedText)
             : stepInputText
+        var params = resolvedWorkflowToolParams(
+            for: request,
+            sourceText: sourceText,
+            command: resolvedCommand
+        )
+        if request.step.feature == .composeEmailDraft, params.mailDeliveryMode == nil {
+            params.mailDeliveryMode = .autoSendIfResolved
+        }
         let intent = MagicianIntent(
             intent: request.step.feature,
             confidence: 0.86,

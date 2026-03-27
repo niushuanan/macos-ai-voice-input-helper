@@ -664,6 +664,78 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertTrue((fixture.localHistoryStore.entries.first?.displayText ?? "").contains("写入备忘录 -> 邮件助手"))
     }
 
+    func testWorkflowPreviousOutputFeedsFollowUpNoteBody() async throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
+            focusContext: FixedContextDetector().focusedAppContext(),
+            selectedText: "Hello world"
+        )
+        let rewriteProvider = CapturingRewriteProvider(
+            result: .success(
+                SelectionRewriteResult(
+                    rewrittenText: "こんにちは世界",
+                    actionLabel: "翻译成日语",
+                    providerName: "Fake OpenAI",
+                    modelName: "fake-model"
+                )
+            )
+        )
+        let planner = FixedWorkflowPlanner(
+            plan: MagicianWorkflowPlan(
+                steps: [
+                    MagicianWorkflowStep(
+                        stepID: "step-1",
+                        feature: .textTransform,
+                        params: MagicianIntentParams(targetLanguage: "Japanese"),
+                        inputBinding: .selectionText,
+                        command: "翻译成日语"
+                    ),
+                    MagicianWorkflowStep(
+                        stepID: "step-2",
+                        feature: .createNote,
+                        params: MagicianIntentParams(noteBody: "Hello world"),
+                        inputBinding: .previousOutput,
+                        command: "写进备忘录"
+                    )
+                ],
+                confidence: 0.93
+            )
+        )
+        let toolExecutor = FakeMagicianToolExecutor()
+        toolExecutor.result = .success(
+            MagicianExecutionResult(
+                intent: .createNote,
+                userMessage: "已写入备忘录。",
+                outputText: "こんにちは世界",
+                fallbackUsed: false
+            )
+        )
+
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutputCoordinator,
+            magicianWorkflowPlanner: planner,
+            magicianToolExecutor: toolExecutor,
+            rewriteProviders: [rewriteProvider],
+            transcriptionText: "翻译成日语并写进备忘录"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createNote)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore, timeoutNanoseconds: 5_000_000_000)
+
+        XCTAssertEqual(rewriteProvider.callCount, 1)
+        XCTAssertEqual(toolExecutor.callCount, 1)
+        XCTAssertEqual(toolExecutor.lastIntent?.intent, .createNote)
+        XCTAssertEqual(toolExecutor.lastIntent?.params.noteBody, "こんにちは世界")
+        XCTAssertEqual(toolExecutor.lastExecutionContext?.selection?.selectedText, "こんにちは世界")
+        XCTAssertEqual(fixture.sessionStore.statusMessage, "已写入备忘录。")
+        XCTAssertEqual(fixture.sessionStore.phase, .idle)
+    }
+
     func testWorkflowExecutionStopsWhenFirstStepFails() async throws {
         let planner = FixedWorkflowPlanner(
             plan: MagicianWorkflowPlan(
@@ -839,6 +911,7 @@ final class InteractionCoordinatorTests: XCTestCase {
             "路线图评审：周五 15:00，评审结束后发邮件同步项目组。"
         )
         XCTAssertEqual(toolExecutor.intents.last?.sourceText, "路线图评审：周五 15:00，A会议室")
+        XCTAssertEqual(toolExecutor.intents.last?.params.mailBody, "路线图评审：周五 15:00，A会议室")
         XCTAssertEqual(fixture.sessionStore.statusMessage, "邮件已发出")
         XCTAssertEqual(fixture.sessionStore.phase, .idle)
         XCTAssertEqual(fixture.textOutputCoordinator.lastRequest, nil)
