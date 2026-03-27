@@ -32,26 +32,19 @@ struct HUDProgressStateMachine {
     private(set) var previousPhase: SessionPhase = .idle
     private(set) var progress: Double = 0
     private(set) var cap: Double = 0
-    private(set) var targetProgress: Double = 0
-    private(set) var latestHint: Double = 0
-    private var lastBusyMessage: String = ""
 
     mutating func transition(
         to phase: SessionPhase,
-        progressHint rawProgressHint: Double,
-        message: String
+        progressHint _: Double,
+        message _: String
     ) -> HUDProgressFrame {
         let cameFromBusy = previousPhase.isHUDBusyPhase
-        let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let frame: HUDProgressFrame
         switch phase {
         case .listening:
             progress = 0
             cap = 0
-            targetProgress = 0
-            latestHint = 0
-            lastBusyMessage = ""
             frame = HUDProgressFrame(
                 style: .listening,
                 progress: progress,
@@ -60,25 +53,8 @@ struct HUDProgressStateMachine {
 
         case .transcribing, .rewriting, .inserting:
             let plan = busyPlan(for: phase)
-            let resolvedHint = min(
-                plan.ceiling,
-                rawProgressHint > 0 ? rawProgressHint : plan.fallbackHint
-            )
-            let resolvedTarget = min(plan.ceiling, resolvedHint + 0.08)
-            let didChangeBusyMessage = previousPhase == phase
-                && phase.isHUDBusyPhase
-                && normalizedMessage != lastBusyMessage
-                && !normalizedMessage.isEmpty
-
-            progress = max(progress, resolvedHint)
-            cap = plan.ceiling
-            targetProgress = max(progress, resolvedTarget)
-            latestHint = resolvedHint
-            if didChangeBusyMessage {
-                progress = min(plan.ceiling, max(progress, min(resolvedTarget, progress + 0.02)))
-                targetProgress = min(plan.ceiling, max(targetProgress, progress + 0.02))
-            }
-            lastBusyMessage = normalizedMessage
+            progress = max(progress, plan.baseline)
+            cap = max(cap, plan.cap)
             frame = HUDProgressFrame(
                 style: .processing(title: plan.title),
                 progress: progress,
@@ -89,9 +65,6 @@ struct HUDProgressStateMachine {
             if cameFromBusy {
                 progress = 1
                 cap = 1
-                targetProgress = 1
-                latestHint = 1
-                lastBusyMessage = ""
                 frame = HUDProgressFrame(
                     style: .completion,
                     progress: progress,
@@ -104,9 +77,6 @@ struct HUDProgressStateMachine {
             } else {
                 progress = 0
                 cap = 0
-                targetProgress = 0
-                latestHint = 0
-                lastBusyMessage = ""
                 frame = HUDProgressFrame(
                     style: .feedback,
                     progress: progress,
@@ -121,9 +91,6 @@ struct HUDProgressStateMachine {
         case .cancelled:
             progress = 0
             cap = 0
-            targetProgress = 0
-            latestHint = 0
-            lastBusyMessage = ""
             frame = HUDProgressFrame(
                 style: .cancelled,
                 progress: progress,
@@ -137,9 +104,6 @@ struct HUDProgressStateMachine {
         case .error:
             progress = 0
             cap = 0
-            targetProgress = 0
-            latestHint = 0
-            lastBusyMessage = ""
             frame = HUDProgressFrame(
                 style: .error,
                 progress: progress,
@@ -156,32 +120,25 @@ struct HUDProgressStateMachine {
     }
 
     mutating func tick() -> Double {
-        let fastTarget = min(targetProgress, cap)
-        if fastTarget > progress {
-            let delta = max(0.004, (fastTarget - progress) * 0.22)
-            progress = min(fastTarget, progress + delta)
-            return progress
-        }
-
         guard cap > progress else {
             return progress
         }
 
-        let delta = max(0.0012, (cap - progress) * 0.035)
+        let delta = max(0.003, (cap - progress) * 0.14)
         progress = min(cap, progress + delta)
         return progress
     }
 
-    private func busyPlan(for phase: SessionPhase) -> (title: String, fallbackHint: Double, ceiling: Double) {
+    private func busyPlan(for phase: SessionPhase) -> (title: String, baseline: Double, cap: Double) {
         switch phase {
         case .transcribing:
-            return ("转写中", SessionHUDProgressHint.transcribing, 0.42)
+            return ("转写中", 0.12, 0.46)
         case .rewriting:
-            return ("魔术先生执行", SessionHUDProgressHint.textTransform, 0.84)
+            return ("魔术先生执行", 0.46, 0.78)
         case .inserting:
-            return ("写入中", SessionHUDProgressHint.inserting, 0.97)
+            return ("写入中", 0.78, 0.94)
         case .idle, .listening, .cancelled, .error:
-            return ("处理中", SessionHUDProgressHint.transcribing, 0.42)
+            return ("处理中", 0.12, 0.46)
         }
     }
 }
@@ -210,7 +167,7 @@ enum StatusPulseHUDTitleResolver {
 
         switch phase {
         case .transcribing:
-            return "魔术先生 · 处理中"
+            return "魔术先生 · 思考中"
         case .rewriting:
             return magicianRewritingTitle(from: message, fallback: defaultTitle)
         case .inserting:
@@ -396,7 +353,7 @@ final class StatusPulseHUDController {
     private var progressStateMachine = HUDProgressStateMachine()
     private var visibilityGeneration: UInt64 = 0
     private let hudScale: CGFloat = 1.3
-    private let baseHUDSize = NSSize(width: 220, height: 34)
+    private let baseHUDSize = NSSize(width: 184, height: 34)
 
     private var currentPhase: SessionPhase = .idle
     private var currentLane: InputLane = .directDictation
@@ -558,7 +515,7 @@ final class StatusPulseHUDController {
         }
 
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + (1.0 / 30.0), repeating: 1.0 / 30.0)
+        timer.schedule(deadline: .now() + 0.04, repeating: 0.04)
         timer.setEventHandler { [weak self] in
             self?.handleProgressTick()
         }
@@ -725,7 +682,6 @@ private struct StatusPulseHUDView: View {
         GeometryReader { proxy in
             let width = proxy.size.width
             let fillWidth = max(s(20), width * normalizedProgress)
-            let layout = HUDInlineTrackLayout.processing(totalWidth: width, scale: scale)
 
             ZStack(alignment: .leading) {
                 HUDNativeMaterialCapsule(scale: scale)
@@ -746,15 +702,11 @@ private struct StatusPulseHUDView: View {
                     .animation(.easeOut(duration: completion ? 0.14 : 0.18), value: normalizedProgress)
 
                 HStack(spacing: s(7)) {
-                    HUDMarqueeText(
-                        text: title,
-                        font: .system(size: s(11.5), weight: .semibold, design: .rounded),
-                        foregroundColor: Color.primary.opacity(0.86),
-                        speed: s(28),
-                        gap: s(18)
-                    )
-                    .frame(width: layout.titleWidth, alignment: .leading)
-                    .clipped()
+                    Spacer(minLength: 0)
+                    Text(title)
+                        .font(.system(size: s(11.5), weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color.primary.opacity(0.86))
+                        .lineLimit(1)
 
                     Capsule(style: .continuous)
                         .fill(Color.primary.opacity(0.16))
@@ -766,41 +718,31 @@ private struct StatusPulseHUDView: View {
                             .foregroundStyle(Color.accentColor.opacity(0.68))
                             .frame(width: s(22), height: s(10), alignment: .center)
                     } else {
-                        ProcessingDots(progress: normalizedProgress, scale: scale)
+                        ThinkingDots(progress: normalizedProgress, scale: scale)
                     }
+
+                    Spacer(minLength: 0)
                 }
                 .padding(.horizontal, s(10))
             }
-            .clipShape(Capsule(style: .continuous))
         }
         .frame(height: s(22))
     }
 
     private var feedbackCapsule: some View {
-        GeometryReader { proxy in
-            let layout = HUDInlineTrackLayout.feedback(totalWidth: proxy.size.width, scale: scale)
-
-            HStack(spacing: s(6)) {
-                Image(systemName: phase.menuBarSymbol)
-                    .font(.system(size: s(9.5), weight: .semibold))
-                    .foregroundStyle(phaseAccentColor)
-                    .frame(width: s(10), alignment: .center)
-                HUDMarqueeText(
-                    text: feedbackText,
-                    font: .system(size: s(10.2), weight: .medium),
-                    foregroundColor: Color.primary.opacity(0.80),
-                    speed: s(28),
-                    gap: s(18)
-                )
-                .frame(width: layout.titleWidth, alignment: .leading)
-                .clipped()
-            }
-            .padding(.horizontal, s(9))
-            .padding(.vertical, s(4.5))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(HUDNativeMaterialCapsule(scale: scale))
+        HStack(spacing: s(6)) {
+            Image(systemName: phase.menuBarSymbol)
+                .font(.system(size: s(9.5), weight: .semibold))
+                .foregroundStyle(phaseAccentColor)
+            Text(feedbackText)
+                .font(.system(size: s(10.2), weight: .medium))
+                .foregroundStyle(Color.primary.opacity(0.80))
+                .lineLimit(1)
         }
-        .frame(height: s(22))
+        .padding(.horizontal, s(9))
+        .padding(.vertical, s(4.5))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(HUDNativeMaterialCapsule(scale: scale))
     }
 
     @ViewBuilder
@@ -808,236 +750,23 @@ private struct StatusPulseHUDView: View {
         title: String,
         @ViewBuilder indicator: () -> Indicator
     ) -> some View {
-        let indicatorView = indicator()
-        GeometryReader { proxy in
-            let layout = HUDInlineTrackLayout.status(totalWidth: proxy.size.width, scale: scale)
+        HStack(spacing: s(7)) {
+            Text(title)
+                .font(.system(size: s(11.5), weight: .semibold, design: .rounded))
+                .foregroundStyle(Color.primary.opacity(0.84))
+                .lineLimit(1)
 
-            HStack(spacing: s(7)) {
-                HUDMarqueeText(
-                    text: title,
-                    font: .system(size: s(11.5), weight: .semibold, design: .rounded),
-                    foregroundColor: Color.primary.opacity(0.84),
-                    speed: s(28),
-                    gap: s(18)
-                )
-                .frame(width: layout.titleWidth, alignment: .leading)
-                .clipped()
+            Capsule(style: .continuous)
+                .fill(Color.primary.opacity(0.16))
+                .frame(width: s(0.7), height: s(9))
 
-                Capsule(style: .continuous)
-                    .fill(Color.primary.opacity(0.16))
-                    .frame(width: s(0.7), height: s(9))
-
-                indicatorView
-                    .frame(width: s(20), height: s(10), alignment: .center)
-            }
-            .padding(.horizontal, s(11))
-            .padding(.vertical, s(4.5))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(HUDNativeMaterialCapsule(scale: scale))
+            indicator()
+                .frame(width: s(20), height: s(10), alignment: .center)
         }
-        .frame(height: s(22))
-    }
-}
-
-struct HUDMarqueePlan: Equatable {
-    let textWidth: CGFloat
-    let containerWidth: CGFloat
-    let startDelay: TimeInterval
-    let speed: CGFloat
-    let gap: CGFloat
-
-    init(
-        textWidth: CGFloat,
-        containerWidth: CGFloat,
-        startDelay: TimeInterval = 0.8,
-        speed: CGFloat = 28,
-        gap: CGFloat = 18
-    ) {
-        self.textWidth = textWidth
-        self.containerWidth = containerWidth
-        self.startDelay = startDelay
-        self.speed = speed
-        self.gap = gap
-    }
-
-    var overflow: CGFloat {
-        max(0, textWidth - containerWidth)
-    }
-
-    var shouldScroll: Bool {
-        overflow > 6
-    }
-
-    var cycleDistance: CGFloat {
-        overflow + gap
-    }
-
-    var cycleDuration: TimeInterval {
-        guard shouldScroll, speed > 0 else {
-            return 0
-        }
-        return TimeInterval(cycleDistance / speed)
-    }
-
-    func offset(elapsed: TimeInterval) -> CGFloat {
-        guard shouldScroll, speed > 0 else {
-            return 0
-        }
-        guard elapsed > startDelay else {
-            return 0
-        }
-        let activeElapsed = elapsed - startDelay
-        let cycle = max(0.01, cycleDuration)
-        let travel = CGFloat(activeElapsed.truncatingRemainder(dividingBy: cycle)) * speed
-        return -min(travel, cycleDistance)
-    }
-}
-
-struct HUDInlineTrackLayout: Equatable {
-    let totalWidth: CGFloat
-    let horizontalPadding: CGFloat
-    let leadingAccessoryWidth: CGFloat
-    let trailingAccessoryWidth: CGFloat
-    let spacingCount: Int
-    let spacing: CGFloat
-
-    var titleWidth: CGFloat {
-        max(
-            0,
-            totalWidth
-                - (horizontalPadding * 2)
-                - leadingAccessoryWidth
-                - trailingAccessoryWidth
-                - (CGFloat(spacingCount) * spacing)
-        )
-    }
-
-    static func processing(totalWidth: CGFloat, scale: CGFloat) -> Self {
-        let separatorWidth = 0.7 * scale
-        let indicatorWidth = 22 * scale
-        return HUDInlineTrackLayout(
-            totalWidth: totalWidth,
-            horizontalPadding: 10 * scale,
-            leadingAccessoryWidth: 0,
-            trailingAccessoryWidth: separatorWidth + indicatorWidth,
-            spacingCount: 2,
-            spacing: 7 * scale
-        )
-    }
-
-    static func status(totalWidth: CGFloat, scale: CGFloat) -> Self {
-        let separatorWidth = 0.7 * scale
-        let indicatorWidth = 20 * scale
-        return HUDInlineTrackLayout(
-            totalWidth: totalWidth,
-            horizontalPadding: 11 * scale,
-            leadingAccessoryWidth: 0,
-            trailingAccessoryWidth: separatorWidth + indicatorWidth,
-            spacingCount: 2,
-            spacing: 7 * scale
-        )
-    }
-
-    static func feedback(totalWidth: CGFloat, scale: CGFloat) -> Self {
-        HUDInlineTrackLayout(
-            totalWidth: totalWidth,
-            horizontalPadding: 9 * scale,
-            leadingAccessoryWidth: 10 * scale,
-            trailingAccessoryWidth: 0,
-            spacingCount: 1,
-            spacing: 6 * scale
-        )
-    }
-}
-
-private struct HUDMeasuredWidthPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
-private struct HUDMarqueeText: View {
-    let text: String
-    let font: Font
-    let foregroundColor: Color
-    let speed: CGFloat
-    let gap: CGFloat
-    let startDelay: TimeInterval
-
-    @State private var textWidth: CGFloat = 0
-    @State private var animationStart = Date()
-
-    init(
-        text: String,
-        font: Font,
-        foregroundColor: Color,
-        speed: CGFloat,
-        gap: CGFloat,
-        startDelay: TimeInterval = 0.8
-    ) {
-        self.text = text
-        self.font = font
-        self.foregroundColor = foregroundColor
-        self.speed = speed
-        self.gap = gap
-        self.startDelay = startDelay
-    }
-
-    var body: some View {
-        GeometryReader { proxy in
-            let availableWidth = max(0, proxy.size.width)
-
-            TimelineView(.periodic(from: animationStart, by: 1.0 / 30.0)) { context in
-                let plan = HUDMarqueePlan(
-                    textWidth: textWidth,
-                    containerWidth: availableWidth,
-                    startDelay: startDelay,
-                    speed: speed,
-                    gap: gap
-                )
-
-                HStack(spacing: plan.shouldScroll ? gap : 0) {
-                    textLabel
-                    if plan.shouldScroll {
-                        textLabel
-                    }
-                }
-                .offset(x: plan.offset(elapsed: context.date.timeIntervalSince(animationStart)))
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .clipped()
-            .onChange(of: text) { _, _ in
-                animationStart = Date()
-            }
-            .onChange(of: availableWidth) { _, _ in
-                animationStart = Date()
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .onPreferenceChange(HUDMeasuredWidthPreferenceKey.self) { width in
-            if abs(width - textWidth) > 0.5 {
-                textWidth = width
-                animationStart = Date()
-            }
-        }
-    }
-
-    private var textLabel: some View {
-        Text(text)
-            .font(font)
-            .foregroundStyle(foregroundColor)
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .background(
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: HUDMeasuredWidthPreferenceKey.self,
-                        value: proxy.size.width
-                    )
-                }
-            )
+        .padding(.horizontal, s(11))
+        .padding(.vertical, s(4.5))
+        .frame(maxWidth: .infinity, alignment: .center)
+        .background(HUDNativeMaterialCapsule(scale: scale))
     }
 }
 
@@ -1074,7 +803,7 @@ private struct ListeningBars: View {
     }
 }
 
-private struct ProcessingDots: View {
+private struct ThinkingDots: View {
     let progress: Double
     let scale: CGFloat
 
