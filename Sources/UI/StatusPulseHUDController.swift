@@ -32,10 +32,11 @@ struct HUDProgressStateMachine {
     private(set) var previousPhase: SessionPhase = .idle
     private(set) var progress: Double = 0
     private(set) var cap: Double = 0
+    private(set) var targetProgress: Double = 0
 
     mutating func transition(
         to phase: SessionPhase,
-        progressHint _: Double,
+        progressHint rawProgressHint: Double,
         message _: String
     ) -> HUDProgressFrame {
         let cameFromBusy = previousPhase.isHUDBusyPhase
@@ -45,6 +46,7 @@ struct HUDProgressStateMachine {
         case .listening:
             progress = 0
             cap = 0
+            targetProgress = 0
             frame = HUDProgressFrame(
                 style: .listening,
                 progress: progress,
@@ -53,8 +55,14 @@ struct HUDProgressStateMachine {
 
         case .transcribing, .rewriting, .inserting:
             let plan = busyPlan(for: phase)
-            progress = max(progress, plan.baseline)
-            cap = max(cap, plan.cap)
+            let resolvedHint = min(
+                plan.ceiling,
+                rawProgressHint > 0 ? rawProgressHint : plan.fallbackHint
+            )
+            let resolvedTarget = min(plan.ceiling, resolvedHint + 0.08)
+            progress = max(progress, resolvedHint)
+            cap = plan.ceiling
+            targetProgress = max(progress, resolvedTarget)
             frame = HUDProgressFrame(
                 style: .processing(title: plan.title),
                 progress: progress,
@@ -65,6 +73,7 @@ struct HUDProgressStateMachine {
             if cameFromBusy {
                 progress = 1
                 cap = 1
+                targetProgress = 1
                 frame = HUDProgressFrame(
                     style: .completion,
                     progress: progress,
@@ -77,6 +86,7 @@ struct HUDProgressStateMachine {
             } else {
                 progress = 0
                 cap = 0
+                targetProgress = 0
                 frame = HUDProgressFrame(
                     style: .feedback,
                     progress: progress,
@@ -91,6 +101,7 @@ struct HUDProgressStateMachine {
         case .cancelled:
             progress = 0
             cap = 0
+            targetProgress = 0
             frame = HUDProgressFrame(
                 style: .cancelled,
                 progress: progress,
@@ -104,6 +115,7 @@ struct HUDProgressStateMachine {
         case .error:
             progress = 0
             cap = 0
+            targetProgress = 0
             frame = HUDProgressFrame(
                 style: .error,
                 progress: progress,
@@ -120,25 +132,32 @@ struct HUDProgressStateMachine {
     }
 
     mutating func tick() -> Double {
+        let fastTarget = min(targetProgress, cap)
+        if fastTarget > progress {
+            let delta = max(0.004, (fastTarget - progress) * 0.22)
+            progress = min(fastTarget, progress + delta)
+            return progress
+        }
+
         guard cap > progress else {
             return progress
         }
 
-        let delta = max(0.003, (cap - progress) * 0.14)
+        let delta = max(0.0012, (cap - progress) * 0.035)
         progress = min(cap, progress + delta)
         return progress
     }
 
-    private func busyPlan(for phase: SessionPhase) -> (title: String, baseline: Double, cap: Double) {
+    private func busyPlan(for phase: SessionPhase) -> (title: String, fallbackHint: Double, ceiling: Double) {
         switch phase {
         case .transcribing:
-            return ("转写中", 0.12, 0.46)
+            return ("转写中", SessionHUDProgressHint.transcribing, 0.42)
         case .rewriting:
-            return ("魔术先生执行", 0.46, 0.78)
+            return ("魔术先生执行", SessionHUDProgressHint.textTransform, 0.84)
         case .inserting:
-            return ("写入中", 0.78, 0.94)
+            return ("写入中", SessionHUDProgressHint.inserting, 0.97)
         case .idle, .listening, .cancelled, .error:
-            return ("处理中", 0.12, 0.46)
+            return ("处理中", SessionHUDProgressHint.transcribing, 0.42)
         }
     }
 }

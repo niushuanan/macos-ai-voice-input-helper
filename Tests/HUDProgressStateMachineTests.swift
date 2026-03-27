@@ -2,7 +2,7 @@ import XCTest
 @testable import PulseType
 
 final class HUDProgressStateMachineTests: XCTestCase {
-    func testTranscribingStartsFromBaselineAndCap() {
+    func testTranscribingStartsFromHintAndCap() {
         var machine = HUDProgressStateMachine()
 
         let frame = machine.transition(
@@ -11,8 +11,9 @@ final class HUDProgressStateMachineTests: XCTestCase {
             message: "正在用 OpenAI 转写。"
         )
 
-        XCTAssertEqual(frame.progress, 0.12, accuracy: 0.0001)
-        XCTAssertEqual(machine.cap, 0.46, accuracy: 0.0001)
+        XCTAssertEqual(frame.progress, 0.18, accuracy: 0.0001)
+        XCTAssertEqual(machine.cap, 0.42, accuracy: 0.0001)
+        XCTAssertEqual(machine.targetProgress, 0.26, accuracy: 0.0001)
         XCTAssertTrue(frame.visibility.keepVisible)
 
         guard case let .processing(title) = frame.style else {
@@ -36,8 +37,8 @@ final class HUDProgressStateMachineTests: XCTestCase {
             message: "正在把文本写入 TextEdit。"
         )
 
-        XCTAssertGreaterThanOrEqual(frame.progress, 0.78)
-        XCTAssertEqual(machine.cap, 0.94, accuracy: 0.0001)
+        XCTAssertGreaterThanOrEqual(frame.progress, 0.90)
+        XCTAssertEqual(machine.cap, 0.97, accuracy: 0.0001)
         guard case let .processing(title) = frame.style else {
             return XCTFail("expected processing style")
         }
@@ -100,7 +101,63 @@ final class HUDProgressStateMachineTests: XCTestCase {
         XCTAssertEqual(error.visibility.fadeDuration, 0.12, accuracy: 0.0001)
     }
 
-    func testTickSmoothlyApproachesCapWithoutOvershoot() {
+    func testTickUsesHintBeforeSlowClimb() {
+        var machine = HUDProgressStateMachine()
+        _ = machine.transition(
+            to: .rewriting,
+            progressHint: SessionHUDProgressHint.workflowPreview,
+            message: "魔术先生执行中：流程预览：翻译成日语 -> 写入备忘录。"
+        )
+
+        let first = machine.progress
+        let second = machine.tick()
+        XCTAssertGreaterThan(second, first)
+        XCTAssertLessThanOrEqual(second, machine.targetProgress)
+        XCTAssertEqual(machine.targetProgress, 0.54, accuracy: 0.0001)
+    }
+
+    func testHigherHintInSamePhasePushesProgressForward() {
+        var machine = HUDProgressStateMachine()
+        _ = machine.transition(
+            to: .rewriting,
+            progressHint: SessionHUDProgressHint.workflowPreview,
+            message: "魔术先生执行中：流程预览：翻译成日语 -> 写入备忘录。"
+        )
+        _ = machine.tick()
+        let before = machine.progress
+
+        let frame = machine.transition(
+            to: .rewriting,
+            progressHint: SessionHUDProgressHint.workflowStep(index: 1, totalSteps: 2),
+            message: "魔术先生执行中：第1/2步：翻译成日语中。"
+        )
+
+        XCTAssertGreaterThan(frame.progress, before)
+        XCTAssertGreaterThan(machine.targetProgress, before)
+    }
+
+    func testTickContinuesClimbingAfterFastTargetUntilCeiling() {
+        var machine = HUDProgressStateMachine()
+        _ = machine.transition(
+            to: .rewriting,
+            progressHint: SessionHUDProgressHint.workflowPreview,
+            message: "魔术先生执行中：流程预览：翻译成日语 -> 写入备忘录。"
+        )
+
+        for _ in 0..<80 {
+            _ = machine.tick()
+        }
+        let afterFastTarget = machine.progress
+
+        for _ in 0..<20 {
+            _ = machine.tick()
+        }
+
+        XCTAssertGreaterThan(machine.progress, afterFastTarget)
+        XCTAssertLessThanOrEqual(machine.progress, machine.cap)
+    }
+
+    func testTickNeverExceedsCeiling() {
         var machine = HUDProgressStateMachine()
         _ = machine.transition(
             to: .transcribing,
@@ -108,16 +165,12 @@ final class HUDProgressStateMachineTests: XCTestCase {
             message: "正在用 OpenAI 转写。"
         )
 
-        let first = machine.progress
-        let second = machine.tick()
-        XCTAssertGreaterThan(second, first)
-
-        for _ in 0..<200 {
+        for _ in 0..<400 {
             _ = machine.tick()
         }
 
-        XCTAssertLessThanOrEqual(machine.progress, 0.46)
-        XCTAssertEqual(machine.progress, 0.46, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(machine.progress, 0.42)
+        XCTAssertEqual(machine.progress, 0.42, accuracy: 0.001)
     }
 
     func testMagicianTitleResolverUsesThinkingDuringTranscribing() {
