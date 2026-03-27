@@ -12,7 +12,7 @@ enum MemoryEntryTextResolver {
         guard entry.mode == .dictation else {
             return nil
         }
-        return normalized(entry.inputText)
+        return normalizedRaw(entry.inputText)
     }
 
     static func brainstormSummaryText(for entry: SessionHistoryEntry) -> String? {
@@ -34,7 +34,7 @@ enum MemoryEntryTextResolver {
         guard entry.mode == .brainstorm else {
             return nil
         }
-        return normalized(entry.inputText)
+        return normalizedRaw(entry.inputText)
     }
 
     static func magicianPrimaryText(for entry: SessionHistoryEntry) -> String? {
@@ -60,7 +60,7 @@ enum MemoryEntryTextResolver {
             return nil
         }
 
-        let source = normalized(entry.inputText)
+        let source = normalizedRaw(entry.inputText)
         let primary = magicianPrimaryText(for: entry)
         guard let source else {
             return nil
@@ -108,6 +108,23 @@ enum MemoryEntryTextResolver {
         }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func normalizedRaw(_ value: String?) -> String? {
+        guard let text = normalized(value) else {
+            return nil
+        }
+        let withoutMarkers = text.replacingOccurrences(
+            of: #"<\|[^|>\n]{1,80}\|>"#,
+            with: " ",
+            options: .regularExpression
+        )
+        let compacted = withoutMarkers.replacingOccurrences(
+            of: #"\s+"#,
+            with: " ",
+            options: .regularExpression
+        )
+        return normalized(compacted)
     }
 
     private static func sanitizedMagicianText(

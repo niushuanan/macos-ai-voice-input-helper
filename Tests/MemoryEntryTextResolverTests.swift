@@ -29,6 +29,20 @@ final class MemoryEntryTextResolverTests: XCTestCase {
         XCTAssertEqual(MemoryEntryTextResolver.defaultText(for: entry), "原始识别")
     }
 
+    func testDictationRawTextStripsASRControlMarkers() {
+        let entry = makeEntry(
+            mode: .dictation,
+            inputText: "<|zh|><|SAD|><|Speech|><|woitn|>我们开始进行这个流程的构建",
+            outputText: "我们开始进行这个流程的构建",
+            status: .success
+        )
+
+        XCTAssertEqual(
+            MemoryEntryTextResolver.rawText(for: entry),
+            "我们开始进行这个流程的构建"
+        )
+    }
+
     func testSelectionRewriteEntryUsesSingleTextOnly() {
         let entry = makeEntry(
             mode: .selectionRewrite,
@@ -41,6 +55,25 @@ final class MemoryEntryTextResolverTests: XCTestCase {
         XCTAssertEqual(MemoryEntryTextResolver.magicianSecondaryText(for: entry), "选中文本")
         XCTAssertNil(MemoryEntryTextResolver.magicianInstructionText(for: entry))
         XCTAssertEqual(MemoryEntryTextResolver.defaultText(for: entry), "改写结果")
+    }
+
+    func testSelectionRewriteSecondaryTextStripsASRControlMarkers() {
+        let entry = SessionHistoryEntry(
+            mode: .selectionRewrite,
+            appName: "TextEdit",
+            bundleID: "com.apple.TextEdit",
+            inputText: "<|zh|><|SAD|><|Speech|><|woitn|>我们先做这个流程",
+            outputText: "已建立日程。",
+            instructionText: "帮我建日程",
+            magicianFeatureID: .createEvent,
+            displayText: nil,
+            status: .success
+        )
+
+        XCTAssertEqual(
+            MemoryEntryTextResolver.magicianSecondaryText(for: entry),
+            "我们先做这个流程"
+        )
     }
 
     func testPlaceholderUsesErrorMessageWhenNoText() {
