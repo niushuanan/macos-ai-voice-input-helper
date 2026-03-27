@@ -1,6 +1,22 @@
 import Combine
 import Foundation
 
+enum SessionHUDProgressHint {
+    static let idle = 0.0
+    static let transcribing = 0.18
+    static let workflowPreview = 0.46
+    static let textTransform = 0.62
+    static let inserting = 0.90
+    static let done = 1.0
+
+    static func workflowStep(index: Int, totalSteps: Int) -> Double {
+        let safeTotal = max(1, totalSteps)
+        let safeIndex = min(max(1, index), safeTotal)
+        let hint = workflowPreview + (Double(safeIndex) / Double(safeTotal + 1)) * 0.32
+        return min(0.78, hint)
+    }
+}
+
 @MainActor
 final class SessionStore: ObservableObject {
     enum RewriteStageKind {
@@ -11,6 +27,7 @@ final class SessionStore: ObservableObject {
     @Published private(set) var phase: SessionPhase = .idle
     @Published private(set) var activeLane: InputLane = .directDictation
     @Published private(set) var statusMessage: String = "已准备，可通过快捷键开始语音会话。"
+    @Published private(set) var hudProgressHint: Double = SessionHUDProgressHint.idle
     @Published private(set) var errorMessage: String?
     @Published private(set) var listeningLevel: Double = 0
     @Published private(set) var pendingClip: RecordedAudioClip?
@@ -31,26 +48,46 @@ final class SessionStore: ObservableObject {
     func startDictation() {
         clearRuntimeArtifactsForNewSession()
         activeLane = .directDictation
-        transition(to: .listening, statusMessage: "正在聆听普通听写。")
+        transition(
+            to: .listening,
+            statusMessage: "正在聆听普通听写。",
+            hudProgressHint: SessionHUDProgressHint.idle
+        )
     }
 
     func startRewrite() {
         clearRuntimeArtifactsForNewSession()
         activeLane = .selectionRewrite
-        transition(to: .listening, statusMessage: "正在聆听魔术先生指令。")
+        transition(
+            to: .listening,
+            statusMessage: "正在聆听魔术先生指令。",
+            hudProgressHint: SessionHUDProgressHint.idle
+        )
     }
 
     func startBrainstorm() {
         clearRuntimeArtifactsForNewSession()
         activeLane = .brainstormDiscussion
-        transition(to: .listening, statusMessage: "正在记录一口气全念对内容。")
+        transition(
+            to: .listening,
+            statusMessage: "正在记录一口气全念对内容。",
+            hudProgressHint: SessionHUDProgressHint.idle
+        )
     }
 
     func markTranscribing(audioSummary: String? = nil) {
         if let audioSummary {
-            transition(to: .transcribing, statusMessage: "录音已完成：\(audioSummary)")
+            transition(
+                to: .transcribing,
+                statusMessage: "录音已完成：\(audioSummary)",
+                hudProgressHint: SessionHUDProgressHint.transcribing
+            )
         } else {
-            transition(to: .transcribing, statusMessage: "正在把语音转成文本请求。")
+            transition(
+                to: .transcribing,
+                statusMessage: "正在把语音转成文本请求。",
+                hudProgressHint: SessionHUDProgressHint.transcribing
+            )
         }
     }
 
@@ -61,7 +98,8 @@ final class SessionStore: ObservableObject {
     ) {
         transition(
             to: .transcribing,
-            statusMessage: "正在用 \(providerName) · \(modelName) 转写（\(audioSummary)）。"
+            statusMessage: "正在用 \(providerName) · \(modelName) 转写（\(audioSummary)）。",
+            hudProgressHint: SessionHUDProgressHint.transcribing
         )
     }
 
@@ -77,7 +115,8 @@ final class SessionStore: ObservableObject {
         latestFocusContext = focusContext
         transition(
             to: .inserting,
-            statusMessage: "正在把文本写入 \(focusContext.appName)。"
+            statusMessage: "正在把文本写入 \(focusContext.appName)。",
+            hudProgressHint: SessionHUDProgressHint.inserting
         )
     }
 
@@ -99,67 +138,95 @@ final class SessionStore: ObservableObject {
         }
 
         if let note, !note.isEmpty {
-            transition(to: .idle, statusMessage: "\(statusMessage) \(note)")
+            transition(
+                to: .idle,
+                statusMessage: "\(statusMessage) \(note)",
+                hudProgressHint: SessionHUDProgressHint.done
+            )
         } else {
-            transition(to: .idle, statusMessage: statusMessage)
+            transition(
+                to: .idle,
+                statusMessage: statusMessage,
+                hudProgressHint: SessionHUDProgressHint.done
+            )
         }
     }
 
     func markRewriting(
         actionLabel: String? = nil,
-        stage: RewriteStageKind = .textTransform
+        stage: RewriteStageKind = .textTransform,
+        progressHint: Double? = nil
     ) {
         activeLane = .selectionRewrite
         let normalizedLabel = actionLabel?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         switch stage {
         case .textTransform:
+            let resolvedHint = progressHint ?? SessionHUDProgressHint.textTransform
             if normalizedLabel.isEmpty {
                 transition(
                     to: .rewriting,
-                    statusMessage: "魔术先生文字处理中。"
+                    statusMessage: "魔术先生文字处理中。",
+                    hudProgressHint: resolvedHint
                 )
             } else {
                 transition(
                     to: .rewriting,
-                    statusMessage: "魔术先生文字处理中：\(normalizedLabel)。"
+                    statusMessage: "魔术先生文字处理中：\(normalizedLabel)。",
+                    hudProgressHint: resolvedHint
                 )
             }
         case .toolAction:
+            let resolvedHint = progressHint ?? SessionHUDProgressHint.workflowPreview
             if normalizedLabel.isEmpty {
                 transition(
                     to: .rewriting,
-                    statusMessage: "魔术先生执行中。"
+                    statusMessage: "魔术先生执行中。",
+                    hudProgressHint: resolvedHint
                 )
             } else {
                 transition(
                     to: .rewriting,
-                    statusMessage: "魔术先生执行中：\(normalizedLabel)。"
+                    statusMessage: "魔术先生执行中：\(normalizedLabel)。",
+                    hudProgressHint: resolvedHint
                 )
             }
         }
     }
 
     func markInserting() {
-        transition(to: .inserting, statusMessage: "正在把最终文本写回当前应用。")
+        transition(
+            to: .inserting,
+            statusMessage: "正在把最终文本写回当前应用。",
+            hudProgressHint: SessionHUDProgressHint.inserting
+        )
     }
 
     func completeInsertion() {
         pendingClip = nil
         listeningLevel = 0
-        transition(to: .idle, statusMessage: "已完成，可开始下一次语音会话。")
+        transition(
+            to: .idle,
+            statusMessage: "已完成，可开始下一次语音会话。",
+            hudProgressHint: SessionHUDProgressHint.done
+        )
     }
 
     func completeAction(statusMessage: String) {
         pendingClip = nil
         listeningLevel = 0
-        transition(to: .idle, statusMessage: statusMessage)
+        transition(
+            to: .idle,
+            statusMessage: statusMessage,
+            hudProgressHint: SessionHUDProgressHint.done
+        )
     }
 
     func cancel() {
         clearRuntimeArtifactsForNewSession()
         phase = .cancelled
         statusMessage = "本次会话已取消，目标应用内容未变化。"
+        hudProgressHint = SessionHUDProgressHint.idle
     }
 
     func fail(message: String) {
@@ -169,6 +236,7 @@ final class SessionStore: ObservableObject {
         errorMessage = message
         phase = .error
         statusMessage = message
+        hudProgressHint = SessionHUDProgressHint.idle
     }
 
     func reset() {
@@ -176,6 +244,7 @@ final class SessionStore: ObservableObject {
         activeLane = .directDictation
         phase = .idle
         statusMessage = "已准备，可通过快捷键开始语音会话。"
+        hudProgressHint = SessionHUDProgressHint.idle
     }
 
     func updateListeningLevel(_ level: Double) {
@@ -200,7 +269,11 @@ final class SessionStore: ObservableObject {
         latestOutputResult = nil
     }
 
-    private func transition(to nextPhase: SessionPhase, statusMessage: String) {
+    private func transition(
+        to nextPhase: SessionPhase,
+        statusMessage: String,
+        hudProgressHint: Double
+    ) {
         guard phase == nextPhase || allowedTransitions[phase, default: []].contains(nextPhase) else {
             return
         }
@@ -208,5 +281,6 @@ final class SessionStore: ObservableObject {
         errorMessage = nil
         phase = nextPhase
         self.statusMessage = statusMessage
+        self.hudProgressHint = max(0, min(1, hudProgressHint))
     }
 }

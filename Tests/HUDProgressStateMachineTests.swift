@@ -2,13 +2,18 @@ import XCTest
 @testable import PulseType
 
 final class HUDProgressStateMachineTests: XCTestCase {
-    func testTranscribingStartsFromBaselineAndCap() {
+    func testTranscribingStartsFromHintAndCap() {
         var machine = HUDProgressStateMachine()
 
-        let frame = machine.transition(to: .transcribing)
+        let frame = machine.transition(
+            to: .transcribing,
+            progressHint: SessionHUDProgressHint.transcribing,
+            message: "正在用 OpenAI 转写。"
+        )
 
-        XCTAssertEqual(frame.progress, 0.12, accuracy: 0.0001)
-        XCTAssertEqual(machine.cap, 0.46, accuracy: 0.0001)
+        XCTAssertEqual(frame.progress, 0.18, accuracy: 0.0001)
+        XCTAssertEqual(machine.cap, 0.42, accuracy: 0.0001)
+        XCTAssertEqual(machine.targetProgress, 0.26, accuracy: 0.0001)
         XCTAssertTrue(frame.visibility.keepVisible)
 
         guard case let .processing(title) = frame.style else {
@@ -19,13 +24,21 @@ final class HUDProgressStateMachineTests: XCTestCase {
 
     func testPhaseJumpToInsertingRaisesProgressBaseline() {
         var machine = HUDProgressStateMachine()
-        _ = machine.transition(to: .transcribing)
+        _ = machine.transition(
+            to: .transcribing,
+            progressHint: SessionHUDProgressHint.transcribing,
+            message: "正在用 OpenAI 转写。"
+        )
         _ = machine.tick()
 
-        let frame = machine.transition(to: .inserting)
+        let frame = machine.transition(
+            to: .inserting,
+            progressHint: SessionHUDProgressHint.inserting,
+            message: "正在把文本写入 TextEdit。"
+        )
 
-        XCTAssertGreaterThanOrEqual(frame.progress, 0.78)
-        XCTAssertEqual(machine.cap, 0.94, accuracy: 0.0001)
+        XCTAssertGreaterThanOrEqual(frame.progress, 0.90)
+        XCTAssertEqual(machine.cap, 0.97, accuracy: 0.0001)
         guard case let .processing(title) = frame.style else {
             return XCTFail("expected processing style")
         }
@@ -35,7 +48,11 @@ final class HUDProgressStateMachineTests: XCTestCase {
     func testRewritingUsesMagicianFallbackTitle() {
         var machine = HUDProgressStateMachine()
 
-        let frame = machine.transition(to: .rewriting)
+        let frame = machine.transition(
+            to: .rewriting,
+            progressHint: SessionHUDProgressHint.textTransform,
+            message: "魔术先生执行中：文字处理中。"
+        )
 
         guard case let .processing(title) = frame.style else {
             return XCTFail("expected processing style")
@@ -45,10 +62,22 @@ final class HUDProgressStateMachineTests: XCTestCase {
 
     func testIdleAfterBusyEntersCompletionAndSchedulesQuickHide() {
         var machine = HUDProgressStateMachine()
-        _ = machine.transition(to: .transcribing)
-        _ = machine.transition(to: .inserting)
+        _ = machine.transition(
+            to: .transcribing,
+            progressHint: SessionHUDProgressHint.transcribing,
+            message: "正在用 OpenAI 转写。"
+        )
+        _ = machine.transition(
+            to: .inserting,
+            progressHint: SessionHUDProgressHint.inserting,
+            message: "正在把文本写入 TextEdit。"
+        )
 
-        let frame = machine.transition(to: .idle)
+        let frame = machine.transition(
+            to: .idle,
+            progressHint: SessionHUDProgressHint.done,
+            message: "文本已写入。"
+        )
 
         XCTAssertEqual(frame.style, .completion)
         XCTAssertEqual(frame.progress, 1.0, accuracy: 0.0001)
@@ -59,36 +88,92 @@ final class HUDProgressStateMachineTests: XCTestCase {
 
     func testCancelledAndErrorUseExpectedHideDurations() {
         var machine = HUDProgressStateMachine()
-        _ = machine.transition(to: .listening)
+        _ = machine.transition(to: .listening, progressHint: 0, message: "正在聆听。")
 
-        let cancelled = machine.transition(to: .cancelled)
+        let cancelled = machine.transition(to: .cancelled, progressHint: 0, message: "已取消。")
         XCTAssertEqual(cancelled.style, .cancelled)
         XCTAssertEqual(cancelled.visibility.hideDelay, 0.46, accuracy: 0.0001)
         XCTAssertEqual(cancelled.visibility.fadeDuration, 0.12, accuracy: 0.0001)
 
-        let error = machine.transition(to: .error)
+        let error = machine.transition(to: .error, progressHint: 0, message: "执行失败。")
         XCTAssertEqual(error.style, .error)
         XCTAssertEqual(error.visibility.hideDelay, 0.90, accuracy: 0.0001)
         XCTAssertEqual(error.visibility.fadeDuration, 0.12, accuracy: 0.0001)
     }
 
-    func testTickSmoothlyApproachesCapWithoutOvershoot() {
+    func testTickUsesHintBeforeSlowClimb() {
         var machine = HUDProgressStateMachine()
-        _ = machine.transition(to: .transcribing)
+        _ = machine.transition(
+            to: .rewriting,
+            progressHint: SessionHUDProgressHint.workflowPreview,
+            message: "魔术先生执行中：流程预览：写入备忘录 -> 邮件助手。"
+        )
 
         let first = machine.progress
         let second = machine.tick()
         XCTAssertGreaterThan(second, first)
+        XCTAssertLessThanOrEqual(second, machine.targetProgress)
+        XCTAssertEqual(machine.targetProgress, 0.54, accuracy: 0.0001)
+    }
 
-        for _ in 0..<200 {
+    func testSameBusyPhaseMessageChangeNudgesProgressForward() {
+        var machine = HUDProgressStateMachine()
+        _ = machine.transition(
+            to: .rewriting,
+            progressHint: SessionHUDProgressHint.workflowPreview,
+            message: "魔术先生执行中：流程预览：写入备忘录 -> 邮件助手。"
+        )
+        _ = machine.tick()
+        let before = machine.progress
+
+        let frame = machine.transition(
+            to: .rewriting,
+            progressHint: SessionHUDProgressHint.workflowStep(index: 1, totalSteps: 2),
+            message: "魔术先生执行中：第1/2步：写入备忘录中。"
+        )
+
+        XCTAssertGreaterThan(frame.progress, before)
+        XCTAssertGreaterThan(machine.targetProgress, before)
+    }
+
+    func testTickContinuesClimbingAfterFastTargetUntilCeiling() {
+        var machine = HUDProgressStateMachine()
+        _ = machine.transition(
+            to: .rewriting,
+            progressHint: SessionHUDProgressHint.workflowPreview,
+            message: "魔术先生执行中：流程预览：写入备忘录 -> 邮件助手。"
+        )
+
+        for _ in 0..<80 {
+            _ = machine.tick()
+        }
+        let afterFastTarget = machine.progress
+
+        for _ in 0..<20 {
             _ = machine.tick()
         }
 
-        XCTAssertLessThanOrEqual(machine.progress, 0.46)
-        XCTAssertEqual(machine.progress, 0.46, accuracy: 0.001)
+        XCTAssertGreaterThan(machine.progress, afterFastTarget)
+        XCTAssertLessThanOrEqual(machine.progress, machine.cap)
     }
 
-    func testMagicianTitleResolverUsesThinkingDuringTranscribing() {
+    func testTickNeverExceedsCeiling() {
+        var machine = HUDProgressStateMachine()
+        _ = machine.transition(
+            to: .transcribing,
+            progressHint: SessionHUDProgressHint.transcribing,
+            message: "正在用 OpenAI 转写。"
+        )
+
+        for _ in 0..<400 {
+            _ = machine.tick()
+        }
+
+        XCTAssertLessThanOrEqual(machine.progress, 0.42)
+        XCTAssertEqual(machine.progress, 0.42, accuracy: 0.001)
+    }
+
+    func testMagicianTitleResolverUsesProcessingDuringTranscribing() {
         let title = StatusPulseHUDTitleResolver.processingTitle(
             phase: .transcribing,
             lane: .selectionRewrite,
@@ -96,7 +181,7 @@ final class HUDProgressStateMachineTests: XCTestCase {
             defaultTitle: "转写中"
         )
 
-        XCTAssertEqual(title, "魔术先生 · 思考中")
+        XCTAssertEqual(title, "魔术先生 · 处理中")
     }
 
     func testMagicianTitleResolverUsesTaskLabelDuringRewriting() {
@@ -158,5 +243,30 @@ final class HUDProgressStateMachineTests: XCTestCase {
         XCTAssertEqual(title, "写入失败")
         XCTAssertFalse(title.contains("TextEdit"))
         XCTAssertFalse(title.contains("AX"))
+    }
+}
+
+final class HUDMarqueePlanTests: XCTestCase {
+    func testMarqueePlanDoesNotScrollWhenTextFits() {
+        let plan = HUDMarqueePlan(textWidth: 96, containerWidth: 120)
+
+        XCTAssertFalse(plan.shouldScroll)
+        XCTAssertEqual(plan.offset(elapsed: 5), 0, accuracy: 0.0001)
+    }
+
+    func testMarqueePlanStartsOnlyAfterDelay() {
+        let plan = HUDMarqueePlan(textWidth: 168, containerWidth: 100)
+
+        XCTAssertTrue(plan.shouldScroll)
+        XCTAssertEqual(plan.offset(elapsed: 0.79), 0, accuracy: 0.0001)
+        XCTAssertLessThan(plan.offset(elapsed: 1.10), 0)
+    }
+
+    func testMarqueePlanResettingElapsedReturnsToOrigin() {
+        let plan = HUDMarqueePlan(textWidth: 168, containerWidth: 100)
+        let advancedOffset = plan.offset(elapsed: 1.35)
+
+        XCTAssertLessThan(advancedOffset, 0)
+        XCTAssertEqual(plan.offset(elapsed: 0), 0, accuracy: 0.0001)
     }
 }

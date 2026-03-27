@@ -228,57 +228,32 @@ final class AppModel: ObservableObject {
             .combineLatest(
                 sessionStore.$activeLane,
                 sessionStore.$statusMessage,
-                sessionStore.$listeningLevel
+                sessionStore.$hudProgressHint
             )
-            .map { phase, lane, message, listeningLevel in
-                StatusPulsePayload(
+            .combineLatest(sessionStore.$listeningLevel)
+            .map({ payload -> StatusPulsePayload in
+                let (state, listeningLevel) = payload
+                let (phase, lane, message, progressHint) = state
+                return StatusPulsePayload(
                     phase: phase,
                     lane: lane,
                     message: message,
-                    progress: Self.statusProgress(
-                        for: phase,
-                        listeningLevel: listeningLevel
-                    ),
+                    progressHint: progressHint,
                     listeningLevel: max(0, min(1, listeningLevel))
                 )
-            }
+            })
             .removeDuplicates()
             .dropFirst()
-            .sink { [weak self] payload in
+            .sink { [weak self] (payload: StatusPulsePayload) in
                 self?.statusPulseHUDController.show(
                     phase: payload.phase,
                     lane: payload.lane,
                     message: payload.message,
-                    progress: payload.progress,
+                    progressHint: payload.progressHint,
                     listeningLevel: payload.listeningLevel
                 )
             }
             .store(in: &cancellables)
-    }
-
-    private static func statusProgress(
-        for phase: SessionPhase,
-        listeningLevel: Double
-    ) -> Double {
-        _ = listeningLevel
-        let value: Double
-        switch phase {
-        case .listening:
-            value = 0
-        case .transcribing:
-            value = 0.34
-        case .rewriting:
-            value = 0.67
-        case .inserting:
-            value = 0.94
-        case .idle:
-            value = 1.0
-        case .cancelled:
-            value = 0
-        case .error:
-            value = 0.04
-        }
-        return (value * 100).rounded() / 100
     }
 
     private func activateGlobalHotkeys() {
@@ -401,6 +376,6 @@ private struct StatusPulsePayload: Equatable {
     let phase: SessionPhase
     let lane: InputLane
     let message: String
-    let progress: Double
+    let progressHint: Double
     let listeningLevel: Double
 }

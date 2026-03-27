@@ -1891,9 +1891,12 @@ final class InteractionCoordinator {
         }
         sessionStore.markRewriting(
             actionLabel: "流程预览：\(workflowPreviewLabel(workflowPlan))",
-            stage: .toolAction
+            stage: .toolAction,
+            progressHint: SessionHUDProgressHint.workflowPreview
         )
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        if let previewDelay = Self.workflowPreviewDelayNanoseconds(stepCount: workflowPlan.steps.count) {
+            try? await Task.sleep(nanoseconds: previewDelay)
+        }
         if abortIfSessionCancelled() {
             return
         }
@@ -2061,6 +2064,24 @@ final class InteractionCoordinator {
         return "流程：\(summary)"
     }
 
+    static func workflowPreviewDelayNanoseconds(stepCount: Int) -> UInt64? {
+        stepCount > 1 ? 250_000_000 : nil
+    }
+
+    static func workflowStepProgressLabel(
+        index: Int,
+        totalSteps: Int,
+        feature: MagicianFeatureID
+    ) -> String {
+        let safeTotal = max(1, totalSteps)
+        let safeIndex = min(max(1, index), safeTotal)
+        return "第\(safeIndex)/\(safeTotal)步：\(feature.progressTitle)"
+    }
+
+    static func workflowStepProgressHint(index: Int, totalSteps: Int) -> Double {
+        SessionHUDProgressHint.workflowStep(index: index, totalSteps: totalSteps)
+    }
+
     private func workflowStepInputText(from request: MagicianWorkflowStepExecutionRequest) -> String {
         switch request.step.inputBinding {
         case .selectionText:
@@ -2129,8 +2150,16 @@ final class InteractionCoordinator {
         let stepInputText = workflowStepInputText(from: request)
         let stepStartedAt = Date()
         sessionStore.markRewriting(
-            actionLabel: "第\(request.index + 1)步：\(request.step.feature.progressTitle)",
-            stage: .toolAction
+            actionLabel: Self.workflowStepProgressLabel(
+                index: request.index + 1,
+                totalSteps: request.totalSteps,
+                feature: request.step.feature
+            ),
+            stage: .toolAction,
+            progressHint: Self.workflowStepProgressHint(
+                index: request.index + 1,
+                totalSteps: request.totalSteps
+            )
         )
 
         if request.step.feature == .textTransform {
@@ -2563,7 +2592,8 @@ final class InteractionCoordinator {
 
         sessionStore.markRewriting(
             actionLabel: quickActionLabel,
-            stage: .textTransform
+            stage: .textTransform,
+            progressHint: SessionHUDProgressHint.textTransform
         )
         var clipboardCandidateText: String?
         do {
@@ -2837,7 +2867,8 @@ final class InteractionCoordinator {
         }
         sessionStore.markRewriting(
             actionLabel: intent.intent.progressTitle,
-            stage: .toolAction
+            stage: .toolAction,
+            progressHint: Self.workflowStepProgressHint(index: 1, totalSteps: 1)
         )
         do {
             let result = try await magicianToolExecutor.execute(

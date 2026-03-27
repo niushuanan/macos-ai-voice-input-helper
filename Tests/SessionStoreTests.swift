@@ -67,6 +67,7 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.activeLane, .selectionRewrite)
         XCTAssertEqual(store.latestFocusContext?.bundleID, focusContext.bundleID)
         XCTAssertEqual(store.latestTranscription?.transcript, transcription.transcript)
+        XCTAssertEqual(store.hudProgressHint, SessionHUDProgressHint.done, accuracy: 0.0001)
     }
 
     func testStartRewriteShowsMagicianListeningMessage() {
@@ -83,11 +84,16 @@ final class SessionStoreTests: XCTestCase {
         store.startRewrite()
         store.markTranscribing(audioSummary: "0.3 秒，44100Hz")
 
-        store.markRewriting(actionLabel: "一键建日程", stage: .toolAction)
+        store.markRewriting(
+            actionLabel: "一键建日程",
+            stage: .toolAction,
+            progressHint: SessionHUDProgressHint.workflowPreview
+        )
 
         XCTAssertEqual(store.phase, .rewriting)
         XCTAssertTrue(store.statusMessage.contains("魔术先生执行中"))
         XCTAssertTrue(store.statusMessage.contains("一键建日程"))
+        XCTAssertEqual(store.hudProgressHint, SessionHUDProgressHint.workflowPreview, accuracy: 0.0001)
     }
 
     func testBrainstormStartSwitchesLaneAndListeningState() {
@@ -135,6 +141,43 @@ final class SessionStoreTests: XCTestCase {
 
         XCTAssertEqual(store.phase, .transcribing)
         XCTAssertTrue(store.statusMessage.contains("whisper-1"))
+        XCTAssertEqual(store.hudProgressHint, SessionHUDProgressHint.transcribing, accuracy: 0.0001)
+    }
+
+    func testHudProgressHintFollowsRewriteStages() {
+        let store = SessionStore()
+        let transcription = makeTranscription()
+        let focusContext = makeFocusContext()
+
+        store.startRewrite()
+        XCTAssertEqual(store.hudProgressHint, SessionHUDProgressHint.idle, accuracy: 0.0001)
+
+        store.markTranscribing(audioSummary: "0.6 秒，44100Hz")
+        XCTAssertEqual(store.hudProgressHint, SessionHUDProgressHint.transcribing, accuracy: 0.0001)
+
+        store.markRewriting(
+            actionLabel: "流程预览：写入备忘录 -> 邮件助手",
+            stage: .toolAction,
+            progressHint: SessionHUDProgressHint.workflowPreview
+        )
+        XCTAssertEqual(store.hudProgressHint, SessionHUDProgressHint.workflowPreview, accuracy: 0.0001)
+
+        store.markRewriting(
+            actionLabel: "第2/4步：整理邮件中",
+            stage: .toolAction,
+            progressHint: SessionHUDProgressHint.workflowStep(index: 2, totalSteps: 4)
+        )
+        XCTAssertEqual(
+            store.hudProgressHint,
+            SessionHUDProgressHint.workflowStep(index: 2, totalSteps: 4),
+            accuracy: 0.0001
+        )
+
+        store.markInserting(transcription: transcription, focusContext: focusContext)
+        XCTAssertEqual(store.hudProgressHint, SessionHUDProgressHint.inserting, accuracy: 0.0001)
+
+        store.completeAction(statusMessage: "已完成")
+        XCTAssertEqual(store.hudProgressHint, SessionHUDProgressHint.done, accuracy: 0.0001)
     }
 
     func testPermissionGateDependsOnMicrophoneForSessionStart() {

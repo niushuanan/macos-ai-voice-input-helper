@@ -715,6 +715,30 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.sessionStore.statusMessage, "第一步失败")
     }
 
+    func testWorkflowPreviewDelayUsesQuarterSecondOnlyForMultiStep() {
+        XCTAssertNil(InteractionCoordinator.workflowPreviewDelayNanoseconds(stepCount: 1))
+        XCTAssertEqual(
+            InteractionCoordinator.workflowPreviewDelayNanoseconds(stepCount: 3),
+            250_000_000
+        )
+    }
+
+    func testWorkflowStepPresentationUsesTotalStepCountAndHint() {
+        XCTAssertEqual(
+            InteractionCoordinator.workflowStepProgressLabel(
+                index: 2,
+                totalSteps: 4,
+                feature: .composeEmailDraft
+            ),
+            "第2/4步：整理邮件中"
+        )
+        XCTAssertEqual(
+            InteractionCoordinator.workflowStepProgressHint(index: 2, totalSteps: 4),
+            SessionHUDProgressHint.workflowStep(index: 2, totalSteps: 4),
+            accuracy: 0.0001
+        )
+    }
+
     func testWorkflowE2ETextToEventToMailAutoSendWritesTelemetry() async throws {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
