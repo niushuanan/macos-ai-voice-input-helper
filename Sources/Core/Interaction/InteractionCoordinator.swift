@@ -21,6 +21,7 @@ final class InteractionCoordinator {
     private let asrDictionaryStore: ASRDictionaryStore
     private let magicianFeatureToggleStore: MagicianFeatureToggleStore
     private let magicianStatusResolver: MagicianStatusResolver
+    private let workflowTelemetryReporter: any WorkflowTelemetryReporting
     private let magicianIntentRouter: any MagicianIntentRouting
     private let magicianWorkflowPlanner: any MagicianWorkflowPlanning
     private let magicianWorkflowExecutor: MagicianWorkflowExecutor
@@ -60,6 +61,7 @@ final class InteractionCoordinator {
         mailAddressBookStore: MailAddressBookStore? = nil,
         magicianFeatureToggleStore: MagicianFeatureToggleStore? = nil,
         magicianStatusResolver: MagicianStatusResolver = MagicianStatusResolver(),
+        workflowTelemetryReporter: (any WorkflowTelemetryReporting)? = nil,
         magicianIntentRouter: (any MagicianIntentRouting)? = nil,
         magicianWorkflowPlanner: (any MagicianWorkflowPlanning)? = nil,
         magicianWorkflowExecutor: MagicianWorkflowExecutor? = nil,
@@ -84,6 +86,9 @@ final class InteractionCoordinator {
         self.asrDictionaryStore = asrDictionaryStore
         self.magicianFeatureToggleStore = magicianFeatureToggleStore ?? MagicianFeatureToggleStore()
         self.magicianStatusResolver = magicianStatusResolver
+        self.workflowTelemetryReporter = workflowTelemetryReporter ?? WorkflowTelemetryReporter(
+            speechPipelineLogger: speechPipelineLogger
+        )
         let resolvedMailAddressBookStore = mailAddressBookStore ?? MailAddressBookStore()
         let resolvedIntentRouter = magicianIntentRouter ?? LLMMagicianIntentRouter(
             providerSettingsStore: providerSettingsStore
@@ -1707,6 +1712,7 @@ final class InteractionCoordinator {
         }
         let fallbackFocusContext = selectionSnapshot?.focusContext ?? initialFocusContext
         let selectionText = selectionSnapshot?.selectedText ?? ""
+        let workflowStartedAt = Date()
 
         guard !spokenInstruction.isEmpty else {
             let message = "改写指令为空，请重试并说出明确命令。"
@@ -1778,6 +1784,7 @@ final class InteractionCoordinator {
         }
 
         let workflowPlan: MagicianWorkflowPlan
+        let workflowPlanStartedAt = Date()
         do {
             workflowPlan = try await magicianWorkflowPlanner.plan(
                 command: spokenInstruction,
@@ -1787,16 +1794,21 @@ final class InteractionCoordinator {
             if abortIfSessionCancelled() {
                 return
             }
-            speechPipelineLogger.log(
-                traceID: traceID,
-                lane: .selectionRewrite,
-                provider: providerSettingsStore.rewriteConfiguration.providerName,
-                model: providerSettingsStore.rewriteConfiguration.modelName,
-                httpStatus: nil,
-                stage: "workflow.plan.success",
-                detail: "steps=\(workflowPlan.steps.map(\.feature.rawValue).joined(separator: "->")),confidence=\(String(format: "%.2f", workflowPlan.confidence))",
-                audioDuration: audioDurationSeconds,
-                transcriptLength: spokenInstruction.count
+            workflowTelemetryReporter.record(
+                WorkflowTelemetryEvent(
+                    traceID: traceID,
+                    lane: .selectionRewrite,
+                    provider: providerSettingsStore.rewriteConfiguration.providerName,
+                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    event: .planSuccess,
+                    detail: "steps=\(workflowPlan.steps.map(\.feature.rawValue).joined(separator: "->")),confidence=\(String(format: "%.2f", workflowPlan.confidence))",
+                    audioDuration: audioDurationSeconds,
+                    transcriptLength: spokenInstruction.count,
+                    workflowVersion: workflowPlan.version,
+                    stepCount: workflowPlan.steps.count,
+                    confidence: workflowPlan.confidence,
+                    durationMs: Self.elapsedMilliseconds(since: workflowPlanStartedAt)
+                )
             )
         } catch let magicianError as MagicianError {
             if abortIfSessionCancelled() {
@@ -1819,16 +1831,18 @@ final class InteractionCoordinator {
                     appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
-            speechPipelineLogger.log(
-                traceID: traceID,
-                lane: .selectionRewrite,
-                provider: providerSettingsStore.rewriteConfiguration.providerName,
-                model: providerSettingsStore.rewriteConfiguration.modelName,
-                httpStatus: nil,
-                stage: "workflow.plan.failed",
-                errorType: magicianError.code.rawValue,
-                detail: magicianError.debugMessage ?? message,
-                audioDuration: audioDurationSeconds
+            workflowTelemetryReporter.record(
+                WorkflowTelemetryEvent(
+                    traceID: traceID,
+                    lane: .selectionRewrite,
+                    provider: providerSettingsStore.rewriteConfiguration.providerName,
+                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    event: .planFailed,
+                    errorType: magicianError.code.rawValue,
+                    detail: magicianError.debugMessage ?? message,
+                    audioDuration: audioDurationSeconds,
+                    durationMs: Self.elapsedMilliseconds(since: workflowPlanStartedAt)
+                )
             )
             sessionStore.fail(message: message)
             currentTraceID = nil
@@ -1854,16 +1868,18 @@ final class InteractionCoordinator {
                     appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
-            speechPipelineLogger.log(
-                traceID: traceID,
-                lane: .selectionRewrite,
-                provider: providerSettingsStore.rewriteConfiguration.providerName,
-                model: providerSettingsStore.rewriteConfiguration.modelName,
-                httpStatus: nil,
-                stage: "workflow.plan.failed",
-                errorType: "workflow_parse_failed",
-                detail: error.localizedDescription,
-                audioDuration: audioDurationSeconds
+            workflowTelemetryReporter.record(
+                WorkflowTelemetryEvent(
+                    traceID: traceID,
+                    lane: .selectionRewrite,
+                    provider: providerSettingsStore.rewriteConfiguration.providerName,
+                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    event: .planFailed,
+                    errorType: "workflow_parse_failed",
+                    detail: error.localizedDescription,
+                    audioDuration: audioDurationSeconds,
+                    durationMs: Self.elapsedMilliseconds(since: workflowPlanStartedAt)
+                )
             )
             sessionStore.fail(message: message)
             currentTraceID = nil
@@ -1889,6 +1905,7 @@ final class InteractionCoordinator {
             traceID: traceID
         )
 
+        let workflowExecutionStartedAt = Date()
         do {
             let executionResult = try await magicianWorkflowExecutor.execute(
                 plan: workflowPlan,
@@ -1932,16 +1949,20 @@ final class InteractionCoordinator {
                 )
             )
             sessionStore.completeAction(statusMessage: executionResult.finalStatusMessage)
-            speechPipelineLogger.log(
-                traceID: traceID,
-                lane: .selectionRewrite,
-                provider: providerSettingsStore.rewriteConfiguration.providerName,
-                model: providerSettingsStore.rewriteConfiguration.modelName,
-                httpStatus: nil,
-                stage: "workflow.done",
-                detail: "steps=\(executionResult.stepResults.count),final=\(executionResult.finalStatusMessage)",
-                audioDuration: audioDurationSeconds,
-                transcriptLength: executionResult.finalOutputText?.count
+            workflowTelemetryReporter.record(
+                WorkflowTelemetryEvent(
+                    traceID: traceID,
+                    lane: .selectionRewrite,
+                    provider: providerSettingsStore.rewriteConfiguration.providerName,
+                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    event: .done,
+                    detail: "steps=\(executionResult.stepResults.count),final=\(executionResult.finalStatusMessage)",
+                    audioDuration: audioDurationSeconds,
+                    transcriptLength: executionResult.finalOutputText?.count,
+                    workflowVersion: workflowPlan.version,
+                    stepCount: executionResult.stepResults.count,
+                    durationMs: Self.elapsedMilliseconds(since: workflowStartedAt)
+                )
             )
             currentTraceID = nil
         } catch let magicianError as MagicianError {
@@ -1965,16 +1986,20 @@ final class InteractionCoordinator {
                 )
             )
             handleMagicianRecoverAction(magicianError.recoverAction)
-            speechPipelineLogger.log(
-                traceID: traceID,
-                lane: .selectionRewrite,
-                provider: providerSettingsStore.rewriteConfiguration.providerName,
-                model: providerSettingsStore.rewriteConfiguration.modelName,
-                httpStatus: nil,
-                stage: "workflow.failed",
-                errorType: magicianError.code.rawValue,
-                detail: magicianError.debugMessage ?? magicianError.userMessage,
-                audioDuration: audioDurationSeconds
+            workflowTelemetryReporter.record(
+                WorkflowTelemetryEvent(
+                    traceID: traceID,
+                    lane: .selectionRewrite,
+                    provider: providerSettingsStore.rewriteConfiguration.providerName,
+                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    event: .failed,
+                    errorType: magicianError.code.rawValue,
+                    detail: magicianError.debugMessage ?? magicianError.userMessage,
+                    audioDuration: audioDurationSeconds,
+                    workflowVersion: workflowPlan.version,
+                    stepCount: workflowPlan.steps.count,
+                    durationMs: Self.elapsedMilliseconds(since: workflowExecutionStartedAt)
+                )
             )
             sessionStore.fail(message: magicianError.userMessage)
             currentTraceID = nil
@@ -1999,16 +2024,20 @@ final class InteractionCoordinator {
                     appliedSkills: instructionApplyResult.appliedSkills
                 )
             )
-            speechPipelineLogger.log(
-                traceID: traceID,
-                lane: .selectionRewrite,
-                provider: providerSettingsStore.rewriteConfiguration.providerName,
-                model: providerSettingsStore.rewriteConfiguration.modelName,
-                httpStatus: nil,
-                stage: "workflow.failed",
-                errorType: MagicianErrorCode.toolExecutionFailed.rawValue,
-                detail: message,
-                audioDuration: audioDurationSeconds
+            workflowTelemetryReporter.record(
+                WorkflowTelemetryEvent(
+                    traceID: traceID,
+                    lane: .selectionRewrite,
+                    provider: providerSettingsStore.rewriteConfiguration.providerName,
+                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    event: .failed,
+                    errorType: MagicianErrorCode.toolExecutionFailed.rawValue,
+                    detail: message,
+                    audioDuration: audioDurationSeconds,
+                    workflowVersion: workflowPlan.version,
+                    stepCount: workflowPlan.steps.count,
+                    durationMs: Self.elapsedMilliseconds(since: workflowExecutionStartedAt)
+                )
             )
             sessionStore.fail(message: message)
             currentTraceID = nil
@@ -2041,6 +2070,23 @@ final class InteractionCoordinator {
         case .commandOnly:
             return ""
         }
+    }
+
+    private func isAutoSendMailResult(_ result: MagicianExecutionResult) -> Bool {
+        result.userMessage.contains("邮件已发出")
+    }
+
+    private func isDraftOnlyMailResult(_ result: MagicianExecutionResult) -> Bool {
+        if let historyText = result.historyDisplayText, historyText.contains("邮件待确认") {
+            return true
+        }
+        let message = result.userMessage
+        return message.contains("草稿") || message.contains("待你确认")
+    }
+
+    private static func elapsedMilliseconds(since startDate: Date) -> Int {
+        let elapsed = Date().timeIntervalSince(startDate)
+        return max(0, Int((elapsed * 1000).rounded()))
     }
 
     private func executeWorkflowStep(
@@ -2081,6 +2127,7 @@ final class InteractionCoordinator {
         let stepCommand = request.step.command?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedCommand = (stepCommand?.isEmpty == false) ? stepCommand! : spokenInstruction
         let stepInputText = workflowStepInputText(from: request)
+        let stepStartedAt = Date()
         sessionStore.markRewriting(
             actionLabel: "第\(request.index + 1)步：\(request.step.feature.progressTitle)",
             stage: .toolAction
@@ -2093,7 +2140,8 @@ final class InteractionCoordinator {
                 stepInputText: stepInputText,
                 isFinalStep: isFinalStep,
                 transcription: transcription,
-                audioDurationSeconds: audioDurationSeconds
+                audioDurationSeconds: audioDurationSeconds,
+                stepStartedAt: stepStartedAt
             )
         }
 
@@ -2130,16 +2178,41 @@ final class InteractionCoordinator {
                 intent: intent,
                 context: executionContext
             )
-            speechPipelineLogger.log(
-                traceID: request.context.traceID,
-                lane: .selectionRewrite,
-                provider: providerSettingsStore.rewriteConfiguration.providerName,
-                model: providerSettingsStore.rewriteConfiguration.modelName,
-                httpStatus: nil,
-                stage: "workflow.step.success",
-                detail: "index=\(request.index + 1),feature=\(request.step.feature.rawValue)",
-                audioDuration: audioDurationSeconds,
-                transcriptLength: result.outputText?.count
+            let autoSendConfigured: Bool? = if request.step.feature == .composeEmailDraft {
+                params.mailDeliveryMode == .autoSendIfResolved
+            } else {
+                nil
+            }
+            let autoSendHit: Bool? = if autoSendConfigured == true {
+                isAutoSendMailResult(result)
+            } else {
+                nil
+            }
+            let draftOnlyFallback: Bool? = if request.step.feature == .composeEmailDraft {
+                isDraftOnlyMailResult(result)
+            } else {
+                nil
+            }
+            workflowTelemetryReporter.record(
+                WorkflowTelemetryEvent(
+                    traceID: request.context.traceID,
+                    lane: .selectionRewrite,
+                    provider: providerSettingsStore.rewriteConfiguration.providerName,
+                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    event: .stepSuccess,
+                    detail: "index=\(request.index + 1),feature=\(request.step.feature.rawValue)",
+                    audioDuration: audioDurationSeconds,
+                    transcriptLength: result.outputText?.count,
+                    stepCount: request.totalSteps,
+                    stepIndex: request.index + 1,
+                    stepID: request.step.stepID,
+                    feature: request.step.feature.rawValue,
+                    durationMs: Self.elapsedMilliseconds(since: stepStartedAt),
+                    attempt: request.attempt,
+                    autoSendConfigured: autoSendConfigured,
+                    autoSendHit: autoSendHit,
+                    draftOnlyFallback: draftOnlyFallback
+                )
             )
             return MagicianWorkflowStepExecutionResponse(
                 userMessage: result.userMessage,
@@ -2148,18 +2221,45 @@ final class InteractionCoordinator {
                 fallbackUsed: result.fallbackUsed
             )
         } catch let magicianError as MagicianError {
-            speechPipelineLogger.log(
-                traceID: request.context.traceID,
-                lane: .selectionRewrite,
-                provider: providerSettingsStore.rewriteConfiguration.providerName,
-                model: providerSettingsStore.rewriteConfiguration.modelName,
-                httpStatus: nil,
-                stage: "workflow.step.failed",
-                errorType: magicianError.code.rawValue,
-                detail: magicianError.debugMessage ?? magicianError.userMessage,
-                audioDuration: audioDurationSeconds
+            workflowTelemetryReporter.record(
+                WorkflowTelemetryEvent(
+                    traceID: request.context.traceID,
+                    lane: .selectionRewrite,
+                    provider: providerSettingsStore.rewriteConfiguration.providerName,
+                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    event: .stepFailed,
+                    errorType: magicianError.code.rawValue,
+                    detail: magicianError.debugMessage ?? magicianError.userMessage,
+                    audioDuration: audioDurationSeconds,
+                    stepCount: request.totalSteps,
+                    stepIndex: request.index + 1,
+                    stepID: request.step.stepID,
+                    feature: request.step.feature.rawValue,
+                    durationMs: Self.elapsedMilliseconds(since: stepStartedAt),
+                    attempt: request.attempt
+                )
             )
             throw magicianError
+        } catch {
+            workflowTelemetryReporter.record(
+                WorkflowTelemetryEvent(
+                    traceID: request.context.traceID,
+                    lane: .selectionRewrite,
+                    provider: providerSettingsStore.rewriteConfiguration.providerName,
+                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    event: .stepFailed,
+                    errorType: MagicianErrorCode.toolExecutionFailed.rawValue,
+                    detail: error.localizedDescription,
+                    audioDuration: audioDurationSeconds,
+                    stepCount: request.totalSteps,
+                    stepIndex: request.index + 1,
+                    stepID: request.step.stepID,
+                    feature: request.step.feature.rawValue,
+                    durationMs: Self.elapsedMilliseconds(since: stepStartedAt),
+                    attempt: request.attempt
+                )
+            )
+            throw error
         }
     }
 
@@ -2169,7 +2269,8 @@ final class InteractionCoordinator {
         stepInputText: String,
         isFinalStep: Bool,
         transcription: SpeechTranscriptionResult,
-        audioDurationSeconds: TimeInterval
+        audioDurationSeconds: TimeInterval,
+        stepStartedAt: Date
     ) async throws -> MagicianWorkflowStepExecutionResponse {
         let normalizedInput = stepInputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedInput.isEmpty else {
@@ -2244,16 +2345,23 @@ final class InteractionCoordinator {
         }()
 
         if !isFinalStep {
-            speechPipelineLogger.log(
-                traceID: request.context.traceID,
-                lane: .selectionRewrite,
-                provider: rewriteResult.providerName,
-                model: rewriteResult.modelName,
-                httpStatus: nil,
-                stage: "workflow.step.success",
-                detail: "index=\(request.index + 1),feature=text_transform,path=memory_only",
-                audioDuration: audioDurationSeconds,
-                transcriptLength: finalRewriteText.count
+            workflowTelemetryReporter.record(
+                WorkflowTelemetryEvent(
+                    traceID: request.context.traceID,
+                    lane: .selectionRewrite,
+                    provider: rewriteResult.providerName,
+                    model: rewriteResult.modelName,
+                    event: .stepSuccess,
+                    detail: "index=\(request.index + 1),feature=text_transform,path=memory_only",
+                    audioDuration: audioDurationSeconds,
+                    transcriptLength: finalRewriteText.count,
+                    stepCount: request.totalSteps,
+                    stepIndex: request.index + 1,
+                    stepID: request.step.stepID,
+                    feature: request.step.feature.rawValue,
+                    durationMs: Self.elapsedMilliseconds(since: stepStartedAt),
+                    attempt: request.attempt
+                )
             )
             return MagicianWorkflowStepExecutionResponse(
                 userMessage: "文字处理已完成",
@@ -2275,16 +2383,23 @@ final class InteractionCoordinator {
                     focusContext: request.context.focusContext
                 )
             )
-            speechPipelineLogger.log(
-                traceID: request.context.traceID,
-                lane: .selectionRewrite,
-                provider: rewriteResult.providerName,
-                model: rewriteResult.modelName,
-                httpStatus: nil,
-                stage: "workflow.step.success",
-                detail: "index=\(request.index + 1),feature=text_transform,path=\(outputResult.path.rawValue)",
-                audioDuration: audioDurationSeconds,
-                transcriptLength: finalRewriteText.count
+            workflowTelemetryReporter.record(
+                WorkflowTelemetryEvent(
+                    traceID: request.context.traceID,
+                    lane: .selectionRewrite,
+                    provider: rewriteResult.providerName,
+                    model: rewriteResult.modelName,
+                    event: .stepSuccess,
+                    detail: "index=\(request.index + 1),feature=text_transform,path=\(outputResult.path.rawValue)",
+                    audioDuration: audioDurationSeconds,
+                    transcriptLength: finalRewriteText.count,
+                    stepCount: request.totalSteps,
+                    stepIndex: request.index + 1,
+                    stepID: request.step.stepID,
+                    feature: request.step.feature.rawValue,
+                    durationMs: Self.elapsedMilliseconds(since: stepStartedAt),
+                    attempt: request.attempt
+                )
             )
             return MagicianWorkflowStepExecutionResponse(
                 userMessage: "文字处理并写入完成",
@@ -2297,6 +2412,24 @@ final class InteractionCoordinator {
                 shouldFallbackToClipboardForMagician(outputError),
                 persistTextToClipboard(finalRewriteText)
             {
+                workflowTelemetryReporter.record(
+                    WorkflowTelemetryEvent(
+                        traceID: request.context.traceID,
+                        lane: .selectionRewrite,
+                        provider: rewriteResult.providerName,
+                        model: rewriteResult.modelName,
+                        event: .stepSuccess,
+                        detail: "index=\(request.index + 1),feature=text_transform,path=\(TextOutputPath.clipboardOnly.rawValue)",
+                        audioDuration: audioDurationSeconds,
+                        transcriptLength: finalRewriteText.count,
+                        stepCount: request.totalSteps,
+                        stepIndex: request.index + 1,
+                        stepID: request.step.stepID,
+                        feature: request.step.feature.rawValue,
+                        durationMs: Self.elapsedMilliseconds(since: stepStartedAt),
+                        attempt: request.attempt
+                    )
+                )
                 return MagicianWorkflowStepExecutionResponse(
                     userMessage: "未检测到可写入输入框，结果已复制到剪贴板。",
                     outputText: finalRewriteText,

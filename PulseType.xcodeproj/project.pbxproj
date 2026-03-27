@@ -31,6 +31,7 @@
 		2EC32C636372DEE9E912CB05 /* OpenAIEndpointResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 651B002BCD715F07DBF78CE4 /* OpenAIEndpointResolver.swift */; };
 		30A834C1E7880AD332755CCB /* MagicianFeatureToggleStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 045D84679EE789BE00D2B376 /* MagicianFeatureToggleStoreTests.swift */; };
 		30B6BF4063B862B03504917D /* ModifierCaptureStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35AEAF4A969D25A995B7A233 /* ModifierCaptureStateMachine.swift */; };
+		362F2F56991A39E3C967B865 /* WorkflowTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B59C47BDE08B1E3FD3A927AA /* WorkflowTelemetry.swift */; };
 		382AEFF6E0F7F9BCFCAF3691 /* AppScenePolicyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD3BEE22B923D79D9B8964B /* AppScenePolicyStore.swift */; };
 		3FB587B63E32498812860E51 /* SkillRuleStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5209C9FFF3D4214351BD221 /* SkillRuleStore.swift */; };
 		4228CFA981DF422314E76E65 /* MagicianCommandSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0B4F39C6F9059AAEE19BF2 /* MagicianCommandSanitizer.swift */; };
@@ -192,6 +193,7 @@
 		B3C7E51DDC9848BFCDDB9FCC /* BrainstormFallbackComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrainstormFallbackComposer.swift; sourceTree = "<group>"; };
 		B3C8E7B6173BB8A266F27955 /* MagicianIntentRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicianIntentRouterTests.swift; sourceTree = "<group>"; };
 		B5209C9FFF3D4214351BD221 /* SkillRuleStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillRuleStore.swift; sourceTree = "<group>"; };
+		B59C47BDE08B1E3FD3A927AA /* WorkflowTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowTelemetry.swift; sourceTree = "<group>"; };
 		B76EE0E496B0199F87463E36 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		BC37A614638B479F21A9BE44 /* ProviderSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderSettingsStore.swift; sourceTree = "<group>"; };
 		BE6A00315A23BF62DC01AEC6 /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
@@ -497,6 +499,7 @@
 			children = (
 				787C4C62D2B8C938D225018A /* DiagnosticsCenter.swift */,
 				448CB6F155CB3E52B85D5BC9 /* SpeechPipelineLogger.swift */,
+				B59C47BDE08B1E3FD3A927AA /* WorkflowTelemetry.swift */,
 			);
 			path = Diagnostics;
 			sourceTree = "<group>";
@@ -677,6 +680,7 @@
 				506D2F6F8BD28EFAA794A708 /* SpeechTranscriptionErrorPresentation.swift in Sources */,
 				1B54052D55540BDFF9C094A7 /* StatusPulseHUDController.swift in Sources */,
 				FED627529C528E95B85937EC /* TextOutputCoordinator.swift in Sources */,
+				362F2F56991A39E3C967B865 /* WorkflowTelemetry.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

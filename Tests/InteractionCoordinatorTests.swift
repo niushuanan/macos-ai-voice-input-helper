@@ -715,6 +715,239 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.sessionStore.statusMessage, "第一步失败")
     }
 
+    func testWorkflowE2ETextToEventToMailAutoSendWritesTelemetry() async throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
+            focusContext: FixedContextDetector().focusedAppContext(),
+            selectedText: "周五下午三点做路线图评审，会后同步项目组。"
+        )
+        let rewriteProvider = CapturingRewriteProvider(
+            result: .success(
+                SelectionRewriteResult(
+                    rewrittenText: "路线图评审：周五 15:00，评审结束后发邮件同步项目组。",
+                    actionLabel: "整理为会议安排",
+                    providerName: "Fake OpenAI",
+                    modelName: "fake-model"
+                )
+            )
+        )
+        let planner = FixedWorkflowPlanner(
+            plan: MagicianWorkflowPlan(
+                steps: [
+                    MagicianWorkflowStep(
+                        stepID: "step-1",
+                        feature: .textTransform,
+                        params: .empty,
+                        inputBinding: .selectionText,
+                        command: "先把文案整理成会议安排"
+                    ),
+                    MagicianWorkflowStep(
+                        stepID: "step-2",
+                        feature: .createEvent,
+                        params: MagicianIntentParams(
+                            title: "路线图评审",
+                            startAt: "2026-03-27 15:00",
+                            endAt: "2026-03-27 16:00",
+                            location: "A会议室"
+                        ),
+                        inputBinding: .previousOutput,
+                        command: "再创建日程"
+                    ),
+                    MagicianWorkflowStep(
+                        stepID: "step-3",
+                        feature: .composeEmailDraft,
+                        params: MagicianIntentParams(
+                            mailRecipientHints: ["项目组"],
+                            mailDeliveryMode: .autoSendIfResolved,
+                            mailSubject: "路线图评审同步"
+                        ),
+                        inputBinding: .previousOutput,
+                        command: "最后发邮件给项目组"
+                    )
+                ],
+                confidence: 0.94
+            )
+        )
+        let toolExecutor = FakeMagicianToolExecutor()
+        toolExecutor.scriptedResults = [
+            .success(
+                MagicianExecutionResult(
+                    intent: .createEvent,
+                    userMessage: "已创建日程。",
+                    outputText: "路线图评审：周五 15:00，A会议室",
+                    historyDisplayText: "已建日程：路线图评审",
+                    fallbackUsed: false
+                )
+            ),
+            .success(
+                MagicianExecutionResult(
+                    intent: .composeEmailDraft,
+                    userMessage: "邮件已发出",
+                    outputText: "路线图评审已安排，详见日程。",
+                    historyDisplayText: "已发送邮件：路线图评审同步 -> team@example.com",
+                    fallbackUsed: false
+                )
+            )
+        ]
+
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutputCoordinator,
+            magicianWorkflowPlanner: planner,
+            magicianToolExecutor: toolExecutor,
+            rewriteProviders: [rewriteProvider],
+            transcriptionText: "先整理文案再建日程最后发邮件"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createEvent)
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .composeEmailDraft)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore, timeoutNanoseconds: 5_000_000_000)
+
+        XCTAssertEqual(rewriteProvider.callCount, 1)
+        XCTAssertEqual(toolExecutor.callCount, 2)
+        XCTAssertEqual(toolExecutor.intents.map(\.intent), [.createEvent, .composeEmailDraft])
+        XCTAssertEqual(
+            toolExecutor.intents.first?.sourceText,
+            "路线图评审：周五 15:00，评审结束后发邮件同步项目组。"
+        )
+        XCTAssertEqual(toolExecutor.intents.last?.sourceText, "路线图评审：周五 15:00，A会议室")
+        XCTAssertEqual(fixture.sessionStore.statusMessage, "邮件已发出")
+        XCTAssertEqual(fixture.sessionStore.phase, .idle)
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest, nil)
+        let historyDisplayText = fixture.localHistoryStore.entries.first?.displayText ?? ""
+        XCTAssertTrue(historyDisplayText.contains("文字处理"))
+        XCTAssertTrue(historyDisplayText.contains("日程"))
+        XCTAssertTrue(historyDisplayText.contains("邮件助手"))
+
+        let telemetryEvents = try loadWorkflowTelemetryRecords(from: fixture.telemetryLogURL)
+        XCTAssertTrue(telemetryEvents.contains { $0.event == "workflow.plan.success" })
+        XCTAssertEqual(
+            telemetryEvents.filter { $0.event == "workflow.step.success" }.count,
+            3
+        )
+        XCTAssertTrue(telemetryEvents.contains { $0.event == "workflow.done" })
+        let mailStepEvent = try XCTUnwrap(
+            telemetryEvents.last {
+                $0.event == "workflow.step.success" && $0.feature == MagicianFeatureID.composeEmailDraft.rawValue
+            }
+        )
+        XCTAssertEqual(mailStepEvent.autoSendConfigured, true)
+        XCTAssertEqual(mailStepEvent.autoSendHit, true)
+        XCTAssertEqual(mailStepEvent.draftOnlyFallback, false)
+    }
+
+    func testWorkflowE2ETextToEventToMailDraftFallbackWritesTelemetry() async throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
+            focusContext: FixedContextDetector().focusedAppContext(),
+            selectedText: "周五下午三点做路线图评审，会后同步项目组。"
+        )
+        let rewriteProvider = CapturingRewriteProvider(
+            result: .success(
+                SelectionRewriteResult(
+                    rewrittenText: "路线图评审：周五 15:00，评审结束后发邮件同步项目组。",
+                    actionLabel: "整理为会议安排",
+                    providerName: "Fake OpenAI",
+                    modelName: "fake-model"
+                )
+            )
+        )
+        let planner = FixedWorkflowPlanner(
+            plan: MagicianWorkflowPlan(
+                steps: [
+                    MagicianWorkflowStep(
+                        stepID: "step-1",
+                        feature: .textTransform,
+                        params: .empty,
+                        inputBinding: .selectionText,
+                        command: "先把文案整理成会议安排"
+                    ),
+                    MagicianWorkflowStep(
+                        stepID: "step-2",
+                        feature: .createEvent,
+                        params: MagicianIntentParams(
+                            title: "路线图评审",
+                            startAt: "2026-03-27 15:00",
+                            endAt: "2026-03-27 16:00",
+                            location: "A会议室"
+                        ),
+                        inputBinding: .previousOutput,
+                        command: "再创建日程"
+                    ),
+                    MagicianWorkflowStep(
+                        stepID: "step-3",
+                        feature: .composeEmailDraft,
+                        params: MagicianIntentParams(
+                            mailRecipientHints: ["项目组"],
+                            mailDeliveryMode: .autoSendIfResolved,
+                            mailSubject: "路线图评审同步"
+                        ),
+                        inputBinding: .previousOutput,
+                        command: "最后发邮件给项目组"
+                    )
+                ],
+                confidence: 0.92
+            )
+        )
+        let toolExecutor = FakeMagicianToolExecutor()
+        toolExecutor.scriptedResults = [
+            .success(
+                MagicianExecutionResult(
+                    intent: .createEvent,
+                    userMessage: "已创建日程。",
+                    outputText: "路线图评审：周五 15:00，A会议室",
+                    historyDisplayText: "已建日程：路线图评审",
+                    fallbackUsed: false
+                )
+            ),
+            .success(
+                MagicianExecutionResult(
+                    intent: .composeEmailDraft,
+                    userMessage: "邮箱目标不够明确，已打开草稿窗",
+                    outputText: "路线图评审已安排，详见日程。",
+                    historyDisplayText: "邮件待确认：路线图评审同步",
+                    fallbackUsed: true
+                )
+            )
+        ]
+
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutputCoordinator,
+            magicianWorkflowPlanner: planner,
+            magicianToolExecutor: toolExecutor,
+            rewriteProviders: [rewriteProvider],
+            transcriptionText: "先整理文案再建日程最后发邮件"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createEvent)
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .composeEmailDraft)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore, timeoutNanoseconds: 5_000_000_000)
+
+        XCTAssertEqual(rewriteProvider.callCount, 1)
+        XCTAssertEqual(toolExecutor.callCount, 2)
+        XCTAssertEqual(fixture.sessionStore.statusMessage, "邮箱目标不够明确，已打开草稿窗")
+        XCTAssertEqual(fixture.sessionStore.phase, .idle)
+
+        let telemetryEvents = try loadWorkflowTelemetryRecords(from: fixture.telemetryLogURL)
+        let mailStepEvent = try XCTUnwrap(
+            telemetryEvents.last {
+                $0.event == "workflow.step.success" && $0.feature == MagicianFeatureID.composeEmailDraft.rawValue
+            }
+        )
+        XCTAssertEqual(mailStepEvent.autoSendConfigured, true)
+        XCTAssertEqual(mailStepEvent.autoSendHit, false)
+        XCTAssertEqual(mailStepEvent.draftOnlyFallback, true)
+    }
+
     func testMagicianASRRequestSkipsDictionaryInjection() async throws {
         let router = FakeMagicianIntentRouter(
             intent: MagicianIntent(
@@ -1165,6 +1398,10 @@ final class InteractionCoordinatorTests: XCTestCase {
             brainstormDurationProfileStore.upsert(brainstormDurationProfile)
         }
         let speechPipelineLogger = SpeechPipelineLogger(diagnosticsDirectory: diagnosticsDirectory)
+        let workflowTelemetryReporter = WorkflowTelemetryReporter(
+            diagnosticsDirectory: diagnosticsDirectory,
+            speechPipelineLogger: speechPipelineLogger
+        )
         let appScenePolicyStore = AppScenePolicyStore(defaults: defaults)
         let skillRuleStore = SkillRuleStore(defaults: defaults, storageKey: "skill.rules.interaction.tests")
         let magicianFeatureToggleStore = MagicianFeatureToggleStore(
@@ -1200,6 +1437,7 @@ final class InteractionCoordinatorTests: XCTestCase {
             skillRuleStore: skillRuleStore,
             asrDictionaryStore: dictionaryStore,
             magicianFeatureToggleStore: magicianFeatureToggleStore,
+            workflowTelemetryReporter: workflowTelemetryReporter,
             magicianIntentRouter: magicianIntentRouter,
             magicianWorkflowPlanner: magicianWorkflowPlanner,
             magicianToolExecutor: magicianToolExecutor ?? MagicianToolExecutor(),
@@ -1221,6 +1459,7 @@ final class InteractionCoordinatorTests: XCTestCase {
             transcriptionProvider: transcriptionProvider,
             dictionaryStore: dictionaryStore,
             speechPipelineLogURL: diagnosticsDirectory.appendingPathComponent("speech-pipeline.log", isDirectory: false),
+            telemetryLogURL: diagnosticsDirectory.appendingPathComponent("telemetry.log", isDirectory: false),
             cleanUp: {
                 try? FileManager.default.removeItem(at: historyDirectory)
                 try? FileManager.default.removeItem(at: diagnosticsDirectory)
@@ -1242,6 +1481,21 @@ final class InteractionCoordinatorTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 30_000_000)
         }
     }
+
+    private func loadWorkflowTelemetryRecords(from url: URL) throws -> [WorkflowTelemetryTestRecord] {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return []
+        }
+        let content = try String(contentsOf: url, encoding: .utf8)
+        let lines = content
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        return try lines.map { line in
+            let data = Data(line.utf8)
+            return try JSONDecoder().decode(WorkflowTelemetryTestRecord.self, from: data)
+        }
+    }
 }
 
 private struct InteractionFixture {
@@ -1257,7 +1511,16 @@ private struct InteractionFixture {
     let transcriptionProvider: FakeTranscriptionProvider
     let dictionaryStore: ASRDictionaryStore
     let speechPipelineLogURL: URL
+    let telemetryLogURL: URL
     let cleanUp: () -> Void
+}
+
+private struct WorkflowTelemetryTestRecord: Decodable {
+    let event: String
+    let feature: String?
+    let autoSendConfigured: Bool?
+    let autoSendHit: Bool?
+    let draftOnlyFallback: Bool?
 }
 
 @MainActor
@@ -1634,8 +1897,10 @@ private final class FakeMagicianToolExecutor: MagicianToolExecuting {
             recoverAction: nil
         )
     )
+    var scriptedResults: [Result<MagicianExecutionResult, Error>] = []
     private(set) var callCount: Int = 0
     private(set) var lastIntent: MagicianIntent?
+    private(set) var intents: [MagicianIntent] = []
     private(set) var lastExecutionContext: MagicianExecutionContext?
     private(set) var lastCommand: String?
 
@@ -1645,8 +1910,13 @@ private final class FakeMagicianToolExecutor: MagicianToolExecuting {
     ) async throws -> MagicianExecutionResult {
         callCount += 1
         lastIntent = intent
+        intents.append(intent)
         lastExecutionContext = context
         lastCommand = context.command
+        if !scriptedResults.isEmpty {
+            let scripted = scriptedResults.removeFirst()
+            return try scripted.get()
+        }
         switch result {
         case let .success(value):
             return value

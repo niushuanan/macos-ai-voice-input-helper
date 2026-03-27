@@ -768,6 +768,8 @@ func summarizedHistoryText(_ text: String, limit: Int = 48) -> String {
 struct MagicianWorkflowStepExecutionRequest {
     let step: MagicianWorkflowStep
     let index: Int
+    let totalSteps: Int
+    let attempt: Int
     let stepExecutionKey: String
     let context: MagicianWorkflowExecutionContext
     let latestOutputText: String?
@@ -801,6 +803,7 @@ final class MagicianWorkflowExecutor {
             let response = try await executeWithRetry(
                 step: step,
                 index: index,
+                totalSteps: plan.steps.count,
                 stepExecutionKey: stepExecutionKey,
                 context: context,
                 latestOutputText: latestOutputText,
@@ -833,6 +836,7 @@ final class MagicianWorkflowExecutor {
     private func executeWithRetry(
         step: MagicianWorkflowStep,
         index: Int,
+        totalSteps: Int,
         stepExecutionKey: String,
         context: MagicianWorkflowExecutionContext,
         latestOutputText: String?,
@@ -847,6 +851,8 @@ final class MagicianWorkflowExecutor {
                     MagicianWorkflowStepExecutionRequest(
                         step: step,
                         index: index,
+                        totalSteps: totalSteps,
+                        attempt: attempt,
                         stepExecutionKey: stepExecutionKey,
                         context: context,
                         latestOutputText: latestOutputText

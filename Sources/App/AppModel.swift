@@ -165,6 +165,10 @@ final class AppModel: ObservableObject {
         let speechPipelineLogger = SpeechPipelineLogger(
             diagnosticsDirectory: store.diagnosticsDirectory
         )
+        let workflowTelemetryReporter = WorkflowTelemetryReporter(
+            diagnosticsDirectory: store.diagnosticsDirectory,
+            speechPipelineLogger: speechPipelineLogger
+        )
         let controlCenterState = ControlCenterState(localHistoryStore: localHistoryStore)
         let hotkeyStateStore = HotkeyStateStore()
         let toastPresenter = ToastPresenter()
@@ -185,6 +189,7 @@ final class AppModel: ObservableObject {
             asrDictionaryStore: asrDictionaryStore,
             mailAddressBookStore: mailAddressBookStore,
             magicianFeatureToggleStore: magicianFeatureToggleStore,
+            workflowTelemetryReporter: workflowTelemetryReporter,
             toastPresenter: toastPresenter
         )
         return AppModel(
