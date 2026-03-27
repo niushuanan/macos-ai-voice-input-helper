@@ -120,6 +120,35 @@ final class MemoryEntryTextResolverTests: XCTestCase {
         )
     }
 
+    func testMagicianPrimaryTextStripsLegacyTemplateEnvelope() {
+        let entry = SessionHistoryEntry(
+            mode: .selectionRewrite,
+            appName: "Calendar",
+            bundleID: "com.apple.iCal",
+            inputText: "周五 15:00 在 A 会议室评审 PRD",
+            outputText: """
+            评审 PRD
+
+            来自 PulseType 魔术先生
+
+            原文：
+            周五 15:00 在 A 会议室评审 PRD
+
+            指令：
+            帮我建立日程
+            """,
+            instructionText: "帮我建立日程",
+            magicianFeatureID: .createEvent,
+            displayText: nil,
+            status: .success
+        )
+
+        XCTAssertEqual(
+            MemoryEntryTextResolver.magicianPrimaryText(for: entry),
+            "评审 PRD"
+        )
+    }
+
     func testMagicianFailedEntryShowsErrorSourceAndInstruction() {
         let entry = SessionHistoryEntry(
             mode: .selectionRewrite,

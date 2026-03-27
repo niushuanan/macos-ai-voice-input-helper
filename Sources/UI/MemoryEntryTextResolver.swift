@@ -138,10 +138,23 @@ enum MemoryEntryTextResolver {
             break
         }
 
+        text = stripLegacyTemplateEnvelope(from: text)
+        text = stripInstructionTemplatePrefix(text, instruction: instruction)
+
+        if
+            isLikelyInstructionPhrase(
+                text,
+                command: instruction,
+                actionTokens: magicianActionTokens
+            )
+        {
+            return nil
+        }
+
         guard compact(text) != compact(instruction) else {
             return nil
         }
-        return text
+        return normalized(text)
     }
 
     private static func compact(_ value: String) -> String {
@@ -150,10 +163,71 @@ enum MemoryEntryTextResolver {
             .joined()
     }
 
+    private static func stripLegacyTemplateEnvelope(from text: String) -> String {
+        var value = text
+        let markers = [
+            "来自 PulseType 魔术先生",
+            "原文：",
+            "指令：",
+            "Spoken command:",
+            "Selected text:",
+            "<<<COMMAND",
+            "COMMAND>>>"
+        ]
+        for marker in markers {
+            guard let range = value.range(of: marker, options: [.caseInsensitive]) else {
+                continue
+            }
+            let prefix = String(value[..<range.lowerBound])
+                .trimmingCharacters(in: instructionTrimCharacterSet)
+            if !prefix.isEmpty {
+                value = prefix
+                break
+            }
+            value = String(value[range.upperBound...])
+                .trimmingCharacters(in: instructionTrimCharacterSet)
+        }
+        return value
+    }
+
+    private static func stripInstructionTemplatePrefix(
+        _ text: String,
+        instruction: String
+    ) -> String {
+        var value = text
+        let normalizedInstruction = instruction.trimmingCharacters(in: instructionTrimCharacterSet)
+        let candidates = [
+            instruction,
+            normalizedInstruction,
+            "\(instruction)：",
+            "\(instruction):",
+            "\(instruction)。",
+            "\(normalizedInstruction)：",
+            "\(normalizedInstruction):",
+            "\(normalizedInstruction)。"
+        ].filter { !$0.isEmpty }
+
+        for prefix in candidates {
+            guard value.hasPrefix(prefix) else {
+                continue
+            }
+            value = String(value.dropFirst(prefix.count))
+                .trimmingCharacters(in: instructionTrimCharacterSet)
+            break
+        }
+        return value
+    }
+
     private static let instructionTrimCharacterSet: CharacterSet = {
         CharacterSet.whitespacesAndNewlines
             .union(.punctuationCharacters)
             .union(.symbols)
             .union(CharacterSet(charactersIn: "，。；：、（）【】《》“”‘’「」『』—-"))
     }()
+
+    private static let magicianActionTokens: [String] = [
+        "帮我", "请", "一下", "帮忙", "把", "给我", "发给", "发送", "发邮件", "写邮件",
+        "邮件", "草稿", "mail", "email", "备忘录", "note", "记到", "记下来", "记一下",
+        "日程", "建立日程", "创建日程", "calendar", "event", "整理", "改写", "翻译"
+    ]
 }

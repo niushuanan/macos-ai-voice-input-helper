@@ -423,7 +423,32 @@ final class MagicianIntentRouterTests: XCTestCase {
         )
 
         XCTAssertEqual(validated.sourceText, "")
-        XCTAssertEqual(validated.params.noteBody, "记一下周五下午和产品开会")
+        XCTAssertEqual(validated.params.noteBody, "周五下午和产品开会")
+    }
+
+    func testSchemaValidatorUsesSelectionAsMailContentInsteadOfCommand() throws {
+        let validator = MagicianIntentSchemaValidator()
+        let selection = "未来学部心晴驿站观影活动邀请：3 月 28 日晚 7 点，M 栋 901。"
+        let validated = try validator.validate(
+            MagicianIntent(
+                intent: .composeEmailDraft,
+                confidence: 0.89,
+                sourceText: "",
+                params: MagicianIntentParams(
+                    mailRecipientHints: ["小庄"],
+                    mailDeliveryMode: .autoSendIfResolved,
+                    mailSubject: "帮我写一个邮件",
+                    mailBody: "发给小庄并发送"
+                )
+            ),
+            enabledFeatures: [.composeEmailDraft],
+            command: "发给小庄并发送",
+            selection: selection
+        )
+
+        XCTAssertEqual(validated.sourceText, selection)
+        XCTAssertEqual(validated.params.mailBody, selection)
+        XCTAssertEqual(validated.params.mailSubject, String(selection.prefix(48)))
     }
 
     func testLLMRouterRejectsInvalidJSONWithoutHeuristicFallback() async {

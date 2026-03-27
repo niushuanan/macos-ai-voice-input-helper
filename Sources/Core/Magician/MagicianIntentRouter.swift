@@ -423,10 +423,13 @@ struct MagicianIntentSchemaValidator {
                 params.noteBody = normalizedSelection
                 break
             }
-            if (params.noteBody ?? "").isEmpty {
-                let fallback = sourceText.isEmpty ? normalizedCommand : sourceText
-                params.noteBody = fallback.isEmpty ? nil : fallback
-            }
+            params.noteBody = sanitizedContentPayload(
+                candidate: params.noteBody,
+                command: normalizedCommand,
+                selection: normalizedSelection,
+                sourceText: sourceText,
+                actionTokens: ["备忘录", "写进备忘录", "写入备忘录", "记到", "记下来", "note", "记录"]
+            )
         case .composeEmailDraft:
             params.mailDeliveryMode = params.mailDeliveryMode ?? resolvedMailDeliveryMode(from: normalizedCommand)
             params.mailRecipientHints = mergeRecipientHints(
@@ -459,7 +462,16 @@ struct MagicianIntentSchemaValidator {
                 }
                 break
             }
-            let fallbackSource = sourceText.isEmpty ? normalizedCommand : sourceText
+            let fallbackSource = sourceText.isEmpty
+                ? (
+                    magicianSemanticPayload(
+                        from: normalizedCommand,
+                        actionTokens: ["邮件", "草稿", "写邮件", "发邮件", "mail", "email", "发给", "发送"],
+                        extraCommandTokens: ["主题", "正文", "内容", "整理", "写", "写一封", "写个", "一个", "一封"],
+                        stripRecipientDirectives: true
+                    ) ?? ""
+                )
+                : sourceText
             params.mailBody = sanitizedMailBody(
                 candidate: params.mailBody,
                 command: normalizedCommand,
@@ -494,6 +506,36 @@ struct MagicianIntentSchemaValidator {
             value,
             command: command,
             actionTokens: actionTokens
+        )
+    }
+
+    private func sanitizedContentPayload(
+        candidate: String?,
+        command: String,
+        selection: String,
+        sourceText: String,
+        actionTokens: [String],
+        extraCommandTokens: [String] = [],
+        stripRecipientDirectives: Bool = false
+    ) -> String? {
+        if
+            let candidate = normalized(candidate),
+            !shouldReplaceWithSelectionContent(
+                candidate,
+                command: command,
+                actionTokens: actionTokens + extraCommandTokens
+            )
+        {
+            return candidate
+        }
+
+        return magicianResolvedPayload(
+            selectedText: selection,
+            sourceText: sourceText,
+            command: command,
+            actionTokens: actionTokens,
+            extraCommandTokens: extraCommandTokens,
+            stripRecipientDirectives: stripRecipientDirectives
         )
     }
 
@@ -639,21 +681,15 @@ struct MagicianIntentSchemaValidator {
         selection: String,
         sourceText: String
     ) -> String? {
-        if
-            let candidate,
-            !candidate.isEmpty,
-            !shouldReplaceWithSelectionContent(
-                candidate,
-                command: command,
-                actionTokens: ["邮件", "草稿", "mail", "email", "主题", "subject", "发给", "发送"]
-            )
-        {
-            return String(candidate.prefix(48))
-        }
-
-        let fallback = [sourceText, selection, command]
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
+        let fallback = sanitizedContentPayload(
+            candidate: candidate,
+            command: command,
+            selection: selection,
+            sourceText: sourceText,
+            actionTokens: ["邮件", "草稿", "mail", "email", "主题", "subject", "发给", "发送"],
+            extraCommandTokens: ["正文", "内容", "整理", "写", "写一封", "写个", "一个", "一封"],
+            stripRecipientDirectives: true
+        )
         guard let fallback else {
             return nil
         }
@@ -675,21 +711,15 @@ struct MagicianIntentSchemaValidator {
         selection: String,
         sourceText: String
     ) -> String? {
-        if
-            let candidate,
-            !candidate.isEmpty,
-            !shouldReplaceWithSelectionContent(
-                candidate,
-                command: command,
-                actionTokens: ["邮件", "草稿", "mail", "email", "发邮件", "写邮件", "发给", "发送"]
-            )
-        {
-            return candidate
-        }
-
-        let fallback = !sourceText.isEmpty ? sourceText : (!selection.isEmpty ? selection : command)
-        let trimmed = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        return sanitizedContentPayload(
+            candidate: candidate,
+            command: command,
+            selection: selection,
+            sourceText: sourceText,
+            actionTokens: ["邮件", "草稿", "mail", "email", "发邮件", "写邮件", "发给", "发送"],
+            extraCommandTokens: ["主题", "正文", "内容", "整理", "写", "写一封", "写个", "一个", "一封"],
+            stripRecipientDirectives: true
+        )
     }
 
     private func detectedEventStartAt(from text: String) -> String? {
@@ -947,25 +977,23 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
         if !selection.isEmpty {
             return String(selection.prefix(60))
         }
-        let reduced = compacted(
-            command,
-            removing: ["帮我", "请", "安排", "创建", "建", "日程", "会议", "calendar", "event"]
-        )
-        if !reduced.isEmpty {
-            return String(reduced.prefix(60))
+        if let semantic = magicianSemanticPayload(
+            from: command,
+            actionTokens: ["安排", "创建", "建", "日程", "会议", "calendar", "event", "提醒"]
+        ) {
+            return String(semantic.prefix(60))
         }
-        return String(command.prefix(60))
+        return "新建日程"
     }
 
     private func resolvedNoteBody(command: String, selection: String) -> String {
         if !selection.isEmpty {
             return selection
         }
-        let reduced = compacted(
-            command,
-            removing: ["帮我", "请", "记到", "记到备忘录", "记下来", "记一下", "记录一下", "备忘录", "note"]
-        )
-        return reduced.isEmpty ? command : reduced
+        return magicianSemanticPayload(
+            from: command,
+            actionTokens: ["记到", "记到备忘录", "记下来", "记一下", "记录一下", "备忘录", "note", "记录"]
+        ) ?? ""
     }
 
     private func resolvedMailSubject(command: String, selection: String) -> String {
@@ -978,25 +1006,27 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
         if !selection.isEmpty {
             return String(selection.prefix(48))
         }
-        let reduced = compacted(
-            command,
-            removing: ["帮我", "请", "整理", "邮件", "草稿", "发给", "发邮件", "写邮件", "email", "mail"]
-        )
-        if !reduced.isEmpty {
-            return String(reduced.prefix(48))
+        if let semantic = magicianSemanticPayload(
+            from: command,
+            actionTokens: ["整理", "邮件", "草稿", "发给", "发邮件", "写邮件", "email", "mail", "主题", "subject", "发送"],
+            extraCommandTokens: ["正文", "内容", "写", "写一封", "写个", "一个", "一封"],
+            stripRecipientDirectives: true
+        ) {
+            return String(semantic.prefix(48))
         }
-        return String(command.prefix(48))
+        return "邮件草稿"
     }
 
     private func resolvedMailBody(command: String, selection: String) -> String {
         if !selection.isEmpty {
             return selection
         }
-        let reduced = compacted(
-            command,
-            removing: ["帮我", "请", "整理成", "邮件", "草稿", "发给", "发邮件", "写邮件", "email", "mail", "主题是", "subject"]
-        )
-        return reduced.isEmpty ? command : reduced
+        return magicianSemanticPayload(
+            from: command,
+            actionTokens: ["整理成", "邮件", "草稿", "发给", "发邮件", "写邮件", "email", "mail", "主题是", "subject", "发送"],
+            extraCommandTokens: ["正文", "内容", "写", "写一封", "写个", "一个", "一封"],
+            stripRecipientDirectives: true
+        ) ?? ""
     }
 
     private func compacted(_ text: String, removing tokens: [String]) -> String {
@@ -1413,7 +1443,14 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
                 )
             } else {
                 let fallbackSource = sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? command
+                    ? (
+                        magicianSemanticPayload(
+                            from: command,
+                            actionTokens: ["邮件", "草稿", "mail", "email", "发邮件", "写邮件", "发给", "发送"],
+                            extraCommandTokens: ["主题", "正文", "内容", "整理", "写", "写一封", "写个", "一个", "一封"],
+                            stripRecipientDirectives: true
+                        ) ?? ""
+                    )
                     : sourceText
                 params.mailBody = sanitizedMailBody(
                     candidate: params.mailBody,
@@ -1516,15 +1553,20 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
             !shouldUseSelectionAsContent(
                 candidate: candidate,
                 command: command,
-                actionTokens: ["邮件", "草稿", "mail", "email", "主题", "subject", "发送", "发给"]
+                actionTokens: ["邮件", "草稿", "mail", "email", "主题", "subject", "发送", "发给", "写", "写一封", "写个", "一个", "一封"]
             )
         {
             return String(candidate.prefix(48))
         }
 
-        let fallback = [sourceText, selection, command]
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
+        let fallback = magicianResolvedPayload(
+            selectedText: selection,
+            sourceText: sourceText,
+            command: command,
+            actionTokens: ["邮件", "草稿", "mail", "email", "主题", "subject", "发送", "发给"],
+            extraCommandTokens: ["正文", "内容", "整理", "写", "写一封", "写个", "一个", "一封"],
+            stripRecipientDirectives: true
+        )
         guard let fallback else {
             return nil
         }
@@ -1549,9 +1591,13 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
             return candidate
         }
 
-        let fallback = [sourceText, selection, command]
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
-        return fallback
+        return magicianResolvedPayload(
+            selectedText: selection,
+            sourceText: sourceText,
+            command: command,
+            actionTokens: ["邮件", "草稿", "mail", "email", "发邮件", "写邮件", "发送", "发给"],
+            extraCommandTokens: ["主题", "正文", "内容", "整理", "写", "写一封", "写个", "一个", "一封"],
+            stripRecipientDirectives: true
+        )
     }
 }

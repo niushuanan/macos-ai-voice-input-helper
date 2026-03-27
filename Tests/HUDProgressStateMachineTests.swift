@@ -138,7 +138,11 @@ final class HUDProgressStateMachineTests: XCTestCase {
         )
         XCTAssertEqual(
             StatusPulseHUDMessageResolver.completionTitle(for: "邮件已发送"),
-            "邮件已发送"
+            "邮件已发出"
+        )
+        XCTAssertEqual(
+            StatusPulseHUDMessageResolver.completionTitle(for: "邮箱目标不够明确，已打开草稿窗"),
+            "邮箱目标不够明确，已打开草稿窗"
         )
         XCTAssertEqual(
             StatusPulseHUDMessageResolver.completionTitle(for: "已提交到备忘录快捷指令。"),

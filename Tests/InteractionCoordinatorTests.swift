@@ -530,7 +530,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         toolExecutor.result = .success(
             MagicianExecutionResult(
                 intent: .composeEmailDraft,
-                userMessage: "邮件已发送",
+                userMessage: "邮件已发出",
                 outputText: "这是路线图同步邮件。",
                 historyDisplayText: "已发送邮件：路线图同步 -> 1379804870zhk@gmail.com",
                 fallbackUsed: false
@@ -550,7 +550,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         fixture.coordinator.handleStopInput()
         await waitForPipeline(using: fixture.sessionStore)
 
-        XCTAssertEqual(fixture.sessionStore.statusMessage, "邮件已发送")
+        XCTAssertEqual(fixture.sessionStore.statusMessage, "邮件已发出")
         XCTAssertEqual(
             fixture.localHistoryStore.entries.first?.displayText,
             "已发送邮件：路线图同步 -> 1379804870zhk@gmail.com"

@@ -211,8 +211,11 @@ enum StatusPulseHUDMessageResolver {
         if isCreateNoteSuccess(normalized) {
             return "已写入备忘录"
         }
-        if normalized.contains("邮件已发送") {
-            return "邮件已发送"
+        if normalized.contains("邮件已发出") || normalized.contains("邮件已发送") {
+            return "邮件已发出"
+        }
+        if normalized.contains("邮箱目标不够明确") {
+            return "邮箱目标不够明确，已打开草稿窗"
         }
         if normalized.contains("邮件已起草") || normalized.contains("待你确认") {
             return "邮件已起草，待你确认"
@@ -315,7 +318,7 @@ enum StatusPulseHUDMessageResolver {
     private static func isComposeEmailSuccess(_ message: String) -> Bool {
         containsAny(
             message,
-            tokens: ["邮件草稿", "邮件已发送", "邮件已起草", "Mail", "mailto"]
+            tokens: ["邮件草稿", "邮件已发送", "邮件已发出", "邮件已起草", "邮箱目标不够明确", "Mail", "mailto"]
         )
     }
 

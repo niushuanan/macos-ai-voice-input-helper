@@ -88,6 +88,35 @@ final class MagicianMailSupportTests: XCTestCase {
         XCTAssertEqual(generationProvider.callCount, 0)
     }
 
+    func testMailRecipientResolverDeduplicatesExplicitEmailAndKeepsSinglePrimary() async {
+        let defaults = makeDefaults(suffix: "resolver.single-primary")
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName("resolver.single-primary")) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStoreForMailTests(storage: ["text.primary": "sk-test"])
+        )
+        let generationProvider = TrackingTextGenerationProviderForMailTests(outputTexts: [])
+        let store = MailAddressBookStore(defaults: defaults)
+        let resolver = LLMMailRecipientResolver(
+            addressBookStore: store,
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider
+        )
+
+        let resolution = await resolver.resolve(
+            command: "发给 team@example.com",
+            selection: "",
+            explicitRecipients: ["team@example.com"],
+            recipientHints: ["team@example.com"]
+        )
+
+        XCTAssertEqual(resolution.primaryRecipient?.address, "team@example.com")
+        XCTAssertTrue(resolution.alternateRecipients.isEmpty)
+        XCTAssertFalse(resolution.isAmbiguous)
+        XCTAssertEqual(generationProvider.callCount, 0)
+    }
+
     func testMailRecipientResolverMatchesAddressBookBeforeLLM() async {
         let defaults = makeDefaults(suffix: "resolver.addressbook")
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName("resolver.addressbook")) }
@@ -193,6 +222,43 @@ final class MagicianMailSupportTests: XCTestCase {
         )
     }
 
+    func testMailRecipientResolverMarksAmbiguousCandidatesAndBlocksAutoSend() async {
+        let defaults = makeDefaults(suffix: "resolver.ambiguous")
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName("resolver.ambiguous")) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStoreForMailTests(storage: ["text.primary": "sk-test"])
+        )
+        let generationProvider = TrackingTextGenerationProviderForMailTests(
+            outputTexts: [
+                #"{"recipients":[{"address":"xiaozhuang@example.com","matchedHint":"小庄","confidence":0.78},{"address":"xiaowang@example.com","matchedHint":"小王","confidence":0.74}]}"#
+            ]
+        )
+        let resolver = LLMMailRecipientResolver(
+            addressBookStore: MailAddressBookStore(defaults: defaults),
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider
+        )
+
+        let resolution = await resolver.resolve(
+            command: "发给小庄和小王",
+            selection: "",
+            explicitRecipients: [],
+            recipientHints: ["小庄", "小王"]
+        )
+
+        XCTAssertNil(resolution.primaryRecipient)
+        XCTAssertEqual(resolution.alternateRecipients.count, 2)
+        XCTAssertTrue(resolution.isAmbiguous)
+        XCTAssertFalse(
+            resolver.shouldAutoSend(
+                deliveryMode: .autoSendIfResolved,
+                resolution: resolution
+            )
+        )
+    }
+
     func testMailAdapterAutoSendUsesAppleScriptSendPath() async throws {
         let addressBookStore = MailAddressBookStore(defaults: makeDefaults(suffix: "adapter.send"))
         _ = addressBookStore.save(
@@ -253,7 +319,7 @@ final class MagicianMailSupportTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(result.userMessage, "邮件已发送")
+        XCTAssertEqual(result.userMessage, "邮件已发出")
         XCTAssertEqual(appleScripter.lastShouldSend, true)
         XCTAssertEqual(appleScripter.lastRecipients, ["1379804870zhk@gmail.com"])
         XCTAssertEqual(fallbackOpener.callCount, 0)
@@ -305,7 +371,7 @@ final class MagicianMailSupportTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(result.userMessage, "邮件已起草，待你确认")
+        XCTAssertEqual(result.userMessage, "邮箱目标不够明确，已打开草稿窗")
         XCTAssertEqual(appleScripter.lastShouldSend, false)
     }
 

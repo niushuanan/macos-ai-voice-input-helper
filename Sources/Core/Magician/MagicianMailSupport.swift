@@ -20,11 +20,45 @@ struct ResolvedMailRecipient: Codable, Equatable {
 }
 
 struct MailRecipientResolution: Equatable {
-    let recipients: [ResolvedMailRecipient]
+    let primaryRecipient: ResolvedMailRecipient?
+    let alternateRecipients: [ResolvedMailRecipient]
     let unresolvedHints: [String]
+    let isAmbiguous: Bool
+
+    init(
+        primaryRecipient: ResolvedMailRecipient?,
+        alternateRecipients: [ResolvedMailRecipient],
+        unresolvedHints: [String],
+        isAmbiguous: Bool
+    ) {
+        self.primaryRecipient = primaryRecipient
+        self.alternateRecipients = alternateRecipients
+        self.unresolvedHints = unresolvedHints
+        self.isAmbiguous = isAmbiguous
+    }
+
+    init(
+        recipients: [ResolvedMailRecipient],
+        unresolvedHints: [String]
+    ) {
+        self.primaryRecipient = recipients.first
+        self.alternateRecipients = Array(recipients.dropFirst())
+        self.unresolvedHints = unresolvedHints
+        self.isAmbiguous = false
+    }
+
+    var recipients: [ResolvedMailRecipient] {
+        if let primaryRecipient {
+            return [primaryRecipient] + alternateRecipients
+        }
+        return alternateRecipients
+    }
 
     var addresses: [String] {
-        recipients.map(\.address)
+        guard let primaryRecipient else {
+            return []
+        }
+        return [primaryRecipient.address]
     }
 }
 
@@ -313,17 +347,20 @@ final class LLMMailRecipientResolver: MagicianMailRecipientResolving {
     private let providerSettingsStore: ProviderSettingsStore?
     private let generationProvider: any TextGenerationProvider
     private let confidenceThreshold: Double
+    private let ambiguityGapThreshold: Double
 
     init(
         addressBookStore: MailAddressBookStore,
         providerSettingsStore: ProviderSettingsStore? = nil,
         generationProvider: any TextGenerationProvider = OpenAITextGenerationProvider(),
-        confidenceThreshold: Double = 0.70
+        confidenceThreshold: Double = 0.70,
+        ambiguityGapThreshold: Double = 0.10
     ) {
         self.addressBookStore = addressBookStore
         self.providerSettingsStore = providerSettingsStore
         self.generationProvider = generationProvider
         self.confidenceThreshold = confidenceThreshold
+        self.ambiguityGapThreshold = ambiguityGapThreshold
     }
 
     func resolve(
@@ -332,22 +369,20 @@ final class LLMMailRecipientResolver: MagicianMailRecipientResolving {
         explicitRecipients: [String],
         recipientHints: [String]
     ) async -> MailRecipientResolution {
-        var recipients: [ResolvedMailRecipient] = []
-        var seenAddresses = Set<String>()
+        var candidatesByHintKey: [String: ResolvedMailRecipient] = [:]
         let hintedExplicitRecipients = recipientHints.filter { isValidEmail($0) }
 
         for address in normalizeEmails(explicitRecipients + hintedExplicitRecipients) {
-            let key = MailAddressBookStore.normalizedLookupKey(address)
-            guard seenAddresses.insert(key).inserted else {
-                continue
-            }
-            recipients.append(
-                ResolvedMailRecipient(
-                    address: address,
-                    source: .explicit,
-                    confidence: 1.0,
-                    matchedHint: address
-                )
+            let recipient = ResolvedMailRecipient(
+                address: address,
+                source: .explicit,
+                confidence: 1.0,
+                matchedHint: address
+            )
+            registerCandidate(
+                recipient,
+                hint: address,
+                into: &candidatesByHintKey
             )
         }
 
@@ -360,65 +395,83 @@ final class LLMMailRecipientResolver: MagicianMailRecipientResolving {
                 continue
             }
 
-            let addressKey = MailAddressBookStore.normalizedLookupKey(match.entry.email)
-            if seenAddresses.insert(addressKey).inserted {
-                recipients.append(
-                    ResolvedMailRecipient(
-                        address: match.entry.email,
-                        source: .addressBook,
-                        confidence: match.confidence,
-                        matchedHint: match.matchedHint
-                    )
-                )
-            }
+            let recipient = ResolvedMailRecipient(
+                address: match.entry.email,
+                source: .addressBook,
+                confidence: match.confidence,
+                matchedHint: match.matchedHint
+            )
+            registerCandidate(
+                recipient,
+                hint: hint,
+                into: &candidatesByHintKey
+            )
         }
 
-        guard !unresolvedHints.isEmpty else {
-            return MailRecipientResolution(recipients: recipients, unresolvedHints: [])
-        }
+        if !unresolvedHints.isEmpty {
+            let llmRecipients = await inferRecipientsWithLLM(
+                command: command,
+                selection: selection,
+                unresolvedHints: unresolvedHints
+            )
 
-        let llmRecipients = await inferRecipientsWithLLM(
-            command: command,
-            selection: selection,
-            unresolvedHints: unresolvedHints
-        )
-
-        var remainingHints = unresolvedHints
-        for candidate in llmRecipients {
-            let normalizedAddress = MailAddressBookStore.normalizedLookupKey(candidate.address)
-            guard
-                isValidEmail(candidate.address),
-                seenAddresses.insert(normalizedAddress).inserted
-            else {
-                if let matchedHint = candidate.matchedHint {
-                    remainingHints.removeAll {
-                        MailAddressBookStore.normalizedLookupKey($0) == MailAddressBookStore.normalizedLookupKey(matchedHint)
-                    }
+            var remainingHints = unresolvedHints
+            for candidate in llmRecipients {
+                guard isValidEmail(candidate.address) else {
+                    continue
                 }
-                continue
-            }
 
-            recipients.append(
-                ResolvedMailRecipient(
+                let matchedHint = candidate.matchedHint?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let recipient = ResolvedMailRecipient(
                     address: candidate.address,
                     source: .llm,
                     confidence: max(0, min(1, candidate.confidence)),
-                    matchedHint: candidate.matchedHint
+                    matchedHint: matchedHint
                 )
-            )
+                registerCandidate(
+                    recipient,
+                    hint: matchedHint ?? candidate.address,
+                    into: &candidatesByHintKey
+                )
 
-            if let matchedHint = candidate.matchedHint, !matchedHint.isEmpty {
-                remainingHints.removeAll {
-                    MailAddressBookStore.normalizedLookupKey($0) == MailAddressBookStore.normalizedLookupKey(matchedHint)
+                if let matchedHint, !matchedHint.isEmpty {
+                    remainingHints.removeAll {
+                        MailAddressBookStore.normalizedLookupKey($0) == MailAddressBookStore.normalizedLookupKey(matchedHint)
+                    }
+                } else if remainingHints.count == 1 {
+                    remainingHints.removeAll()
                 }
-            } else if remainingHints.count == 1 {
-                remainingHints.removeAll()
             }
+            unresolvedHints = remainingHints
+        }
+
+        let orderedCandidates = rankedCandidates(from: Array(candidatesByHintKey.values))
+        let isAmbiguous = isTopCandidateAmbiguous(in: orderedCandidates)
+        let primaryRecipient: ResolvedMailRecipient?
+        if
+            let top = orderedCandidates.first,
+            !isAmbiguous,
+            isEligiblePrimaryRecipient(top)
+        {
+            primaryRecipient = top
+        } else {
+            primaryRecipient = nil
+        }
+
+        let alternateRecipients = orderedCandidates.filter { candidate in
+            guard let primaryRecipient else {
+                return true
+            }
+            return MailAddressBookStore.normalizedLookupKey(candidate.address)
+                != MailAddressBookStore.normalizedLookupKey(primaryRecipient.address)
         }
 
         return MailRecipientResolution(
-            recipients: recipients,
-            unresolvedHints: remainingHints
+            primaryRecipient: primaryRecipient,
+            alternateRecipients: alternateRecipients,
+            unresolvedHints: unresolvedHints,
+            isAmbiguous: isAmbiguous
         )
     }
 
@@ -429,26 +482,113 @@ final class LLMMailRecipientResolver: MagicianMailRecipientResolving {
         guard deliveryMode == .autoSendIfResolved else {
             return false
         }
-        guard !resolution.recipients.isEmpty else {
+        guard let primaryRecipient = resolution.primaryRecipient else {
             return false
         }
         guard resolution.unresolvedHints.isEmpty else {
             return false
         }
+        guard !resolution.isAmbiguous else {
+            return false
+        }
+        return isEligiblePrimaryRecipient(primaryRecipient)
+    }
 
-        for recipient in resolution.recipients {
-            switch recipient.source {
-            case .explicit:
-                guard recipient.confidence >= 1.0 else {
-                    return false
-                }
-            case .addressBook, .llm:
-                guard recipient.confidence >= confidenceThreshold else {
-                    return false
-                }
+    private func registerCandidate(
+        _ candidate: ResolvedMailRecipient,
+        hint: String,
+        into storage: inout [String: ResolvedMailRecipient]
+    ) {
+        let hintKey = MailAddressBookStore.normalizedLookupKey(hint)
+        let fallbackKey = MailAddressBookStore.normalizedLookupKey(candidate.address)
+        let key = hintKey.isEmpty ? fallbackKey : hintKey
+        guard !key.isEmpty else {
+            return
+        }
+
+        if let existing = storage[key] {
+            storage[key] = betterRecipient(existing, candidate)
+        } else {
+            storage[key] = candidate
+        }
+    }
+
+    private func rankedCandidates(from recipients: [ResolvedMailRecipient]) -> [ResolvedMailRecipient] {
+        var dedupedByAddress: [String: ResolvedMailRecipient] = [:]
+        for recipient in recipients {
+            let addressKey = MailAddressBookStore.normalizedLookupKey(recipient.address)
+            guard !addressKey.isEmpty else {
+                continue
+            }
+            if let existing = dedupedByAddress[addressKey] {
+                dedupedByAddress[addressKey] = betterRecipient(existing, recipient)
+            } else {
+                dedupedByAddress[addressKey] = recipient
             }
         }
-        return true
+
+        return dedupedByAddress.values.sorted { lhs, rhs in
+            if lhs.confidence != rhs.confidence {
+                return lhs.confidence > rhs.confidence
+            }
+            let lhsPriority = sourcePriority(lhs.source)
+            let rhsPriority = sourcePriority(rhs.source)
+            if lhsPriority != rhsPriority {
+                return lhsPriority > rhsPriority
+            }
+            return lhs.address.localizedCaseInsensitiveCompare(rhs.address) == .orderedAscending
+        }
+    }
+
+    private func isTopCandidateAmbiguous(in candidates: [ResolvedMailRecipient]) -> Bool {
+        guard candidates.count > 1 else {
+            return false
+        }
+        let first = candidates[0]
+        let second = candidates[1]
+        let confidenceGap = first.confidence - second.confidence
+        return confidenceGap < ambiguityGapThreshold
+    }
+
+    private func isEligiblePrimaryRecipient(_ recipient: ResolvedMailRecipient) -> Bool {
+        switch recipient.source {
+        case .explicit:
+            return recipient.confidence >= 1.0
+        case .addressBook:
+            if recipient.confidence >= 1.0 {
+                return true
+            }
+            return recipient.confidence >= confidenceThreshold
+        case .llm:
+            return recipient.confidence >= confidenceThreshold
+        }
+    }
+
+    private func sourcePriority(_ source: ResolvedMailRecipientSource) -> Int {
+        switch source {
+        case .explicit:
+            return 3
+        case .addressBook:
+            return 2
+        case .llm:
+            return 1
+        }
+    }
+
+    private func betterRecipient(
+        _ lhs: ResolvedMailRecipient,
+        _ rhs: ResolvedMailRecipient
+    ) -> ResolvedMailRecipient {
+        if rhs.confidence > lhs.confidence {
+            return rhs
+        }
+        if rhs.confidence < lhs.confidence {
+            return lhs
+        }
+        if sourcePriority(rhs.source) > sourcePriority(lhs.source) {
+            return rhs
+        }
+        return lhs
     }
 
     private func inferRecipientsWithLLM(

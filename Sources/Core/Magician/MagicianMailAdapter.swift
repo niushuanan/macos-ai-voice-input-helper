@@ -150,11 +150,14 @@ struct MagicianMailAdapter: MagicianMailExecuting {
                 shouldSend: shouldSend
             )
             if scriptResult.exitCode == 0 {
-                addressBookStore.markUsed(addresses: recipients)
+                if let primaryRecipient = resolution.primaryRecipient?.address {
+                    addressBookStore.markUsed(addresses: [primaryRecipient])
+                }
                 return buildResult(
                     subject: subject,
                     body: body,
-                    recipients: recipients,
+                    resolution: resolution,
+                    deliveryMode: intent.params.mailDeliveryMode,
                     shouldSend: shouldSend,
                     fallbackUsed: false
                 )
@@ -168,7 +171,8 @@ struct MagicianMailAdapter: MagicianMailExecuting {
                 return buildResult(
                     subject: subject,
                     body: body,
-                    recipients: recipients,
+                    resolution: resolution,
+                    deliveryMode: intent.params.mailDeliveryMode,
                     shouldSend: false,
                     fallbackUsed: true
                 )
@@ -198,7 +202,8 @@ struct MagicianMailAdapter: MagicianMailExecuting {
         return buildResult(
             subject: subject,
             body: body,
-            recipients: recipients,
+            resolution: resolution,
+            deliveryMode: intent.params.mailDeliveryMode,
             shouldSend: false,
             fallbackUsed: true
         )
@@ -207,19 +212,29 @@ struct MagicianMailAdapter: MagicianMailExecuting {
     private func buildResult(
         subject: String,
         body: String,
-        recipients: [String],
+        resolution: MailRecipientResolution,
+        deliveryMode: MagicianMailDeliveryMode?,
         shouldSend: Bool,
         fallbackUsed: Bool
     ) -> MagicianExecutionResult {
         let historyText: String
         let message: String
         if shouldSend {
-            let target = recipients.isEmpty ? "未填写收件人" : recipients.joined(separator: ", ")
+            let target = resolution.primaryRecipient?.address ?? "未填写收件人"
             historyText = "已发送邮件：\(summarizedHistoryText(subject)) -> \(target)"
-            message = "邮件已发送"
+            message = "邮件已发出"
         } else {
             historyText = "邮件待确认：\(summarizedHistoryText(subject))"
-            message = "邮件已起草，待你确认"
+            if
+                deliveryMode == .autoSendIfResolved,
+                resolution.primaryRecipient == nil
+                    || resolution.isAmbiguous
+                    || !resolution.unresolvedHints.isEmpty
+            {
+                message = "邮箱目标不够明确，已打开草稿窗"
+            } else {
+                message = "邮件已起草，待你确认"
+            }
         }
 
         return MagicianExecutionResult(
@@ -269,17 +284,17 @@ struct MagicianMailAdapter: MagicianMailExecuting {
             }
             return String(subject.prefix(48))
         }
-        let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !source.isEmpty {
-            return String(source.prefix(48))
+        if let payload = magicianResolvedPayload(
+            selectedText: selected,
+            sourceText: intent.sourceText,
+            command: command,
+            actionTokens: ["邮件", "草稿", "写邮件", "发邮件", "mail", "email", "主题", "subject", "发给", "发送"],
+            extraCommandTokens: ["正文", "内容", "整理", "写", "写一封", "写个", "一个", "一封"],
+            stripRecipientDirectives: true
+        ) {
+            return defaultMailSubject(from: payload)
         }
-        if !selected.isEmpty {
-            return String(selected.prefix(48))
-        }
-        if !command.isEmpty {
-            return String(command.prefix(48))
-        }
-        return "来自 PulseType 的邮件"
+        return "邮件草稿"
     }
 
     private func resolvedBody(
@@ -302,14 +317,22 @@ struct MagicianMailAdapter: MagicianMailExecuting {
             }
             return body
         }
+        return magicianResolvedPayload(
+            selectedText: selected,
+            sourceText: intent.sourceText,
+            command: command,
+            actionTokens: ["邮件", "草稿", "写邮件", "发邮件", "mail", "email", "发给", "发送"],
+            extraCommandTokens: ["主题", "正文", "内容", "整理", "写", "写一封", "写个", "一个", "一封"],
+            stripRecipientDirectives: true
+        ) ?? "（请补充邮件正文）"
+    }
 
-        let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !source.isEmpty {
-            return source
-        }
-        if !selected.isEmpty {
-            return selected
-        }
-        return command
+    private func defaultMailSubject(from text: String) -> String {
+        String(
+            text
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .prefix(48)
+        )
     }
 }
