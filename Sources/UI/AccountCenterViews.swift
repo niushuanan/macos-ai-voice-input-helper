@@ -1,24 +1,50 @@
+import AppKit
 import SwiftUI
 
-struct AccountStatusCapsuleButton: View {
+struct AccountStatusCapsuleButton: NSViewRepresentable {
     @ObservedObject var accountStore: AccountStore
     let action: () -> Void
 
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: iconName)
-                .font(.system(size: 20, weight: .semibold))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(Color.blue)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(helpText)
-        .accessibilityLabel(accessibilityTitle)
+    func makeCoordinator() -> Coordinator {
+        Coordinator(action: action)
+    }
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(title: "", target: context.coordinator, action: #selector(Coordinator.didPress))
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.contentTintColor = .systemBlue
+        button.focusRingType = .none
+        button.setButtonType(.momentaryChange)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 22),
+            button.heightAnchor.constraint(equalToConstant: 22)
+        ])
+        update(button)
+        return button
+    }
+
+    func updateNSView(_ button: NSButton, context: Context) {
+        context.coordinator.action = action
+        update(button)
+    }
+
+    private func update(_ button: NSButton) {
+        button.image = iconImage
+        button.toolTip = helpText
+        button.setAccessibilityLabel(accessibilityTitle)
     }
 
     private var iconName: String {
-        "person.crop.circle"
+        "person.crop.circle.fill"
+    }
+
+    private var iconImage: NSImage? {
+        let config = NSImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
+        return NSImage(systemSymbolName: iconName, accessibilityDescription: accessibilityTitle)?
+            .withSymbolConfiguration(config)
     }
 
     private var accessibilityTitle: String {
@@ -35,6 +61,19 @@ struct AccountStatusCapsuleButton: View {
             return "验证码已发送"
         }
         return "登录"
+    }
+
+    final class Coordinator: NSObject {
+        var action: () -> Void
+
+        init(action: @escaping () -> Void) {
+            self.action = action
+        }
+
+        @objc
+        func didPress() {
+            action()
+        }
     }
 }
 

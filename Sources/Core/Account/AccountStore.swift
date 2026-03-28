@@ -111,6 +111,9 @@ final class AccountStore: ObservableObject, AccountAccessControlling {
         if selectHome {
             presentationHandler?(true)
         }
+        guard !isSheetPresented else {
+            return
+        }
         isSheetPresented = true
     }
 
@@ -348,8 +351,11 @@ final class AccountStore: ObservableObject, AccountAccessControlling {
 
     private func resolvedErrorMessage(for error: Error) -> (String, AccountErrorKind?) {
         if isEmailRateLimitError(error) {
+            let hint = allowsDevelopmentQuickLogin
+                ? "你可以直接用“开发环境一键登录”继续联调。"
+                : "请稍后再试，或在 Supabase 开启自定义 SMTP 后再重试。"
             return (
-                "当前触发了 Supabase 邮件限流（email rate limit exceeded），请稍后再试。",
+                "当前触发了 Supabase 邮件限流（email rate limit exceeded）。\(hint)",
                 .emailRateLimit
             )
         }
