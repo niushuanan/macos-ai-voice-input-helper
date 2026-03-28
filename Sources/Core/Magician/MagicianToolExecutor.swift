@@ -23,12 +23,14 @@ final class MagicianToolExecutor: MagicianToolExecuting {
     private let eventAdapter = MagicianEventAdapter()
     private let noteAdapter = MagicianNoteAdapter()
     private let mailAdapter: any MagicianMailExecuting
+    private let cliRegistry: MagicianCLIRegistry
 
     init(
         providerSettingsStore: ProviderSettingsStore? = nil,
         mailAddressBookStore: MailAddressBookStore? = nil,
         generationProvider: any TextGenerationProvider = OpenAITextGenerationProvider(),
-        mailAdapter: (any MagicianMailExecuting)? = nil
+        mailAdapter: (any MagicianMailExecuting)? = nil,
+        cliRegistry: MagicianCLIRegistry = MagicianCLIRegistry()
     ) {
         let resolvedMailAddressBookStore = mailAddressBookStore ?? MailAddressBookStore()
         self.mailAdapter = mailAdapter ?? MagicianMailAdapter(
@@ -36,6 +38,7 @@ final class MagicianToolExecutor: MagicianToolExecuting {
             providerSettingsStore: providerSettingsStore,
             generationProvider: generationProvider
         )
+        self.cliRegistry = cliRegistry
     }
 
     func execute(
@@ -56,6 +59,44 @@ final class MagicianToolExecutor: MagicianToolExecuting {
             return try await noteAdapter.execute(intent: intent, context: context)
         case .composeEmailDraft:
             return try await mailAdapter.execute(intent: intent, context: context)
+        case .feishuCLI:
+            return try await executeFeishuCLI(intent: intent, context: context)
+        }
+    }
+
+    private func executeFeishuCLI(
+        intent: MagicianIntent,
+        context: MagicianExecutionContext
+    ) async throws -> MagicianExecutionResult {
+        let commandText = context.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let operationRaw = intent.params.cliOperation?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let operation = FeishuCanonicalOperation(rawValue: operationRaw)
+            ?? FeishuCanonicalOperation.infer(from: commandText)
+
+        guard let operation else {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "没识别到可执行的飞书动作，请补一句更具体的命令。",
+                debugMessage: "feishu cli operation unresolved",
+                recoverAction: "retry_command"
+            )
+        }
+
+        let explicitArguments = intent.params.cliArguments ?? []
+        let availability = cliRegistry.currentFeishuAvailability()
+        let result = await cliRegistry.executeFeishu(
+            operation: operation,
+            spokenCommand: commandText,
+            explicitArguments: explicitArguments,
+            availability: availability
+        )
+
+        switch result {
+        case let .success(success):
+            return success
+        case let .failure(error):
+            throw error
         }
     }
 }

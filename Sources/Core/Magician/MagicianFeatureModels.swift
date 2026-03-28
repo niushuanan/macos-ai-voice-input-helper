@@ -117,6 +117,7 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
     case createEvent = "create_event"
     case createNote = "create_note"
     case composeEmailDraft = "compose_email_draft"
+    case feishuCLI = "feishu_cli"
 
     var id: String { rawValue }
 
@@ -130,6 +131,8 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
             return "写入备忘录"
         case .composeEmailDraft:
             return "邮件助手"
+        case .feishuCLI:
+            return "飞书 CLI"
         }
     }
 
@@ -143,6 +146,8 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
             return "写入备忘录中"
         case .composeEmailDraft:
             return "整理邮件中"
+        case .feishuCLI:
+            return "执行飞书命令中"
         }
     }
 
@@ -156,6 +161,8 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
             return "把选中内容快速记到备忘录。"
         case .composeEmailDraft:
             return "整理主题和正文，打开 Mail；地址明确时可直接发出。"
+        case .feishuCLI:
+            return "无选中也能语音下令，调用飞书 CLI 执行动作。"
         }
     }
 
@@ -169,6 +176,8 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
             return "只新增，不改已有笔记。"
         case .composeEmailDraft:
             return "地址明确且模型判断该直接发时，会自动发送；不明确时只打开编辑窗口。"
+        case .feishuCLI:
+            return "仅执行飞书 CLI 允许动作；未知命令会直接拒绝并给提示。"
         }
     }
 
@@ -182,6 +191,8 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
             return "记到备忘录"
         case .composeEmailDraft:
             return "给小庄发邮件"
+        case .feishuCLI:
+            return "飞书查今天议程"
         }
     }
 
@@ -195,6 +206,8 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
             return "note.text"
         case .composeEmailDraft:
             return "envelope"
+        case .feishuCLI:
+            return "paperplane.circle"
         }
     }
 }
@@ -213,8 +226,24 @@ struct MagicianStepRegistry {
     init(entries: [MagicianStepRegistryEntry] = MagicianFeatureID.allCases.map { feature in
         MagicianStepRegistryEntry(
             feature: feature,
-            defaultInputBinding: feature == .textTransform ? .selectionText : .previousOutput,
-            timeoutMs: feature == .textTransform ? 20_000 : 15_000
+            defaultInputBinding: {
+                switch feature {
+                case .textTransform:
+                    return .selectionText
+                case .feishuCLI:
+                    return .commandOnly
+                case .createEvent, .createNote, .composeEmailDraft:
+                    return .previousOutput
+                }
+            }(),
+            timeoutMs: {
+                switch feature {
+                case .textTransform, .feishuCLI:
+                    return 20_000
+                case .createEvent, .createNote, .composeEmailDraft:
+                    return 15_000
+                }
+            }()
         )
     }) {
         self.entriesByFeature = Dictionary(uniqueKeysWithValues: entries.map { ($0.feature, $0) })
@@ -278,7 +307,15 @@ struct MagicianStepRegistry {
                     stepID: stepID,
                     feature: step.feature,
                     params: step.params,
-                    inputBinding: index == 0 ? .selectionText : step.inputBinding,
+                    inputBinding: {
+                        if index > 0 {
+                            return step.inputBinding
+                        }
+                        if step.feature == .feishuCLI, fallbackSelection.isEmpty {
+                            return .commandOnly
+                        }
+                        return .selectionText
+                    }(),
                     retryPolicy: step.retryPolicy ?? .default,
                     timeoutMs: timeoutMs,
                     command: (command?.isEmpty == false) ? command : fallbackCommand
@@ -354,4 +391,6 @@ struct MagicianDependencySnapshot: Equatable {
     let composeEmailAvailable: Bool
     let mailtoAvailable: Bool
     let mailAppAvailable: Bool
+    let feishuCLIAvailable: Bool
+    let feishuCLICommandName: String?
 }

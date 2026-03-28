@@ -4,6 +4,7 @@ enum MagicianPermissionAction: Equatable {
     case requestAccessibility
     case requestCalendarAccess
     case openSystemSettings(urlString: String)
+    case openExternalURL(urlString: String)
     case openShortcutsApp
     case openNotesApp
     case openMailApp

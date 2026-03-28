@@ -3,6 +3,7 @@ import Security
 
 let defaultASRCredentialKeyRef = "asr.primary"
 let defaultTextCredentialKeyRef = "text.primary"
+let defaultCLITextCredentialKeyRef = "text.cli"
 let defaultSenseVoiceModelPath =
     "~/Library/Application Support/Shandianshuo/models/sensevoice-small"
 

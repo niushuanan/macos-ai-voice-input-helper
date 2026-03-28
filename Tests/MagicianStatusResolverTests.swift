@@ -143,6 +143,34 @@ final class MagicianStatusResolverTests: XCTestCase {
         XCTAssertNil(resolution.prompt)
     }
 
+    func testFeishuCLIBlockedWhenCommandMissing() {
+        let resolution = resolver.resolve(
+            feature: .feishuCLI,
+            isEnabled: true,
+            dependencies: dependencies(
+                feishuCLIAvailable: false,
+                feishuCLICommandName: nil
+            )
+        )
+
+        XCTAssertEqual(resolution.status, .needsPermission)
+        XCTAssertEqual(resolution.prompt?.title, "飞书 CLI 不可用")
+    }
+
+    func testFeishuCLIReadyWhenCommandAvailable() {
+        let resolution = resolver.resolve(
+            feature: .feishuCLI,
+            isEnabled: true,
+            dependencies: dependencies(
+                feishuCLIAvailable: true,
+                feishuCLICommandName: "feishu"
+            )
+        )
+
+        XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertNil(resolution.prompt)
+    }
+
     private func dependencies(
         accessibility: PermissionState = .granted,
         eventStatus: EKAuthorizationStatus = .fullAccess,
@@ -152,7 +180,9 @@ final class MagicianStatusResolverTests: XCTestCase {
         notesAppAvailable: Bool = true,
         composeEmailAvailable: Bool = true,
         mailtoAvailable: Bool = true,
-        mailAppAvailable: Bool = true
+        mailAppAvailable: Bool = true,
+        feishuCLIAvailable: Bool = true,
+        feishuCLICommandName: String? = "feishu"
     ) -> MagicianDependencySnapshot {
         MagicianDependencySnapshot(
             accessibilityState: accessibility,
@@ -163,7 +193,9 @@ final class MagicianStatusResolverTests: XCTestCase {
             notesAppAvailable: notesAppAvailable,
             composeEmailAvailable: composeEmailAvailable,
             mailtoAvailable: mailtoAvailable,
-            mailAppAvailable: mailAppAvailable
+            mailAppAvailable: mailAppAvailable,
+            feishuCLIAvailable: feishuCLIAvailable,
+            feishuCLICommandName: feishuCLICommandName
         )
     }
 }

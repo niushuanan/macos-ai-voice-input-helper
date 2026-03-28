@@ -23,6 +23,8 @@ struct MagicianIntentParams: Codable, Equatable {
     var mailDeliveryMode: MagicianMailDeliveryMode?
     var mailSubject: String?
     var mailBody: String?
+    var cliOperation: String?
+    var cliArguments: [String]?
 
     init(
         mode: MagicianTransformMode? = nil,
@@ -38,7 +40,9 @@ struct MagicianIntentParams: Codable, Equatable {
         mailRecipientHints: [String]? = nil,
         mailDeliveryMode: MagicianMailDeliveryMode? = nil,
         mailSubject: String? = nil,
-        mailBody: String? = nil
+        mailBody: String? = nil,
+        cliOperation: String? = nil,
+        cliArguments: [String]? = nil
     ) {
         self.mode = mode
         self.targetLanguage = targetLanguage
@@ -54,6 +58,8 @@ struct MagicianIntentParams: Codable, Equatable {
         self.mailDeliveryMode = mailDeliveryMode
         self.mailSubject = mailSubject
         self.mailBody = mailBody
+        self.cliOperation = cliOperation
+        self.cliArguments = cliArguments
     }
 
     static let empty = MagicianIntentParams()
@@ -78,6 +84,10 @@ enum MagicianErrorCode: String, Equatable {
     case mailAppleScriptFailed = "mail_applescript_failed"
     case mailRecipientUnresolved = "mail_recipient_unresolved"
     case browserUnavailable = "browser_unavailable"
+    case cliUnavailable = "cli_unavailable"
+    case cliAuthRequired = "cli_auth_required"
+    case cliCommandRejected = "cli_command_rejected"
+    case cliExecutionTimedOut = "cli_execution_timed_out"
 }
 
 struct MagicianError: Error, Equatable {

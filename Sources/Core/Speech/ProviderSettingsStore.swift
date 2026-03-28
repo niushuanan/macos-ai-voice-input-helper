@@ -24,15 +24,25 @@ final class ProviderSettingsStore: ObservableObject {
         }
     }
 
+    @Published var cliTextConfig: TextConfig {
+        didSet {
+            persistCLITextConfig()
+        }
+    }
+
     @Published var asrAPIKeyDraft: String = ""
     @Published var textAPIKeyDraft: String = ""
+    @Published var cliTextAPIKeyDraft: String = ""
 
     @Published private(set) var asrCredentialState: CredentialState = .unknown
     @Published private(set) var textCredentialState: CredentialState = .unknown
+    @Published private(set) var cliTextCredentialState: CredentialState = .unknown
     @Published private(set) var asrFeedbackMessage: String?
     @Published private(set) var textFeedbackMessage: String?
+    @Published private(set) var cliTextFeedbackMessage: String?
     @Published private(set) var latestASRTestResult: ConnectionTestResult?
     @Published private(set) var latestTextTestResult: ConnectionTestResult?
+    @Published private(set) var latestCLITextTestResult: ConnectionTestResult?
 
     var feedbackMessage: String? {
         textFeedbackMessage ?? asrFeedbackMessage
@@ -58,6 +68,10 @@ final class ProviderSettingsStore: ObservableObject {
         textConfig.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    var cliRewriteModelName: String {
+        cliTextConfig.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var asrConfigurationValidationMessage: String? {
         ProviderConfigurationValidator.validationMessage(
             providerType: asrConfig.providerType,
@@ -71,6 +85,14 @@ final class ProviderSettingsStore: ObservableObject {
             providerType: textConfig.providerType,
             baseURLString: textConfig.baseURLString,
             modelName: textConfig.modelName
+        )
+    }
+
+    var cliTextConfigurationValidationMessage: String? {
+        ProviderConfigurationValidator.validationMessage(
+            providerType: cliTextConfig.providerType,
+            baseURLString: cliTextConfig.baseURLString,
+            modelName: cliTextConfig.modelName
         )
     }
 
@@ -90,12 +112,20 @@ final class ProviderSettingsStore: ObservableObject {
         textConfigurationValidationMessage == nil
     }
 
+    var isCLITextConfigurationValid: Bool {
+        cliTextConfigurationValidationMessage == nil
+    }
+
     var configuration: SpeechProviderConfiguration {
         transcriptionConfiguration ?? fallbackTranscriptionConfiguration()
     }
 
     var rewriteConfiguration: TextGenerationProviderConfiguration {
         resolvedRewriteConfiguration() ?? fallbackRewriteConfiguration()
+    }
+
+    var cliRewriteConfiguration: TextGenerationProviderConfiguration {
+        resolvedCLIRewriteConfiguration() ?? fallbackCLIRewriteConfiguration()
     }
 
     var transcriptionConfiguration: SpeechProviderConfiguration? {
@@ -110,8 +140,10 @@ final class ProviderSettingsStore: ObservableObject {
     private let credentialStore: ProviderCredentialStore
     private let defaultsASRConfigKey = "providers.asr.config.v2"
     private let defaultsTextConfigKey = "providers.text.config.v2"
+    private let defaultsCLITextConfigKey = "providers.text.cli.config.v1"
     private let defaultsLatestASRTestResultKey = "providers.asr.test.result.v1"
     private let defaultsLatestTextTestResultKey = "providers.text.test.result.v1"
+    private let defaultsLatestCLITextTestResultKey = "providers.text.cli.test.result.v1"
 
     init(
         defaults: UserDefaults = .standard,
@@ -126,6 +158,9 @@ final class ProviderSettingsStore: ObservableObject {
         let decodedTextConfig = Self.decodeTextConfig(
             from: defaults.data(forKey: defaultsTextConfigKey)
         )
+        let decodedCLITextConfig = Self.decodeTextConfig(
+            from: defaults.data(forKey: defaultsCLITextConfigKey)
+        )
 
         let legacyMigration = Self.migrateLegacyConfiguration(defaults: defaults)
 
@@ -135,15 +170,22 @@ final class ProviderSettingsStore: ObservableObject {
         self.textConfig = Self.sanitizeTextConfig(
             decodedTextConfig ?? legacyMigration.textConfig
         )
+        self.cliTextConfig = Self.sanitizeCLITextConfig(
+            decodedCLITextConfig ?? Self.defaultCLITextConfig()
+        )
         self.latestASRTestResult = Self.decodeConnectionTestResult(
             from: defaults.data(forKey: defaultsLatestASRTestResultKey)
         )
         self.latestTextTestResult = Self.decodeConnectionTestResult(
             from: defaults.data(forKey: defaultsLatestTextTestResultKey)
         )
+        self.latestCLITextTestResult = Self.decodeConnectionTestResult(
+            from: defaults.data(forKey: defaultsLatestCLITextTestResultKey)
+        )
 
         persistASRConfig()
         persistTextConfig()
+        persistCLITextConfig()
         migrateLegacyCredentialsIfNeeded(using: legacyMigration)
         refreshCredentialState(allowUserInteraction: false)
     }
@@ -153,11 +195,67 @@ final class ProviderSettingsStore: ObservableObject {
             keyRef: asrConfig.keyRef,
             roleName: "语音识别",
             allowUserInteraction: allowUserInteraction
-        )
+        ) { [weak self] message in
+            self?.asrFeedbackMessage = message
+        }
         textCredentialState = resolveCredentialState(
             keyRef: textConfig.keyRef,
             roleName: "文本模型",
             allowUserInteraction: allowUserInteraction
+        ) { [weak self] message in
+            self?.textFeedbackMessage = message
+        }
+
+        let cliPrimaryState = resolveCredentialState(
+            keyRef: cliTextConfig.keyRef,
+            roleName: "CLI 模式文本模型",
+            allowUserInteraction: allowUserInteraction
+        ) { [weak self] message in
+            self?.cliTextFeedbackMessage = message
+        }
+        if cliPrimaryState == .missing, cliTextConfig.keyRef != textConfig.keyRef {
+            let fallbackState = resolveCredentialState(
+                keyRef: textConfig.keyRef,
+                roleName: "文本模型",
+                allowUserInteraction: allowUserInteraction
+            ) { _ in }
+            switch fallbackState {
+            case .saved:
+                cliTextCredentialState = .saved
+                cliTextFeedbackMessage = nil
+            case .inaccessible:
+                cliTextCredentialState = .inaccessible
+                cliTextFeedbackMessage = "CLI 模式密钥暂不可读。可先单独保存一份 CLI 密钥再重试。"
+            case let .failed(status):
+                cliTextCredentialState = .failed(status)
+                cliTextFeedbackMessage = "CLI 模式密钥读取失败。可先单独保存一份 CLI 密钥再重试。"
+            case .missing, .unknown, .saving:
+                cliTextCredentialState = .missing
+                cliTextFeedbackMessage = nil
+            }
+        } else {
+            cliTextCredentialState = cliPrimaryState
+        }
+    }
+
+    @discardableResult
+    func saveCLITextAPIKeyDraft() -> Bool {
+        saveAPIKey(
+            draft: cliTextAPIKeyDraft,
+            keyRef: cliTextConfig.keyRef,
+            roleName: "CLI 模式文本模型",
+            onSaving: { [weak self] in
+                self?.cliTextCredentialState = .saving
+            },
+            onSuccess: { [weak self] in
+                self?.cliTextAPIKeyDraft = ""
+                self?.cliTextCredentialState = .saved
+                self?.cliTextFeedbackMessage = "CLI 模式 API 密钥已保存。"
+            },
+            onFailure: { [weak self] state, message in
+                self?.cliTextCredentialState = state
+                self?.cliTextFeedbackMessage = message
+            }
         )
     }
 
@@ -167,6 +265,9 @@ final class ProviderSettingsStore: ObservableObject {
             draft: asrAPIKeyDraft,
             keyRef: asrConfig.keyRef,
             roleName: "语音识别",
+            onSaving: { [weak self] in
+                self?.asrCredentialState = .saving
+            },
             onSuccess: { [weak self] in
                 self?.asrAPIKeyDraft = ""
                 self?.asrCredentialState = .saved
@@ -185,6 +286,9 @@ final class ProviderSettingsStore: ObservableObject {
             draft: textAPIKeyDraft,
             keyRef: textConfig.keyRef,
             roleName: "文本模型",
+            onSaving: { [weak self] in
+                self?.textCredentialState = .saving
+            },
             onSuccess: { [weak self] in
                 self?.textAPIKeyDraft = ""
                 self?.textCredentialState = .saved
@@ -227,12 +331,61 @@ final class ProviderSettingsStore: ObservableObject {
         )
     }
 
+    @discardableResult
+    func clearCLITextAPIKey() -> Bool {
+        clearAPIKey(
+            keyRef: cliTextConfig.keyRef,
+            roleName: "CLI 模式文本模型",
+            onSuccess: { [weak self] in
+                self?.cliTextCredentialState = .missing
+                self?.cliTextFeedbackMessage = "CLI 模式 API 密钥已删除。"
+            },
+            onFailure: { [weak self] message in
+                self?.cliTextFeedbackMessage = message
+            }
+        )
+    }
+
     func loadAPIKeyForTranscriptionProvider() throws -> String? {
         try credentialStore.loadAPIKey(for: asrConfig.keyRef)
     }
 
     func loadAPIKeyForRewriteProvider() throws -> String? {
         try credentialStore.loadAPIKey(for: textConfig.keyRef)
+    }
+
+    func loadAPIKeyForCLIProvider() throws -> String? {
+        var primaryError: Error?
+        do {
+            if
+                let primary = try credentialStore.loadAPIKey(for: cliTextConfig.keyRef)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                !primary.isEmpty
+            {
+                return primary
+            }
+        } catch {
+            primaryError = error
+        }
+
+        do {
+            if
+                let fallback = try credentialStore.loadAPIKey(for: textConfig.keyRef)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                !fallback.isEmpty
+            {
+                return fallback
+            }
+        } catch {
+            if primaryError == nil {
+                throw error
+            }
+        }
+
+        if let primaryError {
+            throw primaryError
+        }
+        return nil
     }
 
     func loadAPIKeyForActiveProvider() throws -> String? {
@@ -265,12 +418,27 @@ final class ProviderSettingsStore: ObservableObject {
         textConfig.modelName = type.defaultRewriteModelName
     }
 
+    func updateCLITextProviderType(_ type: ProviderType) {
+        guard type.supportsRewrite else {
+            return
+        }
+        cliTextConfig.providerType = type
+        if !type.allowsCustomBaseURL {
+            cliTextConfig.baseURLString = type.fixedBaseURL?.absoluteString ?? ""
+        }
+        cliTextConfig.modelName = type.defaultRewriteModelName
+    }
+
     func updateASRBaseURL(_ value: String) {
         asrConfig.baseURLString = value
     }
 
     func updateTextBaseURL(_ value: String) {
         textConfig.baseURLString = value
+    }
+
+    func updateCLITextBaseURL(_ value: String) {
+        cliTextConfig.baseURLString = value
     }
 
     func updateASRModel(_ value: String) {
@@ -284,6 +452,10 @@ final class ProviderSettingsStore: ObservableObject {
 
     func updateTextModel(_ value: String) {
         textConfig.modelName = value
+    }
+
+    func updateCLITextModel(_ value: String) {
+        cliTextConfig.modelName = value
     }
 
     func testASRConnection() async -> ConnectionTestResult {
@@ -300,6 +472,17 @@ final class ProviderSettingsStore: ObservableObject {
         return result
     }
 
+    func testCLITextConnection() async -> ConnectionTestResult {
+        let tester = TextConnectionTester(credentialStore: credentialStore)
+        var configForTest = cliTextConfig
+        if !hasNonEmptyCredential(for: cliTextConfig.keyRef) {
+            configForTest.keyRef = textConfig.keyRef
+        }
+        let result = await tester.test(config: configForTest)
+        recordCLITextTestResult(result)
+        return result
+    }
+
     func recordASRTestResult(_ result: ConnectionTestResult) {
         latestASRTestResult = result
         persistLatestASRTestResult()
@@ -308,6 +491,11 @@ final class ProviderSettingsStore: ObservableObject {
     func recordTextTestResult(_ result: ConnectionTestResult) {
         latestTextTestResult = result
         persistLatestTextTestResult()
+    }
+
+    func recordCLITextTestResult(_ result: ConnectionTestResult) {
+        latestCLITextTestResult = result
+        persistLatestCLITextTestResult()
     }
 
     private func resolvedTranscriptionConfiguration() -> SpeechProviderConfiguration? {
@@ -353,6 +541,27 @@ final class ProviderSettingsStore: ObservableObject {
         )
     }
 
+    private func resolvedCLIRewriteConfiguration() -> TextGenerationProviderConfiguration? {
+        guard cliTextConfigurationValidationMessage == nil else {
+            return nil
+        }
+
+        guard let baseURL = ProviderConfigurationValidator.resolvedBaseURL(
+            providerType: cliTextConfig.providerType,
+            baseURLString: cliTextConfig.baseURLString
+        ) else {
+            return nil
+        }
+
+        return TextGenerationProviderConfiguration(
+            profileID: cliTextConfig.keyRef,
+            providerType: cliTextConfig.providerType,
+            providerName: cliTextConfig.providerType.displayName,
+            modelName: cliRewriteModelName,
+            baseURL: baseURL
+        )
+    }
+
     private func fallbackTranscriptionConfiguration() -> SpeechProviderConfiguration {
         SpeechProviderConfiguration(
             profileID: asrConfig.keyRef,
@@ -374,6 +583,16 @@ final class ProviderSettingsStore: ObservableObject {
         )
     }
 
+    private func fallbackCLIRewriteConfiguration() -> TextGenerationProviderConfiguration {
+        TextGenerationProviderConfiguration(
+            profileID: cliTextConfig.keyRef,
+            providerType: cliTextConfig.providerType,
+            providerName: cliTextConfig.providerType.displayName,
+            modelName: cliTextConfig.providerType.defaultRewriteModelName,
+            baseURL: cliTextConfig.providerType.fixedBaseURL ?? URL(string: "https://api.openai.com")!
+        )
+    }
+
     private func persistASRConfig() {
         if let data = try? JSONEncoder().encode(asrConfig) {
             defaults.set(data, forKey: defaultsASRConfigKey)
@@ -383,6 +602,12 @@ final class ProviderSettingsStore: ObservableObject {
     private func persistTextConfig() {
         if let data = try? JSONEncoder().encode(textConfig) {
             defaults.set(data, forKey: defaultsTextConfigKey)
+        }
+    }
+
+    private func persistCLITextConfig() {
+        if let data = try? JSONEncoder().encode(cliTextConfig) {
+            defaults.set(data, forKey: defaultsCLITextConfigKey)
         }
     }
 
@@ -408,10 +633,22 @@ final class ProviderSettingsStore: ObservableObject {
         }
     }
 
+    private func persistLatestCLITextTestResult() {
+        guard let latestCLITextTestResult else {
+            defaults.removeObject(forKey: defaultsLatestCLITextTestResultKey)
+            return
+        }
+
+        if let data = try? JSONEncoder().encode(latestCLITextTestResult) {
+            defaults.set(data, forKey: defaultsLatestCLITextTestResultKey)
+        }
+    }
+
     private func saveAPIKey(
         draft: String,
         keyRef: String,
         roleName: String,
+        onSaving: () -> Void = {},
         onSuccess: () -> Void,
         onFailure: (CredentialState, String) -> Void
     ) -> Bool {
@@ -427,11 +664,7 @@ final class ProviderSettingsStore: ObservableObject {
         }
 
         do {
-            if roleName == "语音识别" {
-                asrCredentialState = .saving
-            } else {
-                textCredentialState = .saving
-            }
+            onSaving()
             try credentialStore.saveAPIKey(normalized, for: keyRef)
             let readBack = (try credentialStore.loadAPIKey(for: keyRef) ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -475,51 +708,39 @@ final class ProviderSettingsStore: ObservableObject {
     private func resolveCredentialState(
         keyRef: String,
         roleName: String,
-        allowUserInteraction: Bool
+        allowUserInteraction: Bool,
+        onFeedback: (String?) -> Void
     ) -> CredentialState {
         do {
             let contains = try credentialStore.containsAPIKey(
                 for: keyRef,
                 allowUserInteraction: allowUserInteraction
             )
-            if roleName == "语音识别" {
-                asrFeedbackMessage = nil
-            } else {
-                textFeedbackMessage = nil
-            }
+            onFeedback(nil)
             return contains ? .saved : .missing
         } catch let error as ProviderCredentialStoreError {
             switch error {
             case .interactionRequired:
-                if roleName == "语音识别" {
-                    asrFeedbackMessage = "当前密钥存储不可直接访问，请在 App 内重新保存一次密钥。"
-                } else {
-                    textFeedbackMessage = "当前密钥存储不可直接访问，请在 App 内重新保存一次密钥。"
-                }
+                onFeedback("当前密钥存储不可直接访问，请在 App 内重新保存一次密钥。")
                 return .inaccessible
             case let .unexpectedStatus(status):
-                if roleName == "语音识别" {
-                    asrFeedbackMessage = "读取语音识别 API 密钥失败（OSStatus \(status)）。"
-                } else {
-                    textFeedbackMessage = "读取文本模型 API 密钥失败（OSStatus \(status)）。"
-                }
+                onFeedback("读取\(roleName) API 密钥失败（OSStatus \(status)）。")
                 return .failed(status)
             case .invalidCredentialEncoding:
-                if roleName == "语音识别" {
-                    asrFeedbackMessage = "语音识别 API 密钥无法解析，请删除后重新保存。"
-                } else {
-                    textFeedbackMessage = "文本模型 API 密钥无法解析，请删除后重新保存。"
-                }
+                onFeedback("\(roleName) API 密钥无法解析，请删除后重新保存。")
                 return .failed(nil)
             }
         } catch {
-            if roleName == "语音识别" {
-                asrFeedbackMessage = "无法读取语音识别 API 密钥。"
-            } else {
-                textFeedbackMessage = "无法读取文本模型 API 密钥。"
-            }
+            onFeedback("无法读取\(roleName) API 密钥。")
             return .failed(nil)
         }
+    }
+
+    private func hasNonEmptyCredential(for keyRef: String) -> Bool {
+        let loaded = (try? credentialStore.loadAPIKey(for: keyRef)) ?? nil
+        let normalized = loaded?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !normalized.isEmpty
     }
 
     private func migrateLegacyCredentialsIfNeeded(using migration: LegacyMigration) {
@@ -594,6 +815,14 @@ final class ProviderSettingsStore: ObservableObject {
         return sanitized
     }
 
+    private static func sanitizeCLITextConfig(_ config: TextConfig) -> TextConfig {
+        var sanitized = sanitizeTextConfig(config)
+        if sanitized.keyRef.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sanitized.keyRef = defaultCLITextCredentialKeyRef
+        }
+        return sanitized
+    }
+
     private static func decodeASRConfig(from data: Data?) -> ASRConfig? {
         guard
             let data,
@@ -639,6 +868,15 @@ final class ProviderSettingsStore: ObservableObject {
             baseURLString: "https://api.deepseek.com",
             modelName: "deepseek-chat",
             keyRef: defaultTextCredentialKeyRef
+        )
+    }
+
+    private static func defaultCLITextConfig() -> TextConfig {
+        TextConfig(
+            providerType: .openAICompatible,
+            baseURLString: "https://api.deepseek.com",
+            modelName: "deepseek-chat",
+            keyRef: defaultCLITextCredentialKeyRef
         )
     }
 

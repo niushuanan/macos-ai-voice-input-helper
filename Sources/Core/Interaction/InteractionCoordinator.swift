@@ -1748,9 +1748,25 @@ final class InteractionCoordinator {
             return
         }
 
-        let enabledFeatures = magicianFeatureToggleStore.enabledFeatures
+        let hasSelectionText = !selectionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let enabledFeatures: Set<MagicianFeatureID> = {
+            if hasSelectionText {
+                return magicianFeatureToggleStore
+                    .enabledFeatures
+                    .subtracting([.feishuCLI])
+            }
+            return magicianFeatureToggleStore.isEnabled(.feishuCLI)
+                ? [.feishuCLI]
+                : []
+        }()
+        let plannerModelConfiguration = magicianPlannerModelConfiguration(
+            enabledFeatures: enabledFeatures,
+            selectionText: selectionText
+        )
         guard !enabledFeatures.isEmpty else {
-            let message = "魔术先生能力都还没开启，请先在魔术先生页面打开开关。"
+            let message = hasSelectionText
+                ? "当前没有可用的选中流程能力，请先在魔术先生页面开启。"
+                : "无选中场景需要先开启飞书 CLI 能力。"
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -1798,8 +1814,8 @@ final class InteractionCoordinator {
                 WorkflowTelemetryEvent(
                     traceID: traceID,
                     lane: .selectionRewrite,
-                    provider: providerSettingsStore.rewriteConfiguration.providerName,
-                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    provider: plannerModelConfiguration.providerName,
+                    model: plannerModelConfiguration.modelName,
                     event: .planSuccess,
                     detail: "steps=\(workflowPlan.steps.map(\.feature.rawValue).joined(separator: "->")),confidence=\(String(format: "%.2f", workflowPlan.confidence))",
                     audioDuration: audioDurationSeconds,
@@ -1835,8 +1851,8 @@ final class InteractionCoordinator {
                 WorkflowTelemetryEvent(
                     traceID: traceID,
                     lane: .selectionRewrite,
-                    provider: providerSettingsStore.rewriteConfiguration.providerName,
-                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    provider: plannerModelConfiguration.providerName,
+                    model: plannerModelConfiguration.modelName,
                     event: .planFailed,
                     errorType: magicianError.code.rawValue,
                     detail: magicianError.debugMessage ?? message,
@@ -1872,8 +1888,8 @@ final class InteractionCoordinator {
                 WorkflowTelemetryEvent(
                     traceID: traceID,
                     lane: .selectionRewrite,
-                    provider: providerSettingsStore.rewriteConfiguration.providerName,
-                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    provider: plannerModelConfiguration.providerName,
+                    model: plannerModelConfiguration.modelName,
                     event: .planFailed,
                     errorType: "workflow_parse_failed",
                     detail: error.localizedDescription,
@@ -1956,8 +1972,8 @@ final class InteractionCoordinator {
                 WorkflowTelemetryEvent(
                     traceID: traceID,
                     lane: .selectionRewrite,
-                    provider: providerSettingsStore.rewriteConfiguration.providerName,
-                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    provider: plannerModelConfiguration.providerName,
+                    model: plannerModelConfiguration.modelName,
                     event: .done,
                     detail: "steps=\(executionResult.stepResults.count),final=\(executionResult.finalStatusMessage)",
                     audioDuration: audioDurationSeconds,
@@ -1993,8 +2009,8 @@ final class InteractionCoordinator {
                 WorkflowTelemetryEvent(
                     traceID: traceID,
                     lane: .selectionRewrite,
-                    provider: providerSettingsStore.rewriteConfiguration.providerName,
-                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    provider: plannerModelConfiguration.providerName,
+                    model: plannerModelConfiguration.modelName,
                     event: .failed,
                     errorType: magicianError.code.rawValue,
                     detail: magicianError.debugMessage ?? magicianError.userMessage,
@@ -2031,8 +2047,8 @@ final class InteractionCoordinator {
                 WorkflowTelemetryEvent(
                     traceID: traceID,
                     lane: .selectionRewrite,
-                    provider: providerSettingsStore.rewriteConfiguration.providerName,
-                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    provider: plannerModelConfiguration.providerName,
+                    model: plannerModelConfiguration.modelName,
                     event: .failed,
                     errorType: MagicianErrorCode.toolExecutionFailed.rawValue,
                     detail: message,
@@ -2130,6 +2146,8 @@ final class InteractionCoordinator {
             }
         case .textTransform:
             break
+        case .feishuCLI:
+            break
         }
 
         return params
@@ -2191,6 +2209,7 @@ final class InteractionCoordinator {
         let resolvedCommand = (stepCommand?.isEmpty == false) ? stepCommand! : spokenInstruction
         let stepInputText = workflowStepInputText(from: request)
         let stepStartedAt = Date()
+        let stepModelConfiguration = magicianStepModelConfiguration(feature: request.step.feature)
         sessionStore.markRewriting(
             actionLabel: Self.workflowStepProgressLabel(
                 index: request.index + 1,
@@ -2216,9 +2235,13 @@ final class InteractionCoordinator {
             )
         }
 
-        let sourceText = stepInputText.isEmpty
-            ? (request.latestOutputText ?? request.context.selectedText)
-            : stepInputText
+        let sourceText: String = if request.step.feature == .feishuCLI {
+            ""
+        } else if stepInputText.isEmpty {
+            request.latestOutputText ?? request.context.selectedText
+        } else {
+            stepInputText
+        }
         var params = resolvedWorkflowToolParams(
             for: request,
             sourceText: sourceText,
@@ -2234,6 +2257,9 @@ final class InteractionCoordinator {
             params: params
         )
         let stepSelectionSnapshot: FocusedSelectionSnapshot? = {
+            if request.step.feature == .feishuCLI {
+                return nil
+            }
             if sourceText.isEmpty {
                 return request.context.selection
             }
@@ -2272,8 +2298,8 @@ final class InteractionCoordinator {
                 WorkflowTelemetryEvent(
                     traceID: request.context.traceID,
                     lane: .selectionRewrite,
-                    provider: providerSettingsStore.rewriteConfiguration.providerName,
-                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    provider: stepModelConfiguration.providerName,
+                    model: stepModelConfiguration.modelName,
                     event: .stepSuccess,
                     detail: "index=\(request.index + 1),feature=\(request.step.feature.rawValue)",
                     audioDuration: audioDurationSeconds,
@@ -2300,8 +2326,8 @@ final class InteractionCoordinator {
                 WorkflowTelemetryEvent(
                     traceID: request.context.traceID,
                     lane: .selectionRewrite,
-                    provider: providerSettingsStore.rewriteConfiguration.providerName,
-                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    provider: stepModelConfiguration.providerName,
+                    model: stepModelConfiguration.modelName,
                     event: .stepFailed,
                     errorType: magicianError.code.rawValue,
                     detail: magicianError.debugMessage ?? magicianError.userMessage,
@@ -2320,8 +2346,8 @@ final class InteractionCoordinator {
                 WorkflowTelemetryEvent(
                     traceID: request.context.traceID,
                     lane: .selectionRewrite,
-                    provider: providerSettingsStore.rewriteConfiguration.providerName,
-                    model: providerSettingsStore.rewriteConfiguration.modelName,
+                    provider: stepModelConfiguration.providerName,
+                    model: stepModelConfiguration.modelName,
                     event: .stepFailed,
                     errorType: MagicianErrorCode.toolExecutionFailed.rawValue,
                     detail: error.localizedDescription,
@@ -3060,6 +3086,23 @@ final class InteractionCoordinator {
                 NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Mail.app"))
             }
 
+        case "open_feishu_auth":
+            if let feishuPath = FeishuCLIProvider.detectAvailability().backend?.executablePath {
+                Task {
+                    _ = await runProcessWithTimeout(
+                        executablePath: feishuPath,
+                        arguments: ["auth", "status"],
+                        timeoutSeconds: 8,
+                        maxOutputCharacters: 6_000
+                    )
+                }
+            }
+
+        case "open_feishu_cli_docs":
+            if let url = URL(string: "https://github.com/larksuite/cli") {
+                NSWorkspace.shared.open(url)
+            }
+
         default:
             break
         }
@@ -3074,6 +3117,12 @@ final class InteractionCoordinator {
             break
 
         case let .openSystemSettings(urlString):
+            guard let url = URL(string: urlString) else {
+                return
+            }
+            NSWorkspace.shared.open(url)
+
+        case let .openExternalURL(urlString):
             guard let url = URL(string: urlString) else {
                 return
             }
@@ -3333,6 +3382,23 @@ final class InteractionCoordinator {
         return DictationTextProcessingPolicy.shouldUseModel(text: text)
     }
 
+    private func magicianPlannerModelConfiguration(
+        enabledFeatures: Set<MagicianFeatureID>,
+        selectionText: String
+    ) -> TextGenerationProviderConfiguration {
+        let normalizedSelection = selectionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if enabledFeatures == [.feishuCLI], normalizedSelection.isEmpty {
+            return providerSettingsStore.cliRewriteConfiguration
+        }
+        return providerSettingsStore.rewriteConfiguration
+    }
+
+    private func magicianStepModelConfiguration(feature: MagicianFeatureID) -> TextGenerationProviderConfiguration {
+        feature == .feishuCLI
+            ? providerSettingsStore.cliRewriteConfiguration
+            : providerSettingsStore.rewriteConfiguration
+    }
+
     private func resolvedLane(context: WakeInvocationContext) -> InputLane {
         switch context.source {
         case .dictationTap:
@@ -3344,6 +3410,7 @@ final class InteractionCoordinator {
 
     private func currentMagicianDependenciesSnapshot() -> MagicianDependencySnapshot {
         let shortcutSupport = MagicianCreateNoteShortcutSupport()
+        let feishuAvailability = FeishuCLIProvider.detectAvailability()
         return MagicianDependencySnapshot(
             accessibilityState: permissionsCenter.snapshot.accessibility,
             eventAuthorizationStatus: EKEventStore.authorizationStatus(for: .event),
@@ -3353,7 +3420,9 @@ final class InteractionCoordinator {
             notesAppAvailable: MagicianNotesCapability.notesAppAvailable,
             composeEmailAvailable: MagicianMailCapability.composeEmailServiceAvailable,
             mailtoAvailable: MagicianMailCapability.mailtoAvailable,
-            mailAppAvailable: MagicianMailCapability.mailAppAvailable
+            mailAppAvailable: MagicianMailCapability.mailAppAvailable,
+            feishuCLIAvailable: feishuAvailability.isAvailable,
+            feishuCLICommandName: feishuAvailability.commandName
         )
     }
 

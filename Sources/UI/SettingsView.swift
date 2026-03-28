@@ -74,6 +74,7 @@ struct SettingsView: View {
 
     @State private var asrTesting = false
     @State private var textTesting = false
+    @State private var cliTextTesting = false
     @State private var showClearMemoryConfirmation = false
     @State private var sceneSearchQuery = ""
     @State private var scenePromptDraft = ""
@@ -100,6 +101,8 @@ struct SettingsView: View {
     @State private var magicianComposeEmailAvailable = MagicianMailCapability.composeEmailServiceAvailable
     @State private var magicianMailtoAvailable = MagicianMailCapability.mailtoAvailable
     @State private var magicianMailAppAvailable = MagicianMailCapability.mailAppAvailable
+    @State private var magicianFeishuCLIAvailable = FeishuCLIProvider.detectAvailability().isAvailable
+    @State private var magicianFeishuCLICommandName = FeishuCLIProvider.detectAvailability().commandName ?? "未检测到"
     @State private var memoryToolbarAvailableWidth: CGFloat = 0
     @State private var memoryFilterBarWidth: CGFloat = 0
     @State private var clearMemoryButtonWidth: CGFloat = 0
@@ -335,7 +338,9 @@ struct SettingsView: View {
 
                 magicianTriggerGuideCard
 
-                ForEach(MagicianFeatureDescriptor.all) { descriptor in
+                magicianCLIControlCard
+
+                ForEach(magicianClassicDescriptors) { descriptor in
                     magicianFeatureCard(descriptor)
                 }
             }
@@ -355,12 +360,76 @@ struct SettingsView: View {
                 .font(.headline)
             Text("长按主键（默认右 Shift）说命令，松开就会执行。")
                 .font(.subheadline)
-            Text("文字处理必须先选中内容；其余能力可直接说命令，无选中也能执行。")
+            Text("有选中时走现有文字流程；无选中时自动进入 CLI 模式。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("示例：先选中一段文本后长按主键说“翻成日语”；或选中一段活动通知后说“帮我建立日程”。")
+            Text("示例：先选中后说“翻成日语”；或不选中直接说“飞书查今天议程”。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .pulseCard(cornerRadius: 12)
+    }
+
+    private var magicianCLIControlCard: some View {
+        let descriptor = MagicianFeatureDescriptor.all.first(where: { $0.id == .feishuCLI })!
+        let resolution = magicianStatusResolver.resolve(
+            feature: descriptor.id,
+            isEnabled: magicianFeatureToggleStore.isEnabled(descriptor.id),
+            dependencies: currentMagicianDependencies
+        )
+        let grouped = feishuCatalogGrouped
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                Label("CLI 模式（飞书）", systemImage: descriptor.symbolName)
+                    .font(.headline)
+                Spacer()
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: {
+                            magicianFeatureToggleStore.isEnabled(descriptor.id)
+                        },
+                        set: { enabled in
+                            handleMagicianToggleChange(feature: descriptor.id, enabled: enabled)
+                        }
+                    )
+                )
+                .labelsHidden()
+                .toggleStyle(SwitchToggleStyle())
+                .scaleEffect(0.8)
+                .fixedSize()
+            }
+
+            Text("这个开关控制全部飞书 CLI 能力。打开后，无选中也能语音下令。")
+                .font(.subheadline)
+
+            HStack(spacing: 8) {
+                Label(
+                    magicianFeishuCLIAvailable ? "CLI 已就绪" : "CLI 未检测到",
+                    systemImage: magicianFeishuCLIAvailable ? "checkmark.seal.fill" : "exclamationmark.triangle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(magicianFeishuCLIAvailable ? .green : .orange)
+
+                Text("命令：\(magicianFeishuCLICommandName)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            ForEach(grouped, id: \.group) { bucket in
+                Text("\(bucket.group)：\(bucket.operations.map(\.title).joined(separator: "、"))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let reason = resolution.reason {
+                Text(reason)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
@@ -423,6 +492,17 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .pulseCard(cornerRadius: 12)
+    }
+
+    private var magicianClassicDescriptors: [MagicianFeatureDescriptor] {
+        MagicianFeatureDescriptor.all.filter { $0.id != .feishuCLI }
+    }
+
+    private var feishuCatalogGrouped: [(group: String, operations: [FeishuCanonicalOperation])] {
+        let groups = Dictionary(grouping: FeishuCanonicalOperation.allCases, by: \.groupTitle)
+        return groups
+            .map { (group: $0.key, operations: $0.value.sorted(by: { $0.rawValue < $1.rawValue })) }
+            .sorted(by: { $0.group < $1.group })
     }
 
     private var mailAssistantAddressBookSection: some View {
@@ -571,6 +651,37 @@ struct SettingsView: View {
                     ),
                     showsLocalSenseVoiceRuntimeDetails: false,
                     onTest: runTextTest
+                )
+
+                modelRoleSection(
+                    roleTitle: "CLI 模式（Agent）",
+                    cardTitle: "CLI 模式（Agent）",
+                    availableProviderTypes: textProviderOptions,
+                    providerType: cliProviderTypeBinding,
+                    baseURL: cliBaseURLBinding,
+                    modelName: cliModelBinding,
+                    localModelPath: nil,
+                    showsBaseURL: true,
+                    showsAPIKey: true,
+                    allowsCustomBaseURL: providerSettingsStore.cliTextConfig.providerType.allowsCustomBaseURL,
+                    baseURLPlaceholder: baseURLPlaceholder(for: providerSettingsStore.cliTextConfig.providerType),
+                    modelPlaceholder: providerSettingsStore.cliTextConfig.providerType.defaultRewriteModelName,
+                    apiKeyDraft: $providerSettingsStore.cliTextAPIKeyDraft,
+                    credentialState: providerSettingsStore.cliTextCredentialState,
+                    validationMessage: providerSettingsStore.cliTextConfigurationValidationMessage,
+                    feedbackMessage: providerSettingsStore.cliTextFeedbackMessage,
+                    onSaveKey: saveCLITextKey,
+                    onDeleteKey: deleteCLITextKey,
+                    isTesting: cliTextTesting,
+                    testButtonTitle: "测试 CLI 文本模型",
+                    latestResult: providerSettingsStore.latestCLITextTestResult,
+                    activeConfigLine: effectiveConfigLine(
+                        providerType: providerSettingsStore.cliTextConfig.providerType,
+                        baseURLString: providerSettingsStore.cliTextConfig.baseURLString,
+                        modelName: providerSettingsStore.cliTextConfig.modelName
+                    ),
+                    showsLocalSenseVoiceRuntimeDetails: false,
+                    onTest: runCLITextTest
                 )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1239,6 +1350,16 @@ struct SettingsView: View {
         )
     }
 
+    private var cliProviderTypeBinding: Binding<ProviderType> {
+        Binding(
+            get: { providerSettingsStore.cliTextConfig.providerType },
+            set: {
+                providerSettingsStore.updateCLITextProviderType($0)
+                showToast("CLI 模式服务商已切换，现在已经生效。")
+            }
+        )
+    }
+
     private var asrBaseURLBinding: Binding<String> {
         Binding(
             get: { providerSettingsStore.asrConfig.baseURLString },
@@ -1255,6 +1376,16 @@ struct SettingsView: View {
             set: {
                 providerSettingsStore.updateTextBaseURL($0)
                 scheduleDebouncedToast("文本处理地址已更新并生效。")
+            }
+        )
+    }
+
+    private var cliBaseURLBinding: Binding<String> {
+        Binding(
+            get: { providerSettingsStore.cliTextConfig.baseURLString },
+            set: {
+                providerSettingsStore.updateCLITextBaseURL($0)
+                scheduleDebouncedToast("CLI 模式地址已更新并生效。")
             }
         )
     }
@@ -1285,6 +1416,16 @@ struct SettingsView: View {
             set: {
                 providerSettingsStore.updateTextModel($0)
                 scheduleDebouncedToast("文本处理模型已更新并生效。")
+            }
+        )
+    }
+
+    private var cliModelBinding: Binding<String> {
+        Binding(
+            get: { providerSettingsStore.cliTextConfig.modelName },
+            set: {
+                providerSettingsStore.updateCLITextModel($0)
+                scheduleDebouncedToast("CLI 模式模型已更新并生效。")
             }
         )
     }
@@ -1355,7 +1496,9 @@ struct SettingsView: View {
             notesAppAvailable: magicianNotesAppAvailable,
             composeEmailAvailable: magicianComposeEmailAvailable,
             mailtoAvailable: magicianMailtoAvailable,
-            mailAppAvailable: magicianMailAppAvailable
+            mailAppAvailable: magicianMailAppAvailable,
+            feishuCLIAvailable: magicianFeishuCLIAvailable,
+            feishuCLICommandName: magicianFeishuCLICommandName
         )
     }
 
@@ -1369,6 +1512,9 @@ struct SettingsView: View {
         magicianComposeEmailAvailable = MagicianMailCapability.composeEmailServiceAvailable
         magicianMailtoAvailable = MagicianMailCapability.mailtoAvailable
         magicianMailAppAvailable = MagicianMailCapability.mailAppAvailable
+        let feishuAvailability = FeishuCLIProvider.detectAvailability()
+        magicianFeishuCLIAvailable = feishuAvailability.isAvailable
+        magicianFeishuCLICommandName = feishuAvailability.commandName ?? "未检测到"
     }
 
     private func handleMagicianToggleChange(
@@ -1440,6 +1586,13 @@ struct SettingsView: View {
                 }
             }
         case let .openSystemSettings(urlString):
+            guard let url = URL(string: urlString) else {
+                return
+            }
+            _ = await MainActor.run {
+                NSWorkspace.shared.open(url)
+            }
+        case let .openExternalURL(urlString):
             guard let url = URL(string: urlString) else {
                 return
             }
@@ -2022,6 +2175,22 @@ struct SettingsView: View {
         }
     }
 
+    private func saveCLITextKey() {
+        let isSuccess = providerSettingsStore.saveCLITextAPIKeyDraft()
+        if let message = providerSettingsStore.cliTextFeedbackMessage {
+            showToast(message)
+        } else if isSuccess {
+            showToast("CLI 模式 API 密钥已保存。")
+        }
+    }
+
+    private func deleteCLITextKey() {
+        providerSettingsStore.clearCLITextAPIKey()
+        if let message = providerSettingsStore.cliTextFeedbackMessage {
+            showToast(message)
+        }
+    }
+
     private func runASRTest() {
         guard !asrTesting else {
             return
@@ -2044,6 +2213,19 @@ struct SettingsView: View {
             _ = await providerSettingsStore.testTextConnection()
             await MainActor.run {
                 textTesting = false
+            }
+        }
+    }
+
+    private func runCLITextTest() {
+        guard !cliTextTesting else {
+            return
+        }
+        cliTextTesting = true
+        Task {
+            _ = await providerSettingsStore.testCLITextConnection()
+            await MainActor.run {
+                cliTextTesting = false
             }
         }
     }

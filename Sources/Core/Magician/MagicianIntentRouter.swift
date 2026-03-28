@@ -130,7 +130,7 @@ struct MagicianIntentClassifierPromptBuilder {
 
         Output JSON schema:
         {
-          "intent": "text_transform | create_event | create_note | compose_email_draft",
+          "intent": "text_transform | create_event | create_note | compose_email_draft | feishu_cli",
           "confidence": 0.0
         }
 
@@ -334,6 +334,50 @@ struct MagicianMailComposerPromptBuilder: MagicianIntentExtractionPromptBuilding
     }
 }
 
+struct MagicianFeishuCLIPromptBuilder: MagicianIntentExtractionPromptBuilding {
+    func build(command: String, selection: String) -> RewritePromptTemplate {
+        let allowedOperations = FeishuCanonicalOperation.allCases
+            .map(\.rawValue)
+            .joined(separator: " | ")
+
+        let systemPrompt = """
+        \(MagicianPromptProfile.commonSystemPrompt)
+
+        You are a Feishu CLI intent extractor for PulseType Magician.
+        Return JSON only. Do not add markdown fences.
+
+        Output JSON schema:
+        {
+          "sourceText": "",
+          "params": {
+            "cliOperation": "\(allowedOperations)",
+            "cliArguments": ["--flag", "value"]
+          }
+        }
+
+        Rules:
+        1) sourceText must be an empty string.
+        2) cliOperation must be one canonical feishu_* operation id.
+        3) cliArguments only keeps safe argument tokens and should be concise.
+        4) If no reliable argument can be extracted, return an empty array.
+        """
+
+        let userPrompt = """
+        Spoken command:
+        <<<COMMAND
+        \(command)
+        COMMAND>>>
+
+        Selected text:
+        <<<TEXT
+        \(selection.isEmpty ? "(empty)" : selection)
+        TEXT>>>
+        """
+
+        return RewritePromptTemplate(systemPrompt: systemPrompt, userPrompt: userPrompt)
+    }
+}
+
 struct MagicianIntentSchemaValidator {
     func validate(
         _ intent: MagicianIntent,
@@ -373,6 +417,8 @@ struct MagicianIntentSchemaValidator {
         params.mailSubject = normalized(params.mailSubject)
         params.mailBody = normalized(params.mailBody)
         params.mailTo = normalizeEmails(params.mailTo)
+        params.cliOperation = normalized(params.cliOperation)
+        params.cliArguments = normalizeCLIArguments(params.cliArguments)
 
         let normalizedCommand = normalized(command) ?? ""
         let normalizedSelection = normalized(selection) ?? ""
@@ -493,6 +539,27 @@ struct MagicianIntentSchemaValidator {
                 selection: normalizedSelection,
                 sourceText: fallbackSource
             )
+        case .feishuCLI:
+            sourceText = ""
+            if params.cliOperation == nil {
+                params.cliOperation = FeishuCanonicalOperation
+                    .infer(from: normalizedCommand)?
+                    .rawValue
+            }
+            if let operation = params.cliOperation, FeishuCanonicalOperation(rawValue: operation) == nil {
+                params.cliOperation = nil
+            }
+            if params.cliArguments?.isEmpty == true {
+                params.cliArguments = nil
+            }
+            if params.cliOperation == nil {
+                throw MagicianError(
+                    code: .intentParseFailed,
+                    userMessage: "没识别到可执行的飞书动作，请补一句更具体的命令。",
+                    debugMessage: "feishu cli operation missing after schema validation",
+                    recoverAction: "retry_command"
+                )
+            }
         }
 
         return MagicianIntent(
@@ -630,6 +697,31 @@ struct MagicianIntentSchemaValidator {
             deduped.append(trimmed)
         }
         return deduped.isEmpty ? nil : deduped
+    }
+
+    private func normalizeCLIArguments(_ values: [String]?) -> [String]? {
+        guard let values else {
+            return nil
+        }
+        var filtered: [String] = []
+        filtered.reserveCapacity(min(values.count, 8))
+        for value in values {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                continue
+            }
+            guard trimmed.count <= 120 else {
+                continue
+            }
+            guard trimmed.rangeOfCharacter(from: .controlCharacters) == nil else {
+                continue
+            }
+            filtered.append(trimmed)
+            if filtered.count == 8 {
+                break
+            }
+        }
+        return filtered.isEmpty ? nil : filtered
     }
 
     private func mergeRecipientHints(
@@ -798,7 +890,11 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
 
         let lowered = normalizedCommand.lowercased()
         let candidate: MagicianFeatureID
-        if containsAny(lowered, keywords: ["日程", "会议", "calendar", "约", "安排", "提醒"]) {
+        if normalizedSelection.isEmpty,
+           (FeishuCanonicalOperation.infer(from: normalizedCommand) != nil
+               || containsAny(lowered, keywords: ["飞书", "feishu", "lark-cli", "lark cli", "lark"])) {
+            candidate = .feishuCLI
+        } else if containsAny(lowered, keywords: ["日程", "会议", "calendar", "约", "安排", "提醒"]) {
             candidate = .createEvent
         } else if containsAny(lowered, keywords: ["备忘录", "note", "记下来", "记到", "记一下", "记一条", "记录一下", "写进备忘录"]) {
             candidate = .createNote
@@ -839,6 +935,9 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
                 from: normalizedCommand,
                 excludingEmails: params.mailTo ?? []
             )
+        case .feishuCLI:
+            params.cliOperation = FeishuCanonicalOperation.infer(from: normalizedCommand)?.rawValue
+            params.cliArguments = detectCLIArguments(from: normalizedCommand)
         }
 
         let draftIntent = MagicianIntent(
@@ -971,6 +1070,20 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
         return normalized.isEmpty ? nil : normalized
     }
 
+    private func detectCLIArguments(from text: String) -> [String]? {
+        let tokens = text
+            .split(whereSeparator: \.isWhitespace)
+            .map(String.init)
+        guard !tokens.isEmpty else {
+            return nil
+        }
+        let args = tokens
+            .filter { $0.hasPrefix("-") || $0.hasPrefix("--") }
+            .prefix(8)
+            .map { String($0) }
+        return args.isEmpty ? nil : args
+    }
+
     private func resolvedMailDeliveryMode(from command: String) -> MagicianMailDeliveryMode {
         let lowered = command.lowercased()
         if ["草拟", "草稿", "draft", "整理成邮件", "整理一下邮件"].contains(where: { lowered.contains($0) }) {
@@ -1079,6 +1192,7 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
     private let notePromptBuilder: MagicianNotePromptBuilder
     private let emailPromptBuilder: MagicianEmailPromptBuilder
     private let mailComposerPromptBuilder: MagicianMailComposerPromptBuilder
+    private let feishuCLIPromptBuilder: MagicianFeishuCLIPromptBuilder
 
     init(
         providerSettingsStore: ProviderSettingsStore,
@@ -1088,7 +1202,8 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         eventPromptBuilder: MagicianEventPromptBuilder = MagicianEventPromptBuilder(),
         notePromptBuilder: MagicianNotePromptBuilder = MagicianNotePromptBuilder(),
         emailPromptBuilder: MagicianEmailPromptBuilder = MagicianEmailPromptBuilder(),
-        mailComposerPromptBuilder: MagicianMailComposerPromptBuilder = MagicianMailComposerPromptBuilder()
+        mailComposerPromptBuilder: MagicianMailComposerPromptBuilder = MagicianMailComposerPromptBuilder(),
+        feishuCLIPromptBuilder: MagicianFeishuCLIPromptBuilder = MagicianFeishuCLIPromptBuilder()
     ) {
         self.providerSettingsStore = providerSettingsStore
         self.generationProvider = generationProvider
@@ -1098,6 +1213,7 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         self.notePromptBuilder = notePromptBuilder
         self.emailPromptBuilder = emailPromptBuilder
         self.mailComposerPromptBuilder = mailComposerPromptBuilder
+        self.feishuCLIPromptBuilder = feishuCLIPromptBuilder
     }
 
     func route(
@@ -1129,18 +1245,25 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
             throw unsupportedSearchIntentError()
         }
 
-        if !providerSettingsStore.isRewriteConfigurationValid {
-            let message = providerSettingsStore.rewriteConfigurationValidationMessage
-                ?? "文本模型配置无效。"
+        let isCLICommandMode = shouldUseCLIModel(
+            enabledFeatures: enabledFeatures,
+            selection: normalizedSelection
+        )
+        let validationMessage = isCLICommandMode
+            ? providerSettingsStore.cliTextConfigurationValidationMessage
+            : providerSettingsStore.rewriteConfigurationValidationMessage
+        guard validationMessage == nil else {
             throw MagicianError(
                 code: .intentParseFailed,
                 userMessage: "魔术先生需要可用的文本模型，请先到设置页修正配置。",
-                debugMessage: message,
+                debugMessage: validationMessage,
                 recoverAction: "open_provider_settings"
             )
         }
 
-        let key = (try? providerSettingsStore.loadAPIKeyForRewriteProvider())?
+        let key = (try? (isCLICommandMode
+            ? providerSettingsStore.loadAPIKeyForCLIProvider()
+            : providerSettingsStore.loadAPIKeyForRewriteProvider()))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !key.isEmpty else {
             throw MagicianError(
@@ -1150,12 +1273,16 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
                 recoverAction: "open_provider_settings"
             )
         }
+        let generationConfiguration = isCLICommandMode
+            ? providerSettingsStore.cliRewriteConfiguration
+            : providerSettingsStore.rewriteConfiguration
 
         do {
             let classified = try await classifyIntent(
                 command: normalizedCommand,
                 selection: normalizedSelection,
                 enabledFeatures: enabledFeatures,
+                configuration: generationConfiguration,
                 apiKey: key
             )
 
@@ -1177,6 +1304,7 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
                 for: classified.intent,
                 command: normalizedCommand,
                 selection: normalizedSelection,
+                configuration: generationConfiguration,
                 apiKey: key
             )
             let draftIntent = MagicianIntent(
@@ -1212,6 +1340,7 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         command: String,
         selection: String,
         enabledFeatures: Set<MagicianFeatureID>,
+        configuration: TextGenerationProviderConfiguration,
         apiKey: String
     ) async throws -> MagicianIntentClassification {
         let template = classifierPromptBuilder.build(
@@ -1226,7 +1355,7 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
                 temperature: 0.1,
                 maxOutputTokens: 180
             ),
-            configuration: providerSettingsStore.rewriteConfiguration,
+            configuration: configuration,
             apiKey: apiKey
         )
         return try decodePayload(
@@ -1239,12 +1368,14 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         for intent: MagicianFeatureID,
         command: String,
         selection: String,
+        configuration: TextGenerationProviderConfiguration,
         apiKey: String
     ) async throws -> MagicianIntentExtractionPayload {
         if intent == .composeEmailDraft {
             return try await extractMailPayload(
                 command: command,
                 selection: selection,
+                configuration: configuration,
                 apiKey: apiKey
             )
         }
@@ -1261,7 +1392,7 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
                 temperature: 0.1,
                 maxOutputTokens: 320
             ),
-            configuration: providerSettingsStore.rewriteConfiguration,
+            configuration: configuration,
             apiKey: apiKey
         )
         return try decodePayload(
@@ -1270,9 +1401,18 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         )
     }
 
+    private func shouldUseCLIModel(
+        enabledFeatures: Set<MagicianFeatureID>,
+        selection: String
+    ) -> Bool {
+        enabledFeatures == [.feishuCLI]
+            && selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func extractMailPayload(
         command: String,
         selection: String,
+        configuration: TextGenerationProviderConfiguration,
         apiKey: String
     ) async throws -> MagicianIntentExtractionPayload {
         let extractorTemplate = emailPromptBuilder.build(command: command, selection: selection)
@@ -1283,7 +1423,7 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
                 temperature: 0.1,
                 maxOutputTokens: 260
             ),
-            configuration: providerSettingsStore.rewriteConfiguration,
+            configuration: configuration,
             apiKey: apiKey
         )
         let extracted: MagicianIntentExtractionPayload = try decodePayload(
@@ -1299,7 +1439,7 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
                 temperature: 0.15,
                 maxOutputTokens: 420
             ),
-            configuration: providerSettingsStore.rewriteConfiguration,
+            configuration: configuration,
             apiKey: apiKey
         )
         let composed: MagicianMailComposerPayload = try decodePayload(
@@ -1334,6 +1474,8 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
             return notePromptBuilder.build(command: command, selection: selection)
         case .composeEmailDraft:
             return emailPromptBuilder.build(command: command, selection: selection)
+        case .feishuCLI:
+            return feishuCLIPromptBuilder.build(command: command, selection: selection)
         }
     }
 
@@ -1474,6 +1616,17 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
                     sourceText: fallbackSource
                 )
             }
+        case .feishuCLI:
+            sourceText = ""
+            if params.cliOperation == nil {
+                params.cliOperation = FeishuCanonicalOperation.infer(from: command)?.rawValue
+            }
+            if let operation = params.cliOperation, FeishuCanonicalOperation(rawValue: operation) == nil {
+                params.cliOperation = nil
+            }
+            params.cliArguments = params.cliArguments?
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
         }
 
         return MagicianIntent(
@@ -1781,7 +1934,7 @@ struct MagicianWorkflowPlannerPromptBuilder {
         {
           "steps": [
             {
-              "feature": "text_transform | create_event | create_note | compose_email_draft",
+              "feature": "text_transform | create_event | create_note | compose_email_draft | feishu_cli",
               "command": "string",
               "inputBinding": "selection_text | previous_output | command_only"
             }
@@ -1887,16 +2040,25 @@ struct LLMMagicianWorkflowPlanner: MagicianWorkflowPlanning {
         }
 
         do {
-            guard providerSettingsStore.isRewriteConfigurationValid else {
+            let isCLICommandMode = shouldUseCLIModel(
+                enabledFeatures: enabledFeatures,
+                selection: normalizedSelection
+            )
+            let validationMessage = isCLICommandMode
+                ? providerSettingsStore.cliTextConfigurationValidationMessage
+                : providerSettingsStore.rewriteConfigurationValidationMessage
+            guard validationMessage == nil else {
                 throw MagicianError(
                     code: .intentParseFailed,
                     userMessage: "文本模型配置无效，请先到设置页修正。",
-                    debugMessage: providerSettingsStore.rewriteConfigurationValidationMessage,
+                    debugMessage: validationMessage,
                     recoverAction: "open_provider_settings"
                 )
             }
 
-            let key = (try? providerSettingsStore.loadAPIKeyForRewriteProvider())?
+            let key = (try? (isCLICommandMode
+                ? providerSettingsStore.loadAPIKeyForCLIProvider()
+                : providerSettingsStore.loadAPIKeyForRewriteProvider()))?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !key.isEmpty else {
                 throw MagicianError(
@@ -1906,11 +2068,15 @@ struct LLMMagicianWorkflowPlanner: MagicianWorkflowPlanning {
                     recoverAction: "open_provider_settings"
                 )
             }
+            let generationConfiguration = isCLICommandMode
+                ? providerSettingsStore.cliRewriteConfiguration
+                : providerSettingsStore.rewriteConfiguration
 
             let draft = try await classifyPlan(
                 command: normalizedCommand,
                 selection: normalizedSelection,
                 enabledFeatures: enabledFeatures,
+                configuration: generationConfiguration,
                 apiKey: key
             )
 
@@ -2026,10 +2192,19 @@ struct LLMMagicianWorkflowPlanner: MagicianWorkflowPlanning {
         return tokens.contains(where: command.contains)
     }
 
+    private func shouldUseCLIModel(
+        enabledFeatures: Set<MagicianFeatureID>,
+        selection: String
+    ) -> Bool {
+        enabledFeatures == [.feishuCLI]
+            && selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func classifyPlan(
         command: String,
         selection: String,
         enabledFeatures: Set<MagicianFeatureID>,
+        configuration: TextGenerationProviderConfiguration,
         apiKey: String
     ) async throws -> MagicianWorkflowPlanDraft {
         let template = promptBuilder.build(
@@ -2044,7 +2219,7 @@ struct LLMMagicianWorkflowPlanner: MagicianWorkflowPlanning {
                 temperature: 0.1,
                 maxOutputTokens: 360
             ),
-            configuration: providerSettingsStore.rewriteConfiguration,
+            configuration: configuration,
             apiKey: apiKey
         )
         let text = response.outputText.trimmingCharacters(in: .whitespacesAndNewlines)

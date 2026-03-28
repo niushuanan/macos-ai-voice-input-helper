@@ -38,6 +38,20 @@ final class MagicianIntentRouterTests: XCTestCase {
         }
     }
 
+    func testHeuristicRouterRoutesNoSelectionFeishuCommandToCLIIntent() async throws {
+        let router = HeuristicMagicianIntentRouter()
+
+        let intent = try await router.route(
+            command: "飞书查今天议程",
+            selection: nil,
+            enabledFeatures: [.feishuCLI]
+        )
+
+        XCTAssertEqual(intent.intent, .feishuCLI)
+        XCTAssertEqual(intent.sourceText, "")
+        XCTAssertNotNil(intent.params.cliOperation)
+    }
+
     func testSchemaValidatorRejectsDisabledIntent() {
         let validator = MagicianIntentSchemaValidator()
         let intent = MagicianIntent(
@@ -162,6 +176,41 @@ final class MagicianIntentRouterTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
+    }
+
+    func testLLMRouterUsesCLIModelContextForFeishuCommandMode() async throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-text-fallback"])
+        )
+        providerStore.updateCLITextModel("deepseek-chat")
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputTexts: [
+                #"{"intent":"feishu_cli","confidence":0.93}"#,
+                #"{"sourceText":"","params":{"cliOperation":"feishu_calendar_event","cliArguments":[]}}"#
+            ]
+        )
+
+        let router = LLMMagicianIntentRouter(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider
+        )
+
+        let intent = try await router.route(
+            command: "飞书查今天议程",
+            selection: nil,
+            enabledFeatures: [.feishuCLI]
+        )
+
+        XCTAssertEqual(intent.intent, .feishuCLI)
+        XCTAssertEqual(intent.sourceText, "")
+        XCTAssertEqual(intent.params.cliOperation, "feishu_calendar_event")
+        XCTAssertEqual(generationProvider.callCount, 2)
+        XCTAssertTrue(generationProvider.requests[1].systemPrompt.contains("Feishu CLI intent extractor"))
     }
 
     func testLLMRouterParsesJSONFromCodeFence() async throws {
@@ -612,6 +661,32 @@ final class MagicianIntentRouterTests: XCTestCase {
             let magicianError = error as? MagicianError
             XCTAssertEqual(magicianError?.code, .intentParseFailed)
         }
+    }
+
+    func testStepRegistryUsesCommandOnlyForFirstFeishuStepWithoutSelection() throws {
+        let registry = MagicianStepRegistry()
+        let plan = MagicianWorkflowPlan(
+            steps: [
+                MagicianWorkflowStep(
+                    stepID: "step-1",
+                    feature: .feishuCLI,
+                    params: MagicianIntentParams(cliOperation: "feishu_calendar_event"),
+                    inputBinding: .selectionText,
+                    command: "飞书查今天议程"
+                )
+            ],
+            confidence: 0.9
+        )
+
+        let validated = try registry.validatedPlan(
+            plan,
+            enabledFeatures: [.feishuCLI],
+            fallbackCommand: "飞书查今天议程",
+            fallbackSelection: ""
+        )
+
+        XCTAssertEqual(validated.steps.first?.feature, .feishuCLI)
+        XCTAssertEqual(validated.steps.first?.inputBinding, .commandOnly)
     }
 
     private var defaultsSuiteName: String {

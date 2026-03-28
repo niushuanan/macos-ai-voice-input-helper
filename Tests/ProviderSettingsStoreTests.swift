@@ -17,6 +17,10 @@ final class ProviderSettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.textConfig.providerType, .openAICompatible)
         XCTAssertEqual(store.textConfig.baseURLString, "https://api.deepseek.com")
         XCTAssertEqual(store.textConfig.modelName, "deepseek-chat")
+
+        XCTAssertEqual(store.cliTextConfig.providerType, .openAICompatible)
+        XCTAssertEqual(store.cliTextConfig.baseURLString, "https://api.deepseek.com")
+        XCTAssertEqual(store.cliTextConfig.modelName, "deepseek-chat")
     }
 
     func testSwitchToLocalSenseVoiceAutoFillsModelPath() {
@@ -77,6 +81,34 @@ final class ProviderSettingsStoreTests: XCTestCase {
         XCTAssertEqual(decoded.status, .failure)
         XCTAssertEqual(decoded.httpStatus, 429)
         XCTAssertEqual(decoded.hint, "请检查额度")
+    }
+
+    func testCLIAPIKeyFallsBackToTextAPIKeyWhenCLIKeyMissing() throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let credentials = MemoryCredentialStoreForSettingsTests()
+        try credentials.saveAPIKey("sk-text-fallback-0001", for: defaultTextCredentialKeyRef)
+
+        let store = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
+
+        let cliKey = try store.loadAPIKeyForCLIProvider()
+        XCTAssertEqual(cliKey, "sk-text-fallback-0001")
+        XCTAssertEqual(store.cliTextCredentialState, .saved)
+    }
+
+    func testCLIAPIKeyUsesDedicatedKeyWhenProvided() throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let credentials = MemoryCredentialStoreForSettingsTests()
+        try credentials.saveAPIKey("sk-text-default-9999", for: defaultTextCredentialKeyRef)
+        try credentials.saveAPIKey("sk-cli-dedicated-1234", for: defaultCLITextCredentialKeyRef)
+
+        let store = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
+
+        let cliKey = try store.loadAPIKeyForCLIProvider()
+        XCTAssertEqual(cliKey, "sk-cli-dedicated-1234")
     }
 
     func testCredentialStateUsesInaccessibleWhenPassiveProbeNeedsInteraction() {

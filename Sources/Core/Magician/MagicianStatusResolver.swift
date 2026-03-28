@@ -144,6 +144,24 @@ struct MagicianStatusResolver {
                 )
             }
             return .ready
+
+        case .feishuCLI:
+            guard dependencies.feishuCLIAvailable else {
+                return .blocked(
+                    reason: "未检测到飞书 CLI，请先安装并完成登录。",
+                    prompt: MagicianPermissionPromptModel(
+                        feature: feature,
+                        title: "飞书 CLI 不可用",
+                        message: "系统里未检测到 feishu 或 lark-cli 可执行文件。请先安装 CLI，再回到这里开启。",
+                        primaryButtonTitle: "打开开源地址",
+                        secondaryButtonTitle: "稍后再说",
+                        primaryAction: .openExternalURL(
+                            urlString: "https://github.com/larksuite/cli"
+                        )
+                    )
+                )
+            }
+            return .ready
         }
     }
 
