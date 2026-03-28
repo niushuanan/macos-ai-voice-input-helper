@@ -32,7 +32,13 @@ struct AccountStatusCapsuleButton: NSViewRepresentable {
     }
 
     private func update(_ button: NSButton) {
-        button.image = iconImage
+        if let avatarImage {
+            button.image = avatarImage
+            button.contentTintColor = nil
+        } else {
+            button.image = iconImage
+            button.contentTintColor = .systemBlue
+        }
         button.toolTip = helpText
         button.setAccessibilityLabel(accessibilityTitle)
     }
@@ -46,6 +52,31 @@ struct AccountStatusCapsuleButton: NSViewRepresentable {
         return NSImage(systemSymbolName: iconName, accessibilityDescription: accessibilityTitle)?
             .withSymbolConfiguration(config)
     }
+
+    private var avatarImage: NSImage? {
+        Self.cachedAvatarImage
+    }
+
+    private static let cachedAvatarImage: NSImage? = {
+        let candidates: [(name: String, ext: String?, subdirectory: String?)] = [
+            ("apple-account-avatar", "jpg", "Resources/Images"),
+            ("apple-account-avatar", "jpg", nil)
+        ]
+        for candidate in candidates {
+            guard
+                let url = Bundle.main.url(
+                    forResource: candidate.name,
+                    withExtension: candidate.ext,
+                    subdirectory: candidate.subdirectory
+                ),
+                let sourceImage = NSImage(contentsOf: url)
+            else {
+                continue
+            }
+            return sourceImage.circularMaskedImage(diameter: 20)
+        }
+        return nil
+    }()
 
     private var accessibilityTitle: String {
         accountStore.isAuthenticated
@@ -74,6 +105,27 @@ struct AccountStatusCapsuleButton: NSViewRepresentable {
         func didPress() {
             action()
         }
+    }
+}
+
+private extension NSImage {
+    func circularMaskedImage(diameter: CGFloat) -> NSImage {
+        let targetSize = NSSize(width: diameter, height: diameter)
+        let resultImage = NSImage(size: targetSize)
+        resultImage.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+
+        let circlePath = NSBezierPath(ovalIn: NSRect(origin: .zero, size: targetSize))
+        circlePath.addClip()
+        draw(
+            in: NSRect(origin: .zero, size: targetSize),
+            from: NSRect(origin: .zero, size: size),
+            operation: .copy,
+            fraction: 1
+        )
+        resultImage.unlockFocus()
+        resultImage.isTemplate = false
+        return resultImage
     }
 }
 
