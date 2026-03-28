@@ -1,3 +1,4 @@
 PRODUCT_NAME = PulseType
 PULSETYPE_SUPABASE_URL =
 PULSETYPE_SUPABASE_ANON_KEY =
+#include? "LocalSecrets.xcconfig"

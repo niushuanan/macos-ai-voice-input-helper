@@ -6,13 +6,14 @@ struct AccountStatusCapsuleButton: View {
 
     var body: some View {
         Button(action: action) {
-            Label(accessibilityTitle, systemImage: iconName)
-                .labelStyle(.iconOnly)
-                .imageScale(.large)
+            Image(systemName: iconName)
+                .font(.system(size: 20, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Color.blue)
         }
         .help(helpText)
         .accessibilityLabel(accessibilityTitle)
+        .buttonStyle(.plain)
     }
 
     private var iconName: String {

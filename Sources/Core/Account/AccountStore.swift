@@ -71,7 +71,9 @@ final class AccountStore: ObservableObject, AccountAccessControlling {
     }
 
     func presentSheet(selectHome: Bool = false) {
-        presentationHandler?(selectHome)
+        if selectHome {
+            presentationHandler?(true)
+        }
         isSheetPresented = true
     }
 

@@ -313,16 +313,22 @@ final class AppModel: ObservableObject {
             controlCenterState.selectedSection = .home
         }
 
-        controlCenterWindowOpener?()
+        if controlCenterWindow == nil {
+            controlCenterWindowOpener?()
+        }
         NSApp.activate(ignoringOtherApps: true)
 
         DispatchQueue.main.async {
-            let targetWindow = NSApp.windows.first(where: {
-                $0.identifier?.rawValue == "control-center" || $0.title.contains("PulseType")
-            }) ?? NSApp.windows.first
+            let targetWindow = self.controlCenterWindow ?? NSApp.windows.first
             targetWindow?.makeKeyAndOrderFront(nil)
             targetWindow?.orderFrontRegardless()
         }
+    }
+
+    private var controlCenterWindow: NSWindow? {
+        NSApp.windows.first(where: {
+            $0.identifier?.rawValue == "control-center" || $0.title.contains("PulseType")
+        })
     }
 
     private func probeLocalSenseVoiceRuntime() {
