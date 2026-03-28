@@ -233,19 +233,21 @@ struct SettingsView: View {
                 }
             )
         }
-    }
-
-    private var homePage: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                pageHeader(
-                    title: "首页",
-                    subtitle: ""
-                ) {
+        .toolbar {
+            if controlCenterState.selectedSection == .home {
+                ToolbarItem(placement: .primaryAction) {
                     AccountStatusCapsuleButton(accountStore: accountStore) {
                         accountStore.presentSheet()
                     }
                 }
+            }
+        }
+    }
+
+    private var homePage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                pageHeader(title: "首页")
 
                 homeProductIntroCard
 
@@ -274,7 +276,8 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
-            .padding(.vertical, 22)
+            .padding(.top, 10)
+            .padding(.bottom, 22)
         }
         .onAppear {
             permissionsCenter.refreshStatuses()

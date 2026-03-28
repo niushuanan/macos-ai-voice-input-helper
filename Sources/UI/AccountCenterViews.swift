@@ -6,75 +6,33 @@ struct AccountStatusCapsuleButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                avatar
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(accountStore.statusCapsuleTitle)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-
-                    Text(subtitleText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .stroke(Color.white.opacity(0.78), lineWidth: 1)
-                    )
-            )
-            .shadow(color: Color.black.opacity(0.06), radius: 14, x: 0, y: 6)
+            Label(accessibilityTitle, systemImage: iconName)
+                .labelStyle(.iconOnly)
+                .imageScale(.large)
+                .symbolRenderingMode(.hierarchical)
         }
-        .buttonStyle(.plain)
+        .help(helpText)
+        .accessibilityLabel(accessibilityTitle)
     }
 
-    private var subtitleText: String {
+    private var iconName: String {
+        "person.crop.circle"
+    }
+
+    private var accessibilityTitle: String {
+        accountStore.isAuthenticated
+            ? "账号与版本，\(accountStore.statusCapsuleTitle)"
+            : "登录"
+    }
+
+    private var helpText: String {
         if accountStore.isAuthenticated {
             return accountStore.currentEmail
         }
         if case .codeSent = accountStore.authState {
-            return "继续完成邮箱验证"
+            return "验证码已发送"
         }
-        return "登录后可用完整能力"
-    }
-
-    @ViewBuilder
-    private var avatar: some View {
-        let initial = accountStore.currentEmail.first.map {
-            String($0).uppercased()
-        }
-
-        if let initial, accountStore.isAuthenticated {
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.accentColor.opacity(0.22),
-                                Color.blue.opacity(0.16)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                Text(initial)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(Color.accentColor)
-            }
-            .frame(width: 32, height: 32)
-        } else {
-            Image(systemName: "person.crop.circle.fill")
-                .font(.system(size: 28))
-                .foregroundStyle(Color.accentColor)
-        }
+        return "登录"
     }
 }
 
