@@ -8,26 +8,43 @@ struct SupabaseRuntimeConfiguration: Equatable {
     static let urlInfoKey = "PULSETYPE_SUPABASE_URL"
     static let anonKeyInfoKey = "PULSETYPE_SUPABASE_ANON_KEY"
     static let authStorageKeyDefaultValue = "pulsetype.auth.session"
+    private static let legacyURLKeys = ["SUPABASE_URL"]
+    private static let legacyAnonKeyKeys = [
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY"
+    ]
 
     static func current(
         bundle: Bundle = .main,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        userDefaults: UserDefaults = .standard
     ) -> SupabaseRuntimeConfiguration? {
+        let readsUserDefaults = environment["XCTestConfigurationFilePath"] == nil
+
         let urlString = resolvedValue(
-            key: urlInfoKey,
+            primaryKey: urlInfoKey,
+            fallbackKeys: legacyURLKeys,
             bundle: bundle,
-            environment: environment
+            environment: environment,
+            userDefaults: userDefaults,
+            readsUserDefaults: readsUserDefaults
         )
         let anonKey = resolvedValue(
-            key: anonKeyInfoKey,
+            primaryKey: anonKeyInfoKey,
+            fallbackKeys: legacyAnonKeyKeys,
             bundle: bundle,
-            environment: environment
+            environment: environment,
+            userDefaults: userDefaults,
+            readsUserDefaults: readsUserDefaults
         )
 
         guard
             let urlString,
             let anonKey,
             let url = URL(string: urlString),
+            let scheme = url.scheme?.lowercased(),
+            ["http", "https"].contains(scheme),
+            url.host != nil,
             !anonKey.isEmpty
         else {
             return nil
@@ -41,16 +58,31 @@ struct SupabaseRuntimeConfiguration: Equatable {
     }
 
     private static func resolvedValue(
-        key: String,
+        primaryKey: String,
+        fallbackKeys: [String],
         bundle: Bundle,
-        environment: [String: String]
+        environment: [String: String],
+        userDefaults: UserDefaults,
+        readsUserDefaults: Bool
     ) -> String? {
-        if let normalized = normalizedValue(environment[key]) {
-            return normalized
+        let keys = [primaryKey] + fallbackKeys
+
+        for key in keys {
+            if let normalized = normalizedValue(environment[key]) {
+                return normalized
+            }
+        }
+
+        if readsUserDefaults {
+            for key in keys {
+                if let normalized = normalizedValue(userDefaults.string(forKey: key)) {
+                    return normalized
+                }
+            }
         }
 
         guard
-            let value = bundle.object(forInfoDictionaryKey: key) as? String
+            let value = bundle.object(forInfoDictionaryKey: primaryKey) as? String
         else {
             return nil
         }

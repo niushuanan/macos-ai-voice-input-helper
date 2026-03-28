@@ -5,15 +5,15 @@ struct AccountStatusCapsuleButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: iconName)
-                .font(.system(size: 20, weight: .semibold))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(Color.blue)
-        }
+        Image(systemName: iconName)
+            .font(.system(size: 20, weight: .semibold))
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(Color.blue)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: action)
         .help(helpText)
         .accessibilityLabel(accessibilityTitle)
-        .buttonStyle(.plain)
+        .accessibilityAddTraits(.isButton)
     }
 
     private var iconName: String {
