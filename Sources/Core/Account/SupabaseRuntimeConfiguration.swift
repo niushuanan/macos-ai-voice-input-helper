@@ -8,11 +8,10 @@ struct SupabaseRuntimeConfiguration: Equatable {
     static let urlInfoKey = "PULSETYPE_SUPABASE_URL"
     static let anonKeyInfoKey = "PULSETYPE_SUPABASE_ANON_KEY"
     static let authStorageKeyDefaultValue = "pulsetype.auth.session"
+    static let bundledURL = "https://agacevqkmetfimxbdhgb.supabase.co"
+    static let bundledAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFnYWNldnFrbWV0ZmlteGJkaGdiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzODEwMTAsImV4cCI6MjA4ODk1NzAxMH0.5JX9cUU9KSPXZ7CLnLS9_3x9Ra_X7whhvSjI0MZBYWg"
     private static let legacyURLKeys = ["SUPABASE_URL"]
-    private static let legacyAnonKeyKeys = [
-        "SUPABASE_ANON_KEY",
-        "SUPABASE_SERVICE_ROLE_KEY"
-    ]
+    private static let legacyAnonKeyKeys = ["SUPABASE_ANON_KEY"]
 
     static func current(
         bundle: Bundle = .main,
@@ -28,7 +27,7 @@ struct SupabaseRuntimeConfiguration: Equatable {
             environment: environment,
             userDefaults: userDefaults,
             readsUserDefaults: readsUserDefaults
-        )
+        ) ?? bundledURL
         let anonKey = resolvedValue(
             primaryKey: anonKeyInfoKey,
             fallbackKeys: legacyAnonKeyKeys,
@@ -36,11 +35,9 @@ struct SupabaseRuntimeConfiguration: Equatable {
             environment: environment,
             userDefaults: userDefaults,
             readsUserDefaults: readsUserDefaults
-        )
+        ) ?? bundledAnonKey
 
         guard
-            let urlString,
-            let anonKey,
             let url = URL(string: urlString),
             let scheme = url.scheme?.lowercased(),
             ["http", "https"].contains(scheme),

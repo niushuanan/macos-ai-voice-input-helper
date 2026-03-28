@@ -19,7 +19,7 @@ final class SupabaseRuntimeConfigurationTests: XCTestCase {
         super.tearDown()
     }
 
-    func testCurrentReturnsNilForPlaceholderEnvironmentValues() {
+    func testCurrentFallsBackToBundledDefaultsForPlaceholderEnvironmentValues() {
         let configuration = SupabaseRuntimeConfiguration.current(
             bundle: .main,
             environment: [
@@ -29,7 +29,8 @@ final class SupabaseRuntimeConfigurationTests: XCTestCase {
             userDefaults: testDefaults
         )
 
-        XCTAssertNil(configuration)
+        XCTAssertEqual(configuration?.url.absoluteString, SupabaseRuntimeConfiguration.bundledURL)
+        XCTAssertEqual(configuration?.anonKey, SupabaseRuntimeConfiguration.bundledAnonKey)
     }
 
     func testCurrentBuildsConfigurationFromEnvironmentValues() {
@@ -52,7 +53,7 @@ final class SupabaseRuntimeConfigurationTests: XCTestCase {
 
     func testCurrentBuildsConfigurationFromUserDefaultsFallbackValues() {
         testDefaults.set("https://from-defaults.supabase.co", forKey: "SUPABASE_URL")
-        testDefaults.set("service-role-from-defaults", forKey: "SUPABASE_SERVICE_ROLE_KEY")
+        testDefaults.set("anon-from-defaults", forKey: "SUPABASE_ANON_KEY")
 
         let configuration = SupabaseRuntimeConfiguration.current(
             bundle: .main,
@@ -61,7 +62,7 @@ final class SupabaseRuntimeConfigurationTests: XCTestCase {
         )
 
         XCTAssertEqual(configuration?.url.absoluteString, "https://from-defaults.supabase.co")
-        XCTAssertEqual(configuration?.anonKey, "service-role-from-defaults")
+        XCTAssertEqual(configuration?.anonKey, "anon-from-defaults")
     }
 
     func testCurrentReturnsNilForURLWithoutHost() {
@@ -79,7 +80,7 @@ final class SupabaseRuntimeConfigurationTests: XCTestCase {
 
     func testCurrentSkipsUserDefaultsInXCTestEnvironment() {
         testDefaults.set("https://from-defaults.supabase.co", forKey: "SUPABASE_URL")
-        testDefaults.set("service-role-from-defaults", forKey: "SUPABASE_SERVICE_ROLE_KEY")
+        testDefaults.set("anon-from-defaults", forKey: "SUPABASE_ANON_KEY")
 
         let configuration = SupabaseRuntimeConfiguration.current(
             bundle: .main,
@@ -89,6 +90,7 @@ final class SupabaseRuntimeConfigurationTests: XCTestCase {
             userDefaults: testDefaults
         )
 
-        XCTAssertNil(configuration)
+        XCTAssertEqual(configuration?.url.absoluteString, SupabaseRuntimeConfiguration.bundledURL)
+        XCTAssertEqual(configuration?.anonKey, SupabaseRuntimeConfiguration.bundledAnonKey)
     }
 }
