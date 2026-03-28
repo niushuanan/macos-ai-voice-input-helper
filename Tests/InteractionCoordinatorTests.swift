@@ -33,17 +33,15 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .cancelled)
     }
 
-    func testWakeKeyRequiresSignInBeforeStartingRecording() throws {
-        let accountAccessController = FakeAccountAccessController(isAuthenticated: false)
-        let fixture = try makeFixture(accountAccessController: accountAccessController)
+    func testWakeKeyStartsRecordingWithoutAccountDependency() throws {
+        let fixture = try makeFixture()
         defer { fixture.cleanUp() }
 
         fixture.coordinator.handleWakeInput(context: .dictation)
 
-        XCTAssertEqual(fixture.sessionStore.phase, .error)
-        XCTAssertEqual(fixture.sessionStore.statusMessage, "请先登录")
-        XCTAssertEqual(fixture.audioCapture.startCallCount, 0)
-        XCTAssertEqual(accountAccessController.promptCount, 1)
+        XCTAssertEqual(fixture.sessionStore.phase, .listening)
+        XCTAssertEqual(fixture.audioCapture.startCallCount, 1)
+        XCTAssertTrue(fixture.audioCapture.isRecording)
     }
 
     func testBrainstormIsBlockedDuringNormalDictationAndShowsSingleToastWithinCooldown() throws {
@@ -1444,7 +1442,6 @@ final class InteractionCoordinatorTests: XCTestCase {
     }
 
     private func makeFixture(
-        accountAccessController: AccountAccessControlling? = nil,
         textOutputCoordinator: FakeTextOutputCoordinator? = nil,
         dictationPostProcessor: DictationPostProcessor = FakeDictationPostProcessor(result: .success("hello world")),
         brainstormContextComposer: BrainstormContextComposer = FakeBrainstormContextComposer(
@@ -1533,7 +1530,6 @@ final class InteractionCoordinatorTests: XCTestCase {
         let resolvedToastPresenter = toastPresenter
 
         let coordinator = InteractionCoordinator(
-            accountAccessController: accountAccessController,
             sessionStore: sessionStore,
             permissionsCenter: permissionsCenter,
             audioCaptureService: audioCapture,
@@ -1633,20 +1629,6 @@ private struct WorkflowTelemetryTestRecord: Decodable {
     let autoSendConfigured: Bool?
     let autoSendHit: Bool?
     let draftOnlyFallback: Bool?
-}
-
-@MainActor
-private final class FakeAccountAccessController: AccountAccessControlling {
-    var isAuthenticated: Bool
-    private(set) var promptCount = 0
-
-    init(isAuthenticated: Bool) {
-        self.isAuthenticated = isAuthenticated
-    }
-
-    func promptForAuthentication() {
-        promptCount += 1
-    }
 }
 
 @MainActor

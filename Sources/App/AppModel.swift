@@ -37,7 +37,6 @@ final class ToastPresenter: ObservableObject {
 @MainActor
 final class AppModel: ObservableObject {
     let controlCenterState: ControlCenterState
-    let accountStore: AccountStore
     let sessionStore: SessionStore
     let hotkeyStateStore: HotkeyStateStore
     let globalHotkeyService: GlobalHotkeyService
@@ -67,7 +66,6 @@ final class AppModel: ObservableObject {
 
     init(
         controlCenterState: ControlCenterState,
-        accountStore: AccountStore,
         sessionStore: SessionStore,
         hotkeyStateStore: HotkeyStateStore,
         globalHotkeyService: GlobalHotkeyService,
@@ -93,7 +91,6 @@ final class AppModel: ObservableObject {
         toastPresenter: ToastPresenter
     ) {
         self.controlCenterState = controlCenterState
-        self.accountStore = accountStore
         self.sessionStore = sessionStore
         self.hotkeyStateStore = hotkeyStateStore
         self.globalHotkeyService = globalHotkeyService
@@ -118,12 +115,7 @@ final class AppModel: ObservableObject {
         self.statusPulseHUDController = statusPulseHUDController
         self.toastPresenter = toastPresenter
 
-        accountStore.configurePresentationHandler { [weak self] selectHome in
-            self?.prepareForAccountPresentation(selectHome: selectHome)
-        }
-
         migrateLegacyLocalState()
-        accountStore.boot()
         permissionsCenter.refreshStatuses()
         permissionsCenter.autoRequestOnLaunchIfNeeded()
         bindStatusPulse()
@@ -181,13 +173,7 @@ final class AppModel: ObservableObject {
         let controlCenterState = ControlCenterState(localHistoryStore: localHistoryStore)
         let hotkeyStateStore = HotkeyStateStore()
         let toastPresenter = ToastPresenter()
-        let accountStore = AccountStore(
-            service: SupabaseAccountService(
-                configuration: SupabaseRuntimeConfiguration.current()
-            )
-        )
         let interactionCoordinator = InteractionCoordinator(
-            accountAccessController: accountStore,
             sessionStore: sessionStore,
             permissionsCenter: permissionsCenter,
             audioCaptureService: audioCaptureService,
@@ -209,7 +195,6 @@ final class AppModel: ObservableObject {
         )
         return AppModel(
             controlCenterState: controlCenterState,
-            accountStore: accountStore,
             sessionStore: sessionStore,
             hotkeyStateStore: hotkeyStateStore,
             globalHotkeyService: GlobalHotkeyService(
@@ -301,34 +286,8 @@ final class AppModel: ObservableObject {
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in
                 self?.permissionsCenter.refreshStatuses()
-                Task {
-                    await self?.accountStore.refreshSessionIfNeeded()
-                }
             }
             .store(in: &cancellables)
-    }
-
-    private func prepareForAccountPresentation(selectHome: Bool) {
-        if selectHome {
-            controlCenterState.selectedSection = .home
-        }
-
-        if controlCenterWindow == nil {
-            controlCenterWindowOpener?()
-        }
-        NSApp.activate(ignoringOtherApps: true)
-
-        DispatchQueue.main.async {
-            let targetWindow = self.controlCenterWindow ?? NSApp.windows.first
-            targetWindow?.makeKeyAndOrderFront(nil)
-            targetWindow?.orderFrontRegardless()
-        }
-    }
-
-    private var controlCenterWindow: NSWindow? {
-        NSApp.windows.first(where: {
-            $0.identifier?.rawValue == "control-center" || $0.title.contains("PulseType")
-        })
     }
 
     private func probeLocalSenseVoiceRuntime() {

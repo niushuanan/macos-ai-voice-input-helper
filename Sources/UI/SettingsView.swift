@@ -58,7 +58,6 @@ struct SettingsView: View {
     private let runtimePolicy = AppRuntimePolicy.current()
 
     @ObservedObject private var controlCenterState: ControlCenterState
-    @ObservedObject private var accountStore: AccountStore
     @ObservedObject private var hotkeyStateStore: HotkeyStateStore
     @ObservedObject private var permissionsCenter: PermissionsCenter
     @ObservedObject private var providerSettingsStore: ProviderSettingsStore
@@ -110,7 +109,6 @@ struct SettingsView: View {
     init(model: AppModel) {
         self.model = model
         _controlCenterState = ObservedObject(wrappedValue: model.controlCenterState)
-        _accountStore = ObservedObject(wrappedValue: model.accountStore)
         _hotkeyStateStore = ObservedObject(wrappedValue: model.hotkeyStateStore)
         _permissionsCenter = ObservedObject(wrappedValue: model.permissionsCenter)
         _providerSettingsStore = ObservedObject(wrappedValue: model.providerSettingsStore)
@@ -162,20 +160,6 @@ struct SettingsView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-
-                if controlCenterState.selectedSection == .home {
-                    VStack {
-                        HStack {
-                            Spacer()
-                            AccountStatusCapsuleButton(accountStore: accountStore) {
-                                accountStore.presentSheet()
-                            }
-                            .padding(.top, 4)
-                            .padding(.trailing, 18)
-                        }
-                        Spacer()
-                    }
-                }
 
                 if let toast = toastPresenter.message {
                     VStack {
@@ -237,14 +221,6 @@ struct SettingsView: View {
                     }
                 },
                 onClose: { showingMailAddressBookSheet = false }
-            )
-        }
-        .sheet(isPresented: accountSheetBinding) {
-            AccountCenterSheetView(
-                accountStore: accountStore,
-                onUnavailableFeature: { message in
-                    showToast(message)
-                }
             )
         }
     }
@@ -532,74 +508,70 @@ struct SettingsView: View {
                     subtitle: ""
                 )
 
-                accountProtectedModelSection {
-                    modelRoleSection(
-                        roleTitle: "语音识别",
-                        cardTitle: "语音识别",
-                        availableProviderTypes: asrProviderOptions,
-                        providerType: asrProviderTypeBinding,
-                        baseURL: asrBaseURLBinding,
-                        modelName: asrModelBinding,
-                        localModelPath: providerSettingsStore.asrConfig.providerType == .localSenseVoice
-                            ? asrLocalModelPathBinding
-                            : nil,
-                        showsBaseURL: providerSettingsStore.asrConfig.providerType != .localSenseVoice,
-                        showsAPIKey: providerSettingsStore.asrConfig.providerType.requiresAPIKey,
-                        allowsCustomBaseURL: providerSettingsStore.asrConfig.providerType.allowsCustomBaseURL,
-                        baseURLPlaceholder: baseURLPlaceholder(for: providerSettingsStore.asrConfig.providerType),
-                        modelPlaceholder: providerSettingsStore.asrConfig.providerType.defaultTranscriptionModelName,
-                        apiKeyDraft: $providerSettingsStore.asrAPIKeyDraft,
-                        credentialState: providerSettingsStore.asrCredentialState,
-                        validationMessage: providerSettingsStore.asrConfigurationValidationMessage,
-                        feedbackMessage: providerSettingsStore.asrFeedbackMessage,
-                        onSaveKey: saveASRKey,
-                        onDeleteKey: deleteASRKey,
-                        isTesting: asrTesting,
-                        testButtonTitle: "测试 ASR",
-                        latestResult: providerSettingsStore.latestASRTestResult,
-                        activeConfigLine: effectiveConfigLine(
-                            providerType: providerSettingsStore.asrConfig.providerType,
-                            baseURLString: providerSettingsStore.asrConfig.baseURLString,
-                            modelName: providerSettingsStore.asrConfig.modelName,
-                            localModelPath: providerSettingsStore.asrConfig.localModelPath
-                        ),
-                        showsLocalSenseVoiceRuntimeDetails: true,
-                        onTest: runASRTest
-                    )
-                }
+                modelRoleSection(
+                    roleTitle: "语音识别",
+                    cardTitle: "语音识别",
+                    availableProviderTypes: asrProviderOptions,
+                    providerType: asrProviderTypeBinding,
+                    baseURL: asrBaseURLBinding,
+                    modelName: asrModelBinding,
+                    localModelPath: providerSettingsStore.asrConfig.providerType == .localSenseVoice
+                        ? asrLocalModelPathBinding
+                        : nil,
+                    showsBaseURL: providerSettingsStore.asrConfig.providerType != .localSenseVoice,
+                    showsAPIKey: providerSettingsStore.asrConfig.providerType.requiresAPIKey,
+                    allowsCustomBaseURL: providerSettingsStore.asrConfig.providerType.allowsCustomBaseURL,
+                    baseURLPlaceholder: baseURLPlaceholder(for: providerSettingsStore.asrConfig.providerType),
+                    modelPlaceholder: providerSettingsStore.asrConfig.providerType.defaultTranscriptionModelName,
+                    apiKeyDraft: $providerSettingsStore.asrAPIKeyDraft,
+                    credentialState: providerSettingsStore.asrCredentialState,
+                    validationMessage: providerSettingsStore.asrConfigurationValidationMessage,
+                    feedbackMessage: providerSettingsStore.asrFeedbackMessage,
+                    onSaveKey: saveASRKey,
+                    onDeleteKey: deleteASRKey,
+                    isTesting: asrTesting,
+                    testButtonTitle: "测试 ASR",
+                    latestResult: providerSettingsStore.latestASRTestResult,
+                    activeConfigLine: effectiveConfigLine(
+                        providerType: providerSettingsStore.asrConfig.providerType,
+                        baseURLString: providerSettingsStore.asrConfig.baseURLString,
+                        modelName: providerSettingsStore.asrConfig.modelName,
+                        localModelPath: providerSettingsStore.asrConfig.localModelPath
+                    ),
+                    showsLocalSenseVoiceRuntimeDetails: true,
+                    onTest: runASRTest
+                )
 
-                accountProtectedModelSection {
-                    modelRoleSection(
-                        roleTitle: "文本处理",
-                        cardTitle: "文本处理",
-                        availableProviderTypes: textProviderOptions,
-                        providerType: textProviderTypeBinding,
-                        baseURL: textBaseURLBinding,
-                        modelName: textModelBinding,
-                        localModelPath: nil,
-                        showsBaseURL: true,
-                        showsAPIKey: true,
-                        allowsCustomBaseURL: providerSettingsStore.textConfig.providerType.allowsCustomBaseURL,
-                        baseURLPlaceholder: baseURLPlaceholder(for: providerSettingsStore.textConfig.providerType),
-                        modelPlaceholder: providerSettingsStore.textConfig.providerType.defaultRewriteModelName,
-                        apiKeyDraft: $providerSettingsStore.textAPIKeyDraft,
-                        credentialState: providerSettingsStore.textCredentialState,
-                        validationMessage: providerSettingsStore.textConfigurationValidationMessage,
-                        feedbackMessage: providerSettingsStore.textFeedbackMessage,
-                        onSaveKey: saveTextKey,
-                        onDeleteKey: deleteTextKey,
-                        isTesting: textTesting,
-                        testButtonTitle: "测试文本模型",
-                        latestResult: providerSettingsStore.latestTextTestResult,
-                        activeConfigLine: effectiveConfigLine(
-                            providerType: providerSettingsStore.textConfig.providerType,
-                            baseURLString: providerSettingsStore.textConfig.baseURLString,
-                            modelName: providerSettingsStore.textConfig.modelName
-                        ),
-                        showsLocalSenseVoiceRuntimeDetails: false,
-                        onTest: runTextTest
-                    )
-                }
+                modelRoleSection(
+                    roleTitle: "文本处理",
+                    cardTitle: "文本处理",
+                    availableProviderTypes: textProviderOptions,
+                    providerType: textProviderTypeBinding,
+                    baseURL: textBaseURLBinding,
+                    modelName: textModelBinding,
+                    localModelPath: nil,
+                    showsBaseURL: true,
+                    showsAPIKey: true,
+                    allowsCustomBaseURL: providerSettingsStore.textConfig.providerType.allowsCustomBaseURL,
+                    baseURLPlaceholder: baseURLPlaceholder(for: providerSettingsStore.textConfig.providerType),
+                    modelPlaceholder: providerSettingsStore.textConfig.providerType.defaultRewriteModelName,
+                    apiKeyDraft: $providerSettingsStore.textAPIKeyDraft,
+                    credentialState: providerSettingsStore.textCredentialState,
+                    validationMessage: providerSettingsStore.textConfigurationValidationMessage,
+                    feedbackMessage: providerSettingsStore.textFeedbackMessage,
+                    onSaveKey: saveTextKey,
+                    onDeleteKey: deleteTextKey,
+                    isTesting: textTesting,
+                    testButtonTitle: "测试文本模型",
+                    latestResult: providerSettingsStore.latestTextTestResult,
+                    activeConfigLine: effectiveConfigLine(
+                        providerType: providerSettingsStore.textConfig.providerType,
+                        baseURLString: providerSettingsStore.textConfig.baseURLString,
+                        modelName: providerSettingsStore.textConfig.modelName
+                    ),
+                    showsLocalSenseVoiceRuntimeDetails: false,
+                    onTest: runTextTest
+                )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
@@ -822,61 +794,6 @@ struct SettingsView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.accentColor.opacity(0.06))
         )
-    }
-
-    private var accountSheetBinding: Binding<Bool> {
-        Binding(
-            get: { accountStore.isSheetPresented },
-            set: { isPresented in
-                if isPresented {
-                    accountStore.presentSheet()
-                } else {
-                    accountStore.dismissSheet()
-                }
-            }
-        )
-    }
-
-    private var canManageModelConfiguration: Bool {
-        accountStore.isAuthenticated
-    }
-
-    private func accountProtectedModelSection<Content: View>(
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        content()
-            .disabled(!canManageModelConfiguration)
-            .overlay {
-                if !canManageModelConfiguration {
-                    Button {
-                        presentAccountSheet(message: "请先登录")
-                    } label: {
-                        VStack(spacing: 10) {
-                            Image(systemName: "lock.circle.fill")
-                                .font(.system(size: 30))
-                                .foregroundStyle(Color.accentColor)
-                            Text("登录后才能编辑模型配置")
-                                .font(.headline)
-                                .foregroundStyle(.primary)
-                            Text("当前先给你看配置，但不会真正发请求或保存修改。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(24)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color.white.opacity(0.74))
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(.ultraThinMaterial)
-                                )
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
     }
 
     private var settingsPage: some View {
@@ -2106,10 +2023,6 @@ struct SettingsView: View {
     }
 
     private func runASRTest() {
-        guard accountStore.isAuthenticated else {
-            presentAccountSheet(message: "请先登录")
-            return
-        }
         guard !asrTesting else {
             return
         }
@@ -2123,10 +2036,6 @@ struct SettingsView: View {
     }
 
     private func runTextTest() {
-        guard accountStore.isAuthenticated else {
-            presentAccountSheet(message: "请先登录")
-            return
-        }
         guard !textTesting else {
             return
         }
@@ -2137,16 +2046,6 @@ struct SettingsView: View {
                 textTesting = false
             }
         }
-    }
-
-    private func presentAccountSheet(
-        message: String? = nil,
-        selectHome: Bool = false
-    ) {
-        if let message {
-            showToast(message)
-        }
-        accountStore.presentSheet(selectHome: selectHome)
     }
 
     private func saveDictionary() {

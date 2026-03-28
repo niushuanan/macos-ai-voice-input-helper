@@ -5,7 +5,6 @@ import Foundation
 
 @MainActor
 final class InteractionCoordinator {
-    private let accountAccessController: AccountAccessControlling?
     private let sessionStore: SessionStore
     private let permissionsCenter: PermissionsCenter
     private let audioCaptureService: AudioCaptureService
@@ -45,7 +44,6 @@ final class InteractionCoordinator {
     private var pendingMagicianSelectionCaptureTask: Task<FocusedSelectionSnapshot?, Never>?
 
     init(
-        accountAccessController: AccountAccessControlling? = nil,
         sessionStore: SessionStore,
         permissionsCenter: PermissionsCenter,
         audioCaptureService: AudioCaptureService,
@@ -72,7 +70,6 @@ final class InteractionCoordinator {
         dictationPostProcessor: DictationPostProcessor = LLMDictationPostProcessor(),
         brainstormContextComposer: BrainstormContextComposer = LLMBrainstormContextComposer()
     ) {
-        self.accountAccessController = accountAccessController
         self.sessionStore = sessionStore
         self.permissionsCenter = permissionsCenter
         self.audioCaptureService = audioCaptureService
@@ -122,10 +119,6 @@ final class InteractionCoordinator {
     }
 
     func handleWakeInput(context: WakeInvocationContext = .dictation) {
-        guard ensureAuthenticated() else {
-            return
-        }
-
         permissionsCenter.refreshStatuses()
 
         switch sessionStore.phase {
@@ -154,10 +147,6 @@ final class InteractionCoordinator {
     }
 
     func handleBrainstormInput() {
-        guard ensureAuthenticated() else {
-            return
-        }
-
         permissionsCenter.refreshStatuses()
 
         switch sessionStore.phase {
@@ -229,15 +218,6 @@ final class InteractionCoordinator {
         }
         self.lastBrainstormBlockedByDictationAt = now
         toastPresenter?.show("当前是普通语音输入，脑暴双击已忽略。请先停止本次录音。")
-    }
-
-    private func ensureAuthenticated() -> Bool {
-        guard accountAccessController?.isAuthenticated ?? true else {
-            sessionStore.fail(message: "请先登录")
-            accountAccessController?.promptForAuthentication()
-            return false
-        }
-        return true
     }
 
     func handleStopInput() {
