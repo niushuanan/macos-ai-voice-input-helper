@@ -20,14 +20,14 @@ struct SupabaseRuntimeConfiguration: Equatable {
     ) -> SupabaseRuntimeConfiguration? {
         let readsUserDefaults = environment["XCTestConfigurationFilePath"] == nil
 
-        let urlString = resolvedValue(
+        let resolvedURLString = resolvedValue(
             primaryKey: urlInfoKey,
             fallbackKeys: legacyURLKeys,
             bundle: bundle,
             environment: environment,
             userDefaults: userDefaults,
             readsUserDefaults: readsUserDefaults
-        ) ?? bundledURL
+        )
         let anonKey = resolvedValue(
             primaryKey: anonKeyInfoKey,
             fallbackKeys: legacyAnonKeyKeys,
@@ -38,10 +38,8 @@ struct SupabaseRuntimeConfiguration: Equatable {
         ) ?? bundledAnonKey
 
         guard
-            let url = URL(string: urlString),
-            let scheme = url.scheme?.lowercased(),
-            ["http", "https"].contains(scheme),
-            url.host != nil,
+            let url = validatedSupabaseURL(from: resolvedURLString) ??
+                validatedSupabaseURL(from: bundledURL),
             !anonKey.isEmpty
         else {
             return nil
@@ -85,6 +83,19 @@ struct SupabaseRuntimeConfiguration: Equatable {
         }
 
         return normalizedValue(value)
+    }
+
+    private static func validatedSupabaseURL(from rawValue: String?) -> URL? {
+        guard
+            let rawValue,
+            let url = URL(string: rawValue),
+            let scheme = url.scheme?.lowercased(),
+            ["http", "https"].contains(scheme),
+            url.host != nil
+        else {
+            return nil
+        }
+        return url
     }
 
     private static func normalizedValue(_ rawValue: String?) -> String? {

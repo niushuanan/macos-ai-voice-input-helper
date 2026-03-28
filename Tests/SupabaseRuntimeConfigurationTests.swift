@@ -65,7 +65,7 @@ final class SupabaseRuntimeConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration?.anonKey, "anon-from-defaults")
     }
 
-    func testCurrentReturnsNilForURLWithoutHost() {
+    func testCurrentFallsBackToBundledURLWhenEnvironmentURLInvalid() {
         let configuration = SupabaseRuntimeConfiguration.current(
             bundle: .main,
             environment: [
@@ -75,7 +75,22 @@ final class SupabaseRuntimeConfigurationTests: XCTestCase {
             userDefaults: testDefaults
         )
 
-        XCTAssertNil(configuration)
+        XCTAssertEqual(configuration?.url.absoluteString, SupabaseRuntimeConfiguration.bundledURL)
+        XCTAssertEqual(configuration?.anonKey, "anon-key")
+    }
+
+    func testCurrentFallsBackToBundledURLWhenUserDefaultsURLInvalid() {
+        testDefaults.set("https:", forKey: "SUPABASE_URL")
+        testDefaults.set("anon-from-defaults", forKey: "SUPABASE_ANON_KEY")
+
+        let configuration = SupabaseRuntimeConfiguration.current(
+            bundle: .main,
+            environment: [:],
+            userDefaults: testDefaults
+        )
+
+        XCTAssertEqual(configuration?.url.absoluteString, SupabaseRuntimeConfiguration.bundledURL)
+        XCTAssertEqual(configuration?.anonKey, "anon-from-defaults")
     }
 
     func testCurrentSkipsUserDefaultsInXCTestEnvironment() {
