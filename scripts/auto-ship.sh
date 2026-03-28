@@ -97,6 +97,7 @@ if ! git remote get-url origin >/dev/null 2>&1; then
 fi
 
 echo "[1/4] 执行测试..."
+PULSETYPE_ALLOW_DEBUG_RUNTIME=1 \
 DEVELOPER_DIR="$DEVELOPER_DIR_VALUE" \
   xcodebuild \
   -project PulseType.xcodeproj \

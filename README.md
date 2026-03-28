@@ -85,7 +85,7 @@ xcodegen generate
 ## 开发与测试
 
 ```bash
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+PULSETYPE_ALLOW_DEBUG_RUNTIME=1 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild \
   -project PulseType.xcodeproj \
   -scheme PulseType \

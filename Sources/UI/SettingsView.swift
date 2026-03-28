@@ -163,6 +163,20 @@ struct SettingsView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
+                if controlCenterState.selectedSection == .home {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            AccountStatusCapsuleButton(accountStore: accountStore) {
+                                accountStore.presentSheet()
+                            }
+                            .padding(.top, 4)
+                            .padding(.trailing, 18)
+                        }
+                        Spacer()
+                    }
+                }
+
                 if let toast = toastPresenter.message {
                     VStack {
                         Spacer()
@@ -232,15 +246,6 @@ struct SettingsView: View {
                     showToast(message)
                 }
             )
-        }
-        .toolbar {
-            if controlCenterState.selectedSection == .home {
-                ToolbarItem(placement: .primaryAction) {
-                    AccountStatusCapsuleButton(accountStore: accountStore) {
-                        accountStore.presentSheet()
-                    }
-                }
-            }
         }
     }
 
