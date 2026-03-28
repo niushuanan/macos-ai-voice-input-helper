@@ -7,8 +7,7 @@ struct PulseTypeApp: App {
 
     var body: some Scene {
         WindowGroup("PulseType", id: "control-center") {
-            SettingsView(model: model)
-                .frame(minWidth: 920, minHeight: 700)
+            ControlCenterRootView(model: model)
         }
 
         MenuBarExtra {
@@ -16,5 +15,21 @@ struct PulseTypeApp: App {
         } label: {
             MenuBarStatusView(sessionStore: model.sessionStore)
         }
+    }
+}
+
+private struct ControlCenterRootView: View {
+    let model: AppModel
+
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        SettingsView(model: model)
+            .frame(minWidth: 920, minHeight: 700)
+            .onAppear {
+                model.registerControlCenterWindowOpener {
+                    openWindow(id: "control-center")
+                }
+            }
     }
 }

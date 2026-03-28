@@ -12,6 +12,9 @@ packages:
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts.git
     from: 2.3.0
+  Supabase:
+    url: https://github.com/supabase/supabase-swift.git
+    from: 2.43.0
 targets:
   PulseType:
     type: application
@@ -26,6 +29,7 @@ targets:
       Release: Config/Release.xcconfig
     dependencies:
       - package: KeyboardShortcuts
+      - package: Supabase
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.niushuanan.PulseType
@@ -37,6 +41,8 @@ targets:
         INFOPLIST_KEY_NSAppleEventsUsageDescription: PulseType 需要自动化权限，用于把文本写回到其他应用。
         INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: PulseType 需要访问日历，用于根据语音指令创建日程。
         INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription: PulseType 需要写入日历，用于根据语音指令创建日程。
+        INFOPLIST_KEY_PULSETYPE_SUPABASE_URL: $(PULSETYPE_SUPABASE_URL)
+        INFOPLIST_KEY_PULSETYPE_SUPABASE_ANON_KEY: $(PULSETYPE_SUPABASE_ANON_KEY)
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
 
   PulseTypeTests:
