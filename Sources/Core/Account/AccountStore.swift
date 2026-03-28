@@ -3,6 +3,15 @@ import Supabase
 
 @MainActor
 final class AccountStore: ObservableObject, AccountAccessControlling {
+    private enum AccountErrorKind {
+        case emailRateLimit
+    }
+
+    private struct DevelopmentBypassSession: Codable {
+        let userID: UUID
+        let email: String
+    }
+
     @Published var emailDraft: String = ""
     @Published var verificationCode: String = ""
     @Published private(set) var isSheetPresented = false
@@ -11,11 +20,29 @@ final class AccountStore: ObservableObject, AccountAccessControlling {
     @Published private(set) var errorMessage: String?
 
     private let service: SupabaseAccountService
+    private let bypassCredentialStore: KeychainProviderCredentialStore
+    private let bypassProfileID: String
+    private let allowsDevelopmentQuickLogin: Bool
     private var authChangesTask: Task<Void, Never>?
     private var presentationHandler: ((Bool) -> Void)?
+    private var latestErrorKind: AccountErrorKind?
 
-    init(service: SupabaseAccountService) {
+    init(
+        service: SupabaseAccountService,
+        runtimePolicy: AppRuntimePolicy = .current(),
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bypassCredentialStore: KeychainProviderCredentialStore = KeychainProviderCredentialStore(
+            service: "com.niushuanan.PulseType.auth-bypass.v1"
+        ),
+        bypassProfileID: String = "account.development.bypass.v1"
+    ) {
         self.service = service
+        self.bypassCredentialStore = bypassCredentialStore
+        self.bypassProfileID = bypassProfileID
+        self.allowsDevelopmentQuickLogin = runtimePolicy.allowsAlternateRuntime(
+            environment: environment,
+            isRunningUnderTests: environment["XCTestConfigurationFilePath"] != nil
+        )
         self.authState = service.isConfigured ? .signedOut : .unavailable
         observeAuthChanges()
     }
@@ -62,6 +89,16 @@ final class AccountStore: ObservableObject, AccountAccessControlling {
         "当前还没配置 Supabase。先填好 project URL 和 anon key，再回来登录。"
     }
 
+    var canUseDevelopmentQuickLogin: Bool {
+        allowsDevelopmentQuickLogin
+    }
+
+    var shouldShowDevelopmentQuickLogin: Bool {
+        allowsDevelopmentQuickLogin &&
+            !isAuthenticated &&
+            latestErrorKind == .emailRateLimit
+    }
+
     func configurePresentationHandler(_ handler: @escaping (Bool) -> Void) {
         presentationHandler = handler
     }
@@ -89,19 +126,27 @@ final class AccountStore: ObservableObject, AccountAccessControlling {
 
     func refreshSessionIfNeeded() async {
         guard isConfigured else {
-            authState = .unavailable
-            summary = nil
+            if !restoreDevelopmentBypassIfNeeded() {
+                authState = .unavailable
+                summary = nil
+            }
             return
         }
 
         do {
             if let summary = try await service.restoreSession() {
+                clearDevelopmentBypassSession()
                 apply(summary: summary)
+            } else if restoreDevelopmentBypassIfNeeded() {
+                return
             } else if !isOTPFlowPending {
                 setSignedOut()
             }
         } catch {
-            errorMessage = userFacingMessage(for: error)
+            applyError(error)
+            if restoreDevelopmentBypassIfNeeded() {
+                return
+            }
             if !isOTPFlowPending {
                 setSignedOut()
             }
@@ -131,7 +176,7 @@ final class AccountStore: ObservableObject, AccountAccessControlling {
                 resendAvailableAt: Date().addingTimeInterval(30)
             )
         } catch {
-            errorMessage = userFacingMessage(for: error)
+            applyError(error)
             authState = .signedOut
         }
     }
@@ -169,7 +214,7 @@ final class AccountStore: ObservableObject, AccountAccessControlling {
             verificationCode = ""
             apply(summary: summary)
         } catch {
-            errorMessage = userFacingMessage(for: error)
+            applyError(error)
             authState = .codeSent(
                 email: email,
                 resendAvailableAt: Date()
@@ -177,12 +222,32 @@ final class AccountStore: ObservableObject, AccountAccessControlling {
         }
     }
 
+    func enterDevelopmentLogin() {
+        guard allowsDevelopmentQuickLogin else {
+            return
+        }
+
+        let normalizedEmail = emailDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedEmail = isValid(email: normalizedEmail)
+            ? normalizedEmail
+            : "dev@pulsetype.local"
+        let existing = loadDevelopmentBypassSession()
+        let session = DevelopmentBypassSession(
+            userID: existing?.userID ?? UUID(),
+            email: resolvedEmail
+        )
+
+        persistDevelopmentBypassSession(session)
+        apply(summary: developmentSummary(for: session))
+    }
+
     func signOut() async {
         do {
             try await service.signOut()
         } catch {
-            errorMessage = userFacingMessage(for: error)
+            applyError(error)
         }
+        clearDevelopmentBypassSession()
         verificationCode = ""
         setSignedOut()
     }
@@ -190,6 +255,7 @@ final class AccountStore: ObservableObject, AccountAccessControlling {
     func resetPendingCodeFlow() {
         verificationCode = ""
         errorMessage = nil
+        latestErrorKind = nil
         authState = isConfigured ? .signedOut : .unavailable
     }
 
@@ -215,12 +281,12 @@ final class AccountStore: ObservableObject, AccountAccessControlling {
     ) async {
         switch event {
         case .signedOut:
-            if !isOTPFlowPending {
+            if !isOTPFlowPending && !restoreDevelopmentBypassIfNeeded() {
                 setSignedOut()
             }
         case .initialSession, .signedIn, .tokenRefreshed, .userUpdated:
             guard session != nil else {
-                if !isOTPFlowPending {
+                if !isOTPFlowPending && !restoreDevelopmentBypassIfNeeded() {
                     setSignedOut()
                 }
                 return
@@ -228,13 +294,14 @@ final class AccountStore: ObservableObject, AccountAccessControlling {
 
             do {
                 if let summary = try await service.fetchCurrentSummary(required: false) {
+                    clearDevelopmentBypassSession()
                     apply(summary: summary)
                 }
             } catch {
-                if self.summary == nil {
+                if self.summary == nil && !restoreDevelopmentBypassIfNeeded() {
                     setSignedOut()
                 }
-                errorMessage = userFacingMessage(for: error)
+                applyError(error)
             }
         case .passwordRecovery, .userDeleted, .mfaChallengeVerified:
             break
@@ -255,6 +322,7 @@ final class AccountStore: ObservableObject, AccountAccessControlling {
         emailDraft = summary.email
         verificationCode = ""
         errorMessage = nil
+        latestErrorKind = nil
         authState = .signedIn
     }
 
@@ -272,11 +340,92 @@ final class AccountStore: ObservableObject, AccountAccessControlling {
         return parts[1].contains(".")
     }
 
-    private func userFacingMessage(for error: Error) -> String {
-        if let localized = error as? LocalizedError, let description = localized.errorDescription {
-            return description
+    private func applyError(_ error: Error) {
+        let (message, kind) = resolvedErrorMessage(for: error)
+        latestErrorKind = kind
+        errorMessage = message
+    }
+
+    private func resolvedErrorMessage(for error: Error) -> (String, AccountErrorKind?) {
+        if isEmailRateLimitError(error) {
+            return (
+                "当前触发了 Supabase 邮件限流（email rate limit exceeded），请稍后再试。",
+                .emailRateLimit
+            )
         }
+
+        if let localized = error as? LocalizedError, let description = localized.errorDescription {
+            return (description, nil)
+        }
+
         let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        return message.isEmpty ? "登录失败，请稍后再试。" : message
+        return (message.isEmpty ? "登录失败，请稍后再试。" : message, nil)
+    }
+
+    private func isEmailRateLimitError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        let combined = [
+            error.localizedDescription,
+            nsError.localizedDescription,
+            String(describing: error),
+            String(describing: nsError.userInfo)
+        ]
+            .joined(separator: " ")
+            .lowercased()
+
+        return combined.contains("over_email_send_rate_limit") ||
+            combined.contains("email rate limit exceeded")
+    }
+
+    @discardableResult
+    private func restoreDevelopmentBypassIfNeeded() -> Bool {
+        guard allowsDevelopmentQuickLogin, let session = loadDevelopmentBypassSession() else {
+            return false
+        }
+
+        apply(summary: developmentSummary(for: session))
+        return true
+    }
+
+    private func loadDevelopmentBypassSession() -> DevelopmentBypassSession? {
+        guard
+            let raw = try? bypassCredentialStore.loadAPIKey(for: bypassProfileID),
+            let data = raw.data(using: .utf8),
+            let session = try? JSONDecoder().decode(DevelopmentBypassSession.self, from: data)
+        else {
+            return nil
+        }
+
+        return session
+    }
+
+    private func persistDevelopmentBypassSession(_ session: DevelopmentBypassSession) {
+        guard
+            let data = try? JSONEncoder().encode(session),
+            let raw = String(data: data, encoding: .utf8)
+        else {
+            return
+        }
+
+        try? bypassCredentialStore.saveAPIKey(raw, for: bypassProfileID)
+    }
+
+    private func clearDevelopmentBypassSession() {
+        try? bypassCredentialStore.deleteAPIKey(for: bypassProfileID)
+    }
+
+    private func developmentSummary(for session: DevelopmentBypassSession) -> AccountSummary {
+        AccountSummary(
+            userID: session.userID,
+            email: session.email,
+            edition: .professional,
+            authChannel: .email,
+            lifecycleStatus: .active,
+            lastLoginAt: Date(),
+            quotaSummary: AccountQuotaSummary.resolved(
+                for: .professional,
+                usageCounters: []
+            )
+        )
     }
 }

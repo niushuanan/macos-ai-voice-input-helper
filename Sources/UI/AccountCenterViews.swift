@@ -5,15 +5,16 @@ struct AccountStatusCapsuleButton: View {
     let action: () -> Void
 
     var body: some View {
-        Image(systemName: iconName)
-            .font(.system(size: 20, weight: .semibold))
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(Color.blue)
-            .contentShape(Rectangle())
-            .onTapGesture(perform: action)
+        Button(action: action) {
+            Image(systemName: iconName)
+                .font(.system(size: 20, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Color.blue)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
         .help(helpText)
         .accessibilityLabel(accessibilityTitle)
-        .accessibilityAddTraits(.isButton)
     }
 
     private var iconName: String {
@@ -170,6 +171,19 @@ struct AccountCenterSheetView: View {
                     }
                     .buttonStyle(.bordered)
                     .disabled(!canResendCode)
+                }
+            }
+
+            if shouldShowDevelopmentQuickLoginAction {
+                VStack(alignment: .leading, spacing: 8) {
+                    Button("开发环境一键登录") {
+                        accountStore.enterDevelopmentLogin()
+                    }
+                    .buttonStyle(.bordered)
+
+                    Text("仅本机开发可用，线上不会出现。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -401,6 +415,10 @@ struct AccountCenterSheetView: View {
                 )
             }
         )
+    }
+
+    private var shouldShowDevelopmentQuickLoginAction: Bool {
+        accountStore.shouldShowDevelopmentQuickLogin
     }
 
     private var headerSubtitle: String {

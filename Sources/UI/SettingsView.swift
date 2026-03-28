@@ -235,7 +235,7 @@ struct SettingsView: View {
         }
         .toolbar {
             if controlCenterState.selectedSection == .home {
-                ToolbarItem(placement: .automatic) {
+                ToolbarItem(placement: .primaryAction) {
                     AccountStatusCapsuleButton(accountStore: accountStore) {
                         accountStore.presentSheet()
                     }
