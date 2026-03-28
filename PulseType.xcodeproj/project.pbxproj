@@ -94,6 +94,7 @@
 		D8D75B198D2392275C5B9C14 /* MagicianMailAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA38C8DA6C7925E4B4EFB81 /* MagicianMailAdapter.swift */; };
 		D99F2AE0A2185AAD3780A31C /* CredentialStoreFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 063E41521D138280350363BC /* CredentialStoreFactoryTests.swift */; };
 		D9DD4B7BAE8C89ADE47F0410 /* ModifierCaptureStateMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A4DD0C302CC25FFC1B7985 /* ModifierCaptureStateMachineTests.swift */; };
+		DCAD51118F8A42F058697AB4 /* apple-account-avatar.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 83C67EC00946275EF8841EF0 /* apple-account-avatar.jpg */; };
 		E06B6EFE3455FD779A392C05 /* ModifierCaptureButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A14249E005F70CBCBF7D59E /* ModifierCaptureButton.swift */; };
 		E1DBC788787F324D6B2178FD /* SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71EDE485545C13E98B2E5B72 /* SessionStoreTests.swift */; };
 		E2C01612B81DC2860D9BDBFC /* LocalSenseVoiceRuntimeManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 289CC9CA3CBFE14B7FE231B0 /* LocalSenseVoiceRuntimeManagerTests.swift */; };
@@ -186,6 +187,7 @@
 		7D48BFEC8EABFB9C0E92E685 /* MenuBarMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarMenuView.swift; sourceTree = "<group>"; };
 		7D8F2B65D755716CA52CB285 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		81076B6FA30D2B965B75BB7E /* SupabaseAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseAccountService.swift; sourceTree = "<group>"; };
+		83C67EC00946275EF8841EF0 /* apple-account-avatar.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "apple-account-avatar.jpg"; sourceTree = "<group>"; };
 		85957F9F05E9E9EA477EE5C3 /* AppScenePolicyStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppScenePolicyStoreTests.swift; sourceTree = "<group>"; };
 		8B6569B870E94B4DFC857CAB /* SceneAppDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneAppDiscoveryTests.swift; sourceTree = "<group>"; };
 		8BDF56555B291291E6B40723 /* SettingsViewComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewComponents.swift; sourceTree = "<group>"; };
@@ -433,10 +435,19 @@
 			path = Account;
 			sourceTree = "<group>";
 		};
+		B2201CDB201FF7F37809B7E3 /* Images */ = {
+			isa = PBXGroup;
+			children = (
+				83C67EC00946275EF8841EF0 /* apple-account-avatar.jpg */,
+			);
+			path = Images;
+			sourceTree = "<group>";
+		};
 		B61BAE1D3BF31214035C5064 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
 				594DF521169CAA5D28FF73ED /* diagnostic-voice-zh.wav */,
+				B2201CDB201FF7F37809B7E3 /* Images */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -644,6 +655,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				06123C002DCFE32A3B4F9826 /* AppRuntimePolicy.plist in Resources */,
+				DCAD51118F8A42F058697AB4 /* apple-account-avatar.jpg in Resources */,
 				641E792711B5617AFAC0F3A8 /* diagnostic-voice-zh.wav in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
