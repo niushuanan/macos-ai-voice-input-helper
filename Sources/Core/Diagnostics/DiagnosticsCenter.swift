@@ -5,8 +5,8 @@ struct DiagnosticsCenter {
     let buildNumber: String
 
     init(bundle: Bundle = .main) {
-        appVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1"
-        buildNumber = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "2"
+        appVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0"
+        buildNumber = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "3"
     }
 
     func summaryLines() -> [String] {
