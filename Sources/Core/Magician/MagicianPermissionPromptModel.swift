@@ -8,6 +8,7 @@ enum MagicianPermissionAction: Equatable {
     case openShortcutsApp
     case openNotesApp
     case openMailApp
+    case openMusicApp
 }
 
 struct MagicianPermissionPromptModel: Identifiable, Equatable {

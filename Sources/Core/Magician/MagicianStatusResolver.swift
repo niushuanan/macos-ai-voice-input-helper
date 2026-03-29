@@ -145,6 +145,22 @@ struct MagicianStatusResolver {
             }
             return .ready
 
+        case .controlMusic:
+            guard dependencies.musicAppAvailable else {
+                return .blocked(
+                    reason: "音乐应用不可用，请先打开 Music。",
+                    prompt: MagicianPermissionPromptModel(
+                        feature: feature,
+                        title: "Music 不可用",
+                        message: "音乐控制依赖系统 Music。请先打开 Music 应用后再试。",
+                        primaryButtonTitle: "打开 Music",
+                        secondaryButtonTitle: "稍后再说",
+                        primaryAction: .openMusicApp
+                    )
+                )
+            }
+            return .ready
+
         case .feishuCLI:
             guard dependencies.feishuCLIAvailable else {
                 return .blocked(

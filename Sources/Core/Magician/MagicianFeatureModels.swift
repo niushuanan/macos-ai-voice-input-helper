@@ -41,6 +41,13 @@ enum MagicianNotesCapability {
     }
 }
 
+enum MagicianMusicCapability {
+    static var musicAppAvailable: Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Music") != nil
+            || FileManager.default.fileExists(atPath: "/System/Applications/Music.app")
+    }
+}
+
 struct MagicianCreateNoteShortcutSupport {
     static let shortcutsExecutablePath = "/usr/bin/shortcuts"
     static let shortcutNameDefaultsKey = "magician.shortcuts.create_note.name.v1"
@@ -117,6 +124,7 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
     case createEvent = "create_event"
     case createNote = "create_note"
     case composeEmailDraft = "compose_email_draft"
+    case controlMusic = "control_music"
     case feishuCLI = "feishu_cli"
 
     var id: String { rawValue }
@@ -131,6 +139,8 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
             return "写入备忘录"
         case .composeEmailDraft:
             return "邮件助手"
+        case .controlMusic:
+            return "音乐控制"
         case .feishuCLI:
             return "飞书 CLI"
         }
@@ -146,6 +156,8 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
             return "写入备忘录中"
         case .composeEmailDraft:
             return "整理邮件中"
+        case .controlMusic:
+            return "控制音乐中"
         case .feishuCLI:
             return "执行飞书命令中"
         }
@@ -161,6 +173,8 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
             return "把选中内容快速记到备忘录。"
         case .composeEmailDraft:
             return "整理主题和正文，打开 Mail；地址明确时可直接发出。"
+        case .controlMusic:
+            return "一句话控制 Music：播放、暂停、继续、切歌。"
         case .feishuCLI:
             return "无选中也能语音下令，调用飞书 CLI 执行动作。"
         }
@@ -176,6 +190,8 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
             return "只新增，不改已有笔记。"
         case .composeEmailDraft:
             return "地址明确且模型判断该直接发时，会自动发送；不明确时只打开编辑窗口。"
+        case .controlMusic:
+            return "仅控制本机 Music 应用，不会改动你的音乐资料。"
         case .feishuCLI:
             return "仅执行飞书 CLI 允许动作；未知命令会直接拒绝并给提示。"
         }
@@ -191,6 +207,8 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
             return "记到备忘录"
         case .composeEmailDraft:
             return "给小庄发邮件"
+        case .controlMusic:
+            return "播放周杰伦的稻香"
         case .feishuCLI:
             return "飞书查今天议程"
         }
@@ -206,6 +224,8 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
             return "note.text"
         case .composeEmailDraft:
             return "envelope"
+        case .controlMusic:
+            return "music.note"
         case .feishuCLI:
             return "paperplane.circle"
         }
@@ -248,7 +268,7 @@ enum MagicianPermissionScope: String, CaseIterable, Codable, Identifiable {
         case .feishu:
             return "无选中也能语音下令，走飞书 CLI 执行。"
         case .appleNativeApps:
-            return "统一控制系统日历、备忘录、邮件能力。"
+            return "统一控制系统日历、备忘录、邮件、音乐能力。"
         }
     }
 
@@ -270,7 +290,7 @@ enum MagicianPermissionScope: String, CaseIterable, Codable, Identifiable {
         case .feishu:
             return [.feishuCLI]
         case .appleNativeApps:
-            return [.createEvent, .createNote, .composeEmailDraft]
+            return [.createEvent, .createNote, .composeEmailDraft, .controlMusic]
         }
     }
 }
@@ -322,6 +342,7 @@ struct MagicianDependencySnapshot: Equatable {
     let composeEmailAvailable: Bool
     let mailtoAvailable: Bool
     let mailAppAvailable: Bool
+    let musicAppAvailable: Bool
     let feishuCLIAvailable: Bool
     let feishuCLICommandName: String?
 }

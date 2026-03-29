@@ -55,6 +55,15 @@ enum MagicianFeishuCLIHealth: Equatable {
         }
     }
 
+    var missingScopes: [String] {
+        switch self {
+        case .unknown, .ready, .authRequired, .unavailable:
+            return []
+        case let .permissionLimited(_, _, _, missingScopes, _):
+            return missingScopes
+        }
+    }
+
     private func joinedDetail(version: String?, userName: String?) -> String? {
         let parts = [version, userName].compactMap { value -> String? in
             guard let value, !value.isEmpty else {
@@ -124,9 +133,18 @@ struct MagicianCapabilityProbe {
             )
             return (scope: scope, result: result)
         }
-        let missingScopes = scopeProbeResults.compactMap { item -> String? in
+        let scopeProbeMissing = scopeProbeResults.compactMap { item -> String? in
             item.result.exitCode == 0 ? nil : item.scope
         }
+        let doctorScopeCandidates = Set(doctorChecks.flatMap { check -> [String] in
+            let name = (check["name"] as? String) ?? ""
+            let message = (check["message"] as? String) ?? ""
+            return extractScopes(from: "\(name) \(message)")
+        })
+        let grantedScopes = Set(scopes)
+        let inferredMissingScopes = doctorScopeCandidates
+            .filter { !grantedScopes.contains($0) }
+        let missingScopes = Array(Set(scopeProbeMissing).union(inferredMissingScopes)).sorted()
         let missingCoreScope = !missingScopes.isEmpty
         let doctorFailures = doctorChecks.compactMap { check -> String? in
             let status = ((check["status"] as? String) ?? (check["result"] as? String) ?? "").lowercased()
@@ -169,6 +187,29 @@ struct MagicianCapabilityProbe {
             return [:]
         }
         return dictionary
+    }
+
+    private func extractScopes(from text: String) -> [String] {
+        guard !text.isEmpty else {
+            return []
+        }
+        let pattern = #"[A-Za-z][A-Za-z0-9_.-]*:[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return []
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        let matches = regex.matches(in: text, options: [], range: range)
+        var scopes: [String] = []
+        for match in matches {
+            guard let swiftRange = Range(match.range, in: text) else {
+                continue
+            }
+            let value = String(text[swiftRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty, !scopes.contains(value) {
+                scopes.append(value)
+            }
+        }
+        return scopes
     }
 
     private func runCLI(

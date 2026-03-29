@@ -599,6 +599,98 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.transcriptionProvider.lastRequest?.dictionaryHotwordText, nil)
     }
 
+    func testMagicianMusicCommandRunsSemanticPreprocessBeforeRuntime() async throws {
+        let rewriteProvider = CapturingRewriteProvider(
+            result: .success(
+                SelectionRewriteResult(
+                    rewrittenText: "播放周杰伦的稻香",
+                    actionLabel: "修正命令",
+                    providerName: "Fake Rewrite",
+                    modelName: "fake-model"
+                )
+            )
+        )
+        let runtime = FakeMagicianAgentRuntime(
+            result: .success(
+                MagicianAgentRunOutcome(
+                    sessionID: "session-music-1",
+                    runID: "run-music-1",
+                    goalSummary: "控制音乐播放",
+                    finalStatusMessage: "已尝试播放：播放周杰伦的稻香",
+                    finalOutputText: nil,
+                    displayText: "已尝试播放：播放周杰伦的稻香",
+                    steps: [],
+                    evidenceSummary: "Music action done"
+                )
+            )
+        )
+
+        let fixture = try makeFixture(
+            magicianAgentRuntime: runtime,
+            rewriteProviders: [rewriteProvider],
+            transcriptionText: "播放周杰侖的稻香"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.dictionaryStore.save(rawText: "周杰伦\n稻香")
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .controlMusic)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .idle)
+        XCTAssertEqual(rewriteProvider.callCount, 1)
+        XCTAssertEqual(runtime.lastRequest?.command, "播放周杰伦的稻香")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.instructionText, "播放周杰伦的稻香")
+    }
+
+    func testMagicianFeishuCommandRunsSemanticPreprocessBeforeRuntime() async throws {
+        let rewriteProvider = CapturingRewriteProvider(
+            result: .success(
+                SelectionRewriteResult(
+                    rewrittenText: "给刘莉丝发消息说会议改到下午三点",
+                    actionLabel: "修正命令",
+                    providerName: "Fake Rewrite",
+                    modelName: "fake-model"
+                )
+            )
+        )
+        let runtime = FakeMagicianAgentRuntime(
+            result: .success(
+                MagicianAgentRunOutcome(
+                    sessionID: "session-feishu-1",
+                    runID: "run-feishu-1",
+                    goalSummary: "发送飞书消息",
+                    finalStatusMessage: "消息已发送",
+                    finalOutputText: nil,
+                    displayText: "消息已发送",
+                    steps: [],
+                    evidenceSummary: "message_id=om_test"
+                )
+            )
+        )
+
+        let fixture = try makeFixture(
+            magicianAgentRuntime: runtime,
+            rewriteProviders: [rewriteProvider],
+            transcriptionText: "给刘里斯发消息说会议改到下午三点"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.dictionaryStore.save(rawText: "刘莉丝")
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .feishuCLI)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .idle)
+        XCTAssertEqual(rewriteProvider.callCount, 1)
+        XCTAssertEqual(runtime.lastRequest?.command, "给刘莉丝发消息说会议改到下午三点")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.instructionText, "给刘莉丝发消息说会议改到下午三点")
+    }
+
     func testMagicianClipboardFallbackSelectionIsLockedIntoRuntimeRequest() async throws {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = nil

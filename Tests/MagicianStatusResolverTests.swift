@@ -171,6 +171,29 @@ final class MagicianStatusResolverTests: XCTestCase {
         XCTAssertNil(resolution.prompt)
     }
 
+    func testControlMusicNeedsPermissionWhenMusicUnavailable() {
+        let resolution = resolver.resolve(
+            feature: .controlMusic,
+            isEnabled: true,
+            dependencies: dependencies(musicAppAvailable: false)
+        )
+
+        XCTAssertEqual(resolution.status, .needsPermission)
+        XCTAssertEqual(resolution.prompt?.title, "Music 不可用")
+        XCTAssertEqual(resolution.prompt?.primaryAction, .openMusicApp)
+    }
+
+    func testControlMusicReadyWhenMusicAvailable() {
+        let resolution = resolver.resolve(
+            feature: .controlMusic,
+            isEnabled: true,
+            dependencies: dependencies(musicAppAvailable: true)
+        )
+
+        XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertNil(resolution.prompt)
+    }
+
     private func dependencies(
         accessibility: PermissionState = .granted,
         eventStatus: EKAuthorizationStatus = .fullAccess,
@@ -181,6 +204,7 @@ final class MagicianStatusResolverTests: XCTestCase {
         composeEmailAvailable: Bool = true,
         mailtoAvailable: Bool = true,
         mailAppAvailable: Bool = true,
+        musicAppAvailable: Bool = true,
         feishuCLIAvailable: Bool = true,
         feishuCLICommandName: String? = "feishu"
     ) -> MagicianDependencySnapshot {
@@ -194,6 +218,7 @@ final class MagicianStatusResolverTests: XCTestCase {
             composeEmailAvailable: composeEmailAvailable,
             mailtoAvailable: mailtoAvailable,
             mailAppAvailable: mailAppAvailable,
+            musicAppAvailable: musicAppAvailable,
             feishuCLIAvailable: feishuCLIAvailable,
             feishuCLICommandName: feishuCLICommandName
         )

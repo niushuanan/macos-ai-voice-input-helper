@@ -1693,10 +1693,15 @@ final class InteractionCoordinator {
     ) async {
         let traceID = ensureTraceID()
         let rawInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let instructionApplyResult = MagicianCommandSanitizer.sanitize(rawInstruction)
-        let processedInstruction = instructionApplyResult.text
+        let sanitizedInstructionResult = MagicianCommandSanitizer.sanitize(rawInstruction)
+        let localInstructionApplyResult = skillRuleStore.applyRewriteInstruction(sanitizedInstructionResult.text)
+        let processedInstruction = localInstructionApplyResult.text
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let spokenInstruction = processedInstruction.isEmpty ? rawInstruction : processedInstruction
+        var spokenInstruction = processedInstruction.isEmpty ? rawInstruction : processedInstruction
+        var commandAppliedSkills = mergedSkills(
+            lhs: sanitizedInstructionResult.appliedSkills,
+            rhs: localInstructionApplyResult.appliedSkills
+        )
         let initialFocusContext = contextDetector.focusedAppContext()
         let selectionSnapshot = await resolvedMagicianSelectionSnapshot()
         if abortIfSessionCancelled() {
@@ -1705,6 +1710,29 @@ final class InteractionCoordinator {
         let fallbackFocusContext = selectionSnapshot?.focusContext ?? initialFocusContext
         let selectionText = selectionSnapshot?.selectedText ?? ""
         let enabledFeatures = magicianFeatureToggleStore.enabledFeatures
+        if shouldRunMagicianSemanticPreprocess(
+            command: spokenInstruction,
+            enabledFeatures: enabledFeatures
+        ) {
+            let preprocessor = MagicianCommandSemanticPreprocessor(
+                providerSettingsStore: providerSettingsStore,
+                rewriteProviderRegistry: rewriteProviderRegistry,
+                skillRuleStore: skillRuleStore,
+                asrDictionaryStore: asrDictionaryStore
+            )
+            let preprocessResult = await preprocessor.preprocess(
+                rawCommand: spokenInstruction,
+                focusContext: fallbackFocusContext
+            )
+            let rewrittenCommand = preprocessResult.command.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !rewrittenCommand.isEmpty {
+                spokenInstruction = rewrittenCommand
+            }
+            commandAppliedSkills = preprocessResult.appliedSkills
+            if let notice = preprocessResult.notice, !notice.isEmpty {
+                toastPresenter?.show(notice, duration: 2.2)
+            }
+        }
 
         guard !spokenInstruction.isEmpty else {
             let message = "改写指令为空，请重试并说出明确命令。"
@@ -1722,7 +1750,7 @@ final class InteractionCoordinator {
                     status: .failed,
                     errorMessage: message,
                     audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: instructionApplyResult.appliedSkills
+                    appliedSkills: commandAppliedSkills
                 )
             )
             sessionStore.fail(message: message)
@@ -1748,7 +1776,7 @@ final class InteractionCoordinator {
                     status: .failed,
                     errorMessage: message,
                     audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: instructionApplyResult.appliedSkills
+                    appliedSkills: commandAppliedSkills
                 )
             )
             sessionStore.fail(message: message)
@@ -1794,7 +1822,7 @@ final class InteractionCoordinator {
                     magicianEvidenceSummary: outcome.evidenceSummary,
                     status: .success,
                     audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: instructionApplyResult.appliedSkills
+                    appliedSkills: commandAppliedSkills
                 )
             )
             workflowTelemetryReporter.record(
@@ -1830,7 +1858,7 @@ final class InteractionCoordinator {
                     status: .failed,
                     errorMessage: magicianError.userMessage,
                     audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: instructionApplyResult.appliedSkills
+                    appliedSkills: commandAppliedSkills
                 )
             )
             workflowTelemetryReporter.record(
@@ -1867,7 +1895,7 @@ final class InteractionCoordinator {
                     status: .failed,
                     errorMessage: message,
                     audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: instructionApplyResult.appliedSkills
+                    appliedSkills: commandAppliedSkills
                 )
             )
             workflowTelemetryReporter.record(
@@ -1938,6 +1966,16 @@ final class InteractionCoordinator {
                 NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Mail.app"))
             }
 
+        case "open_music_app":
+            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Music") {
+                NSWorkspace.shared.openApplication(
+                    at: appURL,
+                    configuration: NSWorkspace.OpenConfiguration()
+                ) { _, _ in }
+            } else {
+                NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Music.app"))
+            }
+
         case "open_feishu_auth":
             guard let backend = currentFeishuCLIAvailability().backend else {
                 toastPresenter?.show("未检测到飞书 CLI，请先安装或在设置页填写可执行路径。")
@@ -1966,6 +2004,31 @@ final class InteractionCoordinator {
         default:
             break
         }
+    }
+
+    private func shouldRunMagicianSemanticPreprocess(
+        command: String,
+        enabledFeatures: Set<MagicianFeatureID>
+    ) -> Bool {
+        let lowered = command.lowercased()
+        if enabledFeatures.contains(.controlMusic),
+           containsAny(lowered, keywords: ["音乐", "歌曲", "播放", "暂停", "下一首", "上一首", "music", "play", "pause", "next", "previous"]) {
+            return true
+        }
+
+        if enabledFeatures.contains(.feishuCLI),
+           containsAny(
+               lowered,
+               keywords: ["飞书", "lark", "消息", "群", "chat", "文档", "wiki", "日程", "calendar", "任务", "多维表格", "bitable", "发给", "通知", "搜索"]
+           ) {
+            return true
+        }
+
+        return false
+    }
+
+    private func containsAny(_ value: String, keywords: [String]) -> Bool {
+        keywords.contains { value.contains($0) }
     }
 
     private func mergedSkills(

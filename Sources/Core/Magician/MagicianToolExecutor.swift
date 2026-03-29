@@ -22,6 +22,7 @@ protocol MagicianMailExecuting {
 final class MagicianToolExecutor: MagicianToolExecuting {
     private let eventAdapter = MagicianEventAdapter()
     private let noteAdapter = MagicianNoteAdapter()
+    private let musicAdapter = MagicianMusicAdapter()
     private let providerSettingsStore: ProviderSettingsStore?
     private let mailAdapter: any MagicianMailExecuting
     private let cliRegistry: MagicianCLIRegistry
@@ -61,6 +62,8 @@ final class MagicianToolExecutor: MagicianToolExecuting {
             return try await noteAdapter.execute(intent: intent, context: context)
         case .composeEmailDraft:
             return try await mailAdapter.execute(intent: intent, context: context)
+        case .controlMusic:
+            return try await musicAdapter.execute(intent: intent, context: context)
         case .feishuCLI:
             return try await executeFeishuCLI(intent: intent, context: context)
         }
@@ -669,6 +672,194 @@ private struct MagicianNoteAdapter {
         }
         let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         return output.isEmpty ? nil : output
+    }
+}
+
+private struct MagicianMusicAdapter {
+    private enum Action {
+        case play(query: String?)
+        case pause
+        case resume
+        case next
+        case previous
+
+        var userMessage: String {
+            switch self {
+            case let .play(query):
+                if let query, !query.isEmpty {
+                    return "已尝试播放：\(query)"
+                }
+                return "已开始播放音乐。"
+            case .pause:
+                return "已暂停播放。"
+            case .resume:
+                return "已继续播放。"
+            case .next:
+                return "已切到下一首。"
+            case .previous:
+                return "已切回上一首。"
+            }
+        }
+    }
+
+    func execute(
+        intent: MagicianIntent,
+        context: MagicianExecutionContext
+    ) async throws -> MagicianExecutionResult {
+        guard MagicianMusicCapability.musicAppAvailable else {
+            throw MagicianError(
+                code: .musicUnavailable,
+                userMessage: "Music 不可用，请先打开音乐应用。",
+                debugMessage: "music app unavailable",
+                recoverAction: "open_music_app"
+            )
+        }
+
+        let action = resolvedAction(intent: intent, context: context)
+        let result = await runAction(action)
+        guard result.exitCode == 0 else {
+            throw MagicianError(
+                code: .musicControlFailed,
+                userMessage: "音乐控制失败，请确认 Music 已启动后再试。",
+                debugMessage: result.detail,
+                recoverAction: "open_music_app"
+            )
+        }
+
+        let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        let evidence = output.isEmpty ? "Music action done" : output
+        return MagicianExecutionResult(
+            intent: .controlMusic,
+            userMessage: action.userMessage,
+            outputText: output.isEmpty ? nil : output,
+            historyDisplayText: action.userMessage,
+            fallbackUsed: false,
+            observation: MagicianAgentObservation(
+                verificationStatus: .verified,
+                evidenceSummary: evidence
+            )
+        )
+    }
+
+    private func resolvedAction(
+        intent: MagicianIntent,
+        context: MagicianExecutionContext
+    ) -> Action {
+        let command = context.command.lowercased()
+        if containsAny(command, keywords: ["暂停", "pause", "停止播放", "停一下"]) {
+            return .pause
+        }
+        if containsAny(command, keywords: ["继续", "恢复", "resume", "继续播放"]) {
+            return .resume
+        }
+        if containsAny(command, keywords: ["下一首", "下一曲", "next", "切歌"]) {
+            return .next
+        }
+        if containsAny(command, keywords: ["上一首", "上一曲", "previous", "prev"]) {
+            return .previous
+        }
+
+        let query = magicianSemanticPayload(
+            from: context.command,
+            actionTokens: ["播放", "放一首", "来一首", "听", "music", "歌曲", "音乐", "暂停", "继续", "下一首", "上一首"],
+            extraCommandTokens: ["请", "帮我"]
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let query, !query.isEmpty {
+            return .play(query: query)
+        }
+        let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !source.isEmpty {
+            return .play(query: source)
+        }
+        return .play(query: nil)
+    }
+
+    private func runAction(_ action: Action) async -> MagicianProcessResult {
+        switch action {
+        case let .play(query):
+            if let query, !query.isEmpty {
+                return await runOsaScript(
+                    lines: [
+                        "on run argv",
+                        "set keywordText to item 1 of argv",
+                        "tell application \"Music\"",
+                        "if not running then launch",
+                        "activate",
+                        "set matchedTracks to (every track of library playlist 1 whose (name contains keywordText) or (artist contains keywordText) or (album contains keywordText))",
+                        "if (count of matchedTracks) > 0 then",
+                        "set targetTrack to item 1 of matchedTracks",
+                        "play targetTrack",
+                        "return \"track=\" & (name of targetTrack)",
+                        "else",
+                        "play",
+                        "return \"fallback=play\"",
+                        "end if",
+                        "end tell",
+                        "end run"
+                    ],
+                    arguments: [query]
+                )
+            }
+            return await runOsaScript(
+                lines: [
+                    "tell application \"Music\"",
+                    "if not running then launch",
+                    "activate",
+                    "play",
+                    "return \"state=play\"",
+                    "end tell"
+                ],
+                arguments: []
+            )
+        case .pause:
+            return await runOsaScript(
+                lines: [
+                    "tell application \"Music\"",
+                    "if not running then launch",
+                    "pause",
+                    "return \"state=pause\"",
+                    "end tell"
+                ],
+                arguments: []
+            )
+        case .resume:
+            return await runOsaScript(
+                lines: [
+                    "tell application \"Music\"",
+                    "if not running then launch",
+                    "play",
+                    "return \"state=resume\"",
+                    "end tell"
+                ],
+                arguments: []
+            )
+        case .next:
+            return await runOsaScript(
+                lines: [
+                    "tell application \"Music\"",
+                    "if not running then launch",
+                    "next track",
+                    "return \"state=next\"",
+                    "end tell"
+                ],
+                arguments: []
+            )
+        case .previous:
+            return await runOsaScript(
+                lines: [
+                    "tell application \"Music\"",
+                    "if not running then launch",
+                    "previous track",
+                    "return \"state=previous\"",
+                    "end tell"
+                ],
+                arguments: []
+            )
+        }
+    }
+
+    private func containsAny(_ value: String, keywords: [String]) -> Bool {
+        keywords.contains { value.contains($0) }
     }
 }
 

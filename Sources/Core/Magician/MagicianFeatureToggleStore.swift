@@ -80,7 +80,7 @@ final class MagicianFeatureToggleStore: ObservableObject {
             return .textProcessing
         case .feishuCLI:
             return .feishu
-        case .createEvent, .createNote, .composeEmailDraft:
+        case .createEvent, .createNote, .composeEmailDraft, .controlMusic:
             return .appleNativeApps
         }
     }

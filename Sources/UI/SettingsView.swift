@@ -101,12 +101,14 @@ struct SettingsView: View {
     @State private var magicianComposeEmailAvailable = MagicianMailCapability.composeEmailServiceAvailable
     @State private var magicianMailtoAvailable = MagicianMailCapability.mailtoAvailable
     @State private var magicianMailAppAvailable = MagicianMailCapability.mailAppAvailable
+    @State private var magicianMusicAppAvailable = MagicianMusicCapability.musicAppAvailable
     @State private var magicianFeishuCLIAvailable = FeishuCLIProvider.detectAvailability().isAvailable
     @State private var magicianFeishuCLICommandName = FeishuCLIProvider.detectAvailability().commandName ?? "未检测到"
     @State private var magicianFeishuCLIResolvedPath = FeishuCLIProvider.detectAvailability().backend?.executablePath ?? "未检测到"
     @State private var magicianFeishuCLIHealth: MagicianFeishuCLIHealth = .unknown
     @State private var magicianCLIAuthChecking = false
     @State private var magicianCLIDoctorChecking = false
+    @State private var magicianCLIScopeFixing = false
     @State private var memoryToolbarAvailableWidth: CGFloat = 0
     @State private var memoryFilterBarWidth: CGFloat = 0
     @State private var clearMemoryButtonWidth: CGFloat = 0
@@ -521,13 +523,22 @@ struct SettingsView: View {
                     runFeishuCLIQuickCheck(arguments: ["auth", "status"], mode: .auth)
                 }
                 .buttonStyle(.bordered)
-                .disabled(magicianCLIAuthChecking || magicianCLIDoctorChecking)
+                .disabled(magicianCLIAuthChecking || magicianCLIDoctorChecking || magicianCLIScopeFixing)
 
                 Button(magicianCLIDoctorChecking ? "doctor 诊断中…" : "运行 doctor") {
                     runFeishuCLIQuickCheck(arguments: ["doctor"], mode: .doctor)
                 }
                 .buttonStyle(.bordered)
-                .disabled(magicianCLIAuthChecking || magicianCLIDoctorChecking)
+                .disabled(magicianCLIAuthChecking || magicianCLIDoctorChecking || magicianCLIScopeFixing)
+
+                let missingScopes = magicianFeishuCLIHealth.missingScopes
+                if !missingScopes.isEmpty {
+                    Button(magicianCLIScopeFixing ? "补齐 scope 中…" : "补齐 scope") {
+                        runFeishuCLIScopeFix(missingScopes)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(magicianCLIAuthChecking || magicianCLIDoctorChecking || magicianCLIScopeFixing)
+                }
             }
 
             Text("留空会按 PATH + 常见目录自动探测。若你从 GUI 启动 App，建议填绝对路径，稳定性更高。")
@@ -563,7 +574,8 @@ struct SettingsView: View {
         let rows: [(feature: MagicianFeatureID, resolution: MagicianFeatureStatusResolution)] = [
             .createEvent,
             .createNote,
-            .composeEmailDraft
+            .composeEmailDraft,
+            .controlMusic
         ].map { feature in
             (
                 feature: feature,
@@ -595,7 +607,7 @@ struct SettingsView: View {
                 .fixedSize()
             }
 
-            Text("统一包含系统日历、备忘录和邮件。")
+            Text("统一包含系统日历、备忘录、邮件和音乐。")
                 .font(.subheadline)
             Text("边界：仅调用本机原生应用，不会走飞书。")
                 .font(.caption)
@@ -670,6 +682,7 @@ struct SettingsView: View {
     private enum FeishuCLIQuickCheckMode {
         case auth
         case doctor
+        case scopeFix
     }
 
     private func runFeishuCLIQuickCheck(
@@ -687,6 +700,8 @@ struct SettingsView: View {
             magicianCLIAuthChecking = true
         case .doctor:
             magicianCLIDoctorChecking = true
+        case .scopeFix:
+            magicianCLIScopeFixing = true
         }
 
         Task {
@@ -717,9 +732,28 @@ struct SettingsView: View {
                     magicianCLIAuthChecking = false
                 case .doctor:
                     magicianCLIDoctorChecking = false
+                case .scopeFix:
+                    magicianCLIScopeFixing = false
                 }
             }
         }
+    }
+
+    private func runFeishuCLIScopeFix(_ scopes: [String]) {
+        let uniqueScopes = Array(Set(scopes)).sorted()
+        guard !uniqueScopes.isEmpty else {
+            showToast("当前没有待补 scope。")
+            return
+        }
+        var arguments = ["auth", "login", "--no-wait"]
+        for scope in uniqueScopes {
+            arguments.append("--scope")
+            arguments.append(scope)
+        }
+        runFeishuCLIQuickCheck(
+            arguments: arguments,
+            mode: .scopeFix
+        )
     }
 
     private var mailAssistantAddressBookSection: some View {
@@ -1714,6 +1748,7 @@ struct SettingsView: View {
             composeEmailAvailable: magicianComposeEmailAvailable,
             mailtoAvailable: magicianMailtoAvailable,
             mailAppAvailable: magicianMailAppAvailable,
+            musicAppAvailable: magicianMusicAppAvailable,
             feishuCLIAvailable: magicianFeishuCLIAvailable,
             feishuCLICommandName: magicianFeishuCLICommandName
         )
@@ -1735,6 +1770,7 @@ struct SettingsView: View {
         magicianComposeEmailAvailable = MagicianMailCapability.composeEmailServiceAvailable
         magicianMailtoAvailable = MagicianMailCapability.mailtoAvailable
         magicianMailAppAvailable = MagicianMailCapability.mailAppAvailable
+        magicianMusicAppAvailable = MagicianMusicCapability.musicAppAvailable
         let feishuAvailability = currentFeishuCLIAvailability()
         magicianFeishuCLIAvailable = feishuAvailability.isAvailable
         magicianFeishuCLICommandName = feishuAvailability.commandName ?? "未检测到"
@@ -1840,6 +1876,13 @@ struct SettingsView: View {
                 openApplication(
                     bundleIdentifier: "com.apple.mail",
                     fallbackPath: "/System/Applications/Mail.app"
+                )
+            }
+        case .openMusicApp:
+            await MainActor.run {
+                openApplication(
+                    bundleIdentifier: "com.apple.Music",
+                    fallbackPath: "/System/Applications/Music.app"
                 )
             }
         }

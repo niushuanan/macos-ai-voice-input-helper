@@ -83,6 +83,8 @@ enum MagicianErrorCode: String, Equatable {
     case mailAutomationDenied = "mail_automation_denied"
     case mailAppleScriptFailed = "mail_applescript_failed"
     case mailRecipientUnresolved = "mail_recipient_unresolved"
+    case musicUnavailable = "music_unavailable"
+    case musicControlFailed = "music_control_failed"
     case browserUnavailable = "browser_unavailable"
     case cliUnavailable = "cli_unavailable"
     case cliAuthRequired = "cli_auth_required"

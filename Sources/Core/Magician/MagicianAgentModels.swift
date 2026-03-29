@@ -172,6 +172,7 @@ enum MagicianAgentActionKind: String, Codable, Equatable {
     case createEvent = "create_event"
     case createNote = "create_note"
     case composeEmail = "compose_email"
+    case controlMusic = "control_music"
     case feishu = "feishu"
 }
 
@@ -268,7 +269,7 @@ private struct MagicianAgentPlanBuilderV2 {
                 switch feature {
                 case .textTransform:
                     input = hasSelection ? .selectionText : .commandInstruction
-                case .createNote, .composeEmailDraft, .createEvent:
+                case .createNote, .composeEmailDraft, .createEvent, .controlMusic:
                     input = hasSelection ? .selectionText : .commandPayload
                 case .feishuCLI:
                     input = .commandInstruction
@@ -321,7 +322,7 @@ private struct MagicianAgentPlanBuilderV2 {
             return .text
         case .feishuCLI:
             return .feishu
-        case .createEvent, .createNote, .composeEmailDraft:
+        case .createEvent, .createNote, .composeEmailDraft, .controlMusic:
             return .apple
         }
     }
@@ -336,6 +337,8 @@ private struct MagicianAgentPlanBuilderV2 {
             return .createNote
         case .composeEmailDraft:
             return .composeEmail
+        case .controlMusic:
+            return .controlMusic
         case .feishuCLI:
             return .feishu
         }
@@ -373,6 +376,15 @@ private struct MagicianAgentPlanBuilderV2 {
            containsAny(lowered, tokens: ["日程", "会议", "calendar", "event", "安排", "提醒", "课程", "上课"])
         {
             return .createEvent
+        }
+
+        if enabledFeatures.contains(.controlMusic),
+           containsAny(
+               lowered,
+               tokens: ["音乐", "歌曲", "播放", "暂停", "继续播放", "下一首", "上一首", "music", "play", "pause", "next", "previous"]
+           )
+        {
+            return .controlMusic
         }
 
         if enabledFeatures.contains(.textTransform) {
@@ -831,7 +843,7 @@ final class MagicianAgentRuntimeV2: MagicianAgentRunning {
                 inputText: inputText,
                 shouldWriteToEditor: isFinalAction
             )
-        case .createEvent, .createNote, .composeEmailDraft, .feishuCLI:
+        case .createEvent, .createNote, .composeEmailDraft, .controlMusic, .feishuCLI:
             let intent = buildIntent(
                 for: action,
                 request: request,
@@ -914,6 +926,8 @@ final class MagicianAgentRuntimeV2: MagicianAgentRunning {
             params.mailDeliveryMode = action.instruction.lowercased().contains("草稿") ? .draftOnly : .autoSendIfResolved
         case .createEvent:
             params.notes = inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inputText
+        case .controlMusic:
+            break
         case .feishuCLI:
             params.cliOperation = FeishuCanonicalOperation.infer(from: action.instruction)?.rawValue
             params.cliArguments = magicianCommandContainsExplicitCLIFlags(action.instruction)
@@ -942,6 +956,8 @@ final class MagicianAgentRuntimeV2: MagicianAgentRunning {
             return ["邮件", "草稿", "写邮件", "发邮件", "mail", "email", "发给", "发送"]
         case .createEvent:
             return ["日程", "建立日程", "创建日程", "建日程", "会议", "calendar", "event", "安排", "提醒"]
+        case .controlMusic:
+            return ["音乐", "歌曲", "播放", "暂停", "继续播放", "下一首", "上一首", "music", "play", "pause"]
         case .feishuCLI:
             return ["飞书", "feishu", "lark"]
         case .textTransform:
