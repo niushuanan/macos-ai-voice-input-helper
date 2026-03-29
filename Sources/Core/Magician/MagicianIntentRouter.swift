@@ -20,6 +20,12 @@ protocol MagicianWorkflowPlanning {
 
 private func containsUnsupportedSearchIntent(_ command: String) -> Bool {
     let lowered = command.lowercased()
+    if
+        FeishuCanonicalOperation.infer(from: command) != nil
+            || ["飞书", "feishu", "lark-cli", "lark cli", "lark"].contains(where: lowered.contains)
+    {
+        return false
+    }
     return ["搜索", "搜一下", "搜一搜", "查一下", "查一查", "google", "search"].contains {
         lowered.contains($0)
     }

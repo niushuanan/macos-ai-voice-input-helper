@@ -52,6 +52,19 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertNotNil(intent.params.cliOperation)
     }
 
+    func testHeuristicRouterAllowsFeishuSearchIntentInCLIContext() async throws {
+        let router = HeuristicMagicianIntentRouter()
+
+        let intent = try await router.route(
+            command: "飞书搜索消息 路线图",
+            selection: nil,
+            enabledFeatures: [.feishuCLI]
+        )
+
+        XCTAssertEqual(intent.intent, .feishuCLI)
+        XCTAssertEqual(intent.params.cliOperation, "feishu_im_user_search_messages")
+    }
+
     func testHeuristicWorkflowPlannerKeepsFeishuCommandOnlyAsSingleStep() async throws {
         let planner = HeuristicMagicianWorkflowPlanner()
         let command = "飞书，今天下午三点添加一个上课的日程。"
@@ -227,6 +240,39 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertEqual(intent.params.cliOperation, "feishu_calendar_event")
         XCTAssertEqual(generationProvider.callCount, 2)
         XCTAssertTrue(generationProvider.requests[1].systemPrompt.contains("Feishu CLI intent extractor"))
+    }
+
+    func testLLMRouterAllowsFeishuSearchIntentWithoutRemovedSearchGuard() async throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-cli-search"])
+        )
+        providerStore.updateCLITextModel("deepseek-chat")
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputTexts: [
+                #"{"intent":"feishu_cli","confidence":0.91}"#,
+                #"{"sourceText":"","params":{"cliOperation":"feishu_im_user_search_messages","cliArguments":["--query","路线图"]}}"#
+            ]
+        )
+
+        let router = LLMMagicianIntentRouter(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider
+        )
+
+        let intent = try await router.route(
+            command: "飞书搜索消息 路线图",
+            selection: nil,
+            enabledFeatures: [.feishuCLI]
+        )
+
+        XCTAssertEqual(intent.intent, .feishuCLI)
+        XCTAssertEqual(intent.params.cliOperation, "feishu_im_user_search_messages")
+        XCTAssertEqual(generationProvider.callCount, 2)
     }
 
     func testLLMRouterParsesJSONFromCodeFence() async throws {

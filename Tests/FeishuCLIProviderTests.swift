@@ -105,6 +105,162 @@ final class FeishuCLIProviderTests: XCTestCase {
         }
     }
 
+    func testCalendarEventNaturalLanguageBuildsCreateArgumentsWithoutHelp() async throws {
+        let fixture = try makeExecutableFixture(
+            fileName: "lark-cli",
+            script: "#!/bin/sh\necho \"$@\"\nexit 0\n"
+        )
+        defer { fixture.cleanUp() }
+
+        let provider = FeishuCLIProvider()
+        let availability = FeishuCLIAvailability(
+            backend: FeishuCLIBackendDescriptor(
+                kind: .larkCLI,
+                executablePath: fixture.executableURL.path,
+                commandName: "lark-cli"
+            )
+        )
+
+        let result = await provider.execute(
+            operation: .calendarEvent,
+            spokenCommand: "飞书，今天下午三点添加一个上课的日程。",
+            explicitArguments: [],
+            availability: availability
+        )
+
+        switch result {
+        case let .success(success):
+            let output = success.outputText ?? ""
+            XCTAssertTrue(output.contains("calendar +create"))
+            XCTAssertTrue(output.contains("--summary"))
+            XCTAssertTrue(output.contains("上课"))
+            XCTAssertTrue(output.contains("--start"))
+            XCTAssertTrue(output.contains("--end"))
+            XCTAssertFalse(output.contains("--help"))
+        case let .failure(error):
+            XCTFail("expected success but got error: \(error)")
+        }
+    }
+
+    func testCalendarCreateFailsWhenEventIDMissingInSuccessEnvelope() async throws {
+        let fixture = try makeExecutableFixture(
+            fileName: "lark-cli",
+            script: """
+#!/bin/sh
+echo '{"ok":true,"identity":"user","data":{"summary":"上课"}}'
+exit 0
+"""
+        )
+        defer { fixture.cleanUp() }
+
+        let provider = FeishuCLIProvider()
+        let availability = FeishuCLIAvailability(
+            backend: FeishuCLIBackendDescriptor(
+                kind: .larkCLI,
+                executablePath: fixture.executableURL.path,
+                commandName: "lark-cli"
+            )
+        )
+
+        let result = await provider.execute(
+            operation: .calendarEvent,
+            spokenCommand: "飞书，今天下午三点添加一个上课的日程。",
+            explicitArguments: [],
+            availability: availability
+        )
+
+        switch result {
+        case .success:
+            XCTFail("expected failure when event_id missing")
+        case let .failure(error):
+            XCTAssertEqual(error.code, .toolExecutionFailed)
+            XCTAssertTrue(error.userMessage.contains("日程 ID"))
+        }
+    }
+
+    func testExecuteTransformsJSONFailureEnvelopeIntoUserFacingError() async throws {
+        let fixture = try makeExecutableFixture(
+            fileName: "lark-cli",
+            script: """
+#!/bin/sh
+echo '{"ok":false,"identity":"bot","error":{"message":"Bot/User can NOT be out of the chat."}}'
+exit 0
+"""
+        )
+        defer { fixture.cleanUp() }
+
+        let provider = FeishuCLIProvider()
+        let availability = FeishuCLIAvailability(
+            backend: FeishuCLIBackendDescriptor(
+                kind: .larkCLI,
+                executablePath: fixture.executableURL.path,
+                commandName: "lark-cli"
+            )
+        )
+
+        let result = await provider.execute(
+            operation: .imUserMessage,
+            spokenCommand: "给飞书助手发消息，告诉他我正在用 PulseType",
+            explicitArguments: ["--chat-id", "oc_xxx", "--text", "hi"],
+            availability: availability
+        )
+
+        switch result {
+        case .success:
+            XCTFail("expected failure but got success")
+        case let .failure(error):
+            XCTAssertEqual(error.code, .toolExecutionFailed)
+            XCTAssertTrue(error.userMessage.contains("机器人当前不在目标群里"))
+        }
+    }
+
+    func testIMUserMessageCanAutoResolveRecipientAndSend() async throws {
+        let fixture = try makeExecutableFixture(
+            fileName: "lark-cli",
+            script: """
+#!/bin/sh
+if [ "$1" = "im" ] && [ "$2" = "+chat-search" ]; then
+  echo '{"ok":true,"identity":"user","data":{"chats":[{"chat_id":"oc_123abc"}]}}'
+  exit 0
+fi
+if [ "$1" = "im" ] && [ "$2" = "+messages-send" ]; then
+  echo "$@"
+  exit 0
+fi
+echo "$@"
+exit 0
+"""
+        )
+        defer { fixture.cleanUp() }
+
+        let provider = FeishuCLIProvider()
+        let availability = FeishuCLIAvailability(
+            backend: FeishuCLIBackendDescriptor(
+                kind: .larkCLI,
+                executablePath: fixture.executableURL.path,
+                commandName: "lark-cli"
+            )
+        )
+
+        let result = await provider.execute(
+            operation: .imUserMessage,
+            spokenCommand: "给测试群发消息，告诉他我正在用 PulseType",
+            explicitArguments: [],
+            availability: availability
+        )
+
+        switch result {
+        case let .success(success):
+            let output = success.outputText ?? ""
+            XCTAssertTrue(output.contains("+messages-send"))
+            XCTAssertTrue(output.contains("--as bot"))
+            XCTAssertTrue(output.contains("--chat-id oc_123abc"))
+            XCTAssertTrue(output.contains("--text 我正在用 PulseType"))
+        case let .failure(error):
+            XCTFail("expected success but got error: \(error)")
+        }
+    }
+
     func testBuildProcessEnvironmentAddsExecutableDirectoryAndFallbackPath() {
         let environment = FeishuCLIProvider.buildProcessEnvironment(
             executablePath: "/tmp/custom-bin/lark-cli",

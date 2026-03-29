@@ -413,12 +413,26 @@ final class FeishuCLIProvider {
             )
         }
 
-        let plan = makeCommandPlan(
+        var plan = makeCommandPlan(
             operation: operation,
             spokenCommand: spokenCommand,
             explicitArguments: explicitArguments,
             backend: backend
         )
+
+        if
+            backend.kind == .larkCLI,
+            operation == .imUserMessage,
+            plan.executionMode == .needsMoreDetail,
+            explicitArguments.isEmpty,
+            let autoPlan = await autoResolvedIMMessagePlan(
+                spokenCommand: spokenCommand,
+                backend: backend,
+                fallbackPlan: plan
+            )
+        {
+            plan = autoPlan
+        }
 
         guard argumentsAreSafe(plan.arguments) else {
             return .failure(
@@ -439,8 +453,8 @@ final class FeishuCLIProvider {
             environment: Self.buildProcessEnvironment(executablePath: plan.executablePath)
         )
 
+        let output = mergedOutput(from: processResult)
         if processResult.exitCode == 0 {
-            let output = mergedOutput(from: processResult)
             if plan.executionMode == .needsMoreDetail {
                 return .failure(
                     MagicianError(
@@ -451,6 +465,34 @@ final class FeishuCLIProvider {
                     )
                 )
             }
+
+            if let envelope = parsedCLIEnvelope(from: output) {
+                if envelope.ok == false {
+                    return .failure(
+                        MagicianError(
+                            code: .toolExecutionFailed,
+                            userMessage: userFacingCLIErrorMessage(
+                                envelope.errorMessage ?? "飞书返回失败",
+                                operation: operation
+                            ),
+                            debugMessage: output,
+                            recoverAction: "retry_command"
+                        )
+                    )
+                }
+
+                if isCalendarCreateArguments(plan.arguments), envelope.eventID == nil {
+                    return .failure(
+                        MagicianError(
+                            code: .toolExecutionFailed,
+                            userMessage: "飞书没有返回有效的日程 ID，创建结果不可靠，请重试。",
+                            debugMessage: output,
+                            recoverAction: "retry_command"
+                        )
+                    )
+                }
+            }
+
             let display = output.isEmpty ? plan.summary : output
             return .success(
                 MagicianExecutionResult(
@@ -459,6 +501,21 @@ final class FeishuCLIProvider {
                     outputText: output.isEmpty ? nil : output,
                     historyDisplayText: "飞书 CLI：\(display)",
                     fallbackUsed: false
+                )
+            )
+        }
+
+        if
+            let envelope = parsedCLIEnvelope(from: output),
+            let errorMessage = envelope.errorMessage,
+            !errorMessage.isEmpty
+        {
+            return .failure(
+                MagicianError(
+                    code: .toolExecutionFailed,
+                    userMessage: userFacingCLIErrorMessage(errorMessage, operation: operation),
+                    debugMessage: output,
+                    recoverAction: "retry_command"
                 )
             )
         }
@@ -572,17 +629,36 @@ final class FeishuCLIProvider {
         case .bitableAppTableView:
             args = hasExplicitArguments ? ["base", "+view-list"] : ["base", "+view-list", "--help"]
         case .calendarCalendar:
-            args = ["calendar", "+agenda"]
+            args = inferredAgendaArguments(from: spokenCommand) ?? ["calendar", "+agenda"]
         case .calendarEvent:
-            if containsAny(spokenCommand, keywords: ["创建", "新建", "安排", "建", "create"]) {
-                args = hasExplicitArguments ? ["calendar", "+create"] : ["calendar", "+create", "--help"]
+            if isCalendarCreateCommand(spokenCommand) {
+                if hasExplicitArguments {
+                    args = ["calendar", "+create"]
+                } else if let inferredCreateArgs = inferredCalendarCreateArguments(from: spokenCommand) {
+                    args = inferredCreateArgs
+                } else {
+                    args = ["calendar", "+create", "--help"]
+                }
             } else {
-                args = ["calendar", "+agenda"]
+                args = inferredAgendaArguments(from: spokenCommand) ?? ["calendar", "+agenda"]
             }
         case .calendarEventAttendee:
             args = hasExplicitArguments ? ["calendar", "+create"] : ["calendar", "+create", "--help"]
         case .calendarFreebusy:
-            args = hasExplicitArguments ? ["calendar", "+freebusy"] : ["calendar", "+freebusy", "--help"]
+            if hasExplicitArguments {
+                args = ["calendar", "+freebusy"]
+            } else if let inferredRange = inferredTimeRange(from: spokenCommand) {
+                args = [
+                    "calendar",
+                    "+freebusy",
+                    "--start",
+                    iso8601LocalString(from: inferredRange.start),
+                    "--end",
+                    iso8601LocalString(from: inferredRange.end)
+                ]
+            } else {
+                args = ["calendar", "+freebusy", "--help"]
+            }
         case .chat:
             if let queryHint {
                 args = ["im", "+chat-search", "--query", queryHint]
@@ -616,7 +692,9 @@ final class FeishuCLIProvider {
         case .getUser:
             args = ["contact", "+get-user"]
         case .imBotImage:
-            args = hasExplicitArguments ? ["im", "+messages-send"] : ["im", "+messages-send", "--help"]
+            args = hasExplicitArguments
+                ? ["im", "+messages-send", "--as", "bot"]
+                : ["im", "+messages-send", "--as", "bot", "--help"]
         case .imUserFetchResource:
             args = hasExplicitArguments ? ["im", "+messages-resources-download"] : ["im", "+messages-resources-download", "--help"]
         case .imUserGetMessages:
@@ -625,9 +703,17 @@ final class FeishuCLIProvider {
             args = hasExplicitArguments ? ["im", "+threads-messages-list"] : ["im", "+threads-messages-list", "--help"]
         case .imUserMessage:
             if containsAny(spokenCommand, keywords: ["回复", "reply"]) {
-                args = hasExplicitArguments ? ["im", "+messages-reply"] : ["im", "+messages-reply", "--help"]
+                args = hasExplicitArguments
+                    ? ["im", "+messages-reply", "--as", "bot"]
+                    : ["im", "+messages-reply", "--as", "bot", "--help"]
             } else {
-                args = hasExplicitArguments ? ["im", "+messages-send"] : ["im", "+messages-send", "--help"]
+                if hasExplicitArguments {
+                    args = ["im", "+messages-send", "--as", "bot"]
+                } else if let inlineSendArgs = inferredInlineIMSendArguments(from: spokenCommand) {
+                    args = ["im", "+messages-send", "--as", "bot"] + inlineSendArgs
+                } else {
+                    args = ["im", "+messages-send", "--as", "bot", "--help"]
+                }
             }
         case .imUserSearchMessages:
             if let queryHint {
@@ -823,6 +909,523 @@ final class FeishuCLIProvider {
         default:
             return "这条飞书命令还缺少必要参数，请补充更具体的信息后再试。"
         }
+    }
+
+    private struct CalendarTimeRange {
+        let start: Date
+        let end: Date
+    }
+
+    private struct CLIEnvelope {
+        let ok: Bool?
+        let errorMessage: String?
+        let eventID: String?
+    }
+
+    private func isCalendarCreateArguments(_ arguments: [String]) -> Bool {
+        guard arguments.count >= 2 else {
+            return false
+        }
+        return arguments[0] == "calendar" && arguments[1] == "+create"
+    }
+
+    private func parsedCLIEnvelope(from text: String) -> CLIEnvelope? {
+        guard
+            let data = text.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let dictionary = object as? [String: Any]
+        else {
+            return nil
+        }
+
+        let ok = dictionary["ok"] as? Bool
+        let errorMessage = (dictionary["error"] as? [String: Any])?["message"] as? String
+        let eventID = (dictionary["data"] as? [String: Any])?["event_id"] as? String
+
+        return CLIEnvelope(
+            ok: ok,
+            errorMessage: errorMessage?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            eventID: eventID?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    private func userFacingCLIErrorMessage(
+        _ message: String,
+        operation: FeishuCanonicalOperation
+    ) -> String {
+        let lowered = message.lowercased()
+        if lowered.contains("only supports: bot") || lowered.contains("use --as bot") {
+            return "这条消息命令只能以 bot 身份执行，请先配置 bot 侧权限。"
+        }
+        if lowered.contains("bot/user can not be out of the chat") {
+            return "机器人当前不在目标群里，请先把 bot 拉进群再发送消息。"
+        }
+        if lowered.contains("permission denied") || lowered.contains("scope") {
+            return "飞书返回权限不足，请检查 app scope 并重新授权。"
+        }
+        if operation == .calendarEvent, lowered.contains("start") {
+            return "日程时间参数不合法，请补充更明确的日期和时间。"
+        }
+        return "飞书 CLI 返回失败：\(message)"
+    }
+
+    private func isCalendarCreateCommand(_ spokenCommand: String) -> Bool {
+        containsAny(
+            spokenCommand,
+            keywords: [
+                "创建", "新建", "安排", "建", "添加", "新增", "加入", "加一个", "设定",
+                "记录到日程", "记到日程", "create"
+            ]
+        )
+    }
+
+    private func inferredCalendarCreateArguments(from spokenCommand: String) -> [String]? {
+        guard let range = inferredTimeRange(from: spokenCommand) else {
+            return nil
+        }
+        let summary = inferredCalendarSummary(from: spokenCommand)
+        return [
+            "calendar",
+            "+create",
+            "--summary",
+            summary,
+            "--start",
+            iso8601LocalString(from: range.start),
+            "--end",
+            iso8601LocalString(from: range.end)
+        ]
+    }
+
+    private func inferredAgendaArguments(from spokenCommand: String) -> [String]? {
+        guard let range = inferredAgendaRange(from: spokenCommand) else {
+            return nil
+        }
+        return [
+            "calendar",
+            "+agenda",
+            "--start",
+            iso8601LocalString(from: range.start),
+            "--end",
+            iso8601LocalString(from: range.end)
+        ]
+    }
+
+    private func inferredAgendaRange(from spokenCommand: String) -> CalendarTimeRange? {
+        let detected = detectedDates(in: spokenCommand)
+        let calendar = Calendar.current
+
+        if detected.count >= 2 {
+            let start = min(detected[0], detected[1])
+            let end = max(detected[0], detected[1])
+            return CalendarTimeRange(start: start, end: end)
+        }
+
+        let dayReference = detected.first ?? inferredRelativeDayDate(from: spokenCommand)
+        guard let dayReference else {
+            return nil
+        }
+        let start = calendar.startOfDay(for: dayReference)
+        let end = calendar.date(byAdding: .day, value: 1, to: start)?
+            .addingTimeInterval(-1) ?? start.addingTimeInterval(86_399)
+        return CalendarTimeRange(start: start, end: end)
+    }
+
+    private func inferredTimeRange(from spokenCommand: String) -> CalendarTimeRange? {
+        let detected = detectedDates(in: spokenCommand)
+        if detected.count >= 2 {
+            let start = min(detected[0], detected[1])
+            let end = max(detected[0], detected[1])
+            if end > start {
+                return CalendarTimeRange(start: start, end: end)
+            }
+        }
+
+        let start = detected.first ?? inferredRelativeDayDate(from: spokenCommand)
+        guard let start else {
+            return nil
+        }
+        let fallbackEnd = start.addingTimeInterval(inferredDurationSeconds(from: spokenCommand))
+        let end = fallbackEnd > start ? fallbackEnd : start.addingTimeInterval(1_800)
+        return CalendarTimeRange(start: start, end: end)
+    }
+
+    private func inferredRelativeDayDate(from spokenCommand: String) -> Date? {
+        let now = Date()
+        let calendar = Calendar.current
+        if spokenCommand.contains("今天") {
+            return now
+        }
+        if spokenCommand.contains("明天") {
+            return calendar.date(byAdding: .day, value: 1, to: now)
+        }
+        if spokenCommand.contains("后天") {
+            return calendar.date(byAdding: .day, value: 2, to: now)
+        }
+        return nil
+    }
+
+    private func inferredDurationSeconds(from text: String) -> TimeInterval {
+        if text.contains("半小时") {
+            return 1_800
+        }
+
+        if
+            let minutesRaw = textMatched(
+                in: text,
+                pattern: #"([0-9一二两三四五六七八九十]+)\s*(分钟|分|min|mins|minute|minutes)"#
+            ),
+            let minutes = parsedNumber(from: minutesRaw)
+        {
+            return max(300, minutes * 60)
+        }
+
+        if
+            let hoursRaw = textMatched(
+                in: text,
+                pattern: #"([0-9一二两三四五六七八九十]+)\s*(小时|h|hr|hrs|hour|hours)"#
+            ),
+            let hours = parsedNumber(from: hoursRaw)
+        {
+            return max(300, hours * 3_600)
+        }
+
+        return 1_800
+    }
+
+    private func parsedNumber(from raw: String) -> Double? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let value = Double(trimmed) {
+            return value
+        }
+
+        let mapping: [Character: Double] = [
+            "零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+            "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10
+        ]
+
+        if trimmed == "十" {
+            return 10
+        }
+        if trimmed.count == 2, trimmed.first == "十", let second = trimmed.last, let value = mapping[second] {
+            return 10 + value
+        }
+        if trimmed.count == 2, trimmed.last == "十", let first = trimmed.first, let value = mapping[first] {
+            return value * 10
+        }
+        if
+            trimmed.count == 3,
+            let first = trimmed.first,
+            trimmed[trimmed.index(after: trimmed.startIndex)] == "十",
+            let last = trimmed.last,
+            let tens = mapping[first],
+            let ones = mapping[last]
+        {
+            return tens * 10 + ones
+        }
+
+        return mapping[trimmed.first ?? " "] ?? nil
+    }
+
+    private func inferredCalendarSummary(from spokenCommand: String) -> String {
+        if let quoted = firstQuotedText(in: spokenCommand), let cleaned = cleanedCalendarSummary(quoted) {
+            return cleaned
+        }
+
+        let patterns = [
+            #"(?:添加|新增|加入|安排|创建|新建|设定|记录)(?:一个|一条|个|条)?(.{1,40}?)(?:的)?(?:日程|行程|会议|课程|提醒)"#,
+            #"(?:把|将)(.{1,40}?)(?:记录|添加|安排|写入)(?:到|进)?(?:飞书)?(?:日程|日历)"#,
+            #"(?:主题是|主题为|关于)\s*(.{1,40})"#
+        ]
+
+        for pattern in patterns {
+            if let candidate = textMatched(in: spokenCommand, pattern: pattern),
+               let cleaned = cleanedCalendarSummary(candidate)
+            {
+                return cleaned
+            }
+        }
+
+        if
+            let semantic = magicianSemanticPayload(
+                from: spokenCommand,
+                actionTokens: ["飞书", "日程", "日历", "会议", "行程", "课程", "提醒", "create", "calendar"],
+                extraCommandTokens: ["添加", "新增", "安排", "创建", "新建", "设定", "记录"]
+            ),
+            let cleaned = cleanedCalendarSummary(semantic)
+        {
+            return cleaned
+        }
+
+        return "日程"
+    }
+
+    private func cleanedCalendarSummary(_ text: String) -> String? {
+        let stripped = text
+            .replacingOccurrences(
+                of: #"(今天|明天|后天|上午|中午|下午|晚上|凌晨|周[一二三四五六日天]|本周|下周|这周|\\d{1,2}月\\d{1,2}日|\\d{1,2}[:：]\\d{2}|\\d{1,2}点半?|\\d{1,2}点)"#,
+                with: " ",
+                options: .regularExpression
+            )
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+
+        let banned = Set(["飞书", "日程", "日历", "会议", "行程", "课程", "提醒", "一个", "一条"])
+        let compact = stripped.replacingOccurrences(of: " ", with: "")
+        if compact.isEmpty || banned.contains(compact) {
+            return nil
+        }
+        return String(stripped.prefix(50))
+    }
+
+    private func firstQuotedText(in text: String) -> String? {
+        let patterns = [
+            #""([^"]+)""#,
+            #"“([^”]+)”"#,
+            #"‘([^’]+)’"#,
+            #"「([^」]+)」"#
+        ]
+        for pattern in patterns {
+            if let captured = textMatched(in: text, pattern: pattern) {
+                return captured
+            }
+        }
+        return nil
+    }
+
+    private func textMatched(
+        in text: String,
+        pattern: String,
+        captureGroup: Int = 1
+    ) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(location: 0, length: (text as NSString).length)
+        guard
+            let match = regex.firstMatch(in: text, options: [], range: range),
+            match.numberOfRanges > captureGroup,
+            let matchedRange = Range(match.range(at: captureGroup), in: text)
+        else {
+            return nil
+        }
+        return String(text[matchedRange])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func detectedDates(in text: String) -> [Date] {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else {
+            return []
+        }
+        let range = NSRange(location: 0, length: (text as NSString).length)
+        return detector
+            .matches(in: text, options: [], range: range)
+            .compactMap(\.date)
+            .sorted()
+    }
+
+    private func iso8601LocalString(from date: Date) -> String {
+        Self.iso8601Local.string(from: date)
+    }
+
+    private static let iso8601Local: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = .current
+        return formatter
+    }()
+
+    private func inferredInlineIMSendArguments(from spokenCommand: String) -> [String]? {
+        guard let message = inferredMessageBody(from: spokenCommand) else {
+            return nil
+        }
+        if let chatID = extractedIdentifier(in: spokenCommand, prefix: "oc_") {
+            return ["--chat-id", chatID, "--text", message]
+        }
+        if let userID = extractedIdentifier(in: spokenCommand, prefix: "ou_") {
+            return ["--user-id", userID, "--text", message]
+        }
+        return nil
+    }
+
+    private func autoResolvedIMMessagePlan(
+        spokenCommand: String,
+        backend: FeishuCLIBackendDescriptor,
+        fallbackPlan: FeishuCLICommandPlan
+    ) async -> FeishuCLICommandPlan? {
+        guard let message = inferredMessageBody(from: spokenCommand) else {
+            return nil
+        }
+        guard let target = await resolveIMTargetID(from: spokenCommand, backend: backend) else {
+            return nil
+        }
+
+        let args = [
+            "im",
+            "+messages-send",
+            "--as",
+            "bot",
+            target.flag,
+            target.value,
+            "--text",
+            message
+        ]
+
+        return FeishuCLICommandPlan(
+            executablePath: fallbackPlan.executablePath,
+            arguments: args,
+            summary: "发送消息（自动解析目标）",
+            riskLevel: .write,
+            executionMode: .execute
+        )
+    }
+
+    private func resolveIMTargetID(
+        from spokenCommand: String,
+        backend: FeishuCLIBackendDescriptor
+    ) async -> (flag: String, value: String)? {
+        if let chatID = extractedIdentifier(in: spokenCommand, prefix: "oc_") {
+            return ("--chat-id", chatID)
+        }
+        if let userID = extractedIdentifier(in: spokenCommand, prefix: "ou_") {
+            return ("--user-id", userID)
+        }
+
+        guard let recipientHint = inferredRecipientHint(from: spokenCommand) else {
+            return nil
+        }
+
+        if let chatID = await resolveChatID(query: recipientHint, backend: backend) {
+            return ("--chat-id", chatID)
+        }
+        if let userID = await resolveUserID(query: recipientHint, backend: backend) {
+            return ("--user-id", userID)
+        }
+        return nil
+    }
+
+    private func resolveChatID(
+        query: String,
+        backend: FeishuCLIBackendDescriptor
+    ) async -> String? {
+        let result = await runProcessWithTimeout(
+            executablePath: backend.executablePath,
+            arguments: ["im", "+chat-search", "--query", query, "--format", "json"],
+            timeoutSeconds: 8,
+            maxOutputCharacters: 6_000,
+            environment: Self.buildProcessEnvironment(executablePath: backend.executablePath)
+        )
+        guard result.exitCode == 0 else {
+            return nil
+        }
+        guard
+            let data = result.stdout.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let dictionary = object as? [String: Any],
+            let payload = dictionary["data"] as? [String: Any],
+            let chats = payload["chats"] as? [[String: Any]],
+            let first = chats.first,
+            let chatID = first["chat_id"] as? String
+        else {
+            return nil
+        }
+        let normalized = chatID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private func resolveUserID(
+        query: String,
+        backend: FeishuCLIBackendDescriptor
+    ) async -> String? {
+        let result = await runProcessWithTimeout(
+            executablePath: backend.executablePath,
+            arguments: ["contact", "+search-user", "--query", query, "--format", "json"],
+            timeoutSeconds: 8,
+            maxOutputCharacters: 6_000,
+            environment: Self.buildProcessEnvironment(executablePath: backend.executablePath)
+        )
+        guard result.exitCode == 0 else {
+            return nil
+        }
+        guard
+            let data = result.stdout.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let dictionary = object as? [String: Any],
+            let payload = dictionary["data"] as? [String: Any],
+            let users = payload["users"] as? [[String: Any]],
+            let first = users.first,
+            let userID = first["open_id"] as? String
+        else {
+            return nil
+        }
+        let normalized = userID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private func inferredMessageBody(from spokenCommand: String) -> String? {
+        if let quoted = firstQuotedText(in: spokenCommand) {
+            return String(quoted.prefix(200))
+        }
+
+        let patterns = [
+            #"(?:告诉(?:他|她)?|内容(?:是|为)?|说(?:一下)?|message is)\s*[：:，,]?\s*(.+)$"#,
+            #"(?:发消息(?:给|到)?[^，,。]*)[，,]\s*(.+)$"#
+        ]
+        for pattern in patterns {
+            if
+                let captured = textMatched(in: spokenCommand, pattern: pattern),
+                !captured.isEmpty
+            {
+                let normalized = captured
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+                guard !normalized.isEmpty else {
+                    continue
+                }
+                return String(normalized.prefix(200))
+            }
+        }
+        return nil
+    }
+
+    private func inferredRecipientHint(from spokenCommand: String) -> String? {
+        let patterns = [
+            #"(?:给|发给)\s*(.+?)(?:发消息|消息|说|告诉|，|,|。|$)"#,
+            #"(?:to)\s*(.+?)(?:message|say|,|$)"#
+        ]
+        for pattern in patterns {
+            if let captured = textMatched(in: spokenCommand, pattern: pattern) {
+                let cleaned = captured
+                    .replacingOccurrences(of: "飞书的", with: "")
+                    .replacingOccurrences(of: "飞书", with: "")
+                    .replacingOccurrences(of: "lark 的", with: "", options: .caseInsensitive)
+                    .replacingOccurrences(of: "lark", with: "", options: .caseInsensitive)
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+                guard !cleaned.isEmpty else {
+                    continue
+                }
+                return String(cleaned.prefix(64))
+            }
+        }
+        return nil
+    }
+
+    private func extractedIdentifier(in text: String, prefix: String) -> String? {
+        let escapedPrefix = NSRegularExpression.escapedPattern(for: prefix)
+        guard let regex = try? NSRegularExpression(pattern: "\\b\(escapedPrefix)[A-Za-z0-9]+\\b") else {
+            return nil
+        }
+        let range = NSRange(location: 0, length: (text as NSString).length)
+        guard
+            let match = regex.firstMatch(in: text, options: [], range: range),
+            let matchedRange = Range(match.range, in: text)
+        else {
+            return nil
+        }
+        let value = String(text[matchedRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 
     private func isExecutableAllowed(_ executablePath: String) -> Bool {
