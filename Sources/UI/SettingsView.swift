@@ -347,11 +347,11 @@ struct SettingsView: View {
 
                 magicianTriggerGuideCard
 
+                magicianTextPermissionCard
+
                 magicianCLIControlCard
 
-                ForEach(magicianClassicDescriptors) { descriptor in
-                    magicianFeatureCard(descriptor)
-                }
+                magicianAppleNativePermissionCard
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
@@ -369,7 +369,7 @@ struct SettingsView: View {
                 .font(.headline)
             Text("长按主键（默认右 Shift）说命令，松开就会执行。")
                 .font(.subheadline)
-            Text("有选中时走现有文字流程；无选中时自动进入 CLI 模式。")
+            Text("有选中时走改写/应用动作；无选中时会进入命令模式。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text("示例：先选中后说“翻成日语”；或不选中直接说“飞书查今天议程”。")
@@ -381,11 +381,60 @@ struct SettingsView: View {
         .pulseCard(cornerRadius: 12)
     }
 
+    private var magicianTextPermissionCard: some View {
+        let scope = MagicianPermissionScope.textProcessing
+        let resolution = magicianStatusResolver.resolve(
+            feature: .textTransform,
+            isEnabled: magicianFeatureToggleStore.isEnabled(scope),
+            dependencies: currentMagicianDependencies
+        )
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                Label(scope.displayName, systemImage: scope.symbolName)
+                    .font(.headline)
+                Spacer()
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { magicianFeatureToggleStore.isEnabled(scope) },
+                        set: { enabled in
+                            handleMagicianScopeToggleChange(scope: scope, enabled: enabled)
+                        }
+                    )
+                )
+                .labelsHidden()
+                .toggleStyle(SwitchToggleStyle())
+                .scaleEffect(0.8)
+                .fixedSize()
+            }
+
+            Text("有选中时改写选中文本；无选中时可直接当文本命令助手。")
+                .font(.subheadline)
+            Text("边界：只写入文本结果，不触发系统动作。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("示例：无选中说“帮我写一段简短会议结论”。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if let reason = resolution.reason {
+                Text(reason)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .pulseCard(cornerRadius: 12)
+    }
+
     private var magicianCLIControlCard: some View {
+        let scope = MagicianPermissionScope.feishu
         let descriptor = MagicianFeatureDescriptor.all.first(where: { $0.id == .feishuCLI })!
         let resolution = magicianStatusResolver.resolve(
             feature: descriptor.id,
-            isEnabled: magicianFeatureToggleStore.isEnabled(descriptor.id),
+            isEnabled: magicianFeatureToggleStore.isEnabled(scope),
             dependencies: currentMagicianDependencies
         )
         let grouped = feishuCatalogGrouped
@@ -398,11 +447,9 @@ struct SettingsView: View {
                 Toggle(
                     "",
                     isOn: Binding(
-                        get: {
-                            magicianFeatureToggleStore.isEnabled(descriptor.id)
-                        },
+                        get: { magicianFeatureToggleStore.isEnabled(scope) },
                         set: { enabled in
-                            handleMagicianToggleChange(feature: descriptor.id, enabled: enabled)
+                            handleMagicianScopeToggleChange(scope: scope, enabled: enabled)
                         }
                     )
                 )
@@ -487,29 +534,34 @@ struct SettingsView: View {
         .pulseCard(cornerRadius: 12)
     }
 
-    private func magicianFeatureCard(_ descriptor: MagicianFeatureDescriptor) -> some View {
-        let resolution = magicianStatusResolver.resolve(
-            feature: descriptor.id,
-            isEnabled: magicianFeatureToggleStore.isEnabled(descriptor.id),
-            dependencies: currentMagicianDependencies
-        )
+    private var magicianAppleNativePermissionCard: some View {
+        let scope = MagicianPermissionScope.appleNativeApps
+        let rows: [(feature: MagicianFeatureID, resolution: MagicianFeatureStatusResolution)] = [
+            .createEvent,
+            .createNote,
+            .composeEmailDraft
+        ].map { feature in
+            (
+                feature: feature,
+                resolution: magicianStatusResolver.resolve(
+                    feature: feature,
+                    isEnabled: magicianFeatureToggleStore.isEnabled(scope),
+                    dependencies: currentMagicianDependencies
+                )
+            )
+        }
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
-                Label(descriptor.name, systemImage: descriptor.symbolName)
+                Label(scope.displayName, systemImage: scope.symbolName)
                     .font(.headline)
                 Spacer()
                 Toggle(
                     "",
                     isOn: Binding(
-                        get: {
-                            magicianFeatureToggleStore.isEnabled(descriptor.id)
-                        },
+                        get: { magicianFeatureToggleStore.isEnabled(scope) },
                         set: { enabled in
-                            handleMagicianToggleChange(
-                                feature: descriptor.id,
-                                enabled: enabled
-                            )
+                            handleMagicianScopeToggleChange(scope: scope, enabled: enabled)
                         }
                     )
                 )
@@ -519,34 +571,34 @@ struct SettingsView: View {
                 .fixedSize()
             }
 
-            Text(descriptor.summary)
+            Text("统一包含系统日历、备忘录和邮件。")
                 .font(.subheadline)
-
-            Text("边界：\(descriptor.boundary)")
+            Text("边界：仅调用本机原生应用，不会走飞书。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Text("示例：\(descriptor.example)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if let reason = resolution.reason {
-                Text(reason)
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(row.feature.displayName)
+                            .font(.caption.weight(.semibold))
+                        Text(row.resolution.status.labelText)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let reason = row.resolution.reason {
+                        Text(reason)
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                }
             }
 
-            if descriptor.id == .composeEmailDraft {
-                mailAssistantAddressBookSection
-            }
+            mailAssistantAddressBookSection
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .pulseCard(cornerRadius: 12)
-    }
-
-    private var magicianClassicDescriptors: [MagicianFeatureDescriptor] {
-        MagicianFeatureDescriptor.all.filter { $0.id != .feishuCLI }
     }
 
     private var feishuCatalogGrouped: [(group: String, operations: [FeishuCanonicalOperation])] {
@@ -1640,29 +1692,12 @@ struct SettingsView: View {
         magicianFeishuCLIResolvedPath = feishuAvailability.backend?.executablePath ?? "未检测到"
     }
 
-    private func handleMagicianToggleChange(
-        feature: MagicianFeatureID,
+    private func handleMagicianScopeToggleChange(
+        scope: MagicianPermissionScope,
         enabled: Bool
     ) {
-        if !enabled {
-            magicianFeatureToggleStore.setEnabled(false, for: feature)
-            showToast("\(feature.displayName)已关闭。")
-            return
-        }
-
-        let requirement = magicianStatusResolver.requirement(
-            for: feature,
-            dependencies: currentMagicianDependencies
-        )
-        switch requirement {
-        case .ready:
-            magicianFeatureToggleStore.setEnabled(true, for: feature)
-            showToast("\(feature.displayName)已开启。")
-        case let .blocked(reason, prompt):
-            magicianFeatureToggleStore.setEnabled(false, for: feature)
-            magicianPermissionPrompt = prompt
-            showToast(reason)
-        }
+        magicianFeatureToggleStore.setEnabled(enabled, for: scope)
+        showToast("\(scope.displayName)能力已\(enabled ? "开启" : "关闭")。")
     }
 
     private func handleMagicianPromptPrimary(_ prompt: MagicianPermissionPromptModel) {

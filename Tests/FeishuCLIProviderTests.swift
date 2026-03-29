@@ -83,6 +83,8 @@ final class FeishuCLIProviderTests: XCTestCase {
         let variants: [InferCase] = [
             InferCase(operation: .calendarEvent, command: "Feishu, add a class event at 3pm today."),
             InferCase(operation: .imUserMessage, command: "飞书：message send 给团队"),
+            InferCase(operation: .imUserMessage, command: "给飞书的庄泓铠的飞书助手发一条消息，告诉他我正在用 PulseType"),
+            InferCase(operation: .bitableApp, command: "帮我在飞书建立一个多位表格"),
             InferCase(operation: .searchDocWiki, command: "请帮我 search doc：路线图"),
             InferCase(operation: .calendarFreebusy, command: "飞书 freebusy 看看今天下午是否空闲"),
             InferCase(operation: .oauthBatchAuth, command: "Feishu batch auth now"),
@@ -288,6 +290,40 @@ exit 0
         }
     }
 
+    func testBitableCreateCommandAutoBuildsBaseCreateArguments() async throws {
+        let fixture = try makeExecutableFixture(
+            fileName: "lark-cli",
+            script: "#!/bin/sh\necho \"$@\"\nexit 0\n"
+        )
+        defer { fixture.cleanUp() }
+
+        let provider = FeishuCLIProvider()
+        let availability = FeishuCLIAvailability(
+            backend: FeishuCLIBackendDescriptor(
+                kind: .larkCLI,
+                executablePath: fixture.executableURL.path,
+                commandName: "lark-cli"
+            )
+        )
+
+        let result = await provider.execute(
+            operation: .bitableApp,
+            spokenCommand: "帮我在飞书建立一个多位表格",
+            explicitArguments: [],
+            availability: availability
+        )
+
+        switch result {
+        case let .success(success):
+            let output = success.outputText ?? ""
+            XCTAssertTrue(output.contains("base +base-create"))
+            XCTAssertTrue(output.contains("--name"))
+            XCTAssertFalse(output.contains("--help"))
+        case let .failure(error):
+            XCTFail("expected success but got error: \(error)")
+        }
+    }
+
     func testCalendarEventNaturalLanguageBuildsCreateArgumentsWithoutHelp() async throws {
         let fixture = try makeExecutableFixture(
             fileName: "lark-cli",
@@ -431,6 +467,42 @@ exit 0
         case let .failure(error):
             XCTAssertEqual(error.code, .toolExecutionFailed)
             XCTAssertTrue(error.userMessage.contains("机器人当前不在目标群里"))
+        }
+    }
+
+    func testExecuteMapsUnknownFlagFailureToReadableMessage() async throws {
+        let fixture = try makeExecutableFixture(
+            fileName: "lark-cli",
+            script: """
+#!/bin/sh
+echo "unknown flag: --bad" 1>&2
+exit 2
+"""
+        )
+        defer { fixture.cleanUp() }
+
+        let provider = FeishuCLIProvider()
+        let availability = FeishuCLIAvailability(
+            backend: FeishuCLIBackendDescriptor(
+                kind: .larkCLI,
+                executablePath: fixture.executableURL.path,
+                commandName: "lark-cli"
+            )
+        )
+
+        let result = await provider.execute(
+            operation: .imUserMessage,
+            spokenCommand: "给测试群发消息",
+            explicitArguments: ["--bad", "1"],
+            availability: availability
+        )
+
+        switch result {
+        case .success:
+            XCTFail("expected failure but got success")
+        case let .failure(error):
+            XCTAssertEqual(error.code, .toolExecutionFailed)
+            XCTAssertTrue(error.userMessage.contains("参数格式"))
         }
     }
 

@@ -81,21 +81,40 @@ final class MagicianIntentRouterTests: XCTestCase {
         }
     }
 
-    func testHeuristicRouterRejectsTextTransformWhenSelectionMissing() async {
+    func testHeuristicRouterAllowsTextTransformWithoutSelectionInCommandMode() async throws {
         let router = HeuristicMagicianIntentRouter()
 
-        do {
-            _ = try await router.route(
-                command: "帮我润色一下",
-                selection: nil,
-                enabledFeatures: [.textTransform]
-            )
-            XCTFail("Expected selectionEmpty error")
-        } catch let error as MagicianError {
-            XCTAssertEqual(error.code, .selectionEmpty)
-        } catch {
-            XCTFail("Unexpected error: \(error)")
-        }
+        let intent = try await router.route(
+            command: "帮我润色一下",
+            selection: nil,
+            enabledFeatures: [.textTransform]
+        )
+
+        XCTAssertEqual(intent.intent, .textTransform)
+        XCTAssertEqual(intent.sourceText, "帮我润色一下")
+    }
+
+    func testHeuristicRouterPrioritizesFeishuWhenSelectionExists() async throws {
+        let router = HeuristicMagicianIntentRouter()
+        let intent = try await router.route(
+            command: "把这段内容写到飞书日程里",
+            selection: "4月1日下午三点 路线图评审",
+            enabledFeatures: [.textTransform, .createEvent, .feishuCLI]
+        )
+
+        XCTAssertEqual(intent.intent, .feishuCLI)
+        XCTAssertEqual(intent.params.cliOperation, "feishu_calendar_event")
+    }
+
+    func testHeuristicRouterDefaultsUnspecifiedScheduleToSystemCalendar() async throws {
+        let router = HeuristicMagicianIntentRouter()
+        let intent = try await router.route(
+            command: "添加一个下午三点的上课日程",
+            selection: nil,
+            enabledFeatures: [.createEvent, .feishuCLI]
+        )
+
+        XCTAssertEqual(intent.intent, .createEvent)
     }
 
     func testHeuristicRouterRoutesNoSelectionFeishuCommandToCLIIntent() async throws {
@@ -139,6 +158,21 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertEqual(plan.steps[0].feature, .feishuCLI)
         XCTAssertEqual(plan.steps[0].command, command)
         XCTAssertEqual(plan.steps[0].params.cliOperation, "feishu_calendar_event")
+    }
+
+    func testHeuristicWorkflowPlannerSupportsMultiStepInCommandMode() async throws {
+        let planner = HeuristicMagicianWorkflowPlanner()
+        let plan = try await planner.plan(
+            command: "先建飞书多位表格，然后分析一下今年各国的GDP",
+            selection: nil,
+            enabledFeatures: [.feishuCLI, .textTransform]
+        )
+
+        XCTAssertEqual(plan.steps.count, 2)
+        XCTAssertEqual(plan.steps[0].feature, .feishuCLI)
+        XCTAssertEqual(plan.steps[0].inputBinding, .commandOnly)
+        XCTAssertEqual(plan.steps[1].feature, .textTransform)
+        XCTAssertEqual(plan.steps[1].inputBinding, .previousOutput)
     }
 
     func testSchemaValidatorRejectsDisabledIntent() {
@@ -876,6 +910,32 @@ final class MagicianIntentRouterTests: XCTestCase {
         )
 
         XCTAssertEqual(validated.steps.first?.feature, .feishuCLI)
+        XCTAssertEqual(validated.steps.first?.inputBinding, .commandOnly)
+    }
+
+    func testStepRegistryUsesCommandOnlyForFirstTextStepWithoutSelection() throws {
+        let registry = MagicianStepRegistry()
+        let plan = MagicianWorkflowPlan(
+            steps: [
+                MagicianWorkflowStep(
+                    stepID: "step-1",
+                    feature: .textTransform,
+                    params: .empty,
+                    inputBinding: .selectionText,
+                    command: "帮我总结一下这段内容"
+                )
+            ],
+            confidence: 0.86
+        )
+
+        let validated = try registry.validatedPlan(
+            plan,
+            enabledFeatures: [.textTransform],
+            fallbackCommand: "帮我总结一下这段内容",
+            fallbackSelection: ""
+        )
+
+        XCTAssertEqual(validated.steps.first?.feature, .textTransform)
         XCTAssertEqual(validated.steps.first?.inputBinding, .commandOnly)
     }
 

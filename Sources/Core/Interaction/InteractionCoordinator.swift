@@ -1749,24 +1749,14 @@ final class InteractionCoordinator {
         }
 
         let hasSelectionText = !selectionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let enabledFeatures: Set<MagicianFeatureID> = {
-            if hasSelectionText {
-                return magicianFeatureToggleStore
-                    .enabledFeatures
-                    .subtracting([.feishuCLI])
-            }
-            return magicianFeatureToggleStore.isEnabled(.feishuCLI)
-                ? [.feishuCLI]
-                : []
-        }()
+        let enabledFeatures = magicianFeatureToggleStore.enabledFeatures
         let plannerModelConfiguration = magicianPlannerModelConfiguration(
-            enabledFeatures: enabledFeatures,
             selectionText: selectionText
         )
         guard !enabledFeatures.isEmpty else {
             let message = hasSelectionText
-                ? "当前没有可用的选中流程能力，请先在魔术先生页面开启。"
-                : "无选中场景需要先开启飞书 CLI 能力。"
+                ? "当前没有可用能力，请先在魔术先生页面打开权限开关。"
+                : "无选中场景当前没有可用能力，请先在魔术先生页面打开权限开关。"
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -2374,25 +2364,34 @@ final class InteractionCoordinator {
         stepStartedAt: Date
     ) async throws -> MagicianWorkflowStepExecutionResponse {
         let normalizedInput = stepInputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedInput.isEmpty else {
+        let normalizedCommand = stepCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        let commandOnlyInput = request.step.inputBinding == .commandOnly ? normalizedCommand : ""
+        let effectiveInput = normalizedInput.isEmpty ? commandOnlyInput : normalizedInput
+        let useCLITextModel = request.step.inputBinding == .commandOnly
+        guard !effectiveInput.isEmpty else {
             throw MagicianError(
                 code: .selectionEmpty,
-                userMessage: "文字处理步骤需要先选中一段文本。",
+                userMessage: "文字处理步骤缺少可处理内容，请补一句更明确的文本命令。",
                 debugMessage: "workflow text transform input empty",
-                recoverAction: "select_text_first"
+                recoverAction: "retry_command"
             )
         }
 
-        guard providerSettingsStore.isRewriteConfigurationValid else {
+        let validationMessage = useCLITextModel
+            ? providerSettingsStore.cliTextConfigurationValidationMessage
+            : providerSettingsStore.rewriteConfigurationValidationMessage
+        guard validationMessage == nil else {
             throw MagicianError(
                 code: .intentParseFailed,
-                userMessage: providerSettingsStore.rewriteConfigurationValidationMessage ?? "改写模型配置无效。",
-                debugMessage: providerSettingsStore.rewriteConfigurationValidationMessage,
+                userMessage: validationMessage ?? "改写模型配置无效。",
+                debugMessage: validationMessage,
                 recoverAction: "open_provider_settings"
             )
         }
 
-        let loadedKey = try providerSettingsStore.loadAPIKeyForRewriteProvider()
+        let loadedKey = try (useCLITextModel
+            ? providerSettingsStore.loadAPIKeyForCLIProvider()
+            : providerSettingsStore.loadAPIKeyForRewriteProvider())
         let apiKey = loadedKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !apiKey.isEmpty else {
             throw MagicianError(
@@ -2403,7 +2402,9 @@ final class InteractionCoordinator {
             )
         }
 
-        let rewriteConfiguration = providerSettingsStore.rewriteConfiguration
+        let rewriteConfiguration = useCLITextModel
+            ? providerSettingsStore.cliRewriteConfiguration
+            : providerSettingsStore.rewriteConfiguration
         guard let rewriteProvider = rewriteProviderRegistry.provider(for: rewriteConfiguration.providerType) else {
             throw MagicianError(
                 code: .toolExecutionFailed,
@@ -2414,11 +2415,17 @@ final class InteractionCoordinator {
         }
 
         let rewriteResult: SelectionRewriteResult
+        let rewriteInstruction: String = {
+            if request.step.inputBinding == .commandOnly {
+                return "你将收到用户命令文本，请直接完成命令并只输出最终文本结果，不要解释。"
+            }
+            return normalizedCommand
+        }()
         do {
             rewriteResult = try await rewriteProvider.rewrite(
                 request: SelectionRewriteRequest(
-                    selectedText: normalizedInput,
-                    spokenInstruction: stepCommand,
+                    selectedText: effectiveInput,
+                    spokenInstruction: rewriteInstruction,
                     focusContext: request.context.focusContext,
                     outputBias: .neutral,
                     appPrompt: nil,
@@ -2480,7 +2487,7 @@ final class InteractionCoordinator {
             let outputResult = try await textOutputCoordinator.write(
                 request: TextOutputRequest(
                     text: finalRewriteText,
-                    operation: .replaceSelectedText,
+                    operation: request.step.inputBinding == .commandOnly ? .insertText : .replaceSelectedText,
                     focusContext: request.context.focusContext
                 )
             )
@@ -3391,11 +3398,10 @@ final class InteractionCoordinator {
     }
 
     private func magicianPlannerModelConfiguration(
-        enabledFeatures: Set<MagicianFeatureID>,
         selectionText: String
     ) -> TextGenerationProviderConfiguration {
         let normalizedSelection = selectionText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if enabledFeatures == [.feishuCLI], normalizedSelection.isEmpty {
+        if normalizedSelection.isEmpty {
             return providerSettingsStore.cliRewriteConfiguration
         }
         return providerSettingsStore.rewriteConfiguration

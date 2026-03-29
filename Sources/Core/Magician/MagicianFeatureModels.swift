@@ -212,6 +212,69 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+enum MagicianPermissionScope: String, CaseIterable, Codable, Identifiable {
+    case textProcessing = "text_processing"
+    case feishu = "feishu"
+    case appleNativeApps = "apple_native_apps"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .textProcessing:
+            return "文字处理"
+        case .feishu:
+            return "飞书"
+        case .appleNativeApps:
+            return "苹果原生应用"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .textProcessing:
+            return "text.bubble"
+        case .feishu:
+            return "paperplane.circle"
+        case .appleNativeApps:
+            return "apple.logo"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .textProcessing:
+            return "有选中时改写文字；无选中时可当文本命令助手。"
+        case .feishu:
+            return "无选中也能语音下令，走飞书 CLI 执行。"
+        case .appleNativeApps:
+            return "统一控制系统日历、备忘录、邮件能力。"
+        }
+    }
+
+    var boundary: String {
+        switch self {
+        case .textProcessing:
+            return "只处理文本结果，不会触发系统动作。"
+        case .feishu:
+            return "仅执行 allowlist 内的飞书 CLI 动作。"
+        case .appleNativeApps:
+            return "只调用本机原生能力，不写入飞书。"
+        }
+    }
+
+    var mappedFeatures: Set<MagicianFeatureID> {
+        switch self {
+        case .textProcessing:
+            return [.textTransform]
+        case .feishu:
+            return [.feishuCLI]
+        case .appleNativeApps:
+            return [.createEvent, .createNote, .composeEmailDraft]
+        }
+    }
+}
+
 struct MagicianStepRegistryEntry: Equatable {
     let feature: MagicianFeatureID
     let defaultInputBinding: MagicianWorkflowInputBinding
@@ -311,7 +374,7 @@ struct MagicianStepRegistry {
                         if index > 0 {
                             return step.inputBinding
                         }
-                        if step.feature == .feishuCLI, fallbackSelection.isEmpty {
+                        if fallbackSelection.isEmpty {
                             return .commandOnly
                         }
                         return .selectionText
@@ -325,15 +388,6 @@ struct MagicianStepRegistry {
 
         let normalizedConfidence = max(0, min(1, plan.confidence.isFinite ? plan.confidence : 0.6))
         let normalizedRationale = plan.rationale?.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if normalizedSteps.first?.feature == .textTransform, fallbackSelection.isEmpty {
-            throw MagicianError(
-                code: .selectionEmpty,
-                userMessage: "文字处理步骤需要先选中一段文本。",
-                debugMessage: "text_transform step requires selection",
-                recoverAction: "select_text_first"
-            )
-        }
 
         return MagicianWorkflowPlan(
             version: plan.version,

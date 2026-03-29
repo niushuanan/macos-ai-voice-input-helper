@@ -236,6 +236,20 @@ enum FeishuCanonicalOperation: String, CaseIterable, Codable {
             return .calendarEvent
         }
 
+        if matchesPattern(
+            normalized,
+            pattern: #"(给|发给|发送给|通知|告诉).*(发一条|发个|发送)?(消息|私信|message)"#
+        ) {
+            return .imUserMessage
+        }
+
+        if matchesPattern(
+            normalized,
+            pattern: #"(创建|新建|建立|新增|建一个|建个).*((多维|多位)表格|bitable|base)"#
+        ) {
+            return .bitableApp
+        }
+
         let rules: [(FeishuCanonicalOperation, [String])] = [
             (.oauthBatchAuth, ["批量授权", "batch auth"]),
             (.oauth, ["oauth", "授权", "登录飞书", "飞书登录", "auth"]),
@@ -260,9 +274,9 @@ enum FeishuCanonicalOperation: String, CaseIterable, Codable {
             (.imUserSearchMessages, ["搜索消息", "search messages"]),
             (.imUserGetMessages, ["消息列表", "get messages"]),
             (.imUserFetchResource, ["下载消息资源", "fetch resource"]),
-            (.imUserMessage, ["发消息", "发送消息", "message send"]),
+            (.imUserMessage, ["发消息", "发送消息", "发一条消息", "发个消息", "告诉他", "message send"]),
             (.imBotImage, ["发图片", "bot image"]),
-            (.sheet, ["电子表格", "表格", "sheet", "spreadsheet"]),
+            (.sheet, ["电子表格", "飞书表格", "sheet", "spreadsheet"]),
             (.taskTasklist, ["任务列表", "tasklist"]),
             (.taskSubtask, ["子任务", "subtask"]),
             (.taskComment, ["任务评论", "task comment"]),
@@ -271,7 +285,7 @@ enum FeishuCanonicalOperation: String, CaseIterable, Codable {
             (.bitableAppTableRecord, ["记录", "table record"]),
             (.bitableAppTableView, ["视图", "table view"]),
             (.bitableAppTable, ["数据表", "table list"]),
-            (.bitableApp, ["多维表格", "bitable", "base app", "多维表格 app"])
+            (.bitableApp, ["多维表格", "多位表格", "多维表", "bitable", "base app", "多维表格 app"])
         ]
 
         var bestMatch: (operation: FeishuCanonicalOperation, score: Int, longestKeyword: Int)?
@@ -598,10 +612,14 @@ final class FeishuCLIProvider {
             )
         }
 
+        let normalizedErrorMessage = normalizedExecutionFailureMessage(
+            detail: processResult.detail,
+            operation: operation
+        )
         return .failure(
             MagicianError(
                 code: .toolExecutionFailed,
-                userMessage: "飞书 CLI 执行失败，请检查命令参数或登录状态。",
+                userMessage: normalizedErrorMessage ?? "飞书 CLI 执行失败，请检查命令参数或登录状态。",
                 debugMessage: processResult.detail,
                 recoverAction: "retry_command"
             )
@@ -671,7 +689,16 @@ final class FeishuCLIProvider {
 
         switch operation {
         case .bitableApp:
-            args = hasExplicitArguments ? ["base", "+base-get"] : ["base", "+base-get", "--help"]
+            if isBitableCreateCommand(spokenCommand) {
+                if hasExplicitArguments {
+                    args = ["base", "+base-create"]
+                } else {
+                    args = inferredBitableCreateArguments(from: spokenCommand)
+                        ?? ["base", "+base-create", "--name", "新建多维表格"]
+                }
+            } else {
+                args = hasExplicitArguments ? ["base", "+base-get"] : ["base", "+base-get", "--help"]
+            }
         case .bitableAppTable:
             args = hasExplicitArguments ? ["base", "+table-list"] : ["base", "+table-list", "--help"]
         case .bitableAppTableField:
@@ -1068,10 +1095,42 @@ final class FeishuCLIProvider {
         if lowered.contains("permission denied") || lowered.contains("scope") {
             return "飞书返回权限不足，请检查 app scope 并重新授权。"
         }
+        if lowered.contains("required flag") || lowered.contains("missing required") {
+            return "命令缺少必填参数，请补充目标对象或参数后再试。"
+        }
+        if lowered.contains("unknown flag") || lowered.contains("unknown shorthand flag") {
+            return "命令参数格式不正确，请检查参数写法后再试。"
+        }
+        if lowered.contains("not found") || lowered.contains("does not exist") {
+            return "目标对象不存在，请先确认用户、群聊或资源是否可访问。"
+        }
         if operation == .calendarEvent, lowered.contains("start") {
             return "日程时间参数不合法，请补充更明确的日期和时间。"
         }
         return "飞书 CLI 返回失败：\(message)"
+    }
+
+    private func normalizedExecutionFailureMessage(
+        detail: String,
+        operation: FeishuCanonicalOperation
+    ) -> String? {
+        let lowered = detail.lowercased()
+        if lowered.isEmpty {
+            return nil
+        }
+        if lowered.contains("required flag") || lowered.contains("missing required") {
+            return missingArgumentMessage(for: operation)
+        }
+        if lowered.contains("unknown flag") || lowered.contains("unknown shorthand flag") {
+            return "飞书 CLI 参数格式不正确，请检查参数后重试。"
+        }
+        if lowered.contains("permission denied") || lowered.contains("scope") {
+            return "飞书权限不足，请检查 app scope 并重新授权。"
+        }
+        if lowered.contains("not found") || lowered.contains("does not exist") {
+            return "目标对象不存在，请确认用户、群聊或资源标识是否正确。"
+        }
+        return nil
     }
 
     private func isCalendarCreateCommand(_ spokenCommand: String) -> Bool {
@@ -1082,6 +1141,72 @@ final class FeishuCLIProvider {
                 "记录到日程", "记到日程", "create"
             ]
         )
+    }
+
+    private func isBitableCreateCommand(_ spokenCommand: String) -> Bool {
+        let hasTarget = containsAny(
+            spokenCommand,
+            keywords: ["多维表格", "多位表格", "bitable", "base"]
+        )
+        let hasCreateVerb = containsAny(
+            spokenCommand,
+            keywords: ["创建", "新建", "建立", "新增", "建一个", "建个", "create"]
+        )
+        return hasTarget && hasCreateVerb
+    }
+
+    private func inferredBitableCreateArguments(from spokenCommand: String) -> [String]? {
+        let name = inferredBitableAppName(from: spokenCommand) ?? "新建多维表格"
+        return ["base", "+base-create", "--name", name]
+    }
+
+    private func inferredBitableAppName(from spokenCommand: String) -> String? {
+        if let quoted = firstQuotedText(in: spokenCommand),
+           let cleaned = cleanedBitableAppName(quoted)
+        {
+            return cleaned
+        }
+
+        let patterns = [
+            #"(?:叫|名为|名称(?:是|为)?|名字(?:是|为)?|标题(?:是|为)?)[：:\s]*([^，,。]{1,40})"#,
+            #"(?:创建|新建|建立|新增)(?:一个|一张|个|张)?([^，,。]{1,40})(?:多维表格|多位表格|bitable|base)"#
+        ]
+        for pattern in patterns {
+            if let captured = textMatched(in: spokenCommand, pattern: pattern),
+               let cleaned = cleanedBitableAppName(captured)
+            {
+                return cleaned
+            }
+        }
+
+        if
+            let semantic = magicianSemanticPayload(
+                from: spokenCommand,
+                actionTokens: ["飞书", "多维表格", "多位表格", "bitable", "base"],
+                extraCommandTokens: ["创建", "新建", "建立", "新增", "建一个", "建个"]
+            ),
+            let cleaned = cleanedBitableAppName(semantic)
+        {
+            return cleaned
+        }
+        return nil
+    }
+
+    private func cleanedBitableAppName(_ text: String) -> String? {
+        let cleaned = text
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+        guard !cleaned.isEmpty else {
+            return nil
+        }
+        let bannedTokens = ["飞书", "多维表格", "多位表格", "bitable", "base"]
+        let normalized = bannedTokens.reduce(cleaned) { partial, token in
+            partial.replacingOccurrences(of: token, with: "", options: [.caseInsensitive])
+        }.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+        guard !normalized.isEmpty else {
+            return nil
+        }
+        return String(normalized.prefix(48))
     }
 
     private func inferredCalendarCreateArguments(from spokenCommand: String) -> [String]? {
@@ -1495,6 +1620,7 @@ final class FeishuCLIProvider {
     private func inferredRecipientHint(from spokenCommand: String) -> String? {
         let patterns = [
             #"(?:给|发给)\s*(.+?)(?:发消息|消息|说|告诉|，|,|。|$)"#,
+            #"(?:把消息发给)\s*(.+?)(?:，|,|。|$)"#,
             #"(?:to)\s*(.+?)(?:message|say|,|$)"#
         ]
         for pattern in patterns {
@@ -1502,6 +1628,9 @@ final class FeishuCLIProvider {
                 let cleaned = captured
                     .replacingOccurrences(of: "飞书的", with: "")
                     .replacingOccurrences(of: "飞书", with: "")
+                    .replacingOccurrences(of: "助手", with: " ")
+                    .replacingOccurrences(of: "同事", with: " ")
+                    .replacingOccurrences(of: "的", with: " ")
                     .replacingOccurrences(of: "lark 的", with: "", options: .caseInsensitive)
                     .replacingOccurrences(of: "lark", with: "", options: .caseInsensitive)
                     .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)

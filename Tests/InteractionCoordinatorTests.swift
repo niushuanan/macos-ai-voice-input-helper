@@ -471,14 +471,37 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertFalse(fixture.sessionStore.statusMessage.contains("文本模型不可用"))
     }
 
-    func testMagicianHoldWithoutSelectionFailsWhenFeishuCLIDisabled() async throws {
+    func testMagicianHoldWithoutSelectionCanExecuteAppleNativeFeature() async throws {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = nil
-
+        let planner = FixedWorkflowPlanner(
+            plan: MagicianWorkflowPlan(
+                steps: [
+                    MagicianWorkflowStep(
+                        stepID: "step-1",
+                        feature: .createNote,
+                        params: MagicianIntentParams(noteBody: "周五和产品开会"),
+                        inputBinding: .commandOnly,
+                        command: "记一下周五和产品开会"
+                    )
+                ],
+                confidence: 0.89
+            )
+        )
         let toolExecutor = FakeMagicianToolExecutor()
+        toolExecutor.result = .success(
+            MagicianExecutionResult(
+                intent: .createNote,
+                userMessage: "已写入备忘录。",
+                outputText: "周五和产品开会",
+                historyDisplayText: "已写入备忘录：周五和产品开会",
+                fallbackUsed: false
+            )
+        )
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
+            magicianWorkflowPlanner: planner,
             magicianToolExecutor: toolExecutor,
             transcriptionText: "记一下周五和产品开会"
         )
@@ -490,12 +513,10 @@ final class InteractionCoordinatorTests: XCTestCase {
         fixture.coordinator.handleStopInput()
         await waitForPipeline(using: fixture.sessionStore)
 
-        XCTAssertEqual(fixture.sessionStore.phase, .error)
-        XCTAssertEqual(toolExecutor.callCount, 0)
-        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .failed)
-        XCTAssertTrue(
-            fixture.localHistoryStore.entries.first?.errorMessage?.contains("飞书 CLI") == true
-        )
+        XCTAssertEqual(fixture.sessionStore.phase, .idle)
+        XCTAssertEqual(toolExecutor.callCount, 1)
+        XCTAssertEqual(toolExecutor.lastIntent?.intent, .createNote)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
     }
 
     func testMagicianHoldWithoutSelectionRoutesIntoFeishuCLIWorkflow() async throws {
@@ -1342,7 +1363,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         )
     }
 
-    func testMagicianTextTransformFailsWithoutSelection() async throws {
+    func testMagicianTextTransformWithoutSelectionUsesCommandModeAndInsertText() async throws {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = nil
         let router = FakeMagicianIntentRouter(
@@ -1365,12 +1386,21 @@ final class InteractionCoordinatorTests: XCTestCase {
                 )
             )
         )
-        let toolExecutor = FakeMagicianToolExecutor()
+        let rewriteProvider = CapturingRewriteProvider(
+            result: .success(
+                SelectionRewriteResult(
+                    rewrittenText: "这是命令模式下的文本结果。",
+                    actionLabel: "命令文本助手",
+                    providerName: "Fake OpenAI",
+                    modelName: "fake-model"
+                )
+            )
+        )
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
             magicianIntentRouter: router,
-            magicianToolExecutor: toolExecutor,
+            rewriteProviders: [rewriteProvider],
             transcriptionText: "帮我润色一下"
         )
         defer { fixture.cleanUp() }
@@ -1381,10 +1411,11 @@ final class InteractionCoordinatorTests: XCTestCase {
         fixture.coordinator.handleStopInput()
         await waitForPipeline(using: fixture.sessionStore)
 
-        XCTAssertEqual(fixture.sessionStore.phase, .error)
-        XCTAssertTrue(fixture.sessionStore.statusMessage.contains("飞书 CLI"))
-        XCTAssertEqual(toolExecutor.callCount, 0)
-        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .failed)
+        XCTAssertEqual(fixture.sessionStore.phase, .idle)
+        XCTAssertEqual(textOutputCoordinator.lastRequest?.operation, .insertText)
+        XCTAssertEqual(textOutputCoordinator.lastRequest?.text, "这是命令模式下的文本结果。")
+        XCTAssertEqual(rewriteProvider.lastRequest?.selectedText, "帮我润色一下")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
     }
 
     func testMagicianTextTransformDoesNotPassAppOrSystemPromptToRewriteProvider() async throws {
@@ -1652,8 +1683,10 @@ final class InteractionCoordinatorTests: XCTestCase {
         let skillRuleStore = SkillRuleStore(defaults: defaults, storageKey: "skill.rules.interaction.tests")
         let magicianFeatureToggleStore = MagicianFeatureToggleStore(
             defaults: defaults,
-            storageKey: "magician.features.interaction.tests"
+            storageKey: "magician.permission_scopes.interaction.tests",
+            legacyStorageKey: "magician.features.interaction.tests"
         )
+        magicianFeatureToggleStore.resetAll()
         let transcriptionProvider: FakeTranscriptionProvider
         if let transcriptionResponses {
             transcriptionProvider = FakeTranscriptionProvider(scriptedResponses: transcriptionResponses)

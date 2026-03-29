@@ -21,14 +21,28 @@ protocol MagicianWorkflowPlanning {
 private func containsUnsupportedSearchIntent(_ command: String) -> Bool {
     let lowered = command.lowercased()
     if
-        FeishuCanonicalOperation.infer(from: command) != nil
-            || ["飞书", "feishu", "lark-cli", "lark cli", "lark"].contains(where: lowered.contains)
+        containsExplicitFeishuKeyword(lowered)
+            || containsExplicitFeishuOperationID(lowered)
     {
         return false
     }
     return ["搜索", "搜一下", "搜一搜", "查一下", "查一查", "google", "search"].contains {
         lowered.contains($0)
     }
+}
+
+private func containsExplicitFeishuKeyword(_ loweredCommand: String) -> Bool {
+    ["飞书", "feishu", "lark-cli", "lark cli", "lark"].contains(where: loweredCommand.contains)
+}
+
+private func containsExplicitFeishuOperationID(_ loweredCommand: String) -> Bool {
+    FeishuCanonicalOperation.allCases.contains { operation in
+        loweredCommand.contains(operation.rawValue.lowercased())
+    }
+}
+
+private func containsExplicitAppleNativeKeyword(_ loweredCommand: String) -> Bool {
+    ["系统", "本机", "电脑", "苹果", "apple", "mac", "macos", "系统日历", "本机日历"].contains(where: loweredCommand.contains)
 }
 
 private func unsupportedSearchIntentError() -> MagicianError {
@@ -435,13 +449,15 @@ struct MagicianIntentSchemaValidator {
         case .textTransform:
             if hasSelection {
                 sourceText = normalizedSelection
+            } else if sourceText.isEmpty {
+                sourceText = normalizedCommand
             }
             guard !sourceText.isEmpty else {
                 throw MagicianError(
                     code: .selectionEmpty,
-                    userMessage: "文字处理需要先选中内容再说指令。",
+                    userMessage: "文字处理缺少可处理内容，请补一句更明确的文本命令。",
                     debugMessage: "text_transform sourceText empty",
-                    recoverAction: "select_text_first"
+                    recoverAction: "retry_command"
                 )
             }
         case .createEvent:
@@ -896,10 +912,14 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
 
         let lowered = normalizedCommand.lowercased()
         let candidate: MagicianFeatureID
-        if normalizedSelection.isEmpty,
-           (FeishuCanonicalOperation.infer(from: normalizedCommand) != nil
-               || containsAny(lowered, keywords: ["飞书", "feishu", "lark-cli", "lark cli", "lark"])) {
+        if containsExplicitFeishuKeyword(lowered)
+            || containsExplicitFeishuOperationID(lowered)
+        {
             candidate = .feishuCLI
+        } else if containsExplicitAppleNativeKeyword(lowered),
+                  containsAny(lowered, keywords: ["日程", "会议", "calendar", "约", "安排", "提醒"])
+        {
+            candidate = .createEvent
         } else if containsAny(lowered, keywords: ["日程", "会议", "calendar", "约", "安排", "提醒"]) {
             candidate = .createEvent
         } else if containsAny(lowered, keywords: ["备忘录", "note", "记下来", "记到", "记一下", "记一条", "记录一下", "写进备忘录"]) {
@@ -1254,8 +1274,18 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
             throw unsupportedSearchIntentError()
         }
 
+        if !normalizedSelection.isEmpty,
+           containsExplicitFeishuKeyword(normalizedCommand.lowercased()),
+           enabledFeatures.contains(.feishuCLI)
+        {
+            return try await heuristicFallbackRouter.route(
+                command: normalizedCommand,
+                selection: selection,
+                enabledFeatures: [.feishuCLI]
+            )
+        }
+
         let isCLICommandMode = shouldUseCLIModel(
-            enabledFeatures: enabledFeatures,
             selection: normalizedSelection
         )
         let validationMessage = isCLICommandMode
@@ -1434,11 +1464,9 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
     }
 
     private func shouldUseCLIModel(
-        enabledFeatures: Set<MagicianFeatureID>,
         selection: String
     ) -> Bool {
-        enabledFeatures == [.feishuCLI]
-            && selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func shouldFallbackToHeuristicCLI(
@@ -1881,12 +1909,7 @@ struct HeuristicMagicianWorkflowPlanner: MagicianWorkflowPlanning {
             )
         }
 
-        let segments: [String]
-        if enabledFeatures == [.feishuCLI], trimmedSelection.isEmpty {
-            segments = [trimmedCommand]
-        } else {
-            segments = splitWorkflowCommand(trimmedCommand)
-        }
+        let segments = splitWorkflowCommand(trimmedCommand)
         var steps: [MagicianWorkflowStep] = []
         for (index, segment) in segments.prefix(MagicianStepRegistry.maxStepCount).enumerated() {
             let intent = try await intentRouter.route(
@@ -1932,7 +1955,7 @@ struct HeuristicMagicianWorkflowPlanner: MagicianWorkflowPlanning {
     private func splitWorkflowCommand(_ command: String) -> [String] {
         let patterns = [
             #"(?i)\s*(然后|再|接着|随后|并且|并|之后)\s*"#,
-            #"(?i)\s*[，,；;。]\s*"#
+            #"(?i)\s*[；;]\s*"#
         ]
         var segments = [command]
         for pattern in patterns {
@@ -2085,7 +2108,6 @@ struct LLMMagicianWorkflowPlanner: MagicianWorkflowPlanning {
 
         do {
             let isCLICommandMode = shouldUseCLIModel(
-                enabledFeatures: enabledFeatures,
                 selection: normalizedSelection
             )
             let validationMessage = isCLICommandMode
@@ -2242,11 +2264,9 @@ struct LLMMagicianWorkflowPlanner: MagicianWorkflowPlanning {
     }
 
     private func shouldUseCLIModel(
-        enabledFeatures: Set<MagicianFeatureID>,
         selection: String
     ) -> Bool {
-        enabledFeatures == [.feishuCLI]
-            && selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func classifyPlan(
