@@ -3,7 +3,13 @@ import Foundation
 enum MagicianFeishuCLIHealth: Equatable {
     case unknown
     case ready(version: String?, scopes: [String], userName: String?)
-    case permissionLimited(version: String?, scopes: [String], userName: String?)
+    case permissionLimited(
+        version: String?,
+        scopes: [String],
+        userName: String?,
+        missingScopes: [String],
+        doctorFailures: [String]
+    )
     case authRequired(message: String)
     case unavailable(message: String)
 
@@ -28,10 +34,24 @@ enum MagicianFeishuCLIHealth: Equatable {
             return nil
         case let .ready(version, _, userName):
             return joinedDetail(version: version, userName: userName)
-        case let .permissionLimited(version, _, userName):
+        case let .permissionLimited(version, _, userName, _, _):
             return joinedDetail(version: version, userName: userName)
         case let .authRequired(message), let .unavailable(message):
             return message
+        }
+    }
+
+    var limitationItems: [String] {
+        switch self {
+        case .unknown, .ready, .authRequired, .unavailable:
+            return []
+        case let .permissionLimited(_, _, _, missingScopes, doctorFailures):
+            var items: [String] = []
+            if !missingScopes.isEmpty {
+                items.append("缺少 scope：\(missingScopes.joined(separator: "、"))")
+            }
+            items.append(contentsOf: doctorFailures.map { "诊断失败：\($0)" })
+            return items
         }
     }
 
@@ -97,19 +117,41 @@ struct MagicianCapabilityProbe {
         }
 
         let scopeProbeResults = coreScopes.map { scope in
-            runCLI(
+            let result = runCLI(
                 executablePath: backend.executablePath,
                 arguments: ["auth", "check", "--scope", scope],
                 timeoutSeconds: 2.0
             )
+            return (scope: scope, result: result)
         }
-        let missingCoreScope = scopeProbeResults.contains { $0.exitCode != 0 }
+        let missingScopes = scopeProbeResults.compactMap { item -> String? in
+            item.result.exitCode == 0 ? nil : item.scope
+        }
+        let missingCoreScope = !missingScopes.isEmpty
+        let doctorFailures = doctorChecks.compactMap { check -> String? in
+            let status = ((check["status"] as? String) ?? (check["result"] as? String) ?? "").lowercased()
+            guard status == "fail" || status == "failed" || status == "error" else {
+                return nil
+            }
+            let name = (check["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "unknown"
+            let message = (check["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return message.isEmpty ? name : "\(name)（\(message)）"
+        }
 
         if tokenStatus == "valid" {
             if !missingCoreScope && !hasDoctorFailure {
                 return (availability, .ready(version: versionLine, scopes: scopes, userName: userName))
             }
-            return (availability, .permissionLimited(version: versionLine, scopes: scopes, userName: userName))
+            return (
+                availability,
+                .permissionLimited(
+                    version: versionLine,
+                    scopes: scopes,
+                    userName: userName,
+                    missingScopes: missingScopes,
+                    doctorFailures: doctorFailures
+                )
+            )
         }
 
         return (

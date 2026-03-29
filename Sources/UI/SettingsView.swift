@@ -483,6 +483,15 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            let feishuLimitations = magicianFeishuCLIHealth.limitationItems
+            if !feishuLimitations.isEmpty {
+                ForEach(feishuLimitations, id: \.self) { item in
+                    Text(item)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+
             Text("路径：\(magicianFeishuCLIResolvedPath)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
