@@ -103,19 +103,22 @@ struct MagicianExecutionResult: Equatable {
     let outputText: String?
     let historyDisplayText: String?
     let fallbackUsed: Bool
+    let observation: MagicianAgentObservation?
 
     init(
         intent: MagicianFeatureID,
         userMessage: String,
         outputText: String?,
         historyDisplayText: String? = nil,
-        fallbackUsed: Bool
+        fallbackUsed: Bool,
+        observation: MagicianAgentObservation? = nil
     ) {
         self.intent = intent
         self.userMessage = userMessage
         self.outputText = outputText
         self.historyDisplayText = historyDisplayText
         self.fallbackUsed = fallbackUsed
+        self.observation = observation
     }
 }
 
@@ -208,6 +211,23 @@ struct MagicianWorkflowStepResult: Equatable {
     let outputText: String?
     let historyDisplayText: String?
     let fallbackUsed: Bool
+    let observation: MagicianAgentObservation?
+
+    init(
+        step: MagicianWorkflowStep,
+        userMessage: String,
+        outputText: String?,
+        historyDisplayText: String?,
+        fallbackUsed: Bool,
+        observation: MagicianAgentObservation? = nil
+    ) {
+        self.step = step
+        self.userMessage = userMessage
+        self.outputText = outputText
+        self.historyDisplayText = historyDisplayText
+        self.fallbackUsed = fallbackUsed
+        self.observation = observation
+    }
 }
 
 struct MagicianWorkflowExecutionResult: Equatable {

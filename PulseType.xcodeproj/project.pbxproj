@@ -13,6 +13,11 @@
 		06ED5EEBD9C709D7B20DFF2C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615736F7FBCACF8AF8B17CCF /* SettingsView.swift */; };
 		08AEBC14B14DCFC8330558BA /* OpenAITextGenerationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BFB5724578D68E1E94182AB /* OpenAITextGenerationProvider.swift */; };
 		0BFF36E08E600A3BF576CB58 /* AppRuntimePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F27E549959E4CC7A13EEC8A0 /* AppRuntimePolicy.swift */; };
+		0F1111111111111111111111 /* FeishuCLIErrorMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F1111111111111111111111 /* FeishuCLIErrorMapper.swift */; };
+		0F2222222222222222222222 /* FeishuCLIProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F2222222222222222222222 /* FeishuCLIProcessRunner.swift */; };
+		0F3333333333333333333333 /* FeishuOperationCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F3333333333333333333333 /* FeishuOperationCatalog.swift */; };
+		0F4444444444444444444444 /* FeishuResultVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4444444444444444444444 /* FeishuResultVerifier.swift */; };
+		0F5555555555555555555555 /* FeishuTargetResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F5555555555555555555555 /* FeishuTargetResolver.swift */; };
 		15AFB9B64D6E2E6F4D727B91 /* CredentialStoreFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 224D659DABCDE4AC47E87550 /* CredentialStoreFactory.swift */; };
 		169AA4C1EDAB3A5B209A2D79 /* PermissionsCenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45FDDDA1B98A4214EE0A369D /* PermissionsCenterTests.swift */; };
 		1931CADB5580555FE33092AC /* SettingsViewComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BDF56555B291291E6B40723 /* SettingsViewComponents.swift */; };
@@ -32,6 +37,9 @@
 		30A834C1E7880AD332755CCB /* MagicianFeatureToggleStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 045D84679EE789BE00D2B376 /* MagicianFeatureToggleStoreTests.swift */; };
 		30B6BF4063B862B03504917D /* ModifierCaptureStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35AEAF4A969D25A995B7A233 /* ModifierCaptureStateMachine.swift */; };
 		321CDE1E3F347483B9AA29F2 /* MagicianCLIRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8F2851B668DC5C7A7B80A79 /* MagicianCLIRegistry.swift */; };
+		331111111111111111111111 /* MagicianAgentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 431111111111111111111111 /* MagicianAgentModels.swift */; };
+		332222222222222222222222 /* MagicianCapabilityProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 432222222222222222222222 /* MagicianCapabilityProbe.swift */; };
+		333333333333333333333333 /* MagicianCommandSemantics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 433333333333333333333333 /* MagicianCommandSemantics.swift */; };
 		362F2F56991A39E3C967B865 /* WorkflowTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B59C47BDE08B1E3FD3A927AA /* WorkflowTelemetry.swift */; };
 		382AEFF6E0F7F9BCFCAF3691 /* AppScenePolicyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD3BEE22B923D79D9B8964B /* AppScenePolicyStore.swift */; };
 		3FB587B63E32498812860E51 /* SkillRuleStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5209C9FFF3D4214351BD221 /* SkillRuleStore.swift */; };
@@ -65,6 +73,7 @@
 		9527FFE7B235C06A1D6C4473 /* LocalSenseVoiceRuntimeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D71BCBE3A301D990D1FACB2F /* LocalSenseVoiceRuntimeManager.swift */; };
 		95A7E033C811E37484D842FA /* ProviderSettingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ACA092E1EECB7CAE8BEEB9D /* ProviderSettingsStoreTests.swift */; };
 		A1D7C9E24F8B4A10B5C3D2E1 /* FeishuCLIProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E8D0F35A9C4B21C6D4E3F2 /* FeishuCLIProviderTests.swift */; };
+		A1E1E1E1E1E1E1E1E1E1E1E1 /* FeishuResultVerifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1E1E1E1E1E1E1E1E1E1E1E1 /* FeishuResultVerifierTests.swift */; };
 		972AFA7F034A7B07E8E722A8 /* HotkeyNames.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEE9D1B6AD35D4FEE8C8C42D /* HotkeyNames.swift */; };
 		9AAE4E35DD8D04A589EEC7B5 /* DashScopeAndLocalASRTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 194DDF738D89950B26E29DE3 /* DashScopeAndLocalASRTests.swift */; };
 		9E8F31ACADBA102294F4C3C1 /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = 28302DFB9844BDD6EB452B0C /* KeyboardShortcuts */; };
@@ -89,6 +98,7 @@
 		D8D75B198D2392275C5B9C14 /* MagicianMailAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA38C8DA6C7925E4B4EFB81 /* MagicianMailAdapter.swift */; };
 		D99F2AE0A2185AAD3780A31C /* CredentialStoreFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 063E41521D138280350363BC /* CredentialStoreFactoryTests.swift */; };
 		D9DD4B7BAE8C89ADE47F0410 /* ModifierCaptureStateMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A4DD0C302CC25FFC1B7985 /* ModifierCaptureStateMachineTests.swift */; };
+		DA1111111111111111111111 /* MagicianCommandSemanticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1111111111111111111111 /* MagicianCommandSemanticsTests.swift */; };
 		E06B6EFE3455FD779A392C05 /* ModifierCaptureButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A14249E005F70CBCBF7D59E /* ModifierCaptureButton.swift */; };
 		E1DBC788787F324D6B2178FD /* SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71EDE485545C13E98B2E5B72 /* SessionStoreTests.swift */; };
 		E2C01612B81DC2860D9BDBFC /* LocalSenseVoiceRuntimeManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 289CC9CA3CBFE14B7FE231B0 /* LocalSenseVoiceRuntimeManagerTests.swift */; };
@@ -130,6 +140,11 @@
 		0FD3BEE22B923D79D9B8964B /* AppScenePolicyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppScenePolicyStore.swift; sourceTree = "<group>"; };
 		157337AD796A00BA0C88EF3E /* KeychainProviderCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainProviderCredentialStore.swift; sourceTree = "<group>"; };
 		1691E3B3D2D0AC8A19526566 /* PermissionsCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsCenter.swift; sourceTree = "<group>"; };
+		1F1111111111111111111111 /* FeishuCLIErrorMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeishuCLIErrorMapper.swift; sourceTree = "<group>"; };
+		1F2222222222222222222222 /* FeishuCLIProcessRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeishuCLIProcessRunner.swift; sourceTree = "<group>"; };
+		1F3333333333333333333333 /* FeishuOperationCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeishuOperationCatalog.swift; sourceTree = "<group>"; };
+		1F4444444444444444444444 /* FeishuResultVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeishuResultVerifier.swift; sourceTree = "<group>"; };
+		1F5555555555555555555555 /* FeishuTargetResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeishuTargetResolver.swift; sourceTree = "<group>"; };
 		194DDF738D89950B26E29DE3 /* DashScopeAndLocalASRTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashScopeAndLocalASRTests.swift; sourceTree = "<group>"; };
 		1B283BB37CD5E3C986A6A6B9 /* MagicianToolExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicianToolExecutor.swift; sourceTree = "<group>"; };
 		1CDC7C688C0027BF75F3AB3B /* SpeechConnectionTesters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechConnectionTesters.swift; sourceTree = "<group>"; };
@@ -143,6 +158,7 @@
 		289CC9CA3CBFE14B7FE231B0 /* LocalSenseVoiceRuntimeManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSenseVoiceRuntimeManagerTests.swift; sourceTree = "<group>"; };
 		2ACA092E1EECB7CAE8BEEB9D /* ProviderSettingsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderSettingsStoreTests.swift; sourceTree = "<group>"; };
 		B2E8D0F35A9C4B21C6D4E3F2 /* FeishuCLIProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeishuCLIProviderTests.swift; sourceTree = "<group>"; };
+		B1E1E1E1E1E1E1E1E1E1E1E1 /* FeishuResultVerifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeishuResultVerifierTests.swift; sourceTree = "<group>"; };
 		2D00964E5D2AB7B373C4B71A /* BrainstormDurationProbePlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrainstormDurationProbePlannerTests.swift; sourceTree = "<group>"; };
 		303298C5AB88FF78EC0CD5C6 /* InteractionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractionCoordinatorTests.swift; sourceTree = "<group>"; };
 		3188371858CF2E66EADC78A9 /* DashScopeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashScopeSupport.swift; sourceTree = "<group>"; };
@@ -152,6 +168,9 @@
 		3BF9717FD5E4DE79169E3C20 /* BrainstormDurationProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrainstormDurationProfileStore.swift; sourceTree = "<group>"; };
 		41E7D653314499348F50BC9E /* LocalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStore.swift; sourceTree = "<group>"; };
 		42D36DDA6DCE067931E4F676 /* MemoryEntryTextResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryEntryTextResolverTests.swift; sourceTree = "<group>"; };
+		431111111111111111111111 /* MagicianAgentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicianAgentModels.swift; sourceTree = "<group>"; };
+		432222222222222222222222 /* MagicianCapabilityProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicianCapabilityProbe.swift; sourceTree = "<group>"; };
+		433333333333333333333333 /* MagicianCommandSemantics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicianCommandSemantics.swift; sourceTree = "<group>"; };
 		448CB6F155CB3E52B85D5BC9 /* SpeechPipelineLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechPipelineLogger.swift; sourceTree = "<group>"; };
 		45FDDDA1B98A4214EE0A369D /* PermissionsCenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsCenterTests.swift; sourceTree = "<group>"; };
 		4A14249E005F70CBCBF7D59E /* ModifierCaptureButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModifierCaptureButton.swift; sourceTree = "<group>"; };
@@ -212,6 +231,7 @@
 		D71BCBE3A301D990D1FACB2F /* LocalSenseVoiceRuntimeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSenseVoiceRuntimeManager.swift; sourceTree = "<group>"; };
 		D9D6113DB9FD87EB75D2DC65 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		DA6DAB79924A3383BC4385B5 /* MemoryEntryTextResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryEntryTextResolver.swift; sourceTree = "<group>"; };
+		EA1111111111111111111111 /* MagicianCommandSemanticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicianCommandSemanticsTests.swift; sourceTree = "<group>"; };
 		DD4B5487FB8F3196B11F7169 /* SpeechProviderRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechProviderRegistry.swift; sourceTree = "<group>"; };
 		DF7D63023398B1BA8B707A6E /* AppRuntimePolicy.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = AppRuntimePolicy.plist; sourceTree = "<group>"; };
 		E0E39B47CD0D08AA9C2292BF /* LocalSenseVoiceProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSenseVoiceProvider.swift; sourceTree = "<group>"; };
@@ -279,6 +299,9 @@
 		2AEE9336BD5C1DB8BAE8655A /* Magician */ = {
 			isa = PBXGroup;
 			children = (
+				431111111111111111111111 /* MagicianAgentModels.swift */,
+				432222222222222222222222 /* MagicianCapabilityProbe.swift */,
+				433333333333333333333333 /* MagicianCommandSemantics.swift */,
 				C88FDDEC512A0B04EFC83180 /* MagicianFeatureModels.swift */,
 				7AEEB7AB9337B30BFC9608E5 /* MagicianFeatureToggleStore.swift */,
 				CD989503A0BF95DF35F5D5BA /* MagicianIntent.swift */,
@@ -457,6 +480,7 @@
 				063E41521D138280350363BC /* CredentialStoreFactoryTests.swift */,
 				194DDF738D89950B26E29DE3 /* DashScopeAndLocalASRTests.swift */,
 				B2E8D0F35A9C4B21C6D4E3F2 /* FeishuCLIProviderTests.swift */,
+				B1E1E1E1E1E1E1E1E1E1E1E1 /* FeishuResultVerifierTests.swift */,
 				01372AB45A6C497F3C305577 /* GlobalHotkeyStateMachineTests.swift */,
 				044F5842BEBAF6190BA0EB34 /* HomeStatsFormatterTests.swift */,
 				93D880758C71B0356B2A1533 /* HotkeyStateStoreTests.swift */,
@@ -466,6 +490,7 @@
 				B1A2ACA6F20AE5708AB6CA38 /* LocalHistoryStoreTests.swift */,
 				289CC9CA3CBFE14B7FE231B0 /* LocalSenseVoiceRuntimeManagerTests.swift */,
 				01B1502EAA5EB42896790E27 /* MagicianCommandSanitizerTests.swift */,
+				EA1111111111111111111111 /* MagicianCommandSemanticsTests.swift */,
 				045D84679EE789BE00D2B376 /* MagicianFeatureToggleStoreTests.swift */,
 				B3C8E7B6173BB8A266F27955 /* MagicianIntentRouterTests.swift */,
 				37C9D2A312A79818BB0D2E3C /* MagicianMailSupportTests.swift */,
@@ -524,7 +549,12 @@
 		F9F1130E5BA241DBFFB10055 /* CLI */ = {
 			isa = PBXGroup;
 			children = (
+				1F1111111111111111111111 /* FeishuCLIErrorMapper.swift */,
+				1F2222222222222222222222 /* FeishuCLIProcessRunner.swift */,
+				1F3333333333333333333333 /* FeishuOperationCatalog.swift */,
 				FD25D2EF83C635F7C4FCA538 /* FeishuCLIProvider.swift */,
+				1F4444444444444444444444 /* FeishuResultVerifier.swift */,
+				1F5555555555555555555555 /* FeishuTargetResolver.swift */,
 				F8F2851B668DC5C7A7B80A79 /* MagicianCLIRegistry.swift */,
 			);
 			path = CLI;
@@ -649,7 +679,12 @@
 				15AFB9B64D6E2E6F4D727B91 /* CredentialStoreFactory.swift in Sources */,
 				9080A058BBAEE8F60F2385AD /* DashScopeSupport.swift in Sources */,
 				FDBF32C0FEB203F01750712D /* DiagnosticsCenter.swift in Sources */,
+				0F1111111111111111111111 /* FeishuCLIErrorMapper.swift in Sources */,
+				0F2222222222222222222222 /* FeishuCLIProcessRunner.swift in Sources */,
 				490D2EABE5826DEC50D865EA /* FeishuCLIProvider.swift in Sources */,
+				0F3333333333333333333333 /* FeishuOperationCatalog.swift in Sources */,
+				0F4444444444444444444444 /* FeishuResultVerifier.swift in Sources */,
+				0F5555555555555555555555 /* FeishuTargetResolver.swift in Sources */,
 				CCC3EBB173C21789DCF37B08 /* GlobalHotkeyService.swift in Sources */,
 				C8AEF09854FF16E54507E5E1 /* HomeStatsFormatter.swift in Sources */,
 				972AFA7F034A7B07E8E722A8 /* HotkeyNames.swift in Sources */,
@@ -662,7 +697,10 @@
 				BC2DAC432ECC83A92B6854E3 /* LocalSenseVoiceProvider.swift in Sources */,
 				9527FFE7B235C06A1D6C4473 /* LocalSenseVoiceRuntimeManager.swift in Sources */,
 				8B8BBF2A06B443EA95BEA159 /* LocalStore.swift in Sources */,
+				331111111111111111111111 /* MagicianAgentModels.swift in Sources */,
 				321CDE1E3F347483B9AA29F2 /* MagicianCLIRegistry.swift in Sources */,
+				332222222222222222222222 /* MagicianCapabilityProbe.swift in Sources */,
+				333333333333333333333333 /* MagicianCommandSemantics.swift in Sources */,
 				4228CFA981DF422314E76E65 /* MagicianCommandSanitizer.swift in Sources */,
 				55C5CD7645596841AC52E39E /* MagicianFeatureModels.swift in Sources */,
 				2E4626BA75CBD561114FD663 /* MagicianFeatureToggleStore.swift in Sources */,
@@ -717,6 +755,7 @@
 				D99F2AE0A2185AAD3780A31C /* CredentialStoreFactoryTests.swift in Sources */,
 				9AAE4E35DD8D04A589EEC7B5 /* DashScopeAndLocalASRTests.swift in Sources */,
 				A1D7C9E24F8B4A10B5C3D2E1 /* FeishuCLIProviderTests.swift in Sources */,
+				A1E1E1E1E1E1E1E1E1E1E1E1 /* FeishuResultVerifierTests.swift in Sources */,
 				9FED9AEC7B42DFDBD5B7C41A /* GlobalHotkeyStateMachineTests.swift in Sources */,
 				F053B05364A41E8CFED867FE /* HUDProgressStateMachineTests.swift in Sources */,
 				D2EBE5727C796116140DA9BA /* HomeStatsFormatterTests.swift in Sources */,
@@ -726,6 +765,7 @@
 				27CAE4A5D888A6273D811703 /* LocalHistoryStoreTests.swift in Sources */,
 				E2C01612B81DC2860D9BDBFC /* LocalSenseVoiceRuntimeManagerTests.swift in Sources */,
 				5DA08301FE9FEB6DE9F4F56C /* MagicianCommandSanitizerTests.swift in Sources */,
+				DA1111111111111111111111 /* MagicianCommandSemanticsTests.swift in Sources */,
 				30A834C1E7880AD332755CCB /* MagicianFeatureToggleStoreTests.swift in Sources */,
 				CC37930D72FCC6036771AC0C /* MagicianIntentRouterTests.swift in Sources */,
 				25D1FEC402FC954934FD9AC3 /* MagicianMailSupportTests.swift in Sources */,

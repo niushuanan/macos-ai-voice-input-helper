@@ -2067,6 +2067,9 @@ final class InteractionCoordinator {
             return "流程已完成"
         }
         let summary = labels.joined(separator: " -> ")
+        if result.stepResults.contains(where: { $0.observation?.autoRepairApplied == true }) {
+            return "流程：\(summary)（已自动补一步再试）"
+        }
         return "流程：\(summary)"
     }
 
@@ -2309,7 +2312,8 @@ final class InteractionCoordinator {
                 userMessage: result.userMessage,
                 outputText: result.outputText,
                 historyDisplayText: result.historyDisplayText,
-                fallbackUsed: result.fallbackUsed
+                fallbackUsed: result.fallbackUsed,
+                observation: result.observation
             )
         } catch let magicianError as MagicianError {
             workflowTelemetryReporter.record(
@@ -2475,7 +2479,11 @@ final class InteractionCoordinator {
                 userMessage: "文字处理已完成",
                 outputText: finalRewriteText,
                 historyDisplayText: "文字处理：\(summarizedHistoryText(finalRewriteText))",
-                fallbackUsed: false
+                fallbackUsed: false,
+                observation: MagicianAgentObservation(
+                    verificationStatus: .verified,
+                    evidenceSummary: "中间文本结果已生成"
+                )
             )
         }
 
@@ -2513,7 +2521,14 @@ final class InteractionCoordinator {
                 userMessage: "文字处理并写入完成",
                 outputText: finalRewriteText,
                 historyDisplayText: "文字处理：\(summarizedHistoryText(finalRewriteText))",
-                fallbackUsed: outputResult.usedFallback
+                fallbackUsed: outputResult.usedFallback,
+                observation: MagicianAgentObservation(
+                    verificationStatus: .verified,
+                    evidenceSummary: outputResult.didInsertIntoEditor
+                        ? "文本已写入当前输入位置"
+                        : "文本已写入剪贴板",
+                    autoRepairApplied: outputResult.usedFallback
+                )
             )
         } catch let outputError as TextOutputError {
             if
@@ -2542,7 +2557,12 @@ final class InteractionCoordinator {
                     userMessage: "未检测到可写入输入框，结果已复制到剪贴板。",
                     outputText: finalRewriteText,
                     historyDisplayText: "文字处理：\(summarizedHistoryText(finalRewriteText))",
-                    fallbackUsed: true
+                    fallbackUsed: true,
+                    observation: MagicianAgentObservation(
+                        verificationStatus: .verified,
+                        evidenceSummary: "文本已复制到剪贴板",
+                        autoRepairApplied: true
+                    )
                 )
             }
             throw MagicianError(

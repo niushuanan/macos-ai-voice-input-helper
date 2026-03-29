@@ -104,6 +104,7 @@ struct SettingsView: View {
     @State private var magicianFeishuCLIAvailable = FeishuCLIProvider.detectAvailability().isAvailable
     @State private var magicianFeishuCLICommandName = FeishuCLIProvider.detectAvailability().commandName ?? "未检测到"
     @State private var magicianFeishuCLIResolvedPath = FeishuCLIProvider.detectAvailability().backend?.executablePath ?? "未检测到"
+    @State private var magicianFeishuCLIHealth: MagicianFeishuCLIHealth = .unknown
     @State private var magicianCLIAuthChecking = false
     @State private var magicianCLIDoctorChecking = false
     @State private var memoryToolbarAvailableWidth: CGFloat = 0
@@ -111,6 +112,7 @@ struct SettingsView: View {
     @State private var clearMemoryButtonWidth: CGFloat = 0
 
     private let magicianStatusResolver = MagicianStatusResolver()
+    private let magicianCapabilityProbe = MagicianCapabilityProbe()
 
     init(model: AppModel) {
         self.model = model
@@ -437,7 +439,7 @@ struct SettingsView: View {
             isEnabled: magicianFeatureToggleStore.isEnabled(scope),
             dependencies: currentMagicianDependencies
         )
-        let grouped = feishuCatalogGrouped
+        let grouped = feishuSupportTierGroups
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
@@ -464,13 +466,19 @@ struct SettingsView: View {
 
             HStack(spacing: 8) {
                 Label(
-                    magicianFeishuCLIAvailable ? "CLI 已就绪" : "CLI 未检测到",
-                    systemImage: magicianFeishuCLIAvailable ? "checkmark.seal.fill" : "exclamationmark.triangle.fill"
+                    magicianFeishuCLIHealth.title,
+                    systemImage: feishuHealthSymbolName
                 )
                 .font(.caption)
-                .foregroundStyle(magicianFeishuCLIAvailable ? .green : .orange)
+                .foregroundStyle(feishuHealthColor)
 
                 Text("命令：\(magicianFeishuCLICommandName)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let healthDetail = magicianFeishuCLIHealth.detail {
+                Text(healthDetail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -517,10 +525,17 @@ struct SettingsView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
-            ForEach(grouped, id: \.group) { bucket in
-                Text("\(bucket.group)：\(bucket.operations.map(\.title).joined(separator: "、"))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            ForEach(grouped, id: \.tier) { bucket in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(bucket.tier.title)
+                        .font(.caption.weight(.semibold))
+                    Text(bucket.tier.summary)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(bucket.operations.map(\.operation.title).joined(separator: "、"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             if let reason = resolution.reason {
@@ -601,11 +616,36 @@ struct SettingsView: View {
         .pulseCard(cornerRadius: 12)
     }
 
-    private var feishuCatalogGrouped: [(group: String, operations: [FeishuCanonicalOperation])] {
-        let groups = Dictionary(grouping: FeishuCanonicalOperation.allCases, by: \.groupTitle)
-        return groups
-            .map { (group: $0.key, operations: $0.value.sorted(by: { $0.rawValue < $1.rawValue })) }
-            .sorted(by: { $0.group < $1.group })
+    private var feishuSupportTierGroups: [(tier: FeishuOperationSupportTier, operations: [FeishuOperationDescriptor])] {
+        FeishuOperationCatalog.groupedBySupportTier()
+    }
+
+    private var feishuHealthColor: Color {
+        switch magicianFeishuCLIHealth {
+        case .ready:
+            return .green
+        case .permissionLimited:
+            return .orange
+        case .authRequired, .unavailable:
+            return .red
+        case .unknown:
+            return .secondary
+        }
+    }
+
+    private var feishuHealthSymbolName: String {
+        switch magicianFeishuCLIHealth {
+        case .ready:
+            return "checkmark.seal.fill"
+        case .permissionLimited:
+            return "exclamationmark.shield.fill"
+        case .authRequired:
+            return "person.crop.circle.badge.exclamationmark"
+        case .unavailable:
+            return "exclamationmark.triangle.fill"
+        case .unknown:
+            return "questionmark.circle"
+        }
     }
 
     private var magicianCLIExecutablePathBinding: Binding<String> {
@@ -1690,6 +1730,21 @@ struct SettingsView: View {
         magicianFeishuCLIAvailable = feishuAvailability.isAvailable
         magicianFeishuCLICommandName = feishuAvailability.commandName ?? "未检测到"
         magicianFeishuCLIResolvedPath = feishuAvailability.backend?.executablePath ?? "未检测到"
+        magicianFeishuCLIHealth = feishuAvailability.isAvailable
+            ? .unknown
+            : .unavailable(message: "未检测到 feishu 或 lark-cli。")
+
+        Task {
+            let result = await magicianCapabilityProbe.probeFeishuCLI(
+                executableOverride: providerSettingsStore.resolvedFeishuCLIExecutablePathOverride
+            )
+            await MainActor.run {
+                magicianFeishuCLIAvailable = result.availability.isAvailable
+                magicianFeishuCLICommandName = result.availability.commandName ?? "未检测到"
+                magicianFeishuCLIResolvedPath = result.availability.backend?.executablePath ?? "未检测到"
+                magicianFeishuCLIHealth = result.health
+            }
+        }
     }
 
     private func handleMagicianScopeToggleChange(

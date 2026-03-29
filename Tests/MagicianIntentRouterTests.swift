@@ -909,10 +909,10 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertEqual(generationProvider.callCount, 1)
     }
 
-    func testStepRegistryRejectsPlansLongerThanFiveSteps() {
+    func testStepRegistryRejectsPlansLongerThanSixSteps() {
         let registry = MagicianStepRegistry()
         let plan = MagicianWorkflowPlan(
-            steps: (1...6).map { index in
+            steps: (1...7).map { index in
                 MagicianWorkflowStep(
                     stepID: "step-\(index)",
                     feature: .createNote,

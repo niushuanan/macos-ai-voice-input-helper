@@ -351,8 +351,10 @@ final class FeishuCLIProvider {
     }()
 
     private static let maxArgumentLength = 240
-    private static let maxOutputCharacters = 16_000
-    private static let timeoutSeconds: TimeInterval = 16
+    private let processRunner = FeishuCLIProcessRunner()
+    private let targetResolver = FeishuTargetResolver()
+    private let resultVerifier = FeishuResultVerifier()
+    private let errorMapper = FeishuCLIErrorMapper()
 
     static func detectAvailability(
         fileManager: FileManager = .default,
@@ -490,6 +492,40 @@ final class FeishuCLIProvider {
             plan = autoPlan
         }
 
+        if
+            backend.kind == .larkCLI,
+            operation == .chatMembers,
+            plan.executionMode == .needsMoreDetail,
+            explicitArguments.isEmpty,
+            let autoPlan = await autoResolvedChatMembersPlan(
+                spokenCommand: spokenCommand,
+                backend: backend,
+                fallbackPlan: plan
+            )
+        {
+            plan = autoPlan
+        }
+
+        if
+            backend.kind == .larkCLI,
+            plan.executionMode == .needsMoreDetail,
+            explicitArguments.isEmpty,
+            let prompt = await targetResolutionPrompt(
+                operation: operation,
+                spokenCommand: spokenCommand,
+                backend: backend
+            )
+        {
+            return .failure(
+                MagicianError(
+                    code: .intentParseFailed,
+                    userMessage: prompt,
+                    debugMessage: "target unresolved for \(operation.rawValue)",
+                    recoverAction: "retry_command"
+                )
+            )
+        }
+
         guard argumentsAreSafe(plan.arguments) else {
             return .failure(
                 MagicianError(
@@ -501,96 +537,65 @@ final class FeishuCLIProvider {
             )
         }
 
-        let processResult = await runProcessWithTimeout(
+        let processResult = await processRunner.run(
             executablePath: plan.executablePath,
-            arguments: plan.arguments,
-            timeoutSeconds: Self.timeoutSeconds,
-            maxOutputCharacters: Self.maxOutputCharacters,
-            environment: Self.buildProcessEnvironment(executablePath: plan.executablePath)
+            arguments: plan.arguments
         )
 
-        let output = mergedOutput(from: processResult)
+        let output = processRunner.mergedOutput(from: processResult)
         if processResult.exitCode == 0 {
             if plan.executionMode == .needsMoreDetail {
                 return .failure(
                     MagicianError(
                         code: .intentParseFailed,
-                        userMessage: missingArgumentMessage(for: operation),
+                        userMessage: errorMapper.missingArgumentMessage(for: operation),
                         debugMessage: output,
                         recoverAction: "retry_command"
                     )
                 )
             }
 
-            let envelope = parsedCLIEnvelope(from: output)
-            if let envelope {
-                if envelope.ok == false {
-                    return .failure(
-                        MagicianError(
-                            code: .toolExecutionFailed,
-                            userMessage: userFacingCLIErrorMessage(
-                                envelope.errorMessage ?? "飞书返回失败",
-                                operation: operation
-                            ),
-                            debugMessage: output,
-                            recoverAction: "retry_command"
-                        )
+            switch resultVerifier.verifySuccess(operation: operation, plan: plan, output: output) {
+            case let .failed(userMessage, debugMessage):
+                return .failure(
+                    MagicianError(
+                        code: .toolExecutionFailed,
+                        userMessage: userMessage,
+                        debugMessage: debugMessage,
+                        recoverAction: "retry_command"
                     )
-                }
-            }
-
-            if isCalendarCreateArguments(plan.arguments) {
-                guard let envelope else {
-                    return .failure(
-                        MagicianError(
-                            code: .toolExecutionFailed,
-                            userMessage: "飞书没有返回结构化日程结果，无法确认创建成功，请重试。",
-                            debugMessage: output,
-                            recoverAction: "retry_command"
-                        )
-                    )
-                }
-
-                if envelope.eventID == nil {
-                    return .failure(
-                        MagicianError(
-                            code: .toolExecutionFailed,
-                            userMessage: "飞书没有返回有效的日程 ID，创建结果不可靠，请重试。",
-                            debugMessage: output,
-                            recoverAction: "retry_command"
-                        )
-                    )
-                }
-            }
-
-            let display = output.isEmpty ? plan.summary : output
-            return .success(
-                MagicianExecutionResult(
-                    intent: .feishuCLI,
-                    userMessage: "飞书 CLI 执行成功：\(plan.summary)",
-                    outputText: output.isEmpty ? nil : output,
-                    historyDisplayText: "飞书 CLI：\(display)",
-                    fallbackUsed: false
                 )
-            )
+            case let .verified(observation):
+                let display = output.isEmpty ? plan.summary : output
+                return .success(
+                    MagicianExecutionResult(
+                        intent: .feishuCLI,
+                        userMessage: "飞书 CLI 执行成功：\(plan.summary)",
+                        outputText: output.isEmpty ? nil : output,
+                        historyDisplayText: "飞书 CLI：\(display)",
+                        fallbackUsed: false,
+                        observation: observation
+                    )
+                )
+            }
         }
 
         if
-            let envelope = parsedCLIEnvelope(from: output),
+            let envelope = resultVerifier.parsedCLIEnvelope(from: output),
             let errorMessage = envelope.errorMessage,
             !errorMessage.isEmpty
         {
             return .failure(
                 MagicianError(
                     code: .toolExecutionFailed,
-                    userMessage: userFacingCLIErrorMessage(errorMessage, operation: operation),
+                    userMessage: errorMapper.userFacingCLIErrorMessage(errorMessage, operation: operation),
                     debugMessage: output,
                     recoverAction: "retry_command"
                 )
             )
         }
 
-        if isLikelyAuthError(processResult.detail) {
+        if errorMapper.isLikelyAuthError(processResult.detail) {
             return .failure(
                 MagicianError(
                     code: .cliAuthRequired,
@@ -612,7 +617,7 @@ final class FeishuCLIProvider {
             )
         }
 
-        let normalizedErrorMessage = normalizedExecutionFailureMessage(
+        let normalizedErrorMessage = errorMapper.normalizedExecutionFailureMessage(
             detail: processResult.detail,
             operation: operation
         )
@@ -627,12 +632,7 @@ final class FeishuCLIProvider {
     }
 
     func groupedCatalog() -> [(group: String, operations: [FeishuCanonicalOperation])] {
-        let groups = Dictionary(grouping: FeishuCanonicalOperation.allCases, by: { $0.groupTitle })
-        return groups
-            .map { key, value in
-                (group: key, operations: value.sorted(by: { $0.rawValue < $1.rawValue }))
-            }
-            .sorted(by: { $0.group < $1.group })
+        FeishuOperationCatalog.groupedByDomain()
     }
 
     private func makeCommandPlan(
@@ -726,7 +726,9 @@ final class FeishuCLIProvider {
                 args = inferredAgendaArguments(from: spokenCommand) ?? ["calendar", "+agenda"]
             }
         case .calendarEventAttendee:
-            args = hasExplicitArguments ? ["calendar", "+create"] : ["calendar", "+create", "--help"]
+            args = hasExplicitArguments
+                ? ["calendar", "event.attendees", "create"]
+                : ["calendar", "event.attendees", "create", "--help"]
         case .calendarFreebusy:
             if hasExplicitArguments {
                 args = ["calendar", "+freebusy"]
@@ -749,10 +751,12 @@ final class FeishuCLIProvider {
                 args = hasExplicitArguments ? ["im", "+chat-search"] : ["im", "+chat-search", "--help"]
             }
         case .chatMembers:
-            if let queryHint {
-                args = ["im", "+chat-search", "--query", queryHint]
+            if let chatID = extractedIdentifier(in: spokenCommand, prefix: "oc_") {
+                args = ["im", "chat.members", "get", "--params", "{\"chat_id\":\"\(chatID)\"}"]
             } else {
-                args = hasExplicitArguments ? ["im", "+chat-search"] : ["im", "+chat-search", "--help"]
+                args = hasExplicitArguments
+                    ? ["im", "chat.members", "get"]
+                    : ["im", "chat.members", "get", "--help"]
             }
         case .createDoc:
             args = hasExplicitArguments ? ["docs", "+create"] : ["docs", "+create", "--help"]
@@ -831,7 +835,7 @@ final class FeishuCLIProvider {
         case .taskComment:
             args = hasExplicitArguments ? ["task", "+comment"] : ["task", "+comment", "--help"]
         case .taskSubtask:
-            args = hasExplicitArguments ? ["task", "+create"] : ["task", "+create", "--help"]
+            args = hasExplicitArguments ? ["task", "subtasks", "create"] : ["task", "subtasks", "create", "--help"]
         case .taskTask:
             if containsAny(spokenCommand, keywords: ["更新", "update", "完成", "complete"]) {
                 args = hasExplicitArguments ? ["task", "+update"] : ["task", "+update", "--help"]
@@ -849,16 +853,44 @@ final class FeishuCLIProvider {
         case .updateDoc:
             args = hasExplicitArguments ? ["docs", "+update"] : ["docs", "+update", "--help"]
         case .wikiSpace:
-            if let queryHint {
-                args = ["docs", "+search", "--query", queryHint]
-            } else {
-                args = ["docs", "+search"]
-            }
+            args = hasExplicitArguments ? ["wiki", "spaces", "get_node"] : ["wiki", "spaces", "get_node", "--help"]
         case .wikiSpaceNode:
             args = hasExplicitArguments ? ["wiki", "spaces", "get_node"] : ["wiki", "spaces", "get_node", "--help"]
         }
 
         return args + normalizedExplicitArguments
+    }
+
+    private func targetResolutionPrompt(
+        operation: FeishuCanonicalOperation,
+        spokenCommand: String,
+        backend: FeishuCLIBackendDescriptor
+    ) async -> String? {
+        switch operation {
+        case .imUserMessage:
+            guard inferredMessageBody(from: spokenCommand) != nil else {
+                return nil
+            }
+            let resolution = await targetResolver.resolveIMTarget(
+                from: spokenCommand,
+                backend: backend
+            )
+            guard resolution.status != .resolved else {
+                return nil
+            }
+            return resolution.prompt
+        case .chatMembers:
+            let resolution = await targetResolver.resolveChatMembersTarget(
+                from: spokenCommand,
+                backend: backend
+            )
+            guard resolution.status != .resolved else {
+                return nil
+            }
+            return resolution.prompt
+        default:
+            return nil
+        }
     }
 
     private func feishuArguments(
@@ -1010,166 +1042,9 @@ final class FeishuCLIProvider {
         arguments.contains("--help")
     }
 
-    private func missingArgumentMessage(for operation: FeishuCanonicalOperation) -> String {
-        switch operation {
-        case .createDoc, .updateDoc, .fetchDoc, .docMedia, .docComments:
-            return "这条飞书文档命令还缺少必要参数，请补充文档对象或内容后再试。"
-        case .imUserMessage, .imBotImage:
-            return "发消息需要目标和内容，请补充群聊/用户和消息文本后再试。"
-        case .driveFile:
-            return "云盘读写需要文件信息，请补充文件 token 或本地路径后再试。"
-        case .sheet:
-            return "表格操作需要表格地址或 token，请补充后再试。"
-        case .taskTask, .taskComment, .taskSubtask, .taskTasklist:
-            return "任务操作还缺少目标信息，请补充任务或任务列表后再试。"
-        case .bitableApp, .bitableAppTable, .bitableAppTableField, .bitableAppTableRecord, .bitableAppTableView:
-            return "多维表格操作需要 base/table 信息，请补充后再试。"
-        case .calendarEvent, .calendarEventAttendee, .calendarFreebusy:
-            return "日历操作还缺少时间或对象，请补充后再试。"
-        case .wikiSpace, .wikiSpaceNode:
-            return "Wiki 操作需要空间或节点参数，请补充后再试。"
-        default:
-            return "这条飞书命令还缺少必要参数，请补充更具体的信息后再试。"
-        }
-    }
-
     private struct CalendarTimeRange {
         let start: Date
         let end: Date
-    }
-
-    private struct CLIEnvelope {
-        let ok: Bool?
-        let errorMessage: String?
-        let eventID: String?
-    }
-
-    private func isCalendarCreateArguments(_ arguments: [String]) -> Bool {
-        guard arguments.count >= 2 else {
-            return false
-        }
-        return arguments[0] == "calendar" && arguments[1] == "+create"
-    }
-
-    private func parsedCLIEnvelope(from text: String) -> CLIEnvelope? {
-        let candidates = jsonEnvelopeCandidates(from: text)
-        for candidate in candidates {
-            guard
-                let data = candidate.data(using: .utf8),
-                let object = try? JSONSerialization.jsonObject(with: data),
-                let dictionary = object as? [String: Any]
-            else {
-                continue
-            }
-
-            let ok = dictionary["ok"] as? Bool
-            let errorMessage = (dictionary["error"] as? [String: Any])?["message"] as? String
-            let eventID = (dictionary["data"] as? [String: Any])?["event_id"] as? String
-            if ok == nil, (errorMessage ?? "").isEmpty, (eventID ?? "").isEmpty {
-                continue
-            }
-
-            return CLIEnvelope(
-                ok: ok,
-                errorMessage: errorMessage?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                eventID: eventID?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        }
-        return nil
-    }
-
-    private func jsonEnvelopeCandidates(from text: String) -> [String] {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return []
-        }
-
-        var candidates: [String] = [trimmed]
-        let extracted = extractJSONObject(from: trimmed)
-        if let extracted, extracted != trimmed {
-            candidates.append(extracted)
-        }
-
-        let lines = trimmed
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        candidates.append(contentsOf: lines)
-
-        var deduplicated: [String] = []
-        var seen = Set<String>()
-        for candidate in candidates {
-            guard seen.insert(candidate).inserted else {
-                continue
-            }
-            deduplicated.append(candidate)
-        }
-        return deduplicated
-    }
-
-    private func extractJSONObject(from text: String) -> String? {
-        guard
-            let first = text.firstIndex(of: "{"),
-            let last = text.lastIndex(of: "}"),
-            first <= last
-        else {
-            return nil
-        }
-        return String(text[first...last])
-    }
-
-    private func userFacingCLIErrorMessage(
-        _ message: String,
-        operation: FeishuCanonicalOperation
-    ) -> String {
-        let lowered = message.lowercased()
-        if lowered.contains("only supports: bot") || lowered.contains("use --as bot") {
-            return "这条消息命令只能以 bot 身份执行，请先配置 bot 侧权限。"
-        }
-        if lowered.contains("bot/user can not be out of the chat") {
-            return "机器人当前不在目标群里，请先把 bot 拉进群再发送消息。"
-        }
-        if lowered.contains("permission denied") || lowered.contains("scope") {
-            return "飞书返回权限不足，请检查 app scope 并重新授权。"
-        }
-        if lowered.contains("required flag") || lowered.contains("missing required") {
-            return "命令缺少必填参数，请补充目标对象或参数后再试。"
-        }
-        if lowered.contains("unknown flag") || lowered.contains("unknown shorthand flag") {
-            return "命令参数格式不正确，请检查参数写法后再试。"
-        }
-        if lowered.contains("not found") || lowered.contains("does not exist") {
-            return "目标对象不存在，请先确认用户、群聊或资源是否可访问。"
-        }
-        if operation == .calendarEvent, lowered.contains("start") {
-            return "日程时间参数不合法，请补充更明确的日期和时间。"
-        }
-        return "飞书 CLI 返回失败：\(message)"
-    }
-
-    private func normalizedExecutionFailureMessage(
-        detail: String,
-        operation: FeishuCanonicalOperation
-    ) -> String? {
-        let lowered = detail.lowercased()
-        if lowered.isEmpty {
-            return nil
-        }
-        if lowered.contains("required flag") || lowered.contains("missing required") {
-            return missingArgumentMessage(for: operation)
-        }
-        if lowered.contains("unknown flag") || lowered.contains("unknown shorthand flag") {
-            return "飞书 CLI 参数格式不正确，请检查参数后重试。"
-        }
-        if lowered.contains("permission denied") || lowered.contains("scope") {
-            return "飞书权限不足，请检查 app scope 并重新授权。"
-        }
-        if lowered.contains("not found") || lowered.contains("does not exist") {
-            return "目标对象不存在，请确认用户、群聊或资源标识是否正确。"
-        }
-        return nil
     }
 
     private func isCalendarCreateCommand(_ spokenCommand: String) -> Bool {
@@ -1524,17 +1399,26 @@ final class FeishuCLIProvider {
         guard let message = inferredMessageBody(from: spokenCommand) else {
             return nil
         }
-        guard let target = await resolveIMTargetID(from: spokenCommand, backend: backend) else {
+        let targetResolution = await targetResolver.resolveIMTarget(
+            from: spokenCommand,
+            backend: backend
+        )
+        guard
+            targetResolution.status == .resolved,
+            let targetID = targetResolution.targetID,
+            let targetType = targetResolution.targetType
+        else {
             return nil
         }
+        let flag = targetType == "chat" ? "--chat-id" : "--user-id"
 
         let args = [
             "im",
             "+messages-send",
             "--as",
             "bot",
-            target.flag,
-            target.value,
+            flag,
+            targetID,
             "--text",
             message
         ]
@@ -1548,86 +1432,37 @@ final class FeishuCLIProvider {
         )
     }
 
-    private func resolveIMTargetID(
-        from spokenCommand: String,
-        backend: FeishuCLIBackendDescriptor
-    ) async -> (flag: String, value: String)? {
-        if let chatID = extractedIdentifier(in: spokenCommand, prefix: "oc_") {
-            return ("--chat-id", chatID)
-        }
-        if let userID = extractedIdentifier(in: spokenCommand, prefix: "ou_") {
-            return ("--user-id", userID)
-        }
-
-        guard let recipientHint = inferredRecipientHint(from: spokenCommand) else {
-            return nil
-        }
-
-        if let chatID = await resolveChatID(query: recipientHint, backend: backend) {
-            return ("--chat-id", chatID)
-        }
-        if let userID = await resolveUserID(query: recipientHint, backend: backend) {
-            return ("--user-id", userID)
-        }
-        return nil
-    }
-
-    private func resolveChatID(
-        query: String,
-        backend: FeishuCLIBackendDescriptor
-    ) async -> String? {
-        let result = await runProcessWithTimeout(
-            executablePath: backend.executablePath,
-            arguments: ["im", "+chat-search", "--query", query, "--format", "json"],
-            timeoutSeconds: 8,
-            maxOutputCharacters: 6_000,
-            environment: Self.buildProcessEnvironment(executablePath: backend.executablePath)
+    private func autoResolvedChatMembersPlan(
+        spokenCommand: String,
+        backend: FeishuCLIBackendDescriptor,
+        fallbackPlan: FeishuCLICommandPlan
+    ) async -> FeishuCLICommandPlan? {
+        let targetResolution = await targetResolver.resolveChatMembersTarget(
+            from: spokenCommand,
+            backend: backend
         )
-        guard result.exitCode == 0 else {
-            return nil
-        }
         guard
-            let data = result.stdout.data(using: .utf8),
-            let object = try? JSONSerialization.jsonObject(with: data),
-            let dictionary = object as? [String: Any],
-            let payload = dictionary["data"] as? [String: Any],
-            let chats = payload["chats"] as? [[String: Any]],
-            let first = chats.first,
-            let chatID = first["chat_id"] as? String
+            targetResolution.status == .resolved,
+            let chatID = targetResolution.targetID
         else {
             return nil
         }
-        let normalized = chatID.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isEmpty ? nil : normalized
-    }
 
-    private func resolveUserID(
-        query: String,
-        backend: FeishuCLIBackendDescriptor
-    ) async -> String? {
-        let result = await runProcessWithTimeout(
-            executablePath: backend.executablePath,
-            arguments: ["contact", "+search-user", "--query", query, "--format", "json"],
-            timeoutSeconds: 8,
-            maxOutputCharacters: 6_000,
-            environment: Self.buildProcessEnvironment(executablePath: backend.executablePath)
+        let args = [
+            "im",
+            "chat.members",
+            "get",
+            "--params",
+            "{\"chat_id\":\"\(chatID)\"}"
+        ]
+
+        return FeishuCLICommandPlan(
+            executablePath: fallbackPlan.executablePath,
+            arguments: args,
+            summary: "获取群成员（自动解析群聊）",
+            riskLevel: .read,
+            executionMode: .execute
         )
-        guard result.exitCode == 0 else {
-            return nil
-        }
-        guard
-            let data = result.stdout.data(using: .utf8),
-            let object = try? JSONSerialization.jsonObject(with: data),
-            let dictionary = object as? [String: Any],
-            let payload = dictionary["data"] as? [String: Any],
-            let users = payload["users"] as? [[String: Any]],
-            let first = users.first,
-            let userID = first["open_id"] as? String
-        else {
-            return nil
-        }
-        let normalized = userID.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isEmpty ? nil : normalized
     }
 
     private func inferredMessageBody(from spokenCommand: String) -> String? {
@@ -1656,33 +1491,6 @@ final class FeishuCLIProvider {
         return nil
     }
 
-    private func inferredRecipientHint(from spokenCommand: String) -> String? {
-        let patterns = [
-            #"(?:给|发给)\s*(.+?)(?:发消息|消息|说|告诉|，|,|。|$)"#,
-            #"(?:把消息发给)\s*(.+?)(?:，|,|。|$)"#,
-            #"(?:to)\s*(.+?)(?:message|say|,|$)"#
-        ]
-        for pattern in patterns {
-            if let captured = textMatched(in: spokenCommand, pattern: pattern) {
-                let cleaned = captured
-                    .replacingOccurrences(of: "飞书的", with: "")
-                    .replacingOccurrences(of: "飞书", with: "")
-                    .replacingOccurrences(of: "助手", with: " ")
-                    .replacingOccurrences(of: "同事", with: " ")
-                    .replacingOccurrences(of: "的", with: " ")
-                    .replacingOccurrences(of: "lark 的", with: "", options: .caseInsensitive)
-                    .replacingOccurrences(of: "lark", with: "", options: .caseInsensitive)
-                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-                    .trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
-                guard !cleaned.isEmpty else {
-                    continue
-                }
-                return String(cleaned.prefix(64))
-            }
-        }
-        return nil
-    }
-
     private func extractedIdentifier(in text: String, prefix: String) -> String? {
         let escapedPrefix = NSRegularExpression.escapedPattern(for: prefix)
         guard let regex = try? NSRegularExpression(pattern: "\\b\(escapedPrefix)[A-Za-z0-9]+\\b") else {
@@ -1702,39 +1510,6 @@ final class FeishuCLIProvider {
     private func isExecutableAllowed(_ executablePath: String) -> Bool {
         let name = URL(fileURLWithPath: executablePath).lastPathComponent.lowercased()
         return name == "feishu" || name == "lark-cli"
-    }
-
-    private func mergedOutput(from result: MagicianProcessResult) -> String {
-        let stdout = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if !stdout.isEmpty {
-            return stdout
-        }
-        if !stderr.isEmpty {
-            return stderr
-        }
-        return ""
-    }
-
-    private func isLikelyAuthError(_ detail: String) -> Bool {
-        let lowered = detail.lowercased()
-        let keywords = [
-            "auth",
-            "token",
-            "login",
-            "unauthorized",
-            "permission",
-            "scope",
-            "not configured",
-            "config init",
-            "device code",
-            "oauth",
-            "请先登录",
-            "未登录",
-            "授权"
-        ]
-        return keywords.contains(where: lowered.contains)
     }
 
     private func containsAny(_ text: String, keywords: [String]) -> Bool {

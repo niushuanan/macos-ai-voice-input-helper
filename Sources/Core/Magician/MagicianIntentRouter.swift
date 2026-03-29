@@ -398,51 +398,6 @@ struct MagicianFeishuCLIPromptBuilder: MagicianIntentExtractionPromptBuilding {
     }
 }
 
-private let magicianValueOptionalCLIFlags: Set<String> = [
-    "-h",
-    "--help",
-    "--dry-run",
-    "--page-all",
-    "--recommend",
-    "--no-wait"
-]
-
-private func magicianCommandContainsExplicitCLIFlags(_ command: String) -> Bool {
-    command
-        .split(whereSeparator: \.isWhitespace)
-        .contains { token in
-            token.hasPrefix("-")
-        }
-}
-
-private func magicianCLIArgumentsLookComplete(_ arguments: [String]) -> Bool {
-    guard !arguments.isEmpty else {
-        return true
-    }
-
-    var index = 0
-    while index < arguments.count {
-        let token = arguments[index]
-        if token.hasPrefix("-") {
-            if magicianValueOptionalCLIFlags.contains(token) {
-                index += 1
-                continue
-            }
-            guard index + 1 < arguments.count else {
-                return false
-            }
-            let next = arguments[index + 1]
-            guard !next.hasPrefix("-") else {
-                return false
-            }
-            index += 2
-            continue
-        }
-        index += 1
-    }
-    return true
-}
-
 struct MagicianIntentSchemaValidator {
     func validate(
         _ intent: MagicianIntent,
@@ -707,42 +662,6 @@ struct MagicianIntentSchemaValidator {
             return text
         }
         return nil
-    }
-
-    private func isLikelyInstructionPhrase(
-        _ text: String,
-        command: String,
-        actionTokens: [String]
-    ) -> Bool {
-        let compactText = compactIntentText(text)
-        guard !compactText.isEmpty else {
-            return true
-        }
-        if compactText == compactIntentText(command) {
-            return true
-        }
-
-        var reduced = compactText
-        let baseTokens = [
-            "帮我", "请", "一下", "帮忙", "把", "给我", "这段", "这个", "内容", "文字", "文本"
-        ] + actionTokens
-        for token in baseTokens {
-            let compactToken = compactIntentText(token)
-            guard !compactToken.isEmpty else {
-                continue
-            }
-            reduced = reduced.replacingOccurrences(of: compactToken, with: "")
-        }
-        return reduced.isEmpty || reduced.count <= 2
-    }
-
-    private func compactIntentText(_ value: String) -> String {
-        let separators = CharacterSet.whitespacesAndNewlines
-            .union(.punctuationCharacters)
-            .union(.symbols)
-        return value.lowercased()
-            .components(separatedBy: separators)
-            .joined()
     }
 
     private func normalizeEmails(_ values: [String]?) -> [String]? {
@@ -1815,42 +1734,6 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         )
     }
 
-    private func isLikelyInstructionPhrase(
-        _ text: String,
-        command: String,
-        actionTokens: [String]
-    ) -> Bool {
-        let compactText = compactIntentText(text)
-        guard !compactText.isEmpty else {
-            return true
-        }
-        if compactText == compactIntentText(command) {
-            return true
-        }
-
-        var reduced = compactText
-        let baseTokens = [
-            "帮我", "请", "一下", "帮忙", "把", "给我", "这段", "这个", "内容", "文字", "文本"
-        ] + actionTokens
-        for token in baseTokens {
-            let compactToken = compactIntentText(token)
-            guard !compactToken.isEmpty else {
-                continue
-            }
-            reduced = reduced.replacingOccurrences(of: compactToken, with: "")
-        }
-        return reduced.isEmpty || reduced.count <= 2
-    }
-
-    private func compactIntentText(_ value: String) -> String {
-        let separators = CharacterSet.whitespacesAndNewlines
-            .union(.punctuationCharacters)
-            .union(.symbols)
-        return value.lowercased()
-            .components(separatedBy: separators)
-            .joined()
-    }
-
     private func resolvedMailDeliveryMode(from command: String) -> MagicianMailDeliveryMode {
         let lowered = command.lowercased()
         if ["草拟", "草稿", "draft", "整理成邮件", "整理一下邮件"].contains(where: { lowered.contains($0) }) {
@@ -2103,7 +1986,7 @@ struct MagicianWorkflowPlannerPromptBuilder {
         }
 
         Rules:
-        1) Steps must be between 1 and 5.
+        1) Steps must be between 1 and 6.
         2) Use only allowed features.
         3) Keep order exactly as intended by the spoken command.
         4) Prefer linear steps and avoid duplicated adjacent steps.

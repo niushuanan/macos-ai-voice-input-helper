@@ -109,6 +109,30 @@ final class FeishuCLIProviderTests: XCTestCase {
 echo "$@"
 if echo "$@" | grep -q "calendar +create"; then
   echo '{"ok":true,"identity":"user","data":{"event_id":"evt_route_123"}}'
+elif echo "$@" | grep -q "calendar event.attendees create"; then
+  echo '{"ok":true,"identity":"user","data":{"event_id":"evt_attendee_123"}}'
+elif echo "$@" | grep -q "base +base-create"; then
+  echo '{"ok":true,"identity":"user","data":{"app_token":"basc_route_123"}}'
+elif echo "$@" | grep -q "docs +create"; then
+  echo '{"ok":true,"identity":"user","data":{"document_id":"doc_route_123"}}'
+elif echo "$@" | grep -q "docs +update"; then
+  echo '{"ok":true,"identity":"user","data":{"document_id":"doc_route_456"}}'
+elif echo "$@" | grep -q "drive +add-comment"; then
+  echo '{"ok":true,"identity":"user","data":{"document_id":"doc_comment_123"}}'
+elif echo "$@" | grep -q "docs +media-"; then
+  echo '{"ok":true,"identity":"user","data":{"file_token":"media_route_123"}}'
+elif echo "$@" | grep -q "drive +upload"; then
+  echo '{"ok":true,"identity":"user","data":{"file_token":"file_route_123"}}'
+elif echo "$@" | grep -q "im +messages-send"; then
+  echo '{"ok":true,"identity":"bot","data":{"message_id":"om_route_123"}}'
+elif echo "$@" | grep -q "task +comment"; then
+  echo '{"ok":true,"identity":"user","data":{"task_id":"task_comment_123"}}'
+elif echo "$@" | grep -q "task subtasks create"; then
+  echo '{"ok":true,"identity":"user","data":{"task_id":"subtask_route_123"}}'
+elif echo "$@" | grep -q "task +update"; then
+  echo '{"ok":true,"identity":"user","data":{"task_id":"task_route_123"}}'
+elif echo "$@" | grep -q "task +tasklist-create"; then
+  echo '{"ok":true,"identity":"user","data":{"tasklist_id":"tasklist_route_123"}}'
 fi
 exit 0
 """
@@ -132,10 +156,10 @@ exit 0
             RouteCase(operation: .bitableAppTableView, command: "飞书查看视图", explicitArguments: ["--probe", "1"], expectedTokens: ["base +view-list"]),
             RouteCase(operation: .calendarCalendar, command: "飞书看今天日历", explicitArguments: [], expectedTokens: ["calendar +agenda"]),
             RouteCase(operation: .calendarEvent, command: "飞书看今天日程", explicitArguments: [], expectedTokens: ["calendar +agenda"]),
-            RouteCase(operation: .calendarEventAttendee, command: "飞书添加参会人", explicitArguments: ["--probe", "1"], expectedTokens: ["calendar +create"]),
+            RouteCase(operation: .calendarEventAttendee, command: "飞书添加参会人", explicitArguments: ["--probe", "1"], expectedTokens: ["calendar event.attendees create"]),
             RouteCase(operation: .calendarFreebusy, command: "飞书查忙闲", explicitArguments: ["--start", "2026-03-29T15:00:00+08:00", "--end", "2026-03-29T15:30:00+08:00"], expectedTokens: ["calendar +freebusy"]),
             RouteCase(operation: .chat, command: "飞书搜索群聊 产品群", explicitArguments: [], expectedTokens: ["im +chat-search", "--query"]),
-            RouteCase(operation: .chatMembers, command: "飞书查看群成员 产品群", explicitArguments: [], expectedTokens: ["im +chat-search", "--query"]),
+            RouteCase(operation: .chatMembers, command: "飞书查看群成员 产品群", explicitArguments: ["--params", "{\"chat_id\":\"oc_1\"}"], expectedTokens: ["im chat.members get"]),
             RouteCase(operation: .createDoc, command: "飞书创建文档", explicitArguments: ["--probe", "1"], expectedTokens: ["docs +create"]),
             RouteCase(operation: .docComments, command: "飞书文档评论", explicitArguments: ["--probe", "1"], expectedTokens: ["drive +add-comment"]),
             RouteCase(operation: .docMedia, command: "飞书下载文档媒体", explicitArguments: ["--probe", "1"], expectedTokens: ["docs +media-download"]),
@@ -154,11 +178,11 @@ exit 0
             RouteCase(operation: .searchUser, command: "飞书搜索用户 庄泓铠", explicitArguments: [], expectedTokens: ["contact +search-user", "--query"]),
             RouteCase(operation: .sheet, command: "飞书表格读取", explicitArguments: ["--probe", "1"], expectedTokens: ["sheets +read"]),
             RouteCase(operation: .taskComment, command: "飞书任务评论", explicitArguments: ["--probe", "1"], expectedTokens: ["task +comment"]),
-            RouteCase(operation: .taskSubtask, command: "飞书创建子任务", explicitArguments: ["--probe", "1"], expectedTokens: ["task +create"]),
+            RouteCase(operation: .taskSubtask, command: "飞书创建子任务", explicitArguments: ["--probe", "1"], expectedTokens: ["task subtasks create"]),
             RouteCase(operation: .taskTask, command: "飞书更新任务", explicitArguments: ["--probe", "1"], expectedTokens: ["task +update"]),
             RouteCase(operation: .taskTasklist, command: "飞书创建任务列表", explicitArguments: ["--probe", "1"], expectedTokens: ["task +tasklist-create"]),
             RouteCase(operation: .updateDoc, command: "飞书更新文档", explicitArguments: ["--probe", "1"], expectedTokens: ["docs +update"]),
-            RouteCase(operation: .wikiSpace, command: "飞书 wiki space", explicitArguments: [], expectedTokens: ["docs +search"]),
+            RouteCase(operation: .wikiSpace, command: "飞书 wiki space", explicitArguments: ["--params", "{\"token\":\"wiki_1\"}"], expectedTokens: ["wiki spaces get_node"]),
             RouteCase(operation: .wikiSpaceNode, command: "飞书读取 wiki 节点", explicitArguments: ["--probe", "1"], expectedTokens: ["wiki spaces get_node"])
         ]
 
@@ -293,7 +317,12 @@ exit 0
     func testBitableCreateCommandAutoBuildsBaseCreateArguments() async throws {
         let fixture = try makeExecutableFixture(
             fileName: "lark-cli",
-            script: "#!/bin/sh\necho \"$@\"\nexit 0\n"
+            script: """
+#!/bin/sh
+echo "$@"
+echo '{"ok":true,"identity":"user","data":{"app_token":"basc_created_123"}}'
+exit 0
+"""
         )
         defer { fixture.cleanUp() }
 
@@ -592,6 +621,48 @@ exit 0
             XCTAssertTrue(output.contains("--text 我正在用 PulseType"))
         case let .failure(error):
             XCTFail("expected success but got error: \(error)")
+        }
+    }
+
+    func testIMUserMessageReturnsAlternativesWhenRecipientIsAmbiguous() async throws {
+        let fixture = try makeExecutableFixture(
+            fileName: "lark-cli",
+            script: """
+#!/bin/sh
+if [ "$1" = "im" ] && [ "$2" = "+chat-search" ]; then
+  echo '{"ok":true,"identity":"user","data":{"chats":[{"chat_id":"oc_123abc","name":"测试群"},{"chat_id":"oc_456def","name":"测试群-备份"}]}}'
+  exit 0
+fi
+echo "$@"
+exit 0
+"""
+        )
+        defer { fixture.cleanUp() }
+
+        let provider = FeishuCLIProvider()
+        let availability = FeishuCLIAvailability(
+            backend: FeishuCLIBackendDescriptor(
+                kind: .larkCLI,
+                executablePath: fixture.executableURL.path,
+                commandName: "lark-cli"
+            )
+        )
+
+        let result = await provider.execute(
+            operation: .imUserMessage,
+            spokenCommand: "给测试群发消息，告诉他我正在用 PulseType",
+            explicitArguments: [],
+            availability: availability
+        )
+
+        switch result {
+        case .success:
+            XCTFail("expected ambiguity failure but got success")
+        case let .failure(error):
+            XCTAssertEqual(error.code, .intentParseFailed)
+            XCTAssertTrue(error.userMessage.contains("找到多个群聊"))
+            XCTAssertTrue(error.userMessage.contains("测试群"))
+            XCTAssertTrue(error.userMessage.contains("测试群-备份"))
         }
     }
 

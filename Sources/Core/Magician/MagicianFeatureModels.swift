@@ -282,7 +282,7 @@ struct MagicianStepRegistryEntry: Equatable {
 }
 
 struct MagicianStepRegistry {
-    static let maxStepCount = 5
+    static let maxStepCount = 6
 
     private let entriesByFeature: [MagicianFeatureID: MagicianStepRegistryEntry]
 
@@ -334,7 +334,7 @@ struct MagicianStepRegistry {
         guard plan.steps.count <= Self.maxStepCount else {
             throw MagicianError(
                 code: .intentParseFailed,
-                userMessage: "步骤过多，当前最多支持 5 步，请简化指令再试。",
+                userMessage: "步骤过多，当前最多支持 6 步，请简化指令再试。",
                 debugMessage: "workflow step overflow: \(plan.steps.count)",
                 recoverAction: "retry_command"
             )
