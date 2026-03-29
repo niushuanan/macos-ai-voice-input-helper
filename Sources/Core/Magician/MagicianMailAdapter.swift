@@ -98,11 +98,18 @@ struct MagicianMailAdapter: MagicianMailExecuting {
         let body: String
     }
 
+    private struct MailSummaryPayload: Codable {
+        let title: String
+        let body: String
+    }
+
     private let addressBookStore: MailAddressBookStore
     private let recipientResolver: any MagicianMailRecipientResolving
     private let appleScripter: any MagicianMailAppleScripting
     private let fallbackOpener: any MagicianMailDraftFallbackOpening
     private let mailCapabilityProvider: () -> MagicianMailCapabilitySnapshot
+    private let providerSettingsStore: ProviderSettingsStore?
+    private let generationProvider: any TextGenerationProvider
 
     init(
         addressBookStore: MailAddressBookStore? = nil,
@@ -125,6 +132,8 @@ struct MagicianMailAdapter: MagicianMailExecuting {
         self.appleScripter = appleScripter
         self.fallbackOpener = fallbackOpener
         self.mailCapabilityProvider = mailCapabilityProvider
+        self.providerSettingsStore = providerSettingsStore
+        self.generationProvider = generationProvider
     }
 
     func execute(
@@ -133,7 +142,7 @@ struct MagicianMailAdapter: MagicianMailExecuting {
     ) async throws -> MagicianExecutionResult {
         let initialSubject = resolvedSubject(intent: intent, context: context)
         let initialBody = resolvedBody(intent: intent, context: context)
-        let summary = summarizedDraft(subject: initialSubject, body: initialBody)
+        let summary = await summarizedDraft(subject: initialSubject, body: initialBody)
         let subject = summary.title
         let body = summary.body
         let resolution = await recipientResolver.resolve(
@@ -351,12 +360,126 @@ struct MagicianMailAdapter: MagicianMailExecuting {
         )
     }
 
-    private func summarizedDraft(subject: String, body: String) -> MailDraftSummary {
+    private func summarizedDraft(subject: String, body: String) async -> MailDraftSummary {
+        if let modelSummary = await summarizedDraftWithModel(subject: subject, body: body) {
+            return modelSummary
+        }
+
         let normalizedBody = normalizeTextForSummary(body)
         let normalizedSubject = normalizeTextForSummary(subject)
         let bodySummary = summarizeBody(normalizedBody)
         let titleSummary = summarizeTitle(preferred: normalizedSubject, fallbackBody: bodySummary)
         return MailDraftSummary(title: titleSummary, body: bodySummary)
+    }
+
+    private func summarizedDraftWithModel(
+        subject: String,
+        body: String
+    ) async -> MailDraftSummary? {
+        guard
+            let providerSettingsStore,
+            providerSettingsStore.isRewriteConfigurationValid,
+            let apiKey = try? providerSettingsStore.loadAPIKeyForRewriteProvider()?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !apiKey.isEmpty
+        else {
+            return nil
+        }
+
+        let template = buildMailSummaryPrompt(subject: subject, body: body)
+        do {
+            let response = try await generationProvider.generateText(
+                request: TextGenerationRequest(
+                    systemPrompt: template.systemPrompt,
+                    userPrompt: template.userPrompt,
+                    temperature: 0.2,
+                    maxOutputTokens: 420
+                ),
+                configuration: providerSettingsStore.rewriteConfiguration,
+                apiKey: apiKey
+            )
+            let payload: MailSummaryPayload = try decodeSummaryPayload(from: response.outputText)
+            let normalizedTitle = normalizeTextForSummary(payload.title)
+            let normalizedBody = normalizeTextForSummary(payload.body)
+            guard !normalizedTitle.isEmpty, !normalizedBody.isEmpty else {
+                return nil
+            }
+            return MailDraftSummary(
+                title: String(normalizedTitle.prefix(36)),
+                body: String(normalizedBody.prefix(520))
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    private func buildMailSummaryPrompt(subject: String, body: String) -> RewritePromptTemplate {
+        let normalizedSubject = normalizeTextForSummary(subject)
+        let normalizedBody = normalizeTextForSummary(body)
+        let subjectBlock = normalizedSubject.isEmpty ? "（无）" : normalizedSubject
+        let bodyBlock = normalizedBody.isEmpty ? "（无）" : normalizedBody
+
+        let systemPrompt = """
+        \(MagicianPromptProfile.commonSystemPrompt)
+
+        You are a mail drafting editor for PulseType.
+        Your job: convert rough input into a ready-to-review email draft with a clear title and a complete body.
+
+        Hard requirements:
+        1) Output JSON only. No markdown, no prose around JSON.
+        2) JSON schema:
+           {
+             "title": "string",
+             "body": "string"
+           }
+        3) Title must be concise and specific, max 36 characters in Chinese context.
+        4) Body must be richer than a one-line abstract:
+           - keep key facts, intent, action items, and constraints
+           - use complete sentences
+           - length target: 120-420 Chinese characters when source has enough detail
+        5) Do not invent facts, dates, names, commitments, or metrics.
+        6) Keep neutral professional tone suitable for email.
+        """
+
+        let userPrompt = """
+        Existing subject draft:
+        <<<SUBJECT
+        \(subjectBlock)
+        SUBJECT>>>
+
+        Existing body draft:
+        <<<BODY
+        \(bodyBlock)
+        BODY>>>
+        """
+
+        return RewritePromptTemplate(systemPrompt: systemPrompt, userPrompt: userPrompt)
+    }
+
+    private func decodeSummaryPayload<T: Decodable>(from output: String) throws -> T {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stripped: String
+        if trimmed.hasPrefix("```") {
+            stripped = trimmed
+                .replacingOccurrences(of: #"^```(?:json)?\s*"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #"\s*```$"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            stripped = trimmed
+        }
+
+        guard
+            let firstBrace = stripped.firstIndex(of: "{"),
+            let lastBrace = stripped.lastIndex(of: "}")
+        else {
+            throw NSError(domain: "PulseType.MailSummary", code: 1)
+        }
+
+        let jsonText = String(stripped[firstBrace...lastBrace])
+        guard let data = jsonText.data(using: .utf8) else {
+            throw NSError(domain: "PulseType.MailSummary", code: 2)
+        }
+        return try JSONDecoder().decode(T.self, from: data)
     }
 
     private func summarizeBody(_ text: String) -> String {
