@@ -40,8 +40,7 @@ struct DefaultMagicianMailAppleScripter: MagicianMailAppleScripting {
                 "end repeat",
                 "end if",
                 "tell application \"Mail\"",
-                "if not running then launch",
-                "activate",
+            ] + magicianEnsureApplicationReadyAppleScriptLines() + [
                 "set draftMessage to make new outgoing message with properties {visible:true, subject:mailSubject, content:mailBody & return & return}",
                 "tell draftMessage",
                 "repeat with addr in recipientList",

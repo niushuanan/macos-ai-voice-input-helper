@@ -175,6 +175,26 @@ func runOsaScript(
     )
 }
 
+func magicianEnsureApplicationReadyAppleScriptLines(
+    activate: Bool = true,
+    timeoutSeconds: Int = 8
+) -> [String] {
+    var lines = [
+        "set startupDeadline to (current date) + \(timeoutSeconds)",
+        "if not running then launch",
+        "repeat while (not running) and ((current date) < startupDeadline)",
+        "delay 0.1",
+        "end repeat",
+        "if not running then error \"app launch timeout\""
+    ]
+    if activate {
+        lines.append("activate")
+        // Let the UI settle before sending follow-up commands.
+        lines.append("delay 0.1")
+    }
+    return lines
+}
+
 private struct MagicianEventAdapter {
     func execute(
         intent: MagicianIntent,
@@ -614,8 +634,7 @@ private struct MagicianNoteAdapter {
                 "set noteTitle to item 1 of argv",
                 "set noteBody to item 2 of argv",
                 "tell application \"Notes\"",
-                "if not running then launch",
-                "activate",
+            ] + magicianEnsureApplicationReadyAppleScriptLines() + [
                 "if (count of accounts) is 0 then error \"no notes account\"",
                 "set targetAccount to first account",
                 "if (count of folders of targetAccount) is 0 then error \"no notes folder\"",
@@ -783,8 +802,7 @@ private struct MagicianMusicAdapter {
             return await runOsaScript(
                 lines: [
                     "tell application \"Music\"",
-                    "if not running then launch",
-                    "activate",
+                ] + magicianEnsureApplicationReadyAppleScriptLines() + [
                     "play",
                     "return \"state=play\"",
                     "end tell"
@@ -795,7 +813,7 @@ private struct MagicianMusicAdapter {
             return await runOsaScript(
                 lines: [
                     "tell application \"Music\"",
-                    "if not running then launch",
+                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
                     "pause",
                     "return \"state=pause\"",
                     "end tell"
@@ -806,7 +824,7 @@ private struct MagicianMusicAdapter {
             return await runOsaScript(
                 lines: [
                     "tell application \"Music\"",
-                    "if not running then launch",
+                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
                     "play",
                     "return \"state=resume\"",
                     "end tell"
@@ -817,7 +835,7 @@ private struct MagicianMusicAdapter {
             return await runOsaScript(
                 lines: [
                     "tell application \"Music\"",
-                    "if not running then launch",
+                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
                     "next track",
                     "return \"state=next\"",
                     "end tell"
@@ -828,7 +846,7 @@ private struct MagicianMusicAdapter {
             return await runOsaScript(
                 lines: [
                     "tell application \"Music\"",
-                    "if not running then launch",
+                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
                     "previous track",
                     "return \"state=previous\"",
                     "end tell"
@@ -850,8 +868,7 @@ private struct MagicianMusicAdapter {
                     "on run argv",
                     "set keywordText to item 1 of argv",
                     "tell application \"Music\"",
-                    "if not running then launch",
-                    "activate",
+                ] + magicianEnsureApplicationReadyAppleScriptLines() + [
                     "set matchedTracks to (every track of library playlist 1 whose (name contains keywordText) or (artist contains keywordText) or (album contains keywordText))",
                     "if (count of matchedTracks) > 0 then",
                     "set targetTrack to item 1 of matchedTracks",
