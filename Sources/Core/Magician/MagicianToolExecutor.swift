@@ -246,7 +246,12 @@ private struct MagicianEventAdapter {
             userMessage: "已建日程：\(summary)",
             outputText: summary,
             historyDisplayText: "已建日程：\(summary)",
-            fallbackUsed: false
+            fallbackUsed: false,
+            observation: MagicianAgentObservation(
+                verificationStatus: .verified,
+                targetSummary: title,
+                evidenceSummary: "eventIdentifier=\(event.eventIdentifier ?? "missing")"
+            )
         )
     }
 
@@ -408,12 +413,18 @@ private struct MagicianNoteAdapter {
                 body: noteBody
             )
             if notesResult.exitCode == 0 {
+                let evidence = await resolvedNoteEvidence(title: noteTitle, body: noteBody) ?? notesResult.stdout
                 return MagicianExecutionResult(
                     intent: .createNote,
                     userMessage: "已写入 Notes。",
                     outputText: noteBody,
                     historyDisplayText: "已写入备忘录：\(summarizedHistoryText(noteBody))",
-                    fallbackUsed: false
+                    fallbackUsed: false,
+                    observation: MagicianAgentObservation(
+                        verificationStatus: evidence.isEmpty ? .assumed : .verified,
+                        targetSummary: noteTitle,
+                        evidenceSummary: evidence.isEmpty ? "Notes 新笔记已创建" : evidence
+                    )
                 )
             }
             notesScriptDetail = notesResult.detail
@@ -424,12 +435,18 @@ private struct MagicianNoteAdapter {
         if shortcutSupport.cliAvailable, shortcutExists {
             let result = try await runShortcut(name: shortcutName, inputText: noteBody)
             if result.exitCode == 0 {
+                let evidence = await resolvedNoteEvidence(title: noteTitle, body: noteBody)
                 return MagicianExecutionResult(
                     intent: .createNote,
                     userMessage: "已提交到备忘录快捷指令。",
                     outputText: noteBody,
                     historyDisplayText: "已写入备忘录：\(summarizedHistoryText(noteBody))",
-                    fallbackUsed: notesScriptDetail != nil
+                    fallbackUsed: notesScriptDetail != nil,
+                    observation: MagicianAgentObservation(
+                        verificationStatus: evidence == nil ? .assumed : .verified,
+                        targetSummary: noteTitle,
+                        evidenceSummary: evidence ?? "快捷指令已触发"
+                    )
                 )
             }
 
@@ -464,12 +481,18 @@ private struct MagicianNoteAdapter {
         }
 
         if runShortcutViaURLScheme(name: shortcutName, inputText: noteBody) {
+            let evidence = await resolvedNoteEvidence(title: noteTitle, body: noteBody)
             return MagicianExecutionResult(
                 intent: .createNote,
                 userMessage: "已通过 Shortcuts URL 触发写入。",
                 outputText: noteBody,
                 historyDisplayText: "已写入备忘录：\(summarizedHistoryText(noteBody))",
-                fallbackUsed: true
+                fallbackUsed: true,
+                observation: MagicianAgentObservation(
+                    verificationStatus: evidence == nil ? .assumed : .verified,
+                    targetSummary: noteTitle,
+                    evidenceSummary: evidence ?? "Shortcuts URL 已触发"
+                )
             )
         }
 
@@ -596,11 +619,56 @@ private struct MagicianNoteAdapter {
                 "set targetFolder to first folder of targetAccount",
                 "set createdNote to make new note at targetFolder with properties {name:noteTitle, body:noteBody}",
                 "show createdNote",
+                "try",
+                "return (id of createdNote) as string",
+                "on error",
+                "return noteTitle",
+                "end try",
                 "end tell",
                 "end run"
             ],
             arguments: [title, body]
         )
+    }
+
+    private func resolvedNoteEvidence(
+        title: String,
+        body: String
+    ) async -> String? {
+        let result = await runOsaScript(
+            lines: [
+                "on run argv",
+                "set noteTitle to item 1 of argv",
+                "set noteBody to item 2 of argv",
+                "tell application \"Notes\"",
+                "repeat with targetAccount in accounts",
+                "repeat with targetFolder in folders of targetAccount",
+                "repeat with targetNote in notes of targetFolder",
+                "set titleMatches to (name of targetNote is noteTitle)",
+                "if titleMatches then",
+                "set noteContent to body of targetNote",
+                "if noteContent contains noteBody or noteBody contains (name of targetNote) then",
+                "try",
+                "return (id of targetNote) as string",
+                "on error",
+                "return noteTitle",
+                "end try",
+                "end if",
+                "end if",
+                "end repeat",
+                "end repeat",
+                "end repeat",
+                "end tell",
+                "return \"\"",
+                "end run"
+            ],
+            arguments: [title, body]
+        )
+        guard result.exitCode == 0 else {
+            return nil
+        }
+        let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return output.isEmpty ? nil : output
     }
 }
 

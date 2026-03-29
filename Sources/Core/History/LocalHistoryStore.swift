@@ -54,6 +54,11 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
     let rewriteProvider: String?
     let rewriteModel: String?
     let outputPath: TextOutputPath?
+    let magicianSessionID: String?
+    let magicianRunID: String?
+    let magicianGoalSummary: String?
+    let magicianStepSummaries: [String]?
+    let magicianEvidenceSummary: String?
     let status: SessionHistoryStatus
     let errorMessage: String?
     let audioDurationSeconds: Double?
@@ -76,6 +81,11 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         rewriteProvider: String? = nil,
         rewriteModel: String? = nil,
         outputPath: TextOutputPath? = nil,
+        magicianSessionID: String? = nil,
+        magicianRunID: String? = nil,
+        magicianGoalSummary: String? = nil,
+        magicianStepSummaries: [String]? = nil,
+        magicianEvidenceSummary: String? = nil,
         status: SessionHistoryStatus,
         errorMessage: String? = nil,
         audioDurationSeconds: Double? = nil,
@@ -97,6 +107,11 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         self.rewriteProvider = rewriteProvider
         self.rewriteModel = rewriteModel
         self.outputPath = outputPath
+        self.magicianSessionID = magicianSessionID
+        self.magicianRunID = magicianRunID
+        self.magicianGoalSummary = magicianGoalSummary
+        self.magicianStepSummaries = magicianStepSummaries
+        self.magicianEvidenceSummary = magicianEvidenceSummary
         self.status = status
         self.errorMessage = errorMessage
         self.audioDurationSeconds = audioDurationSeconds
@@ -120,6 +135,11 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         case rewriteProvider
         case rewriteModel
         case outputPath
+        case magicianSessionID
+        case magicianRunID
+        case magicianGoalSummary
+        case magicianStepSummaries
+        case magicianEvidenceSummary
         case status
         case errorMessage
         case audioDurationSeconds
@@ -148,6 +168,11 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         rewriteProvider = try container.decodeIfPresent(String.self, forKey: .rewriteProvider)
         rewriteModel = try container.decodeIfPresent(String.self, forKey: .rewriteModel)
         outputPath = try container.decodeIfPresent(TextOutputPath.self, forKey: .outputPath)
+        magicianSessionID = try container.decodeIfPresent(String.self, forKey: .magicianSessionID)
+        magicianRunID = try container.decodeIfPresent(String.self, forKey: .magicianRunID)
+        magicianGoalSummary = try container.decodeIfPresent(String.self, forKey: .magicianGoalSummary)
+        magicianStepSummaries = try container.decodeIfPresent([String].self, forKey: .magicianStepSummaries)
+        magicianEvidenceSummary = try container.decodeIfPresent(String.self, forKey: .magicianEvidenceSummary)
         status = try container.decode(SessionHistoryStatus.self, forKey: .status)
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         audioDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .audioDurationSeconds)
@@ -172,6 +197,11 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(rewriteProvider, forKey: .rewriteProvider)
         try container.encodeIfPresent(rewriteModel, forKey: .rewriteModel)
         try container.encodeIfPresent(outputPath, forKey: .outputPath)
+        try container.encodeIfPresent(magicianSessionID, forKey: .magicianSessionID)
+        try container.encodeIfPresent(magicianRunID, forKey: .magicianRunID)
+        try container.encodeIfPresent(magicianGoalSummary, forKey: .magicianGoalSummary)
+        try container.encodeIfPresent(magicianStepSummaries, forKey: .magicianStepSummaries)
+        try container.encodeIfPresent(magicianEvidenceSummary, forKey: .magicianEvidenceSummary)
         try container.encode(status, forKey: .status)
         try container.encodeIfPresent(errorMessage, forKey: .errorMessage)
         try container.encodeIfPresent(audioDurationSeconds, forKey: .audioDurationSeconds)

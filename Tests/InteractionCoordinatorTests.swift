@@ -519,6 +519,107 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
     }
 
+    func testAgentRuntimeV2CommandOnlyCreateNoteProducesNonEmptyPayload() async throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = nil
+
+        let toolExecutor = FakeMagicianToolExecutor()
+        toolExecutor.result = .success(
+            MagicianExecutionResult(
+                intent: .createNote,
+                userMessage: "已写入备忘录。",
+                outputText: "现在这句话",
+                historyDisplayText: "已写入备忘录：现在这句话",
+                fallbackUsed: false,
+                observation: MagicianAgentObservation(
+                    verificationStatus: .verified,
+                    evidenceSummary: "note-id=test-note-1"
+                )
+            )
+        )
+
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutputCoordinator,
+            magicianToolExecutor: toolExecutor,
+            transcriptionText: "嗯，帮我把现在这句话记到备忘录里面",
+            preferLegacyMagicianFlow: false
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createNote)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .idle)
+        XCTAssertEqual(toolExecutor.callCount, 1)
+        XCTAssertEqual(toolExecutor.lastIntent?.intent, .createNote)
+        XCTAssertFalse((toolExecutor.lastIntent?.params.noteBody ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianEvidenceSummary, "note-id=test-note-1")
+        XCTAssertNotNil(fixture.localHistoryStore.entries.first?.magicianSessionID)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianStepSummaries?.count, 1)
+    }
+
+    func testAgentRuntimeV2FeedsTextStepOutputIntoFollowUpNote() async throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = nil
+
+        let rewriteProvider = CapturingRewriteProvider(
+            result: .success(
+                SelectionRewriteResult(
+                    rewrittenText: "1. 先确认口径\n2. 再整理时间线\n3. 最后补结论",
+                    actionLabel: "整理成三点",
+                    providerName: "Fake Rewrite",
+                    modelName: "fake-model"
+                )
+            )
+        )
+        let toolExecutor = FakeMagicianToolExecutor()
+        toolExecutor.result = .success(
+            MagicianExecutionResult(
+                intent: .createNote,
+                userMessage: "已写入备忘录。",
+                outputText: "1. 先确认口径\n2. 再整理时间线\n3. 最后补结论",
+                historyDisplayText: "已写入备忘录",
+                fallbackUsed: false,
+                observation: MagicianAgentObservation(
+                    verificationStatus: .verified,
+                    evidenceSummary: "note-id=test-note-2"
+                )
+            )
+        )
+
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutputCoordinator,
+            magicianToolExecutor: toolExecutor,
+            rewriteProviders: [rewriteProvider],
+            transcriptionText: "先整理成三点，再写进备忘录",
+            preferLegacyMagicianFlow: false
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createNote)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .idle)
+        XCTAssertEqual(rewriteProvider.callCount, 1)
+        XCTAssertEqual(toolExecutor.callCount, 1)
+        XCTAssertEqual(
+            toolExecutor.lastIntent?.params.noteBody,
+            "1. 先确认口径\n2. 再整理时间线\n3. 最后补结论"
+        )
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianStepSummaries?.count, 2)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianEvidenceSummary, "note-id=test-note-2")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "1. 先确认口径\n2. 再整理时间线\n3. 最后补结论")
+    }
+
     func testMagicianHoldWithoutSelectionRoutesIntoFeishuCLIWorkflow() async throws {
         let originalPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
         let fakeBinDirectory = FileManager.default.temporaryDirectory
@@ -1626,7 +1727,8 @@ final class InteractionCoordinatorTests: XCTestCase {
         transcriptionText: String = "hello world",
         transcriptionResponses: [Result<String, SpeechTranscriptionError>]? = nil,
         brainstormDurationProfile: BrainstormDurationProfile? = nil,
-        toastPresenter: ToastPresenter? = nil
+        toastPresenter: ToastPresenter? = nil,
+        preferLegacyMagicianFlow: Bool = true
     ) throws -> InteractionFixture {
         let defaultsSuiteName = "InteractionCoordinatorTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: defaultsSuiteName) else {
@@ -1720,6 +1822,7 @@ final class InteractionCoordinatorTests: XCTestCase {
             magicianIntentRouter: magicianIntentRouter,
             magicianWorkflowPlanner: magicianWorkflowPlanner,
             magicianToolExecutor: magicianToolExecutor ?? MagicianToolExecutor(),
+            preferLegacyMagicianFlow: preferLegacyMagicianFlow,
             toastPresenter: resolvedToastPresenter,
             dictationPostProcessor: dictationPostProcessor,
             brainstormContextComposer: brainstormContextComposer

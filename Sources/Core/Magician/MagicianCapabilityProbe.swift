@@ -55,6 +55,13 @@ struct MagicianCapabilityProbe {
 
         let version = runCLI(executablePath: backend.executablePath, arguments: ["--version"], timeoutSeconds: 2.5)
         let authStatus = runCLI(executablePath: backend.executablePath, arguments: ["auth", "status"], timeoutSeconds: 3.0)
+        let verifiedAuthStatus = runCLI(executablePath: backend.executablePath, arguments: ["auth", "status", "--verify"], timeoutSeconds: 3.2)
+        let doctorOffline = runCLI(executablePath: backend.executablePath, arguments: ["doctor", "--offline"], timeoutSeconds: 4.0)
+        let coreScopes = [
+            "calendar:calendar:read",
+            "im:message:readonly",
+            "docs:document:read"
+        ]
 
         let versionLine = version.stdout
             .split(separator: "\n")
@@ -72,20 +79,34 @@ struct MagicianCapabilityProbe {
             )
         }
 
-        let payload = parsedJSON(from: authStatus.stdout)
-        let tokenStatus = (payload["tokenStatus"] as? String)?.lowercased()
+        let authPayload = parsedJSON(from: authStatus.stdout)
+        let verifiedPayload = parsedJSON(from: verifiedAuthStatus.stdout)
+        let payload = verifiedPayload.isEmpty ? authPayload : verifiedPayload
+        let tokenStatus = ((payload["tokenStatus"] as? String) ?? (payload["status"] as? String))?.lowercased()
         let scopes = ((payload["scope"] as? String) ?? "")
             .split(separator: " ")
             .map(String.init)
             .filter { !$0.isEmpty }
-        let userName = payload["userName"] as? String
+        let userName = (payload["userName"] as? String) ?? (payload["user_name"] as? String)
+
+        let doctorPayload = parsedJSON(from: doctorOffline.stdout)
+        let doctorChecks = doctorPayload["checks"] as? [[String: Any]] ?? []
+        let hasDoctorFailure = doctorChecks.contains { check in
+            let status = ((check["status"] as? String) ?? (check["result"] as? String) ?? "").lowercased()
+            return status == "fail" || status == "failed" || status == "error"
+        }
+
+        let scopeProbeResults = coreScopes.map { scope in
+            runCLI(
+                executablePath: backend.executablePath,
+                arguments: ["auth", "check", "--scope", scope],
+                timeoutSeconds: 2.0
+            )
+        }
+        let missingCoreScope = scopeProbeResults.contains { $0.exitCode != 0 }
 
         if tokenStatus == "valid" {
-            let requiredScopePrefixes = ["calendar:", "im:", "docs:", "base:", "task:", "wiki:"]
-            let hasCoreScope = requiredScopePrefixes.allSatisfy { prefix in
-                scopes.contains(where: { $0.hasPrefix(prefix) })
-            }
-            if hasCoreScope {
+            if !missingCoreScope && !hasDoctorFailure {
                 return (availability, .ready(version: versionLine, scopes: scopes, userName: userName))
             }
             return (availability, .permissionLimited(version: versionLine, scopes: scopes, userName: userName))

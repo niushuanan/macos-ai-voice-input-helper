@@ -26,6 +26,8 @@ final class InteractionCoordinator {
     private let magicianWorkflowPlanner: any MagicianWorkflowPlanning
     private let magicianWorkflowExecutor: MagicianWorkflowExecutor
     private let magicianToolExecutor: any MagicianToolExecuting
+    private let magicianAgentRuntime: any MagicianAgentRunning
+    private let preferLegacyMagicianFlow: Bool
     private let toastPresenter: ToastPresenter?
     private let dictationPostProcessor: DictationPostProcessor
     private let brainstormContextComposer: BrainstormContextComposer
@@ -66,6 +68,8 @@ final class InteractionCoordinator {
         magicianWorkflowPlanner: (any MagicianWorkflowPlanning)? = nil,
         magicianWorkflowExecutor: MagicianWorkflowExecutor? = nil,
         magicianToolExecutor: (any MagicianToolExecuting)? = nil,
+        magicianAgentRuntime: (any MagicianAgentRunning)? = nil,
+        preferLegacyMagicianFlow: Bool = false,
         toastPresenter: ToastPresenter? = nil,
         dictationPostProcessor: DictationPostProcessor = LLMDictationPostProcessor(),
         brainstormContextComposer: BrainstormContextComposer = LLMBrainstormContextComposer()
@@ -90,6 +94,10 @@ final class InteractionCoordinator {
             speechPipelineLogger: speechPipelineLogger
         )
         let resolvedMailAddressBookStore = mailAddressBookStore ?? MailAddressBookStore()
+        let resolvedToolExecutor = magicianToolExecutor ?? MagicianToolExecutor(
+            providerSettingsStore: providerSettingsStore,
+            mailAddressBookStore: resolvedMailAddressBookStore
+        )
         let resolvedIntentRouter = magicianIntentRouter ?? LLMMagicianIntentRouter(
             providerSettingsStore: providerSettingsStore
         )
@@ -107,10 +115,15 @@ final class InteractionCoordinator {
             )
         }
         self.magicianWorkflowExecutor = magicianWorkflowExecutor ?? MagicianWorkflowExecutor()
-        self.magicianToolExecutor = magicianToolExecutor ?? MagicianToolExecutor(
+        self.magicianToolExecutor = resolvedToolExecutor
+        self.magicianAgentRuntime = magicianAgentRuntime ?? MagicianAgentRuntimeV2(
             providerSettingsStore: providerSettingsStore,
-            mailAddressBookStore: resolvedMailAddressBookStore
+            rewriteProviderRegistry: rewriteProviderRegistry,
+            textOutputCoordinator: textOutputCoordinator,
+            skillRuleStore: skillRuleStore,
+            toolExecutor: resolvedToolExecutor
         )
+        self.preferLegacyMagicianFlow = preferLegacyMagicianFlow
         self.toastPresenter = toastPresenter
         self.dictationPostProcessor = dictationPostProcessor
         self.brainstormContextComposer = brainstormContextComposer
@@ -1699,6 +1712,13 @@ final class InteractionCoordinator {
         defer {
             clearPendingMagicianSelectionState()
         }
+        if !preferLegacyMagicianFlow {
+            await outputSelectionRewriteV2(
+                transcription,
+                audioDurationSeconds: audioDurationSeconds
+            )
+            return
+        }
         let traceID = ensureTraceID()
         let rawInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let instructionApplyResult = MagicianCommandSanitizer.sanitize(rawInstruction)
@@ -2050,6 +2070,216 @@ final class InteractionCoordinator {
             )
             sessionStore.fail(message: message)
             currentTraceID = nil
+        }
+    }
+
+    private func outputSelectionRewriteV2(
+        _ transcription: SpeechTranscriptionResult,
+        audioDurationSeconds: TimeInterval
+    ) async {
+        let traceID = ensureTraceID()
+        let rawInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let instructionApplyResult = MagicianCommandSanitizer.sanitize(rawInstruction)
+        let processedInstruction = instructionApplyResult.text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let spokenInstruction = processedInstruction.isEmpty ? rawInstruction : processedInstruction
+        let initialFocusContext = contextDetector.focusedAppContext()
+        let selectionSnapshot = await resolvedMagicianSelectionSnapshot()
+        if abortIfSessionCancelled() {
+            return
+        }
+        let fallbackFocusContext = selectionSnapshot?.focusContext ?? initialFocusContext
+        let selectionText = selectionSnapshot?.selectedText ?? ""
+        let enabledFeatures = magicianFeatureToggleStore.enabledFeatures
+
+        guard !spokenInstruction.isEmpty else {
+            let message = "改写指令为空，请重试并说出明确命令。"
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: fallbackFocusContext.appName,
+                    bundleID: fallbackFocusContext.bundleID,
+                    inputText: selectionText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
+                )
+            )
+            sessionStore.fail(message: message)
+            currentTraceID = nil
+            return
+        }
+
+        guard !enabledFeatures.isEmpty else {
+            let message = selectionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "无选中场景当前没有可用能力，请先在魔术先生页面打开权限开关。"
+                : "当前没有可用能力，请先在魔术先生页面打开权限开关。"
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: fallbackFocusContext.appName,
+                    bundleID: fallbackFocusContext.bundleID,
+                    inputText: selectionText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
+                )
+            )
+            sessionStore.fail(message: message)
+            currentTraceID = nil
+            return
+        }
+
+        let runtimeRequest = MagicianAgentRequest(
+            traceID: traceID,
+            command: spokenInstruction,
+            selectionSnapshot: selectionSnapshot,
+            focusContext: fallbackFocusContext,
+            enabledFeatures: enabledFeatures
+        )
+
+        do {
+            let outcome = try await magicianAgentRuntime.run(
+                request: runtimeRequest,
+                onEvent: { [weak self] event in
+                    self?.handleMagicianRuntimeEvent(event)
+                }
+            )
+            if abortIfSessionCancelled() {
+                return
+            }
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: fallbackFocusContext.appName,
+                    bundleID: fallbackFocusContext.bundleID,
+                    inputText: selectionText,
+                    outputText: outcome.finalOutputText,
+                    instructionText: spokenInstruction,
+                    magicianFeatureID: outcome.steps.last?.featureID,
+                    displayText: outcome.displayText,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    magicianSessionID: outcome.sessionID,
+                    magicianRunID: outcome.runID,
+                    magicianGoalSummary: outcome.goalSummary,
+                    magicianStepSummaries: outcome.steps.map { "\($0.featureID.rawValue):\($0.userMessage)" },
+                    magicianEvidenceSummary: outcome.evidenceSummary,
+                    status: .success,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
+                )
+            )
+            workflowTelemetryReporter.record(
+                WorkflowTelemetryEvent(
+                    traceID: traceID,
+                    lane: .selectionRewrite,
+                    provider: nil,
+                    model: nil,
+                    event: .done,
+                    detail: outcome.goalSummary,
+                    audioDuration: audioDurationSeconds,
+                    transcriptLength: outcome.finalOutputText?.count,
+                    stepCount: outcome.steps.count
+                )
+            )
+            sessionStore.completeAction(statusMessage: outcome.finalStatusMessage)
+            currentTraceID = nil
+        } catch let magicianError as MagicianError {
+            if abortIfSessionCancelled() {
+                return
+            }
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: fallbackFocusContext.appName,
+                    bundleID: fallbackFocusContext.bundleID,
+                    inputText: selectionText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: magicianError.userMessage,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
+                )
+            )
+            workflowTelemetryReporter.record(
+                WorkflowTelemetryEvent(
+                    traceID: traceID,
+                    lane: .selectionRewrite,
+                    provider: nil,
+                    model: nil,
+                    event: .failed,
+                    errorType: magicianError.code.rawValue,
+                    detail: magicianError.debugMessage ?? magicianError.userMessage,
+                    audioDuration: audioDurationSeconds
+                )
+            )
+            handleMagicianRecoverAction(magicianError.recoverAction)
+            sessionStore.fail(message: magicianError.userMessage)
+            currentTraceID = nil
+        } catch {
+            if abortIfSessionCancelled() {
+                return
+            }
+            let message = "魔术先生执行失败：\(error.localizedDescription)"
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: fallbackFocusContext.appName,
+                    bundleID: fallbackFocusContext.bundleID,
+                    inputText: selectionText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    status: .failed,
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: instructionApplyResult.appliedSkills
+                )
+            )
+            workflowTelemetryReporter.record(
+                WorkflowTelemetryEvent(
+                    traceID: traceID,
+                    lane: .selectionRewrite,
+                    provider: nil,
+                    model: nil,
+                    event: .failed,
+                    errorType: MagicianErrorCode.toolExecutionFailed.rawValue,
+                    detail: message,
+                    audioDuration: audioDurationSeconds
+                )
+            )
+            sessionStore.fail(message: message)
+            currentTraceID = nil
+        }
+    }
+
+    private func handleMagicianRuntimeEvent(_ event: MagicianAgentRuntimeEvent) {
+        switch event.state {
+        case .queued, .understanding, .probingCapabilities, .resolvingTargets, .planning, .executingStep, .observing, .verifying, .retryingStep, .replanning:
+            sessionStore.markRewriting(
+                actionLabel: event.message,
+                stage: .toolAction,
+                progressHint: event.progressHint
+            )
+        case .waitingForUser:
+            sessionStore.fail(message: event.message)
+        case .failed, .completed:
+            break
         }
     }
 

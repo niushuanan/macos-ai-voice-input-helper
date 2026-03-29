@@ -242,7 +242,15 @@ struct MagicianMailAdapter: MagicianMailExecuting {
             userMessage: message,
             outputText: body,
             historyDisplayText: historyText,
-            fallbackUsed: fallbackUsed
+            fallbackUsed: fallbackUsed,
+            observation: MagicianAgentObservation(
+                verificationStatus: shouldSend ? .assumed : .verified,
+                targetSummary: resolution.primaryRecipient?.address,
+                evidenceSummary: shouldSend
+                    ? "Mail AppleScript 已执行发送动作"
+                    : "邮件草稿窗口已打开：\(summarizedHistoryText(subject))",
+                autoRepairApplied: fallbackUsed
+            )
         )
     }
 
