@@ -201,7 +201,10 @@ enum FeishuCanonicalOperation: String, CaseIterable, Codable {
             return nil
         }
 
-        for operation in Self.allCases where normalized.contains(operation.rawValue.lowercased()) {
+        let operationsBySpecificity = Self.allCases.sorted {
+            $0.rawValue.count > $1.rawValue.count
+        }
+        for operation in operationsBySpecificity where normalized.contains(operation.rawValue.lowercased()) {
             return operation
         }
 
@@ -219,6 +222,20 @@ enum FeishuCanonicalOperation: String, CaseIterable, Codable {
             return .calendarEvent
         }
 
+        if matchesPattern(
+            normalized,
+            pattern: #"(add|create|schedule).*(event|meeting|class|agenda|calendar)"#
+        ) {
+            return .calendarEvent
+        }
+
+        if matchesPattern(
+            normalized,
+            pattern: #"(today|tomorrow|this\s+(morning|afternoon|evening)|\d{1,2}(:\d{2})?\s*(am|pm)).*(event|meeting|class|agenda|calendar)"#
+        ) {
+            return .calendarEvent
+        }
+
         let rules: [(FeishuCanonicalOperation, [String])] = [
             (.oauthBatchAuth, ["批量授权", "batch auth"]),
             (.oauth, ["oauth", "授权", "登录飞书", "飞书登录", "auth"]),
@@ -229,7 +246,7 @@ enum FeishuCanonicalOperation: String, CaseIterable, Codable {
             (.createDoc, ["创建文档", "新建文档", "create doc"]),
             (.updateDoc, ["更新文档", "改文档", "update doc"]),
             (.fetchDoc, ["读取文档", "打开文档", "fetch doc"]),
-            (.docComments, ["评论", "comment"]),
+            (.docComments, ["文档评论", "评论", "doc comment", "comment on doc"]),
             (.docMedia, ["文档图片", "文档附件", "media"]),
             (.searchDocWiki, ["搜文档", "搜 wiki", "search wiki", "search doc"]),
             (.wikiSpaceNode, ["wiki 节点", "space node"]),
@@ -245,7 +262,7 @@ enum FeishuCanonicalOperation: String, CaseIterable, Codable {
             (.imUserFetchResource, ["下载消息资源", "fetch resource"]),
             (.imUserMessage, ["发消息", "发送消息", "message send"]),
             (.imBotImage, ["发图片", "bot image"]),
-            (.sheet, ["表格", "sheet", "spreadsheet"]),
+            (.sheet, ["电子表格", "表格", "sheet", "spreadsheet"]),
             (.taskTasklist, ["任务列表", "tasklist"]),
             (.taskSubtask, ["子任务", "subtask"]),
             (.taskComment, ["任务评论", "task comment"]),
@@ -254,16 +271,41 @@ enum FeishuCanonicalOperation: String, CaseIterable, Codable {
             (.bitableAppTableRecord, ["记录", "table record"]),
             (.bitableAppTableView, ["视图", "table view"]),
             (.bitableAppTable, ["数据表", "table list"]),
-            (.bitableApp, ["多维表格", "bitable", "base app"])
+            (.bitableApp, ["多维表格", "bitable", "base app", "多维表格 app"])
         ]
 
+        var bestMatch: (operation: FeishuCanonicalOperation, score: Int, longestKeyword: Int)?
         for (operation, keywords) in rules {
-            if keywords.contains(where: { normalized.contains($0.lowercased()) }) {
-                return operation
+            var score = 0
+            var longestKeyword = 0
+
+            for keyword in keywords {
+                let loweredKeyword = keyword.lowercased()
+                guard normalized.contains(loweredKeyword) else {
+                    continue
+                }
+                score += max(1, loweredKeyword.count)
+                longestKeyword = max(longestKeyword, loweredKeyword.count)
+            }
+
+            guard score > 0 else {
+                continue
+            }
+
+            if let current = bestMatch {
+                if score > current.score {
+                    bestMatch = (operation, score, longestKeyword)
+                    continue
+                }
+                if score == current.score, longestKeyword > current.longestKeyword {
+                    bestMatch = (operation, score, longestKeyword)
+                }
+            } else {
+                bestMatch = (operation, score, longestKeyword)
             }
         }
 
-        return nil
+        return bestMatch?.operation
     }
 
     private static func matchesPattern(_ text: String, pattern: String) -> Bool {
@@ -466,7 +508,8 @@ final class FeishuCLIProvider {
                 )
             }
 
-            if let envelope = parsedCLIEnvelope(from: output) {
+            let envelope = parsedCLIEnvelope(from: output)
+            if let envelope {
                 if envelope.ok == false {
                     return .failure(
                         MagicianError(
@@ -480,8 +523,21 @@ final class FeishuCLIProvider {
                         )
                     )
                 }
+            }
 
-                if isCalendarCreateArguments(plan.arguments), envelope.eventID == nil {
+            if isCalendarCreateArguments(plan.arguments) {
+                guard let envelope else {
+                    return .failure(
+                        MagicianError(
+                            code: .toolExecutionFailed,
+                            userMessage: "飞书没有返回结构化日程结果，无法确认创建成功，请重试。",
+                            debugMessage: output,
+                            recoverAction: "retry_command"
+                        )
+                    )
+                }
+
+                if envelope.eventID == nil {
                     return .failure(
                         MagicianError(
                             code: .toolExecutionFailed,
@@ -930,25 +986,72 @@ final class FeishuCLIProvider {
     }
 
     private func parsedCLIEnvelope(from text: String) -> CLIEnvelope? {
+        let candidates = jsonEnvelopeCandidates(from: text)
+        for candidate in candidates {
+            guard
+                let data = candidate.data(using: .utf8),
+                let object = try? JSONSerialization.jsonObject(with: data),
+                let dictionary = object as? [String: Any]
+            else {
+                continue
+            }
+
+            let ok = dictionary["ok"] as? Bool
+            let errorMessage = (dictionary["error"] as? [String: Any])?["message"] as? String
+            let eventID = (dictionary["data"] as? [String: Any])?["event_id"] as? String
+            if ok == nil, (errorMessage ?? "").isEmpty, (eventID ?? "").isEmpty {
+                continue
+            }
+
+            return CLIEnvelope(
+                ok: ok,
+                errorMessage: errorMessage?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                eventID: eventID?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        return nil
+    }
+
+    private func jsonEnvelopeCandidates(from text: String) -> [String] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return []
+        }
+
+        var candidates: [String] = [trimmed]
+        let extracted = extractJSONObject(from: trimmed)
+        if let extracted, extracted != trimmed {
+            candidates.append(extracted)
+        }
+
+        let lines = trimmed
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        candidates.append(contentsOf: lines)
+
+        var deduplicated: [String] = []
+        var seen = Set<String>()
+        for candidate in candidates {
+            guard seen.insert(candidate).inserted else {
+                continue
+            }
+            deduplicated.append(candidate)
+        }
+        return deduplicated
+    }
+
+    private func extractJSONObject(from text: String) -> String? {
         guard
-            let data = text.data(using: .utf8),
-            let object = try? JSONSerialization.jsonObject(with: data),
-            let dictionary = object as? [String: Any]
+            let first = text.firstIndex(of: "{"),
+            let last = text.lastIndex(of: "}"),
+            first <= last
         else {
             return nil
         }
-
-        let ok = dictionary["ok"] as? Bool
-        let errorMessage = (dictionary["error"] as? [String: Any])?["message"] as? String
-        let eventID = (dictionary["data"] as? [String: Any])?["event_id"] as? String
-
-        return CLIEnvelope(
-            ok: ok,
-            errorMessage: errorMessage?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            eventID: eventID?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        )
+        return String(text[first...last])
     }
 
     private func userFacingCLIErrorMessage(

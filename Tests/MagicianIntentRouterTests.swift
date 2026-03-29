@@ -3,6 +3,66 @@ import XCTest
 
 @MainActor
 final class MagicianIntentRouterTests: XCTestCase {
+    private struct FeishuRouteCase {
+        let operation: String
+        let command: String
+    }
+
+    private let fullFeishuRouteCases: [FeishuRouteCase] = [
+        FeishuRouteCase(operation: "feishu_bitable_app", command: "飞书打开多维表格 app"),
+        FeishuRouteCase(operation: "feishu_bitable_app_table", command: "飞书查看数据表 table list"),
+        FeishuRouteCase(operation: "feishu_bitable_app_table_field", command: "飞书查看字段配置"),
+        FeishuRouteCase(operation: "feishu_bitable_app_table_record", command: "飞书查看记录列表"),
+        FeishuRouteCase(operation: "feishu_bitable_app_table_view", command: "飞书查看视图 table view"),
+        FeishuRouteCase(operation: "feishu_calendar_calendar", command: "飞书查看日历"),
+        FeishuRouteCase(operation: "feishu_calendar_event", command: "飞书今天下午三点添加一个上课日程"),
+        FeishuRouteCase(operation: "feishu_calendar_event_attendee", command: "飞书邀请参会人 attendee"),
+        FeishuRouteCase(operation: "feishu_calendar_freebusy", command: "飞书查忙闲 freebusy"),
+        FeishuRouteCase(operation: "feishu_chat", command: "飞书搜索群聊 chat"),
+        FeishuRouteCase(operation: "feishu_chat_members", command: "飞书查看群成员"),
+        FeishuRouteCase(operation: "feishu_create_doc", command: "飞书创建文档"),
+        FeishuRouteCase(operation: "feishu_doc_comments", command: "飞书添加评论"),
+        FeishuRouteCase(operation: "feishu_doc_media", command: "飞书文档图片 media 插入"),
+        FeishuRouteCase(operation: "feishu_drive_file", command: "飞书上传文件到云盘 drive file"),
+        FeishuRouteCase(operation: "feishu_fetch_doc", command: "飞书读取文档"),
+        FeishuRouteCase(operation: "feishu_get_user", command: "飞书获取用户信息"),
+        FeishuRouteCase(operation: "feishu_im_bot_image", command: "飞书发图片 bot image"),
+        FeishuRouteCase(operation: "feishu_im_user_fetch_resource", command: "飞书下载消息资源"),
+        FeishuRouteCase(operation: "feishu_im_user_get_messages", command: "飞书查看消息列表"),
+        FeishuRouteCase(operation: "feishu_im_user_get_thread_messages", command: "飞书查看线程消息"),
+        FeishuRouteCase(operation: "feishu_im_user_message", command: "飞书发送消息给同事"),
+        FeishuRouteCase(operation: "feishu_im_user_search_messages", command: "飞书搜索消息"),
+        FeishuRouteCase(operation: "feishu_oauth", command: "飞书 oauth 授权状态"),
+        FeishuRouteCase(operation: "feishu_oauth_batch_auth", command: "飞书批量授权"),
+        FeishuRouteCase(operation: "feishu_search_doc_wiki", command: "飞书搜文档 search wiki"),
+        FeishuRouteCase(operation: "feishu_search_user", command: "飞书查人 search user"),
+        FeishuRouteCase(operation: "feishu_sheet", command: "飞书表格 sheet 读取"),
+        FeishuRouteCase(operation: "feishu_task_comment", command: "飞书任务评论"),
+        FeishuRouteCase(operation: "feishu_task_subtask", command: "飞书创建子任务"),
+        FeishuRouteCase(operation: "feishu_task_task", command: "飞书管理任务 task"),
+        FeishuRouteCase(operation: "feishu_task_tasklist", command: "飞书创建任务列表 tasklist"),
+        FeishuRouteCase(operation: "feishu_update_doc", command: "飞书更新文档"),
+        FeishuRouteCase(operation: "feishu_wiki_space", command: "飞书 wiki space"),
+        FeishuRouteCase(operation: "feishu_wiki_space_node", command: "飞书 wiki 节点")
+    ]
+
+    func testHeuristicRouterRecognizesAll35FeishuOperationsInCommandOnlyMode() async throws {
+        let router = HeuristicMagicianIntentRouter()
+        XCTAssertEqual(fullFeishuRouteCases.count, FeishuCanonicalOperation.allCases.count)
+
+        for item in fullFeishuRouteCases {
+            let intent = try await router.route(
+                command: item.command,
+                selection: nil,
+                enabledFeatures: [.feishuCLI]
+            )
+
+            XCTAssertEqual(intent.intent, .feishuCLI, "command=\(item.command)")
+            XCTAssertEqual(intent.sourceText, "", "command=\(item.command)")
+            XCTAssertEqual(intent.params.cliOperation, item.operation, "command=\(item.command)")
+        }
+    }
+
     func testHeuristicRouterRejectsRemovedSearchIntent() async {
         let router = HeuristicMagicianIntentRouter()
 

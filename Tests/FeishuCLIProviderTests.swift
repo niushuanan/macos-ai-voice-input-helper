@@ -2,6 +2,189 @@ import XCTest
 @testable import PulseType
 
 final class FeishuCLIProviderTests: XCTestCase {
+    private struct InferCase {
+        let operation: FeishuCanonicalOperation
+        let command: String
+    }
+
+    private struct RouteCase {
+        let operation: FeishuCanonicalOperation
+        let command: String
+        let explicitArguments: [String]
+        let expectedTokens: [String]
+    }
+
+    private let fullNaturalLanguageInferCases: [InferCase] = [
+        InferCase(operation: .bitableApp, command: "飞书打开多维表格 app"),
+        InferCase(operation: .bitableAppTable, command: "飞书查看数据表 table list"),
+        InferCase(operation: .bitableAppTableField, command: "飞书查看字段配置"),
+        InferCase(operation: .bitableAppTableRecord, command: "飞书查看记录列表"),
+        InferCase(operation: .bitableAppTableView, command: "飞书查看视图 table view"),
+        InferCase(operation: .calendarCalendar, command: "飞书查看日历"),
+        InferCase(operation: .calendarEvent, command: "飞书今天下午三点添加一个上课日程"),
+        InferCase(operation: .calendarEventAttendee, command: "飞书邀请参会人 attendee"),
+        InferCase(operation: .calendarFreebusy, command: "飞书查忙闲 freebusy"),
+        InferCase(operation: .chat, command: "飞书搜索群聊 chat"),
+        InferCase(operation: .chatMembers, command: "飞书查看群成员"),
+        InferCase(operation: .createDoc, command: "飞书创建文档"),
+        InferCase(operation: .docComments, command: "飞书添加评论"),
+        InferCase(operation: .docMedia, command: "飞书文档图片 media 插入"),
+        InferCase(operation: .driveFile, command: "飞书上传文件到云盘 drive file"),
+        InferCase(operation: .fetchDoc, command: "飞书读取文档"),
+        InferCase(operation: .getUser, command: "飞书获取用户信息"),
+        InferCase(operation: .imBotImage, command: "飞书发图片 bot image"),
+        InferCase(operation: .imUserFetchResource, command: "飞书下载消息资源"),
+        InferCase(operation: .imUserGetMessages, command: "飞书查看消息列表"),
+        InferCase(operation: .imUserGetThreadMessages, command: "飞书查看线程消息"),
+        InferCase(operation: .imUserMessage, command: "飞书发送消息给同事"),
+        InferCase(operation: .imUserSearchMessages, command: "飞书搜索消息"),
+        InferCase(operation: .oauth, command: "飞书 oauth 授权状态"),
+        InferCase(operation: .oauthBatchAuth, command: "飞书批量授权"),
+        InferCase(operation: .searchDocWiki, command: "飞书搜文档 search wiki"),
+        InferCase(operation: .searchUser, command: "飞书查人 search user"),
+        InferCase(operation: .sheet, command: "飞书表格 sheet 读取"),
+        InferCase(operation: .taskComment, command: "飞书任务评论"),
+        InferCase(operation: .taskSubtask, command: "飞书创建子任务"),
+        InferCase(operation: .taskTask, command: "飞书管理任务 task"),
+        InferCase(operation: .taskTasklist, command: "飞书创建任务列表 tasklist"),
+        InferCase(operation: .updateDoc, command: "飞书更新文档"),
+        InferCase(operation: .wikiSpace, command: "飞书 wiki space"),
+        InferCase(operation: .wikiSpaceNode, command: "飞书 wiki 节点")
+    ]
+
+    func testInferResolvesAllCanonicalOperationIDs() {
+        for operation in FeishuCanonicalOperation.allCases {
+            let inferred = FeishuCanonicalOperation.infer(from: operation.rawValue)
+            XCTAssertEqual(
+                inferred,
+                operation,
+                "Failed to infer operation id: \(operation.rawValue)"
+            )
+        }
+    }
+
+    func testInferNaturalLanguageCoverageForAll35Operations() {
+        XCTAssertEqual(
+            fullNaturalLanguageInferCases.count,
+            FeishuCanonicalOperation.allCases.count
+        )
+
+        for item in fullNaturalLanguageInferCases {
+            let inferred = FeishuCanonicalOperation.infer(from: item.command)
+            XCTAssertEqual(
+                inferred,
+                item.operation,
+                "command=\(item.command)"
+            )
+        }
+    }
+
+    func testInferSupportsMixedLanguageAndPunctuationVariants() {
+        let variants: [InferCase] = [
+            InferCase(operation: .calendarEvent, command: "Feishu, add a class event at 3pm today."),
+            InferCase(operation: .imUserMessage, command: "飞书：message send 给团队"),
+            InferCase(operation: .searchDocWiki, command: "请帮我 search doc：路线图"),
+            InferCase(operation: .calendarFreebusy, command: "飞书 freebusy 看看今天下午是否空闲"),
+            InferCase(operation: .oauthBatchAuth, command: "Feishu batch auth now"),
+            InferCase(operation: .wikiSpaceNode, command: "需要读取 wiki space node 信息")
+        ]
+
+        for item in variants {
+            let inferred = FeishuCanonicalOperation.infer(from: item.command)
+            XCTAssertEqual(
+                inferred,
+                item.operation,
+                "variant command=\(item.command)"
+            )
+        }
+    }
+
+    func testExecuteRoutesAll35OperationsToExpectedLarkCommands() async throws {
+        let fixture = try makeExecutableFixture(
+            fileName: "lark-cli",
+            script: """
+#!/bin/sh
+echo "$@"
+if echo "$@" | grep -q "calendar +create"; then
+  echo '{"ok":true,"identity":"user","data":{"event_id":"evt_route_123"}}'
+fi
+exit 0
+"""
+        )
+        defer { fixture.cleanUp() }
+
+        let provider = FeishuCLIProvider()
+        let availability = FeishuCLIAvailability(
+            backend: FeishuCLIBackendDescriptor(
+                kind: .larkCLI,
+                executablePath: fixture.executableURL.path,
+                commandName: "lark-cli"
+            )
+        )
+
+        let routeCases: [RouteCase] = [
+            RouteCase(operation: .bitableApp, command: "飞书查看多维表格 app", explicitArguments: ["--probe", "1"], expectedTokens: ["base +base-get"]),
+            RouteCase(operation: .bitableAppTable, command: "飞书查看数据表", explicitArguments: ["--probe", "1"], expectedTokens: ["base +table-list"]),
+            RouteCase(operation: .bitableAppTableField, command: "飞书查看字段", explicitArguments: ["--probe", "1"], expectedTokens: ["base +field-list"]),
+            RouteCase(operation: .bitableAppTableRecord, command: "飞书查看记录", explicitArguments: ["--probe", "1"], expectedTokens: ["base +record-list"]),
+            RouteCase(operation: .bitableAppTableView, command: "飞书查看视图", explicitArguments: ["--probe", "1"], expectedTokens: ["base +view-list"]),
+            RouteCase(operation: .calendarCalendar, command: "飞书看今天日历", explicitArguments: [], expectedTokens: ["calendar +agenda"]),
+            RouteCase(operation: .calendarEvent, command: "飞书看今天日程", explicitArguments: [], expectedTokens: ["calendar +agenda"]),
+            RouteCase(operation: .calendarEventAttendee, command: "飞书添加参会人", explicitArguments: ["--probe", "1"], expectedTokens: ["calendar +create"]),
+            RouteCase(operation: .calendarFreebusy, command: "飞书查忙闲", explicitArguments: ["--start", "2026-03-29T15:00:00+08:00", "--end", "2026-03-29T15:30:00+08:00"], expectedTokens: ["calendar +freebusy"]),
+            RouteCase(operation: .chat, command: "飞书搜索群聊 产品群", explicitArguments: [], expectedTokens: ["im +chat-search", "--query"]),
+            RouteCase(operation: .chatMembers, command: "飞书查看群成员 产品群", explicitArguments: [], expectedTokens: ["im +chat-search", "--query"]),
+            RouteCase(operation: .createDoc, command: "飞书创建文档", explicitArguments: ["--probe", "1"], expectedTokens: ["docs +create"]),
+            RouteCase(operation: .docComments, command: "飞书文档评论", explicitArguments: ["--probe", "1"], expectedTokens: ["drive +add-comment"]),
+            RouteCase(operation: .docMedia, command: "飞书下载文档媒体", explicitArguments: ["--probe", "1"], expectedTokens: ["docs +media-download"]),
+            RouteCase(operation: .driveFile, command: "飞书上传云盘文件", explicitArguments: ["--probe", "1"], expectedTokens: ["drive +upload"]),
+            RouteCase(operation: .fetchDoc, command: "飞书读取文档", explicitArguments: ["--probe", "1"], expectedTokens: ["docs +fetch"]),
+            RouteCase(operation: .getUser, command: "飞书获取我的信息", explicitArguments: [], expectedTokens: ["contact +get-user"]),
+            RouteCase(operation: .imBotImage, command: "飞书机器人发图片", explicitArguments: ["--chat-id", "oc_1", "--image", "img_1"], expectedTokens: ["im +messages-send", "--as bot"]),
+            RouteCase(operation: .imUserFetchResource, command: "飞书下载消息资源", explicitArguments: ["--probe", "1"], expectedTokens: ["im +messages-resources-download"]),
+            RouteCase(operation: .imUserGetMessages, command: "飞书查看消息列表", explicitArguments: ["--probe", "1"], expectedTokens: ["im +chat-messages-list"]),
+            RouteCase(operation: .imUserGetThreadMessages, command: "飞书查看线程消息", explicitArguments: ["--probe", "1"], expectedTokens: ["im +threads-messages-list"]),
+            RouteCase(operation: .imUserMessage, command: "飞书给群发消息", explicitArguments: ["--chat-id", "oc_1", "--text", "hi"], expectedTokens: ["im +messages-send", "--as bot"]),
+            RouteCase(operation: .imUserSearchMessages, command: "飞书搜索消息 PulseType", explicitArguments: [], expectedTokens: ["im +messages-search"]),
+            RouteCase(operation: .oauth, command: "飞书授权状态", explicitArguments: [], expectedTokens: ["auth status"]),
+            RouteCase(operation: .oauthBatchAuth, command: "飞书批量授权", explicitArguments: [], expectedTokens: ["auth login --recommend --no-wait"]),
+            RouteCase(operation: .searchDocWiki, command: "飞书搜索文档 路线图", explicitArguments: [], expectedTokens: ["docs +search"]),
+            RouteCase(operation: .searchUser, command: "飞书搜索用户 庄泓铠", explicitArguments: [], expectedTokens: ["contact +search-user", "--query"]),
+            RouteCase(operation: .sheet, command: "飞书表格读取", explicitArguments: ["--probe", "1"], expectedTokens: ["sheets +read"]),
+            RouteCase(operation: .taskComment, command: "飞书任务评论", explicitArguments: ["--probe", "1"], expectedTokens: ["task +comment"]),
+            RouteCase(operation: .taskSubtask, command: "飞书创建子任务", explicitArguments: ["--probe", "1"], expectedTokens: ["task +create"]),
+            RouteCase(operation: .taskTask, command: "飞书更新任务", explicitArguments: ["--probe", "1"], expectedTokens: ["task +update"]),
+            RouteCase(operation: .taskTasklist, command: "飞书创建任务列表", explicitArguments: ["--probe", "1"], expectedTokens: ["task +tasklist-create"]),
+            RouteCase(operation: .updateDoc, command: "飞书更新文档", explicitArguments: ["--probe", "1"], expectedTokens: ["docs +update"]),
+            RouteCase(operation: .wikiSpace, command: "飞书 wiki space", explicitArguments: [], expectedTokens: ["docs +search"]),
+            RouteCase(operation: .wikiSpaceNode, command: "飞书读取 wiki 节点", explicitArguments: ["--probe", "1"], expectedTokens: ["wiki spaces get_node"])
+        ]
+
+        XCTAssertEqual(routeCases.count, FeishuCanonicalOperation.allCases.count)
+
+        for item in routeCases {
+            let result = await provider.execute(
+                operation: item.operation,
+                spokenCommand: item.command,
+                explicitArguments: item.explicitArguments,
+                availability: availability
+            )
+
+            switch result {
+            case let .success(success):
+                let output = success.outputText ?? ""
+                for token in item.expectedTokens {
+                    XCTAssertTrue(
+                        output.contains(token),
+                        "operation=\(item.operation.rawValue), expected token=\(token), output=\(output)"
+                    )
+                }
+            case let .failure(error):
+                XCTFail("operation=\(item.operation.rawValue) expected success but got error: \(error)")
+            }
+        }
+    }
+
     func testInferCalendarEventFromNaturalChineseSentence() {
         let operation = FeishuCanonicalOperation.infer(
             from: "飞书，今天下午三点添加一个上课的日程。"
@@ -108,7 +291,12 @@ final class FeishuCLIProviderTests: XCTestCase {
     func testCalendarEventNaturalLanguageBuildsCreateArgumentsWithoutHelp() async throws {
         let fixture = try makeExecutableFixture(
             fileName: "lark-cli",
-            script: "#!/bin/sh\necho \"$@\"\nexit 0\n"
+            script: """
+#!/bin/sh
+echo "$@"
+echo '{"ok":true,"identity":"user","data":{"event_id":"evt_123","summary":"上课"}}'
+exit 0
+"""
         )
         defer { fixture.cleanUp() }
 
@@ -139,6 +327,38 @@ final class FeishuCLIProviderTests: XCTestCase {
             XCTAssertFalse(output.contains("--help"))
         case let .failure(error):
             XCTFail("expected success but got error: \(error)")
+        }
+    }
+
+    func testCalendarCreateFailsWhenStructuredEnvelopeMissing() async throws {
+        let fixture = try makeExecutableFixture(
+            fileName: "lark-cli",
+            script: "#!/bin/sh\necho \"$@\"\nexit 0\n"
+        )
+        defer { fixture.cleanUp() }
+
+        let provider = FeishuCLIProvider()
+        let availability = FeishuCLIAvailability(
+            backend: FeishuCLIBackendDescriptor(
+                kind: .larkCLI,
+                executablePath: fixture.executableURL.path,
+                commandName: "lark-cli"
+            )
+        )
+
+        let result = await provider.execute(
+            operation: .calendarEvent,
+            spokenCommand: "飞书，今天下午三点添加一个上课的日程。",
+            explicitArguments: [],
+            availability: availability
+        )
+
+        switch result {
+        case .success:
+            XCTFail("expected failure when structured envelope is missing")
+        case let .failure(error):
+            XCTAssertEqual(error.code, .toolExecutionFailed)
+            XCTAssertTrue(error.userMessage.contains("结构化日程结果"))
         }
     }
 
