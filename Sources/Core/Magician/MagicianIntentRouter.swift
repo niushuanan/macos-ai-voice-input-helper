@@ -398,6 +398,51 @@ struct MagicianFeishuCLIPromptBuilder: MagicianIntentExtractionPromptBuilding {
     }
 }
 
+private let magicianValueOptionalCLIFlags: Set<String> = [
+    "-h",
+    "--help",
+    "--dry-run",
+    "--page-all",
+    "--recommend",
+    "--no-wait"
+]
+
+private func magicianCommandContainsExplicitCLIFlags(_ command: String) -> Bool {
+    command
+        .split(whereSeparator: \.isWhitespace)
+        .contains { token in
+            token.hasPrefix("-")
+        }
+}
+
+private func magicianCLIArgumentsLookComplete(_ arguments: [String]) -> Bool {
+    guard !arguments.isEmpty else {
+        return true
+    }
+
+    var index = 0
+    while index < arguments.count {
+        let token = arguments[index]
+        if token.hasPrefix("-") {
+            if magicianValueOptionalCLIFlags.contains(token) {
+                index += 1
+                continue
+            }
+            guard index + 1 < arguments.count else {
+                return false
+            }
+            let next = arguments[index + 1]
+            guard !next.hasPrefix("-") else {
+                return false
+            }
+            index += 2
+            continue
+        }
+        index += 1
+    }
+    return true
+}
+
 struct MagicianIntentSchemaValidator {
     func validate(
         _ intent: MagicianIntent,
@@ -572,6 +617,15 @@ struct MagicianIntentSchemaValidator {
                 params.cliOperation = nil
             }
             if params.cliArguments?.isEmpty == true {
+                params.cliArguments = nil
+            }
+            if
+                params.cliArguments != nil,
+                (
+                    !magicianCommandContainsExplicitCLIFlags(normalizedCommand)
+                    || !magicianCLIArgumentsLookComplete(params.cliArguments ?? [])
+                )
+            {
                 params.cliArguments = nil
             }
             if params.cliOperation == nil {
@@ -1103,11 +1157,40 @@ struct HeuristicMagicianIntentRouter: MagicianIntentRouting {
         guard !tokens.isEmpty else {
             return nil
         }
-        let args = tokens
-            .filter { $0.hasPrefix("-") || $0.hasPrefix("--") }
-            .prefix(8)
-            .map { String($0) }
-        return args.isEmpty ? nil : args
+        var arguments: [String] = []
+        arguments.reserveCapacity(8)
+
+        var index = 0
+        while index < tokens.count, arguments.count < 8 {
+            let token = tokens[index]
+            guard token.hasPrefix("-") else {
+                index += 1
+                continue
+            }
+
+            arguments.append(token)
+            if magicianValueOptionalCLIFlags.contains(token) {
+                index += 1
+                continue
+            }
+
+            guard index + 1 < tokens.count else {
+                break
+            }
+
+            let next = tokens[index + 1]
+            guard !next.hasPrefix("-") else {
+                break
+            }
+
+            arguments.append(next)
+            index += 2
+        }
+
+        guard !arguments.isEmpty, magicianCLIArgumentsLookComplete(arguments) else {
+            return nil
+        }
+        return arguments
     }
 
     private func resolvedMailDeliveryMode(from command: String) -> MagicianMailDeliveryMode {
@@ -1691,9 +1774,18 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
             if let operation = params.cliOperation, FeishuCanonicalOperation(rawValue: operation) == nil {
                 params.cliOperation = nil
             }
-            params.cliArguments = params.cliArguments?
+            let normalizedArguments = params.cliArguments?
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
+            if
+                magicianCommandContainsExplicitCLIFlags(command),
+                let normalizedArguments,
+                magicianCLIArgumentsLookComplete(normalizedArguments)
+            {
+                params.cliArguments = normalizedArguments
+            } else {
+                params.cliArguments = nil
+            }
         }
 
         return MagicianIntent(

@@ -369,6 +369,55 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertEqual(generationProvider.callCount, 2)
     }
 
+    func testLLMRouterDropsModelSuppliedCLIArgumentsForNaturalLanguageCommand() async throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-cli-natural"])
+        )
+        providerStore.updateCLITextModel("deepseek-chat")
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputTexts: [
+                #"{"intent":"feishu_cli","confidence":0.94}"#,
+                #"{"sourceText":"","params":{"cliOperation":"feishu_calendar_event","cliArguments":["--summary","--start","--end"]}}"#
+            ]
+        )
+
+        let router = LLMMagicianIntentRouter(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider
+        )
+
+        let intent = try await router.route(
+            command: "飞书，今天下午三点添加一个上课日程。",
+            selection: nil,
+            enabledFeatures: [.feishuCLI]
+        )
+
+        XCTAssertEqual(intent.intent, .feishuCLI)
+        XCTAssertEqual(intent.params.cliOperation, "feishu_calendar_event")
+        XCTAssertNil(intent.params.cliArguments)
+    }
+
+    func testHeuristicRouterKeepsExplicitCLIFlagValuePairs() async throws {
+        let router = HeuristicMagicianIntentRouter()
+
+        let intent = try await router.route(
+            command: "飞书查忙闲 --start 2026-03-29T15:00:00+08:00 --end 2026-03-29T15:30:00+08:00",
+            selection: nil,
+            enabledFeatures: [.feishuCLI]
+        )
+
+        XCTAssertEqual(intent.intent, .feishuCLI)
+        XCTAssertEqual(
+            intent.params.cliArguments,
+            ["--start", "2026-03-29T15:00:00+08:00", "--end", "2026-03-29T15:30:00+08:00"]
+        )
+    }
+
     func testLLMRouterParsesJSONFromCodeFence() async throws {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }

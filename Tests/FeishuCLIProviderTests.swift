@@ -366,6 +366,48 @@ exit 0
         }
     }
 
+    func testCalendarEventIgnoresIncompleteExplicitArgumentsAndFallsBackToInference() async throws {
+        let fixture = try makeExecutableFixture(
+            fileName: "lark-cli",
+            script: """
+#!/bin/sh
+echo "$@"
+echo '{"ok":true,"identity":"user","data":{"event_id":"evt_456","summary":"上课"}}'
+exit 0
+"""
+        )
+        defer { fixture.cleanUp() }
+
+        let provider = FeishuCLIProvider()
+        let availability = FeishuCLIAvailability(
+            backend: FeishuCLIBackendDescriptor(
+                kind: .larkCLI,
+                executablePath: fixture.executableURL.path,
+                commandName: "lark-cli"
+            )
+        )
+
+        let result = await provider.execute(
+            operation: .calendarEvent,
+            spokenCommand: "飞书，今天下午三点添加一个上课日程。",
+            explicitArguments: ["--summary", "--start", "--end"],
+            availability: availability
+        )
+
+        switch result {
+        case let .success(success):
+            let output = success.outputText ?? ""
+            XCTAssertTrue(output.contains("calendar +create"))
+            XCTAssertTrue(output.contains("--summary"))
+            XCTAssertTrue(output.contains("上课"))
+            XCTAssertTrue(output.contains("--start"))
+            XCTAssertTrue(output.contains("--end"))
+            XCTAssertFalse(output.contains("calendar +create --summary --start --end"))
+        case let .failure(error):
+            XCTFail("expected success but got error: \(error)")
+        }
+    }
+
     func testCalendarCreateFailsWhenStructuredEnvelopeMissing() async throws {
         let fixture = try makeExecutableFixture(
             fileName: "lark-cli",

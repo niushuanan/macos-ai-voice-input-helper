@@ -926,11 +926,50 @@ final class FeishuCLIProvider {
     }
 
     private func sanitizedExplicitArguments(_ raw: [String]) -> [String] {
-        raw
+        let filtered = raw
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .prefix(6)
             .map { String($0) }
+        guard !filtered.isEmpty else {
+            return []
+        }
+        guard explicitArgumentsLookComplete(filtered) else {
+            return []
+        }
+        return filtered
+    }
+
+    private func explicitArgumentsLookComplete(_ arguments: [String]) -> Bool {
+        let valueOptionalFlags: Set<String> = [
+            "-h",
+            "--help",
+            "--dry-run",
+            "--page-all",
+            "--recommend",
+            "--no-wait"
+        ]
+        var index = 0
+        while index < arguments.count {
+            let token = arguments[index]
+            if token.hasPrefix("-") {
+                if valueOptionalFlags.contains(token) {
+                    index += 1
+                    continue
+                }
+                guard index + 1 < arguments.count else {
+                    return false
+                }
+                let next = arguments[index + 1]
+                guard !next.hasPrefix("-") else {
+                    return false
+                }
+                index += 2
+                continue
+            }
+            index += 1
+        }
+        return true
     }
 
     private func argumentsAreSafe(_ arguments: [String]) -> Bool {
