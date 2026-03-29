@@ -60,6 +60,12 @@ struct MagicianCommandPreprocessResult: Equatable {
 
 @MainActor
 struct MagicianCommandSemanticPreprocessor {
+    private enum Scene {
+        case music
+        case feishu
+        case generic
+    }
+
     let providerSettingsStore: ProviderSettingsStore
     let rewriteProviderRegistry: RewriteProviderRegistry
     let skillRuleStore: SkillRuleStore
@@ -133,11 +139,12 @@ struct MagicianCommandSemanticPreprocessor {
         }
 
         let dictionaryTerms = Array(asrDictionaryStore.currentSnapshot().injectedTerms.prefix(40))
+        let scene = inferScene(from: baseCommand)
         do {
             let rewritten = try await provider.rewrite(
                 request: SelectionRewriteRequest(
                     selectedText: baseCommand,
-                    spokenInstruction: commandPrompt(dictionaryTerms: dictionaryTerms),
+                    spokenInstruction: commandPrompt(scene: scene, dictionaryTerms: dictionaryTerms),
                     focusContext: focusContext,
                     outputBias: .neutral,
                     appPrompt: nil,
@@ -173,12 +180,57 @@ struct MagicianCommandSemanticPreprocessor {
         }
     }
 
-    private func commandPrompt(dictionaryTerms: [String]) -> String {
+    private func inferScene(from command: String) -> Scene {
+        let lowered = command.lowercased()
+        if containsAny(
+            lowered,
+            keywords: ["音乐", "歌曲", "歌", "播放", "暂停", "继续", "下一首", "上一首", "music", "play", "pause", "next", "previous"]
+        ) {
+            return .music
+        }
+        if containsAny(
+            lowered,
+            keywords: ["飞书", "lark", "消息", "群", "chat", "文档", "wiki", "日程", "calendar", "任务", "多维表格", "bitable", "发给", "通知", "搜索"]
+        ) {
+            return .feishu
+        }
+        return .generic
+    }
+
+    private func commandPrompt(scene: Scene, dictionaryTerms: [String]) -> String {
         let dictionaryLine: String
         if dictionaryTerms.isEmpty {
             dictionaryLine = "词典为空。"
         } else {
             dictionaryLine = "词典词条：\(dictionaryTerms.joined(separator: "、"))。"
+        }
+
+        let scenePrompt: String
+        switch scene {
+        case .music:
+            scenePrompt = """
+            场景：音乐命令（Music 应用）。
+            用户偏好：用户几乎只点周杰伦的歌；当歌手词不清晰时，优先往“周杰伦”纠正。
+            常见口语与错词：
+            - “周杰侖、周结伦、粥杰伦” -> “周杰伦”
+            - “到香、稻乡” -> “稻香”
+            命令目标：播放某歌手/歌曲、暂停、继续、上一首、下一首。
+            输出尽量保留一句自然话，不要改成参数格式。
+            """
+        case .feishu:
+            scenePrompt = """
+            场景：飞书命令（Feishu/Lark CLI）。
+            优先优化到已支持高频场景：
+            1) 查/建日程；2) 发消息（找人或群）；3) 查文档/Wiki；
+            4) 创建文档；5) 搜索用户；6) 创建多维表格；7) 任务查询/更新。
+            对不明确对象（人名、群名、文档名）要先纠错成更像真实名称，方便后续解析唯一目标。
+            常见口语与错词：
+            - “非书、飞鼠、飞叔” -> “飞书”
+            - “拉克、lurk” -> “lark”
+            输出保持一句可执行自然话，不要生成 CLI flags。
+            """
+        case .generic:
+            scenePrompt = "场景：通用命令纠错。"
         }
 
         return """
@@ -189,8 +241,13 @@ struct MagicianCommandSemanticPreprocessor {
         3) 如果命令里已有 URL、ID、token、open_id，必须原样保留。
         4) 命令太短时只补必要词，不要扩写成长段说明。
         5) 不要生成 CLI 参数格式。
+        \(scenePrompt)
         \(dictionaryLine)
         """
+    }
+
+    private func containsAny(_ value: String, keywords: [String]) -> Bool {
+        keywords.contains { value.contains($0) }
     }
 
     private func mergedSkills(

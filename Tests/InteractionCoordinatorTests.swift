@@ -641,6 +641,8 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(fixture.sessionStore.phase, .idle)
         XCTAssertEqual(rewriteProvider.callCount, 1)
+        XCTAssertTrue(rewriteProvider.lastRequest?.spokenInstruction.contains("场景：音乐命令（Music 应用）。") == true)
+        XCTAssertTrue(rewriteProvider.lastRequest?.spokenInstruction.contains("用户几乎只点周杰伦的歌") == true)
         XCTAssertEqual(runtime.lastRequest?.command, "播放周杰伦的稻香")
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.instructionText, "播放周杰伦的稻香")
     }
@@ -687,6 +689,8 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(fixture.sessionStore.phase, .idle)
         XCTAssertEqual(rewriteProvider.callCount, 1)
+        XCTAssertTrue(rewriteProvider.lastRequest?.spokenInstruction.contains("场景：飞书命令（Feishu/Lark CLI）。") == true)
+        XCTAssertTrue(rewriteProvider.lastRequest?.spokenInstruction.contains("优先优化到已支持高频场景") == true)
         XCTAssertEqual(runtime.lastRequest?.command, "给刘莉丝发消息说会议改到下午三点")
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.instructionText, "给刘莉丝发消息说会议改到下午三点")
     }
