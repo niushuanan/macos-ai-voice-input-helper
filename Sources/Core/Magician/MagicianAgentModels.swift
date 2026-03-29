@@ -71,71 +71,6 @@ struct MagicianTargetResolution: Codable, Equatable {
     }
 }
 
-struct MagicianAgentStep: Codable, Equatable, Identifiable {
-    let id: String
-    let workflowStep: MagicianWorkflowStep
-
-    init(id: String, workflowStep: MagicianWorkflowStep) {
-        self.id = id
-        self.workflowStep = workflowStep
-    }
-}
-
-struct MagicianAgentPlan: Codable, Equatable {
-    let version: Int
-    let steps: [MagicianAgentStep]
-    let maxAutoReplans: Int
-    let maxAutoRetries: Int
-    let rationale: String?
-    let confidence: Double
-
-    init(
-        version: Int = 1,
-        steps: [MagicianAgentStep],
-        maxAutoReplans: Int = 1,
-        maxAutoRetries: Int = 1,
-        rationale: String? = nil,
-        confidence: Double = 0.8
-    ) {
-        self.version = version
-        self.steps = steps
-        self.maxAutoReplans = max(0, min(maxAutoReplans, 1))
-        self.maxAutoRetries = max(0, min(maxAutoRetries, 1))
-        self.rationale = rationale
-        self.confidence = confidence
-    }
-
-    init(workflowPlan: MagicianWorkflowPlan, maxAutoReplans: Int = 1, maxAutoRetries: Int = 1) {
-        self.init(
-            version: workflowPlan.version,
-            steps: workflowPlan.steps.map { MagicianAgentStep(id: $0.stepID, workflowStep: $0) },
-            maxAutoReplans: maxAutoReplans,
-            maxAutoRetries: maxAutoRetries,
-            rationale: workflowPlan.rationale,
-            confidence: workflowPlan.confidence
-        )
-    }
-}
-
-struct MagicianAgentExecutionResult: Equatable {
-    let executionResult: MagicianExecutionResult
-    let observation: MagicianAgentObservation?
-    let targetResolution: MagicianTargetResolution?
-    let replanned: Bool
-
-    init(
-        executionResult: MagicianExecutionResult,
-        observation: MagicianAgentObservation? = nil,
-        targetResolution: MagicianTargetResolution? = nil,
-        replanned: Bool = false
-    ) {
-        self.executionResult = executionResult
-        self.observation = observation
-        self.targetResolution = targetResolution
-        self.replanned = replanned
-    }
-}
-
 protocol MagicianTargetResolver {
     func resolveTarget(
         command: String,
@@ -149,35 +84,6 @@ protocol MagicianResultVerifier {
         executionResult: MagicianExecutionResult,
         context: MagicianExecutionContext
     ) async -> MagicianAgentObservation
-}
-
-protocol MagicianReplanPolicy {
-    func shouldAutoReplan(
-        after error: MagicianError,
-        step: MagicianWorkflowStep,
-        attempt: Int
-    ) -> Bool
-}
-
-struct DefaultMagicianReplanPolicy: MagicianReplanPolicy {
-    func shouldAutoReplan(
-        after error: MagicianError,
-        step: MagicianWorkflowStep,
-        attempt: Int
-    ) -> Bool {
-        guard attempt <= 1 else {
-            return false
-        }
-        guard step.feature == .feishuCLI else {
-            return false
-        }
-        switch error.code {
-        case .intentParseFailed, .cliAuthRequired, .toolExecutionFailed:
-            return true
-        default:
-            return false
-        }
-    }
 }
 
 enum MagicianAgentRuntimeState: String, Codable, Equatable {

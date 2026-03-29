@@ -197,6 +197,106 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: lifetimeFileURL.path))
     }
 
+    func testLegacyHistoryMigrationDropsAllMagicianRowsAndKeepsDictation() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("history-magician-prune-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+        let entries: [SessionHistoryEntry] = [
+            makeEntry(
+                timestamp: Date(timeIntervalSince1970: 1_762_200_000),
+                mode: .selectionRewrite,
+                status: .success,
+                inputText: "legacy-magician",
+                outputText: "legacy-magician"
+            ),
+            makeEntry(
+                timestamp: Date(timeIntervalSince1970: 1_762_200_100),
+                mode: .selectionRewrite,
+                status: .success,
+                inputText: "runtime-v2",
+                outputText: "runtime-v2",
+                magicianRuntimeVersion: 2,
+                magicianSessionID: "session-v2"
+            ),
+            makeEntry(
+                timestamp: Date(timeIntervalSince1970: 1_762_200_200),
+                mode: .dictation,
+                status: .success,
+                inputText: "dictation",
+                outputText: "dictation"
+            )
+        ]
+
+        try encoder.encode(entries).write(
+            to: directory.appendingPathComponent("session-history-v1.json", isDirectory: false),
+            options: .atomic
+        )
+
+        let store = LocalHistoryStore(historyDirectory: directory)
+
+        XCTAssertEqual(store.entries.count, 1)
+        XCTAssertEqual(store.entries(matching: .selectionRewrite).count, 0)
+        XCTAssertEqual(store.entries(matching: .dictation).count, 1)
+        XCTAssertEqual(store.entries.first?.inputText, "dictation")
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent("session-history-v2.json", isDirectory: false).path
+            )
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent("session-history-v1.json", isDirectory: false).path
+            )
+        )
+    }
+
+    func testLoadingCurrentHistoryFileKeepsRuntimeV2MagicianRows() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("history-v2-load-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+        let entries: [SessionHistoryEntry] = [
+            makeEntry(
+                timestamp: Date(timeIntervalSince1970: 1_762_210_000),
+                mode: .selectionRewrite,
+                status: .success,
+                inputText: "runtime-v2",
+                outputText: "runtime-v2",
+                magicianRuntimeVersion: 2,
+                magicianSessionID: "session-v2"
+            ),
+            makeEntry(
+                timestamp: Date(timeIntervalSince1970: 1_762_210_100),
+                mode: .dictation,
+                status: .success,
+                inputText: "dictation",
+                outputText: "dictation"
+            )
+        ]
+
+        try encoder.encode(entries).write(
+            to: directory.appendingPathComponent("session-history-v2.json", isDirectory: false),
+            options: .atomic
+        )
+
+        let store = LocalHistoryStore(historyDirectory: directory)
+
+        XCTAssertEqual(store.entries.count, 2)
+        XCTAssertEqual(store.entries(matching: .selectionRewrite).count, 1)
+        XCTAssertEqual(store.entries.first(where: { $0.mode == .selectionRewrite })?.inputText, "runtime-v2")
+    }
+
     func testLoadingLegacyLifetimeSnapshotRecalculatesSavedSecondsWithNewBaseline() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("history-lifetime-baseline-tests-\(UUID().uuidString)", isDirectory: true)
@@ -276,7 +376,7 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertEqual(store.entries.count, 1)
     }
 
-    func testLegacyWebSearchHistoryFeatureIDDoesNotBreakLoading() throws {
+    func testLegacyWebSearchHistoryEntryIsPrunedOnLoad() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("history-web-search-compat-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -303,9 +403,12 @@ final class LocalHistoryStoreTests: XCTestCase {
         try XCTUnwrap(payload.data(using: .utf8)).write(to: fileURL, options: .atomic)
 
         let store = LocalHistoryStore(historyDirectory: directory)
-        XCTAssertEqual(store.entries.count, 1)
-        XCTAssertNil(store.entries.first?.magicianFeatureID)
-        XCTAssertEqual(store.entries.first?.instructionText, "帮我搜索一下")
+        XCTAssertTrue(store.entries.isEmpty)
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent("session-history-v2.json", isDirectory: false).path
+            )
+        )
     }
 
     func testClearAllDoesNotChangeLifetimeStatistics() throws {
@@ -362,6 +465,7 @@ final class LocalHistoryStoreTests: XCTestCase {
             instructionText: "帮我写进备忘录",
             magicianFeatureID: .createNote,
             displayText: "已写入备忘录：周五 15:00 在 A 会议室评审 PRD",
+            magicianRuntimeVersion: 2,
             status: .success
         )
 
@@ -374,6 +478,7 @@ final class LocalHistoryStoreTests: XCTestCase {
         let decoded = try decoder.decode([SessionHistoryEntry].self, from: data)
 
         XCTAssertEqual(decoded.first?.magicianFeatureID, .createNote)
+        XCTAssertEqual(decoded.first?.magicianRuntimeVersion, 2)
         XCTAssertEqual(decoded.first?.displayText, "已写入备忘录：周五 15:00 在 A 会议室评审 PRD")
     }
 
@@ -390,6 +495,8 @@ final class LocalHistoryStoreTests: XCTestCase {
         status: SessionHistoryStatus,
         inputText: String,
         outputText: String?,
+        magicianRuntimeVersion: Int? = nil,
+        magicianSessionID: String? = nil,
         errorMessage: String? = nil,
         audioDurationSeconds: Double? = nil
     ) -> SessionHistoryEntry {
@@ -400,6 +507,8 @@ final class LocalHistoryStoreTests: XCTestCase {
             bundleID: "com.apple.TextEdit",
             inputText: inputText,
             outputText: outputText,
+            magicianRuntimeVersion: magicianRuntimeVersion,
+            magicianSessionID: magicianSessionID,
             status: status,
             errorMessage: errorMessage,
             audioDurationSeconds: audioDurationSeconds

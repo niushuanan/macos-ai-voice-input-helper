@@ -54,6 +54,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
     let rewriteProvider: String?
     let rewriteModel: String?
     let outputPath: TextOutputPath?
+    let magicianRuntimeVersion: Int?
     let magicianSessionID: String?
     let magicianRunID: String?
     let magicianGoalSummary: String?
@@ -81,6 +82,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         rewriteProvider: String? = nil,
         rewriteModel: String? = nil,
         outputPath: TextOutputPath? = nil,
+        magicianRuntimeVersion: Int? = nil,
         magicianSessionID: String? = nil,
         magicianRunID: String? = nil,
         magicianGoalSummary: String? = nil,
@@ -107,6 +109,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         self.rewriteProvider = rewriteProvider
         self.rewriteModel = rewriteModel
         self.outputPath = outputPath
+        self.magicianRuntimeVersion = magicianRuntimeVersion
         self.magicianSessionID = magicianSessionID
         self.magicianRunID = magicianRunID
         self.magicianGoalSummary = magicianGoalSummary
@@ -135,6 +138,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         case rewriteProvider
         case rewriteModel
         case outputPath
+        case magicianRuntimeVersion
         case magicianSessionID
         case magicianRunID
         case magicianGoalSummary
@@ -168,6 +172,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         rewriteProvider = try container.decodeIfPresent(String.self, forKey: .rewriteProvider)
         rewriteModel = try container.decodeIfPresent(String.self, forKey: .rewriteModel)
         outputPath = try container.decodeIfPresent(TextOutputPath.self, forKey: .outputPath)
+        magicianRuntimeVersion = try container.decodeIfPresent(Int.self, forKey: .magicianRuntimeVersion)
         magicianSessionID = try container.decodeIfPresent(String.self, forKey: .magicianSessionID)
         magicianRunID = try container.decodeIfPresent(String.self, forKey: .magicianRunID)
         magicianGoalSummary = try container.decodeIfPresent(String.self, forKey: .magicianGoalSummary)
@@ -197,6 +202,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(rewriteProvider, forKey: .rewriteProvider)
         try container.encodeIfPresent(rewriteModel, forKey: .rewriteModel)
         try container.encodeIfPresent(outputPath, forKey: .outputPath)
+        try container.encodeIfPresent(magicianRuntimeVersion, forKey: .magicianRuntimeVersion)
         try container.encodeIfPresent(magicianSessionID, forKey: .magicianSessionID)
         try container.encodeIfPresent(magicianRunID, forKey: .magicianRunID)
         try container.encodeIfPresent(magicianGoalSummary, forKey: .magicianGoalSummary)
@@ -274,6 +280,7 @@ final class LocalHistoryStore: ObservableObject {
     @Published private(set) var lifetimeSnapshot: HistoryLifetimeSnapshot = .zero
 
     private let entriesFileURL: URL
+    private let legacyEntriesFileURL: URL
     private let lifetimeFileURL: URL
     private let fileManager: FileManager
     private let jsonDecoder: JSONDecoder
@@ -288,7 +295,8 @@ final class LocalHistoryStore: ObservableObject {
         typingBaselineCPM: Double = 60
     ) {
         self.fileManager = fileManager
-        self.entriesFileURL = historyDirectory.appendingPathComponent("session-history-v1.json", isDirectory: false)
+        self.entriesFileURL = historyDirectory.appendingPathComponent("session-history-v2.json", isDirectory: false)
+        self.legacyEntriesFileURL = historyDirectory.appendingPathComponent("session-history-v1.json", isDirectory: false)
         self.lifetimeFileURL = historyDirectory.appendingPathComponent("lifetime-stats-v1.json", isDirectory: false)
         self.maxEntries = maxEntries
         self.typingBaselineCPM = typingBaselineCPM
@@ -333,6 +341,9 @@ final class LocalHistoryStore: ObservableObject {
         entries = []
         if fileManager.fileExists(atPath: entriesFileURL.path) {
             try? fileManager.removeItem(at: entriesFileURL)
+        }
+        if fileManager.fileExists(atPath: legacyEntriesFileURL.path) {
+            try? fileManager.removeItem(at: legacyEntriesFileURL)
         }
     }
 
@@ -397,20 +408,21 @@ final class LocalHistoryStore: ObservableObject {
     }
 
     private func loadEntries() {
-        guard fileManager.fileExists(atPath: entriesFileURL.path) else {
-            entries = []
+        if let currentEntries = decodedEntries(at: entriesFileURL) {
+            entries = currentEntries.sorted(by: { $0.timestamp > $1.timestamp })
             return
         }
 
-        guard
-            let data = try? Data(contentsOf: entriesFileURL),
-            let loaded = try? jsonDecoder.decode([SessionHistoryEntry].self, from: data)
-        else {
-            entries = []
+        if let migratedEntries = migratedLegacyEntries() {
+            entries = migratedEntries.sorted(by: { $0.timestamp > $1.timestamp })
+            persistEntries()
+            if fileManager.fileExists(atPath: legacyEntriesFileURL.path) {
+                try? fileManager.removeItem(at: legacyEntriesFileURL)
+            }
             return
         }
 
-        entries = loaded.sorted(by: { $0.timestamp > $1.timestamp })
+        entries = []
     }
 
     private func persistEntries() {
@@ -569,5 +581,25 @@ final class LocalHistoryStore: ObservableObject {
             return false
         }
         return dictionary["speedSampleCount"] != nil
+    }
+
+    private func decodedEntries(at fileURL: URL) -> [SessionHistoryEntry]? {
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            return nil
+        }
+        guard
+            let data = try? Data(contentsOf: fileURL),
+            let loaded = try? jsonDecoder.decode([SessionHistoryEntry].self, from: data)
+        else {
+            return nil
+        }
+        return loaded
+    }
+
+    private func migratedLegacyEntries() -> [SessionHistoryEntry]? {
+        guard let legacyEntries = decodedEntries(at: legacyEntriesFileURL) else {
+            return nil
+        }
+        return legacyEntries.filter { $0.mode != .selectionRewrite }
     }
 }

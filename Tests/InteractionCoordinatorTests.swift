@@ -374,46 +374,42 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.sessionStore.activeLane, .selectionRewrite)
     }
 
-    func testSelectionRewriteRoutesToMagicianToolIntent() async throws {
+    func testSelectionRewriteUsesRuntimeV2ByDefault() async throws {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
             focusContext: FixedContextDetector().focusedAppContext(),
             selectedText: "OpenAI o3 mini"
         )
-        let router = FakeMagicianIntentRouter(
-            intent: MagicianIntent(
-                intent: .createNote,
-                confidence: 0.95,
-                sourceText: "OpenAI o3 mini",
-                params: MagicianIntentParams(
-                    mode: nil,
-                    targetLanguage: nil,
-                    tone: nil,
-                    title: nil,
-                    startAt: nil,
-                    endAt: nil,
-                    location: nil,
-                    noteBody: "OpenAI o3 mini",
-                    mailTo: nil,
-                    mailSubject: nil,
-                    mailBody: nil
+        let runtime = FakeMagicianAgentRuntime(
+            result: .success(
+                MagicianAgentRunOutcome(
+                    sessionID: "session-test-1",
+                    runID: "run-test-1",
+                    goalSummary: "写进备忘录",
+                    finalStatusMessage: "已写入备忘录。",
+                    finalOutputText: "OpenAI o3 mini",
+                    displayText: "已写入备忘录：OpenAI o3 mini",
+                    steps: [
+                        MagicianAgentStepRecord(
+                            id: "step-1",
+                            featureID: .createNote,
+                            instruction: "帮我写进备忘录",
+                            userMessage: "已写入备忘录。",
+                            outputText: "OpenAI o3 mini",
+                            observation: MagicianAgentObservation(
+                                verificationStatus: .verified,
+                                evidenceSummary: "note-id=test-runtime-1"
+                            )
+                        )
+                    ],
+                    evidenceSummary: "note-id=test-runtime-1"
                 )
-            )
-        )
-        let toolExecutor = FakeMagicianToolExecutor()
-        toolExecutor.result = .success(
-            MagicianExecutionResult(
-                intent: .createNote,
-                userMessage: "已写入备忘录。",
-                outputText: "OpenAI o3 mini",
-                fallbackUsed: false
             )
         )
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
-            magicianIntentRouter: router,
-            magicianToolExecutor: toolExecutor,
+            magicianAgentRuntime: runtime,
             transcriptionText: "帮我写进备忘录"
         )
         defer { fixture.cleanUp() }
@@ -424,13 +420,14 @@ final class InteractionCoordinatorTests: XCTestCase {
         fixture.coordinator.handleStopInput()
         await waitForPipeline(using: fixture.sessionStore)
 
+        XCTAssertEqual(runtime.callCount, 1)
+        XCTAssertEqual(runtime.lastRequest?.selectionSnapshot?.selectedText, "OpenAI o3 mini")
         XCTAssertEqual(fixture.sessionStore.phase, .idle)
         XCTAssertEqual(fixture.sessionStore.statusMessage, "已写入备忘录。")
-        XCTAssertEqual(toolExecutor.callCount, 1)
-        XCTAssertEqual(toolExecutor.lastIntent?.intent, .createNote)
-        XCTAssertEqual(toolExecutor.lastExecutionContext?.selection?.selectedText, "OpenAI o3 mini")
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
-        XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "OpenAI o3 mini")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianSessionID, "session-test-1")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianRunID, "run-test-1")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianEvidenceSummary, "note-id=test-runtime-1")
     }
 
     func testCancelDuringMagicianThinkingKeepsCancelledState() async throws {
@@ -439,18 +436,20 @@ final class InteractionCoordinatorTests: XCTestCase {
             focusContext: FixedContextDetector().focusedAppContext(),
             selectedText: "路线图同步"
         )
-        let router = DelayedFailingMagicianIntentRouter(
+        let runtime = FakeMagicianAgentRuntime(
             delayNanoseconds: 180_000_000,
-            error: MagicianError(
-                code: .intentParseFailed,
-                userMessage: "文本模型不可用。",
-                debugMessage: nil,
-                recoverAction: nil
+            result: .failure(
+                MagicianError(
+                    code: .intentParseFailed,
+                    userMessage: "文本模型不可用。",
+                    debugMessage: nil,
+                    recoverAction: nil
+                )
             )
         )
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
-            magicianIntentRouter: router,
+            magicianAgentRuntime: runtime,
             transcriptionText: "帮我写进备忘录"
         )
         defer { fixture.cleanUp() }
@@ -468,55 +467,6 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertNil(fixture.sessionStore.errorMessage)
         XCTAssertEqual(fixture.localHistoryStore.entries.count, 1)
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .cancelled)
-        XCTAssertFalse(fixture.sessionStore.statusMessage.contains("文本模型不可用"))
-    }
-
-    func testMagicianHoldWithoutSelectionCanExecuteAppleNativeFeature() async throws {
-        let textOutputCoordinator = FakeTextOutputCoordinator()
-        textOutputCoordinator.selectionSnapshot = nil
-        let planner = FixedWorkflowPlanner(
-            plan: MagicianWorkflowPlan(
-                steps: [
-                    MagicianWorkflowStep(
-                        stepID: "step-1",
-                        feature: .createNote,
-                        params: MagicianIntentParams(noteBody: "周五和产品开会"),
-                        inputBinding: .commandOnly,
-                        command: "记一下周五和产品开会"
-                    )
-                ],
-                confidence: 0.89
-            )
-        )
-        let toolExecutor = FakeMagicianToolExecutor()
-        toolExecutor.result = .success(
-            MagicianExecutionResult(
-                intent: .createNote,
-                userMessage: "已写入备忘录。",
-                outputText: "周五和产品开会",
-                historyDisplayText: "已写入备忘录：周五和产品开会",
-                fallbackUsed: false
-            )
-        )
-
-        let fixture = try makeFixture(
-            textOutputCoordinator: textOutputCoordinator,
-            magicianWorkflowPlanner: planner,
-            magicianToolExecutor: toolExecutor,
-            transcriptionText: "记一下周五和产品开会"
-        )
-        defer { fixture.cleanUp() }
-
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createNote)
-
-        fixture.coordinator.handleWakeInput(context: .magicianHold)
-        fixture.coordinator.handleStopInput()
-        await waitForPipeline(using: fixture.sessionStore)
-
-        XCTAssertEqual(fixture.sessionStore.phase, .idle)
-        XCTAssertEqual(toolExecutor.callCount, 1)
-        XCTAssertEqual(toolExecutor.lastIntent?.intent, .createNote)
-        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
     }
 
     func testAgentRuntimeV2CommandOnlyCreateNoteProducesNonEmptyPayload() async throws {
@@ -541,8 +491,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
             magicianToolExecutor: toolExecutor,
-            transcriptionText: "嗯，帮我把现在这句话记到备忘录里面",
-            preferLegacyMagicianFlow: false
+            transcriptionText: "嗯，帮我把现在这句话记到备忘录里面"
         )
         defer { fixture.cleanUp() }
 
@@ -595,8 +544,7 @@ final class InteractionCoordinatorTests: XCTestCase {
             textOutputCoordinator: textOutputCoordinator,
             magicianToolExecutor: toolExecutor,
             rewriteProviders: [rewriteProvider],
-            transcriptionText: "先整理成三点，再写进备忘录",
-            preferLegacyMagicianFlow: false
+            transcriptionText: "先整理成三点，再写进备忘录"
         )
         defer { fixture.cleanUp() }
 
@@ -620,717 +568,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "1. 先确认口径\n2. 再整理时间线\n3. 最后补结论")
     }
 
-    func testMagicianHoldWithoutSelectionRoutesIntoFeishuCLIWorkflow() async throws {
-        let originalPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        let fakeBinDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("fake-feishu-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: fakeBinDirectory, withIntermediateDirectories: true)
-        let fakeFeishuPath = fakeBinDirectory.appendingPathComponent("feishu")
-        try """
-        #!/bin/sh
-        exit 0
-        """.write(to: fakeFeishuPath, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: NSNumber(value: Int16(0o755))],
-            ofItemAtPath: fakeFeishuPath.path
-        )
-        setenv("PATH", "\(fakeBinDirectory.path):\(originalPath)", 1)
-        defer {
-            setenv("PATH", originalPath, 1)
-            try? FileManager.default.removeItem(at: fakeBinDirectory)
-        }
-
-        let textOutputCoordinator = FakeTextOutputCoordinator()
-        textOutputCoordinator.selectionSnapshot = nil
-        let planner = FixedWorkflowPlanner(
-            plan: MagicianWorkflowPlan(
-                steps: [
-                    MagicianWorkflowStep(
-                        stepID: "step-1",
-                        feature: .feishuCLI,
-                        params: MagicianIntentParams(cliOperation: "feishu_calendar_event"),
-                        inputBinding: .commandOnly,
-                        command: "飞书查今天议程"
-                    )
-                ],
-                confidence: 0.92
-            )
-        )
-        let toolExecutor = FakeMagicianToolExecutor()
-        toolExecutor.result = .success(
-            MagicianExecutionResult(
-                intent: .feishuCLI,
-                userMessage: "飞书 CLI 执行成功",
-                outputText: "today events",
-                fallbackUsed: false
-            )
-        )
-
-        let fixture = try makeFixture(
-            textOutputCoordinator: textOutputCoordinator,
-            magicianWorkflowPlanner: planner,
-            magicianToolExecutor: toolExecutor,
-            transcriptionText: "飞书查今天议程"
-        )
-        defer { fixture.cleanUp() }
-
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .feishuCLI)
-
-        fixture.coordinator.handleWakeInput(context: .magicianHold)
-        fixture.coordinator.handleStopInput()
-        await waitForPipeline(using: fixture.sessionStore)
-
-        XCTAssertEqual(fixture.sessionStore.phase, .idle)
-        XCTAssertEqual(toolExecutor.callCount, 1)
-        XCTAssertEqual(toolExecutor.lastIntent?.intent, .feishuCLI)
-        XCTAssertEqual(toolExecutor.lastIntent?.sourceText, "")
-        XCTAssertNil(toolExecutor.lastExecutionContext?.selection)
-        XCTAssertEqual(toolExecutor.lastExecutionContext?.command, "飞书查今天议程")
-        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
-    }
-
-    func testMagicianHoldWithoutSelectionSupportsConfiguredCLIPathOverride() async throws {
-        let fakeBinDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("fake-feishu-config-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: fakeBinDirectory, withIntermediateDirectories: true)
-        let fakeLarkCLIPath = fakeBinDirectory.appendingPathComponent("lark-cli")
-        try """
-        #!/bin/sh
-        exit 0
-        """.write(to: fakeLarkCLIPath, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: NSNumber(value: Int16(0o755))],
-            ofItemAtPath: fakeLarkCLIPath.path
-        )
-        defer {
-            try? FileManager.default.removeItem(at: fakeBinDirectory)
-        }
-
-        let textOutputCoordinator = FakeTextOutputCoordinator()
-        textOutputCoordinator.selectionSnapshot = nil
-        let planner = FixedWorkflowPlanner(
-            plan: MagicianWorkflowPlan(
-                steps: [
-                    MagicianWorkflowStep(
-                        stepID: "step-1",
-                        feature: .feishuCLI,
-                        params: MagicianIntentParams(cliOperation: "feishu_im_user_search_messages"),
-                        inputBinding: .commandOnly,
-                        command: "飞书搜索消息 测试"
-                    )
-                ],
-                confidence: 0.94
-            )
-        )
-        let toolExecutor = FakeMagicianToolExecutor()
-        toolExecutor.result = .success(
-            MagicianExecutionResult(
-                intent: .feishuCLI,
-                userMessage: "飞书 CLI 执行成功",
-                outputText: "ok",
-                fallbackUsed: false
-            )
-        )
-
-        let fixture = try makeFixture(
-            textOutputCoordinator: textOutputCoordinator,
-            magicianWorkflowPlanner: planner,
-            magicianToolExecutor: toolExecutor,
-            transcriptionText: "飞书搜索消息 测试"
-        )
-        defer { fixture.cleanUp() }
-
-        fixture.providerSettingsStore.updateFeishuCLIExecutablePathOverride(fakeLarkCLIPath.path)
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .feishuCLI)
-
-        fixture.coordinator.handleWakeInput(context: .magicianHold)
-        fixture.coordinator.handleStopInput()
-        await waitForPipeline(using: fixture.sessionStore)
-
-        XCTAssertEqual(fixture.sessionStore.phase, .idle)
-        XCTAssertEqual(toolExecutor.callCount, 1)
-        XCTAssertEqual(toolExecutor.lastIntent?.intent, .feishuCLI)
-        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
-    }
-
-    func testMagicianMailSuccessPersistsSentHistoryText() async throws {
-        let textOutputCoordinator = FakeTextOutputCoordinator()
-        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
-            focusContext: FixedContextDetector().focusedAppContext(),
-            selectedText: "路线图同步"
-        )
-        let router = FakeMagicianIntentRouter(
-            intent: MagicianIntent(
-                intent: .composeEmailDraft,
-                confidence: 0.88,
-                sourceText: "路线图同步",
-                params: MagicianIntentParams(
-                    mailRecipientHints: ["小庄"],
-                    mailDeliveryMode: .autoSendIfResolved,
-                    mailSubject: "路线图同步",
-                    mailBody: "这是路线图同步邮件。"
-                )
-            )
-        )
-        let toolExecutor = FakeMagicianToolExecutor()
-        toolExecutor.result = .success(
-            MagicianExecutionResult(
-                intent: .composeEmailDraft,
-                userMessage: "邮件已发出",
-                outputText: "这是路线图同步邮件。",
-                historyDisplayText: "已发送邮件：路线图同步 -> 1379804870zhk@gmail.com",
-                fallbackUsed: false
-            )
-        )
-
-        let fixture = try makeFixture(
-            textOutputCoordinator: textOutputCoordinator,
-            magicianIntentRouter: router,
-            magicianToolExecutor: toolExecutor,
-            transcriptionText: "发给小庄"
-        )
-        defer { fixture.cleanUp() }
-
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .composeEmailDraft)
-
-        fixture.coordinator.handleWakeInput(context: .magicianHold)
-        fixture.coordinator.handleStopInput()
-        await waitForPipeline(using: fixture.sessionStore)
-
-        XCTAssertEqual(fixture.sessionStore.statusMessage, "邮件已发出")
-        XCTAssertEqual(
-            fixture.localHistoryStore.entries.first?.displayText,
-            "流程：邮件助手"
-        )
-    }
-
-    func testMagicianMailDraftSuccessPersistsPendingHistoryText() async throws {
-        let textOutputCoordinator = FakeTextOutputCoordinator()
-        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
-            focusContext: FixedContextDetector().focusedAppContext(),
-            selectedText: "活动通知"
-        )
-        let router = FakeMagicianIntentRouter(
-            intent: MagicianIntent(
-                intent: .composeEmailDraft,
-                confidence: 0.84,
-                sourceText: "活动通知",
-                params: MagicianIntentParams(
-                    mailRecipientHints: ["小庄"],
-                    mailDeliveryMode: .autoSendIfResolved,
-                    mailSubject: "活动通知",
-                    mailBody: "这是活动通知邮件。"
-                )
-            )
-        )
-        let toolExecutor = FakeMagicianToolExecutor()
-        toolExecutor.result = .success(
-            MagicianExecutionResult(
-                intent: .composeEmailDraft,
-                userMessage: "邮件已起草，待你确认",
-                outputText: "这是活动通知邮件。",
-                historyDisplayText: "邮件待确认：活动通知",
-                fallbackUsed: false
-            )
-        )
-
-        let fixture = try makeFixture(
-            textOutputCoordinator: textOutputCoordinator,
-            magicianIntentRouter: router,
-            magicianToolExecutor: toolExecutor,
-            transcriptionText: "发给小庄"
-        )
-        defer { fixture.cleanUp() }
-
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .composeEmailDraft)
-
-        fixture.coordinator.handleWakeInput(context: .magicianHold)
-        fixture.coordinator.handleStopInput()
-        await waitForPipeline(using: fixture.sessionStore)
-
-        XCTAssertEqual(fixture.sessionStore.statusMessage, "邮件已起草，待你确认")
-        XCTAssertEqual(
-            fixture.localHistoryStore.entries.first?.displayText,
-            "流程：邮件助手"
-        )
-    }
-
-    func testWorkflowPlanExecutesMultipleStepsInOrder() async throws {
-        let textOutputCoordinator = FakeTextOutputCoordinator()
-        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
-            focusContext: FixedContextDetector().focusedAppContext(),
-            selectedText: "路线图同步纪要"
-        )
-        let planner = FixedWorkflowPlanner(
-            plan: MagicianWorkflowPlan(
-                steps: [
-                    MagicianWorkflowStep(
-                        stepID: "step-1",
-                        feature: .createNote,
-                        params: MagicianIntentParams(noteBody: "路线图同步纪要"),
-                        inputBinding: .selectionText,
-                        retryPolicy: .default,
-                        timeoutMs: 5_000,
-                        command: "写进备忘录"
-                    ),
-                    MagicianWorkflowStep(
-                        stepID: "step-2",
-                        feature: .composeEmailDraft,
-                        params: MagicianIntentParams(
-                            mailRecipientHints: ["小庄"],
-                            mailDeliveryMode: .autoSendIfResolved,
-                            mailSubject: "路线图同步",
-                            mailBody: "路线图同步纪要"
-                        ),
-                        inputBinding: .previousOutput,
-                        retryPolicy: .default,
-                        timeoutMs: 5_000,
-                        command: "发给小庄"
-                    )
-                ],
-                confidence: 0.91
-            )
-        )
-        let toolExecutor = FakeMagicianToolExecutor()
-        toolExecutor.result = .success(
-            MagicianExecutionResult(
-                intent: .createNote,
-                userMessage: "步骤完成",
-                outputText: "路线图同步纪要",
-                historyDisplayText: nil,
-                fallbackUsed: false
-            )
-        )
-
-        let fixture = try makeFixture(
-            textOutputCoordinator: textOutputCoordinator,
-            magicianWorkflowPlanner: planner,
-            magicianToolExecutor: toolExecutor,
-            transcriptionText: "先写进备忘录再发给小庄"
-        )
-        defer { fixture.cleanUp() }
-
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createNote)
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .composeEmailDraft)
-
-        fixture.coordinator.handleWakeInput(context: .magicianHold)
-        fixture.coordinator.handleStopInput()
-        await waitForPipeline(using: fixture.sessionStore, timeoutNanoseconds: 4_000_000_000)
-
-        XCTAssertEqual(toolExecutor.callCount, 2)
-        XCTAssertEqual(toolExecutor.lastIntent?.intent, .composeEmailDraft)
-        XCTAssertEqual(fixture.sessionStore.phase, .idle)
-        XCTAssertTrue((fixture.localHistoryStore.entries.first?.displayText ?? "").contains("写入备忘录 -> 邮件助手"))
-    }
-
-    func testWorkflowPreviousOutputFeedsFollowUpNoteBody() async throws {
-        let textOutputCoordinator = FakeTextOutputCoordinator()
-        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
-            focusContext: FixedContextDetector().focusedAppContext(),
-            selectedText: "Hello world"
-        )
-        let rewriteProvider = CapturingRewriteProvider(
-            result: .success(
-                SelectionRewriteResult(
-                    rewrittenText: "こんにちは世界",
-                    actionLabel: "翻译成日语",
-                    providerName: "Fake OpenAI",
-                    modelName: "fake-model"
-                )
-            )
-        )
-        let planner = FixedWorkflowPlanner(
-            plan: MagicianWorkflowPlan(
-                steps: [
-                    MagicianWorkflowStep(
-                        stepID: "step-1",
-                        feature: .textTransform,
-                        params: MagicianIntentParams(targetLanguage: "Japanese"),
-                        inputBinding: .selectionText,
-                        command: "翻译成日语"
-                    ),
-                    MagicianWorkflowStep(
-                        stepID: "step-2",
-                        feature: .createNote,
-                        params: MagicianIntentParams(noteBody: "Hello world"),
-                        inputBinding: .previousOutput,
-                        command: "写进备忘录"
-                    )
-                ],
-                confidence: 0.93
-            )
-        )
-        let toolExecutor = FakeMagicianToolExecutor()
-        toolExecutor.result = .success(
-            MagicianExecutionResult(
-                intent: .createNote,
-                userMessage: "已写入备忘录。",
-                outputText: "こんにちは世界",
-                fallbackUsed: false
-            )
-        )
-
-        let fixture = try makeFixture(
-            textOutputCoordinator: textOutputCoordinator,
-            magicianWorkflowPlanner: planner,
-            magicianToolExecutor: toolExecutor,
-            rewriteProviders: [rewriteProvider],
-            transcriptionText: "翻译成日语并写进备忘录"
-        )
-        defer { fixture.cleanUp() }
-
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createNote)
-
-        fixture.coordinator.handleWakeInput(context: .magicianHold)
-        fixture.coordinator.handleStopInput()
-        await waitForPipeline(using: fixture.sessionStore, timeoutNanoseconds: 5_000_000_000)
-
-        XCTAssertEqual(rewriteProvider.callCount, 1)
-        XCTAssertEqual(toolExecutor.callCount, 1)
-        XCTAssertEqual(toolExecutor.lastIntent?.intent, .createNote)
-        XCTAssertEqual(toolExecutor.lastIntent?.params.noteBody, "こんにちは世界")
-        XCTAssertEqual(toolExecutor.lastExecutionContext?.selection?.selectedText, "こんにちは世界")
-        XCTAssertEqual(fixture.sessionStore.statusMessage, "已写入备忘录。")
-        XCTAssertEqual(fixture.sessionStore.phase, .idle)
-    }
-
-    func testWorkflowExecutionStopsWhenFirstStepFails() async throws {
-        let textOutputCoordinator = FakeTextOutputCoordinator()
-        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
-            focusContext: FixedContextDetector().focusedAppContext(),
-            selectedText: "路线图同步纪要"
-        )
-        let planner = FixedWorkflowPlanner(
-            plan: MagicianWorkflowPlan(
-                steps: [
-                    MagicianWorkflowStep(
-                        stepID: "step-1",
-                        feature: .createNote,
-                        params: MagicianIntentParams(noteBody: "路线图同步纪要"),
-                        inputBinding: .selectionText
-                    ),
-                    MagicianWorkflowStep(
-                        stepID: "step-2",
-                        feature: .composeEmailDraft,
-                        params: MagicianIntentParams(
-                            mailRecipientHints: ["小庄"],
-                            mailDeliveryMode: .autoSendIfResolved
-                        ),
-                        inputBinding: .previousOutput
-                    )
-                ]
-            )
-        )
-        let toolExecutor = FakeMagicianToolExecutor()
-        toolExecutor.result = .failure(
-            MagicianError(
-                code: .toolExecutionFailed,
-                userMessage: "第一步失败",
-                debugMessage: "test failure",
-                recoverAction: nil
-            )
-        )
-
-        let fixture = try makeFixture(
-            textOutputCoordinator: textOutputCoordinator,
-            magicianWorkflowPlanner: planner,
-            magicianToolExecutor: toolExecutor,
-            transcriptionText: "先写进备忘录再发给小庄"
-        )
-        defer { fixture.cleanUp() }
-
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createNote)
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .composeEmailDraft)
-
-        fixture.coordinator.handleWakeInput(context: .magicianHold)
-        fixture.coordinator.handleStopInput()
-        await waitForPipeline(using: fixture.sessionStore, timeoutNanoseconds: 4_000_000_000)
-
-        XCTAssertEqual(toolExecutor.callCount, 2)
-        XCTAssertEqual(fixture.sessionStore.phase, .error)
-        XCTAssertEqual(fixture.sessionStore.statusMessage, "第一步失败")
-    }
-
-    func testWorkflowPreviewDelayUsesQuarterSecondOnlyForMultiStep() {
-        XCTAssertNil(InteractionCoordinator.workflowPreviewDelayNanoseconds(stepCount: 1))
-        XCTAssertEqual(
-            InteractionCoordinator.workflowPreviewDelayNanoseconds(stepCount: 3),
-            250_000_000
-        )
-    }
-
-    func testWorkflowStepPresentationUsesTotalStepCountAndHint() {
-        XCTAssertEqual(
-            InteractionCoordinator.workflowStepProgressLabel(
-                index: 2,
-                totalSteps: 4,
-                feature: .composeEmailDraft
-            ),
-            "第2/4步：整理邮件中"
-        )
-        XCTAssertEqual(
-            InteractionCoordinator.workflowStepProgressHint(index: 2, totalSteps: 4),
-            SessionHUDProgressHint.workflowStep(index: 2, totalSteps: 4),
-            accuracy: 0.0001
-        )
-    }
-
-    func testWorkflowE2ETextToEventToMailAutoSendWritesTelemetry() async throws {
-        let textOutputCoordinator = FakeTextOutputCoordinator()
-        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
-            focusContext: FixedContextDetector().focusedAppContext(),
-            selectedText: "周五下午三点做路线图评审，会后同步项目组。"
-        )
-        let rewriteProvider = CapturingRewriteProvider(
-            result: .success(
-                SelectionRewriteResult(
-                    rewrittenText: "路线图评审：周五 15:00，评审结束后发邮件同步项目组。",
-                    actionLabel: "整理为会议安排",
-                    providerName: "Fake OpenAI",
-                    modelName: "fake-model"
-                )
-            )
-        )
-        let planner = FixedWorkflowPlanner(
-            plan: MagicianWorkflowPlan(
-                steps: [
-                    MagicianWorkflowStep(
-                        stepID: "step-1",
-                        feature: .textTransform,
-                        params: .empty,
-                        inputBinding: .selectionText,
-                        command: "先把文案整理成会议安排"
-                    ),
-                    MagicianWorkflowStep(
-                        stepID: "step-2",
-                        feature: .createEvent,
-                        params: MagicianIntentParams(
-                            title: "路线图评审",
-                            startAt: "2026-03-27 15:00",
-                            endAt: "2026-03-27 16:00",
-                            location: "A会议室"
-                        ),
-                        inputBinding: .previousOutput,
-                        command: "再创建日程"
-                    ),
-                    MagicianWorkflowStep(
-                        stepID: "step-3",
-                        feature: .composeEmailDraft,
-                        params: MagicianIntentParams(
-                            mailRecipientHints: ["项目组"],
-                            mailDeliveryMode: .autoSendIfResolved,
-                            mailSubject: "路线图评审同步"
-                        ),
-                        inputBinding: .previousOutput,
-                        command: "最后发邮件给项目组"
-                    )
-                ],
-                confidence: 0.94
-            )
-        )
-        let toolExecutor = FakeMagicianToolExecutor()
-        toolExecutor.scriptedResults = [
-            .success(
-                MagicianExecutionResult(
-                    intent: .createEvent,
-                    userMessage: "已创建日程。",
-                    outputText: "路线图评审：周五 15:00，A会议室",
-                    historyDisplayText: "已建日程：路线图评审",
-                    fallbackUsed: false
-                )
-            ),
-            .success(
-                MagicianExecutionResult(
-                    intent: .composeEmailDraft,
-                    userMessage: "邮件已发出",
-                    outputText: "路线图评审已安排，详见日程。",
-                    historyDisplayText: "已发送邮件：路线图评审同步 -> team@example.com",
-                    fallbackUsed: false
-                )
-            )
-        ]
-
-        let fixture = try makeFixture(
-            textOutputCoordinator: textOutputCoordinator,
-            magicianWorkflowPlanner: planner,
-            magicianToolExecutor: toolExecutor,
-            rewriteProviders: [rewriteProvider],
-            transcriptionText: "先整理文案再建日程最后发邮件"
-        )
-        defer { fixture.cleanUp() }
-
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createEvent)
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .composeEmailDraft)
-
-        fixture.coordinator.handleWakeInput(context: .magicianHold)
-        fixture.coordinator.handleStopInput()
-        await waitForPipeline(using: fixture.sessionStore, timeoutNanoseconds: 5_000_000_000)
-
-        XCTAssertEqual(rewriteProvider.callCount, 1)
-        XCTAssertEqual(toolExecutor.callCount, 2)
-        XCTAssertEqual(toolExecutor.intents.map(\.intent), [.createEvent, .composeEmailDraft])
-        XCTAssertEqual(
-            toolExecutor.intents.first?.sourceText,
-            "路线图评审：周五 15:00，评审结束后发邮件同步项目组。"
-        )
-        XCTAssertEqual(toolExecutor.intents.last?.sourceText, "路线图评审：周五 15:00，A会议室")
-        XCTAssertEqual(toolExecutor.intents.last?.params.mailBody, "路线图评审：周五 15:00，A会议室")
-        XCTAssertEqual(fixture.sessionStore.statusMessage, "邮件已发出")
-        XCTAssertEqual(fixture.sessionStore.phase, .idle)
-        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest, nil)
-        let historyDisplayText = fixture.localHistoryStore.entries.first?.displayText ?? ""
-        XCTAssertTrue(historyDisplayText.contains("文字处理"))
-        XCTAssertTrue(historyDisplayText.contains("日程"))
-        XCTAssertTrue(historyDisplayText.contains("邮件助手"))
-
-        let telemetryEvents = try loadWorkflowTelemetryRecords(from: fixture.telemetryLogURL)
-        XCTAssertTrue(telemetryEvents.contains { $0.event == "workflow.plan.success" })
-        XCTAssertEqual(
-            telemetryEvents.filter { $0.event == "workflow.step.success" }.count,
-            3
-        )
-        XCTAssertTrue(telemetryEvents.contains { $0.event == "workflow.done" })
-        let mailStepEvent = try XCTUnwrap(
-            telemetryEvents.last {
-                $0.event == "workflow.step.success" && $0.feature == MagicianFeatureID.composeEmailDraft.rawValue
-            }
-        )
-        XCTAssertEqual(mailStepEvent.autoSendConfigured, true)
-        XCTAssertEqual(mailStepEvent.autoSendHit, true)
-        XCTAssertEqual(mailStepEvent.draftOnlyFallback, false)
-    }
-
-    func testWorkflowE2ETextToEventToMailDraftFallbackWritesTelemetry() async throws {
-        let textOutputCoordinator = FakeTextOutputCoordinator()
-        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
-            focusContext: FixedContextDetector().focusedAppContext(),
-            selectedText: "周五下午三点做路线图评审，会后同步项目组。"
-        )
-        let rewriteProvider = CapturingRewriteProvider(
-            result: .success(
-                SelectionRewriteResult(
-                    rewrittenText: "路线图评审：周五 15:00，评审结束后发邮件同步项目组。",
-                    actionLabel: "整理为会议安排",
-                    providerName: "Fake OpenAI",
-                    modelName: "fake-model"
-                )
-            )
-        )
-        let planner = FixedWorkflowPlanner(
-            plan: MagicianWorkflowPlan(
-                steps: [
-                    MagicianWorkflowStep(
-                        stepID: "step-1",
-                        feature: .textTransform,
-                        params: .empty,
-                        inputBinding: .selectionText,
-                        command: "先把文案整理成会议安排"
-                    ),
-                    MagicianWorkflowStep(
-                        stepID: "step-2",
-                        feature: .createEvent,
-                        params: MagicianIntentParams(
-                            title: "路线图评审",
-                            startAt: "2026-03-27 15:00",
-                            endAt: "2026-03-27 16:00",
-                            location: "A会议室"
-                        ),
-                        inputBinding: .previousOutput,
-                        command: "再创建日程"
-                    ),
-                    MagicianWorkflowStep(
-                        stepID: "step-3",
-                        feature: .composeEmailDraft,
-                        params: MagicianIntentParams(
-                            mailRecipientHints: ["项目组"],
-                            mailDeliveryMode: .autoSendIfResolved,
-                            mailSubject: "路线图评审同步"
-                        ),
-                        inputBinding: .previousOutput,
-                        command: "最后发邮件给项目组"
-                    )
-                ],
-                confidence: 0.92
-            )
-        )
-        let toolExecutor = FakeMagicianToolExecutor()
-        toolExecutor.scriptedResults = [
-            .success(
-                MagicianExecutionResult(
-                    intent: .createEvent,
-                    userMessage: "已创建日程。",
-                    outputText: "路线图评审：周五 15:00，A会议室",
-                    historyDisplayText: "已建日程：路线图评审",
-                    fallbackUsed: false
-                )
-            ),
-            .success(
-                MagicianExecutionResult(
-                    intent: .composeEmailDraft,
-                    userMessage: "邮箱目标不够明确，已打开草稿窗",
-                    outputText: "路线图评审已安排，详见日程。",
-                    historyDisplayText: "邮件待确认：路线图评审同步",
-                    fallbackUsed: true
-                )
-            )
-        ]
-
-        let fixture = try makeFixture(
-            textOutputCoordinator: textOutputCoordinator,
-            magicianWorkflowPlanner: planner,
-            magicianToolExecutor: toolExecutor,
-            rewriteProviders: [rewriteProvider],
-            transcriptionText: "先整理文案再建日程最后发邮件"
-        )
-        defer { fixture.cleanUp() }
-
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createEvent)
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .composeEmailDraft)
-
-        fixture.coordinator.handleWakeInput(context: .magicianHold)
-        fixture.coordinator.handleStopInput()
-        await waitForPipeline(using: fixture.sessionStore, timeoutNanoseconds: 5_000_000_000)
-
-        XCTAssertEqual(rewriteProvider.callCount, 1)
-        XCTAssertEqual(toolExecutor.callCount, 2)
-        XCTAssertEqual(fixture.sessionStore.statusMessage, "邮箱目标不够明确，已打开草稿窗")
-        XCTAssertEqual(fixture.sessionStore.phase, .idle)
-
-        let telemetryEvents = try loadWorkflowTelemetryRecords(from: fixture.telemetryLogURL)
-        let mailStepEvent = try XCTUnwrap(
-            telemetryEvents.last {
-                $0.event == "workflow.step.success" && $0.feature == MagicianFeatureID.composeEmailDraft.rawValue
-            }
-        )
-        XCTAssertEqual(mailStepEvent.autoSendConfigured, true)
-        XCTAssertEqual(mailStepEvent.autoSendHit, false)
-        XCTAssertEqual(mailStepEvent.draftOnlyFallback, true)
-    }
-
     func testMagicianASRRequestSkipsDictionaryInjection() async throws {
-        let router = FakeMagicianIntentRouter(
-            intent: MagicianIntent(
-                intent: .createNote,
-                confidence: 0.93,
-                sourceText: "",
-                params: MagicianIntentParams(
-                    mode: nil,
-                    targetLanguage: nil,
-                    tone: nil,
-                    title: nil,
-                    startAt: nil,
-                    endAt: nil,
-                    location: nil,
-                    noteBody: "OpenAI o3",
-                    mailTo: nil,
-                    mailSubject: nil,
-                    mailBody: nil
-                )
-            )
-        )
         let toolExecutor = FakeMagicianToolExecutor()
         toolExecutor.result = .success(
             MagicianExecutionResult(
@@ -1343,7 +581,6 @@ final class InteractionCoordinatorTests: XCTestCase {
         )
 
         let fixture = try makeFixture(
-            magicianIntentRouter: router,
             magicianToolExecutor: toolExecutor,
             transcriptionText: "帮我记到备忘录"
         )
@@ -1362,35 +599,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.transcriptionProvider.lastRequest?.dictionaryHotwordText, nil)
     }
 
-    func testRemovedSearchCommandDoesNotRouteIntoOtherTool() async throws {
-        let toolExecutor = FakeMagicianToolExecutor()
-        let textOutputCoordinator = FakeTextOutputCoordinator()
-        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
-            focusContext: FixedContextDetector().focusedAppContext(),
-            selectedText: "OpenAI 最新发布"
-        )
-        let fixture = try makeFixture(
-            textOutputCoordinator: textOutputCoordinator,
-            magicianIntentRouter: HeuristicMagicianIntentRouter(),
-            magicianToolExecutor: toolExecutor,
-            transcriptionText: "帮我搜索一下"
-        )
-        defer { fixture.cleanUp() }
-
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createNote)
-
-        fixture.coordinator.handleWakeInput(context: .magicianHold)
-        fixture.coordinator.handleStopInput()
-        await waitForPipeline(using: fixture.sessionStore)
-
-        XCTAssertEqual(fixture.sessionStore.phase, .error)
-        XCTAssertEqual(toolExecutor.callCount, 0)
-        XCTAssertTrue(fixture.sessionStore.statusMessage.contains("快速搜索已下线"))
-        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .failed)
-        XCTAssertTrue((fixture.localHistoryStore.entries.first?.errorMessage ?? "").contains("快速搜索已下线"))
-    }
-
-    func testMagicianClipboardFallbackSelectionIsLockedIntoExecutionContext() async throws {
+    func testMagicianClipboardFallbackSelectionIsLockedIntoRuntimeRequest() async throws {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = nil
         textOutputCoordinator.capturedSelectionSnapshot = FocusedSelectionSnapshot(
@@ -1403,42 +612,33 @@ final class InteractionCoordinatorTests: XCTestCase {
             ),
             selectedText: "4月1日 14:30 在上海办公室和产品团队开路标会"
         )
-
-        let router = FakeMagicianIntentRouter(
-            intent: MagicianIntent(
-                intent: .createEvent,
-                confidence: 0.95,
-                sourceText: "4月1日 14:30 在上海办公室和产品团队开路标会",
-                params: MagicianIntentParams(
-                    mode: nil,
-                    targetLanguage: nil,
-                    tone: nil,
-                    title: "产品团队路标会",
-                    startAt: "2026-04-01T14:30:00+08:00",
-                    endAt: "2026-04-01T15:30:00+08:00",
-                    location: "上海办公室",
-                    noteBody: nil,
-                    mailTo: nil,
-                    mailSubject: nil,
-                    mailBody: nil
+        let runtime = FakeMagicianAgentRuntime(
+            result: .success(
+                MagicianAgentRunOutcome(
+                    sessionID: "session-fallback-1",
+                    runID: "run-fallback-1",
+                    goalSummary: "建立日程",
+                    finalStatusMessage: "已建日程：产品团队路标会",
+                    finalOutputText: "产品团队路标会",
+                    displayText: "已建日程：产品团队路标会",
+                    steps: [
+                        MagicianAgentStepRecord(
+                            id: "step-1",
+                            featureID: .createEvent,
+                            instruction: "帮我建立日程",
+                            userMessage: "已建日程：产品团队路标会",
+                            outputText: "产品团队路标会",
+                            observation: nil
+                        )
+                    ],
+                    evidenceSummary: "event-id=test-event-1"
                 )
-            )
-        )
-        let toolExecutor = FakeMagicianToolExecutor()
-        toolExecutor.result = .success(
-            MagicianExecutionResult(
-                intent: .createEvent,
-                userMessage: "已建日程：产品团队路标会",
-                outputText: "产品团队路标会",
-                historyDisplayText: "已建日程：产品团队路标会",
-                fallbackUsed: false
             )
         )
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
-            magicianIntentRouter: router,
-            magicianToolExecutor: toolExecutor,
+            magicianAgentRuntime: runtime,
             transcriptionText: "帮我建立日程"
         )
         defer { fixture.cleanUp() }
@@ -1451,7 +651,7 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(textOutputCoordinator.captureSelectionCallCount, 1)
         XCTAssertEqual(
-            toolExecutor.lastExecutionContext?.selection?.selectedText,
+            runtime.lastRequest?.selectionSnapshot?.selectedText,
             "4月1日 14:30 在上海办公室和产品团队开路标会"
         )
         XCTAssertEqual(
@@ -1467,26 +667,6 @@ final class InteractionCoordinatorTests: XCTestCase {
     func testMagicianTextTransformWithoutSelectionUsesCommandModeAndInsertText() async throws {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = nil
-        let router = FakeMagicianIntentRouter(
-            intent: MagicianIntent(
-                intent: .textTransform,
-                confidence: 0.9,
-                sourceText: "",
-                params: MagicianIntentParams(
-                    mode: .polish,
-                    targetLanguage: nil,
-                    tone: nil,
-                    title: nil,
-                    startAt: nil,
-                    endAt: nil,
-                    location: nil,
-                    noteBody: nil,
-                    mailTo: nil,
-                    mailSubject: nil,
-                    mailBody: nil
-                )
-            )
-        )
         let rewriteProvider = CapturingRewriteProvider(
             result: .success(
                 SelectionRewriteResult(
@@ -1500,7 +680,6 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
-            magicianIntentRouter: router,
             rewriteProviders: [rewriteProvider],
             transcriptionText: "帮我润色一下"
         )
@@ -1525,14 +704,6 @@ final class InteractionCoordinatorTests: XCTestCase {
             focusContext: FixedContextDetector().focusedAppContext(),
             selectedText: "今天下午三点在会议室开产品评审会。"
         )
-        let router = FakeMagicianIntentRouter(
-            intent: MagicianIntent(
-                intent: .textTransform,
-                confidence: 0.93,
-                sourceText: "今天下午三点在会议室开产品评审会。",
-                params: .empty
-            )
-        )
         let rewriteProvider = CapturingRewriteProvider(
             result: .success(
                 SelectionRewriteResult(
@@ -1546,7 +717,6 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
-            magicianIntentRouter: router,
             rewriteProviders: [rewriteProvider],
             transcriptionText: "转换为中国古诗风格"
         )
@@ -1720,15 +890,13 @@ final class InteractionCoordinatorTests: XCTestCase {
                 dialogueText: "A: 默认对话"
             )
         ),
-        magicianIntentRouter: (any MagicianIntentRouting)? = nil,
-        magicianWorkflowPlanner: (any MagicianWorkflowPlanning)? = nil,
         magicianToolExecutor: (any MagicianToolExecuting)? = nil,
+        magicianAgentRuntime: (any MagicianAgentRunning)? = nil,
         rewriteProviders: [any RewriteProvider] = [],
         transcriptionText: String = "hello world",
         transcriptionResponses: [Result<String, SpeechTranscriptionError>]? = nil,
         brainstormDurationProfile: BrainstormDurationProfile? = nil,
-        toastPresenter: ToastPresenter? = nil,
-        preferLegacyMagicianFlow: Bool = true
+        toastPresenter: ToastPresenter? = nil
     ) throws -> InteractionFixture {
         let defaultsSuiteName = "InteractionCoordinatorTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: defaultsSuiteName) else {
@@ -1819,10 +987,8 @@ final class InteractionCoordinatorTests: XCTestCase {
             asrDictionaryStore: dictionaryStore,
             magicianFeatureToggleStore: magicianFeatureToggleStore,
             workflowTelemetryReporter: workflowTelemetryReporter,
-            magicianIntentRouter: magicianIntentRouter,
-            magicianWorkflowPlanner: magicianWorkflowPlanner,
             magicianToolExecutor: magicianToolExecutor ?? MagicianToolExecutor(),
-            preferLegacyMagicianFlow: preferLegacyMagicianFlow,
+            magicianAgentRuntime: magicianAgentRuntime,
             toastPresenter: resolvedToastPresenter,
             dictationPostProcessor: dictationPostProcessor,
             brainstormContextComposer: brainstormContextComposer
@@ -2215,59 +1381,38 @@ private final class FakeBrainstormContextComposer: BrainstormContextComposer {
     }
 }
 
-private final class FakeMagicianIntentRouter: MagicianIntentRouting {
-    private let intent: MagicianIntent
-
-    init(intent: MagicianIntent) {
-        self.intent = intent
-    }
-
-    func route(
-        command: String,
-        selection: String?,
-        enabledFeatures: Set<MagicianFeatureID>
-    ) async throws -> MagicianIntent {
-        _ = command
-        _ = selection
-        _ = enabledFeatures
-        return intent
-    }
-}
-
-private final class DelayedFailingMagicianIntentRouter: MagicianIntentRouting {
+private final class FakeMagicianAgentRuntime: MagicianAgentRunning {
     private let delayNanoseconds: UInt64
-    private let error: Error
+    var result: Result<MagicianAgentRunOutcome, Error>
+    private(set) var callCount: Int = 0
+    private(set) var lastRequest: MagicianAgentRequest?
 
-    init(delayNanoseconds: UInt64, error: Error) {
+    init(
+        delayNanoseconds: UInt64 = 0,
+        result: Result<MagicianAgentRunOutcome, Error>
+    ) {
         self.delayNanoseconds = delayNanoseconds
-        self.error = error
+        self.result = result
     }
 
-    func route(
-        command: String,
-        selection: String?,
-        enabledFeatures: Set<MagicianFeatureID>
-    ) async throws -> MagicianIntent {
-        _ = command
-        _ = selection
-        _ = enabledFeatures
-        try? await Task.sleep(nanoseconds: delayNanoseconds)
-        throw error
-    }
-}
-
-private struct FixedWorkflowPlanner: MagicianWorkflowPlanning {
-    let plan: MagicianWorkflowPlan
-
-    func plan(
-        command: String,
-        selection: String?,
-        enabledFeatures: Set<MagicianFeatureID>
-    ) async throws -> MagicianWorkflowPlan {
-        _ = command
-        _ = selection
-        _ = enabledFeatures
-        return plan
+    func run(
+        request: MagicianAgentRequest,
+        onEvent: ((MagicianAgentRuntimeEvent) -> Void)?
+    ) async throws -> MagicianAgentRunOutcome {
+        callCount += 1
+        lastRequest = request
+        onEvent?(
+            MagicianAgentRuntimeEvent(
+                name: .requestAccepted,
+                state: .understanding,
+                message: "正在理解你的目标",
+                progressHint: SessionHUDProgressHint.workflowPreview
+            )
+        )
+        if delayNanoseconds > 0 {
+            try? await Task.sleep(nanoseconds: delayNanoseconds)
+        }
+        return try result.get()
     }
 }
 
