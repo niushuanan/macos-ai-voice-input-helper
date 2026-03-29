@@ -103,6 +103,9 @@ struct SettingsView: View {
     @State private var magicianMailAppAvailable = MagicianMailCapability.mailAppAvailable
     @State private var magicianFeishuCLIAvailable = FeishuCLIProvider.detectAvailability().isAvailable
     @State private var magicianFeishuCLICommandName = FeishuCLIProvider.detectAvailability().commandName ?? "未检测到"
+    @State private var magicianFeishuCLIResolvedPath = FeishuCLIProvider.detectAvailability().backend?.executablePath ?? "未检测到"
+    @State private var magicianCLIAuthChecking = false
+    @State private var magicianCLIDoctorChecking = false
     @State private var memoryToolbarAvailableWidth: CGFloat = 0
     @State private var memoryFilterBarWidth: CGFloat = 0
     @State private var clearMemoryButtonWidth: CGFloat = 0
@@ -204,6 +207,12 @@ struct SettingsView: View {
                 return
             }
             model.interactionCoordinator.ensureBrainstormDurationProfile()
+        }
+        .onChange(of: providerSettingsStore.feishuCLIExecutablePathOverride) { _, _ in
+            guard controlCenterState.selectedSection == .magician else {
+                return
+            }
+            refreshMagicianCapabilityState()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshMagicianCapabilityState()
@@ -419,6 +428,48 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Text("路径：\(magicianFeishuCLIResolvedPath)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .textSelection(.enabled)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("CLI 可执行路径（可选）")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                TextField(
+                    "/opt/homebrew/bin/lark-cli 或 /opt/homebrew/bin",
+                    text: magicianCLIExecutablePathBinding
+                )
+                .textFieldStyle(.roundedBorder)
+            }
+
+            HStack(spacing: 8) {
+                Button("重新探测") {
+                    refreshMagicianCapabilityState()
+                    showToast(magicianFeishuCLIAvailable ? "飞书 CLI 已就绪。" : "还没检测到飞书 CLI。")
+                }
+                .buttonStyle(.bordered)
+
+                Button(magicianCLIAuthChecking ? "auth 检查中…" : "检查 auth") {
+                    runFeishuCLIQuickCheck(arguments: ["auth", "status"], mode: .auth)
+                }
+                .buttonStyle(.bordered)
+                .disabled(magicianCLIAuthChecking || magicianCLIDoctorChecking)
+
+                Button(magicianCLIDoctorChecking ? "doctor 诊断中…" : "运行 doctor") {
+                    runFeishuCLIQuickCheck(arguments: ["doctor"], mode: .doctor)
+                }
+                .buttonStyle(.bordered)
+                .disabled(magicianCLIAuthChecking || magicianCLIDoctorChecking)
+            }
+
+            Text("留空会按 PATH + 常见目录自动探测。若你从 GUI 启动 App，建议填绝对路径，稳定性更高。")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
             ForEach(grouped, id: \.group) { bucket in
                 Text("\(bucket.group)：\(bucket.operations.map(\.title).joined(separator: "、"))")
                     .font(.caption)
@@ -503,6 +554,68 @@ struct SettingsView: View {
         return groups
             .map { (group: $0.key, operations: $0.value.sorted(by: { $0.rawValue < $1.rawValue })) }
             .sorted(by: { $0.group < $1.group })
+    }
+
+    private var magicianCLIExecutablePathBinding: Binding<String> {
+        Binding(
+            get: { providerSettingsStore.feishuCLIExecutablePathOverride },
+            set: { newValue in
+                providerSettingsStore.updateFeishuCLIExecutablePathOverride(newValue)
+                refreshMagicianCapabilityState()
+            }
+        )
+    }
+
+    private enum FeishuCLIQuickCheckMode {
+        case auth
+        case doctor
+    }
+
+    private func runFeishuCLIQuickCheck(
+        arguments: [String],
+        mode: FeishuCLIQuickCheckMode
+    ) {
+        let availability = currentFeishuCLIAvailability()
+        guard let backend = availability.backend else {
+            showToast("未检测到飞书 CLI，请先安装或填写可执行路径。")
+            return
+        }
+
+        switch mode {
+        case .auth:
+            magicianCLIAuthChecking = true
+        case .doctor:
+            magicianCLIDoctorChecking = true
+        }
+
+        Task {
+            let result = await runProcessWithTimeout(
+                executablePath: backend.executablePath,
+                arguments: arguments,
+                timeoutSeconds: 14,
+                maxOutputCharacters: 2_600
+            )
+            await MainActor.run {
+                let output = !result.stdout.isEmpty ? result.stdout : result.stderr
+                let concise = output
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .split(separator: "\n")
+                    .prefix(2)
+                    .joined(separator: " | ")
+                if result.exitCode == 0 {
+                    showToast(concise.isEmpty ? "检查完成。" : concise)
+                } else {
+                    showToast("检查失败（\(result.exitCode)）：\(concise.isEmpty ? "请打开日志查看详情。" : concise)")
+                }
+                refreshMagicianCapabilityState()
+                switch mode {
+                case .auth:
+                    magicianCLIAuthChecking = false
+                case .doctor:
+                    magicianCLIDoctorChecking = false
+                }
+            }
+        }
     }
 
     private var mailAssistantAddressBookSection: some View {
@@ -1502,6 +1615,12 @@ struct SettingsView: View {
         )
     }
 
+    private func currentFeishuCLIAvailability() -> FeishuCLIAvailability {
+        FeishuCLIProvider.detectAvailability(
+            executableOverride: providerSettingsStore.resolvedFeishuCLIExecutablePathOverride
+        )
+    }
+
     private func refreshMagicianCapabilityState() {
         let shortcutSupport = MagicianCreateNoteShortcutSupport()
         magicianEventAuthorizationStatus = EKEventStore.authorizationStatus(for: .event)
@@ -1512,9 +1631,10 @@ struct SettingsView: View {
         magicianComposeEmailAvailable = MagicianMailCapability.composeEmailServiceAvailable
         magicianMailtoAvailable = MagicianMailCapability.mailtoAvailable
         magicianMailAppAvailable = MagicianMailCapability.mailAppAvailable
-        let feishuAvailability = FeishuCLIProvider.detectAvailability()
+        let feishuAvailability = currentFeishuCLIAvailability()
         magicianFeishuCLIAvailable = feishuAvailability.isAvailable
         magicianFeishuCLICommandName = feishuAvailability.commandName ?? "未检测到"
+        magicianFeishuCLIResolvedPath = feishuAvailability.backend?.executablePath ?? "未检测到"
     }
 
     private func handleMagicianToggleChange(

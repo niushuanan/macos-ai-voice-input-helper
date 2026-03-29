@@ -30,6 +30,12 @@ final class ProviderSettingsStore: ObservableObject {
         }
     }
 
+    @Published var feishuCLIExecutablePathOverride: String {
+        didSet {
+            persistFeishuCLIExecutablePathOverride()
+        }
+    }
+
     @Published var asrAPIKeyDraft: String = ""
     @Published var textAPIKeyDraft: String = ""
     @Published var cliTextAPIKeyDraft: String = ""
@@ -132,6 +138,11 @@ final class ProviderSettingsStore: ObservableObject {
         resolvedTranscriptionConfiguration()
     }
 
+    var resolvedFeishuCLIExecutablePathOverride: String? {
+        let normalized = Self.sanitizeCLIExecutablePathOverride(feishuCLIExecutablePathOverride)
+        return normalized.isEmpty ? nil : normalized
+    }
+
     var credentialState: CredentialState {
         asrCredentialState
     }
@@ -141,6 +152,7 @@ final class ProviderSettingsStore: ObservableObject {
     private let defaultsASRConfigKey = "providers.asr.config.v2"
     private let defaultsTextConfigKey = "providers.text.config.v2"
     private let defaultsCLITextConfigKey = "providers.text.cli.config.v1"
+    private let defaultsFeishuCLIExecutablePathOverrideKey = "providers.feishu.cli.path.override.v1"
     private let defaultsLatestASRTestResultKey = "providers.asr.test.result.v1"
     private let defaultsLatestTextTestResultKey = "providers.text.test.result.v1"
     private let defaultsLatestCLITextTestResultKey = "providers.text.cli.test.result.v1"
@@ -173,6 +185,9 @@ final class ProviderSettingsStore: ObservableObject {
         self.cliTextConfig = Self.sanitizeCLITextConfig(
             decodedCLITextConfig ?? Self.defaultCLITextConfig()
         )
+        self.feishuCLIExecutablePathOverride = Self.sanitizeCLIExecutablePathOverride(
+            defaults.string(forKey: defaultsFeishuCLIExecutablePathOverrideKey) ?? ""
+        )
         self.latestASRTestResult = Self.decodeConnectionTestResult(
             from: defaults.data(forKey: defaultsLatestASRTestResultKey)
         )
@@ -186,6 +201,7 @@ final class ProviderSettingsStore: ObservableObject {
         persistASRConfig()
         persistTextConfig()
         persistCLITextConfig()
+        persistFeishuCLIExecutablePathOverride()
         migrateLegacyCredentialsIfNeeded(using: legacyMigration)
         refreshCredentialState(allowUserInteraction: false)
     }
@@ -458,6 +474,14 @@ final class ProviderSettingsStore: ObservableObject {
         cliTextConfig.modelName = value
     }
 
+    func updateFeishuCLIExecutablePathOverride(_ value: String) {
+        feishuCLIExecutablePathOverride = Self.sanitizeCLIExecutablePathOverride(value)
+    }
+
+    func clearFeishuCLIExecutablePathOverride() {
+        feishuCLIExecutablePathOverride = ""
+    }
+
     func testASRConnection() async -> ConnectionTestResult {
         let tester = ASRConnectionTester(credentialStore: credentialStore)
         let result = await tester.test(config: asrConfig)
@@ -609,6 +633,15 @@ final class ProviderSettingsStore: ObservableObject {
         if let data = try? JSONEncoder().encode(cliTextConfig) {
             defaults.set(data, forKey: defaultsCLITextConfigKey)
         }
+    }
+
+    private func persistFeishuCLIExecutablePathOverride() {
+        let normalized = Self.sanitizeCLIExecutablePathOverride(feishuCLIExecutablePathOverride)
+        if normalized.isEmpty {
+            defaults.removeObject(forKey: defaultsFeishuCLIExecutablePathOverrideKey)
+            return
+        }
+        defaults.set(normalized, forKey: defaultsFeishuCLIExecutablePathOverrideKey)
     }
 
     private func persistLatestASRTestResult() {
@@ -821,6 +854,10 @@ final class ProviderSettingsStore: ObservableObject {
             sanitized.keyRef = defaultCLITextCredentialKeyRef
         }
         return sanitized
+    }
+
+    private static func sanitizeCLIExecutablePathOverride(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func decodeASRConfig(from data: Data?) -> ASRConfig? {

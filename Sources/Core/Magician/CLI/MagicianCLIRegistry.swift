@@ -7,8 +7,8 @@ final class MagicianCLIRegistry {
         self.feishuProvider = feishuProvider
     }
 
-    func currentFeishuAvailability() -> FeishuCLIAvailability {
-        FeishuCLIProvider.detectAvailability()
+    func currentFeishuAvailability(executableOverride: String? = nil) -> FeishuCLIAvailability {
+        FeishuCLIProvider.detectAvailability(executableOverride: executableOverride)
     }
 
     func groupedFeishuCatalog() -> [(group: String, operations: [FeishuCanonicalOperation])] {

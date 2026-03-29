@@ -22,6 +22,7 @@ protocol MagicianMailExecuting {
 final class MagicianToolExecutor: MagicianToolExecuting {
     private let eventAdapter = MagicianEventAdapter()
     private let noteAdapter = MagicianNoteAdapter()
+    private let providerSettingsStore: ProviderSettingsStore?
     private let mailAdapter: any MagicianMailExecuting
     private let cliRegistry: MagicianCLIRegistry
 
@@ -32,6 +33,7 @@ final class MagicianToolExecutor: MagicianToolExecuting {
         mailAdapter: (any MagicianMailExecuting)? = nil,
         cliRegistry: MagicianCLIRegistry = MagicianCLIRegistry()
     ) {
+        self.providerSettingsStore = providerSettingsStore
         let resolvedMailAddressBookStore = mailAddressBookStore ?? MailAddressBookStore()
         self.mailAdapter = mailAdapter ?? MagicianMailAdapter(
             addressBookStore: resolvedMailAddressBookStore,
@@ -84,7 +86,9 @@ final class MagicianToolExecutor: MagicianToolExecuting {
         }
 
         let explicitArguments = intent.params.cliArguments ?? []
-        let availability = cliRegistry.currentFeishuAvailability()
+        let availability = cliRegistry.currentFeishuAvailability(
+            executableOverride: providerSettingsStore?.resolvedFeishuCLIExecutablePathOverride
+        )
         let result = await cliRegistry.executeFeishu(
             operation: operation,
             spokenCommand: commandText,

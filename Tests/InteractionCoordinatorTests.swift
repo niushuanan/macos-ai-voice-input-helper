@@ -567,6 +567,70 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
     }
 
+    func testMagicianHoldWithoutSelectionSupportsConfiguredCLIPathOverride() async throws {
+        let fakeBinDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fake-feishu-config-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeBinDirectory, withIntermediateDirectories: true)
+        let fakeLarkCLIPath = fakeBinDirectory.appendingPathComponent("lark-cli")
+        try """
+        #!/bin/sh
+        exit 0
+        """.write(to: fakeLarkCLIPath, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o755))],
+            ofItemAtPath: fakeLarkCLIPath.path
+        )
+        defer {
+            try? FileManager.default.removeItem(at: fakeBinDirectory)
+        }
+
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = nil
+        let planner = FixedWorkflowPlanner(
+            plan: MagicianWorkflowPlan(
+                steps: [
+                    MagicianWorkflowStep(
+                        stepID: "step-1",
+                        feature: .feishuCLI,
+                        params: MagicianIntentParams(cliOperation: "feishu_im_user_search_messages"),
+                        inputBinding: .commandOnly,
+                        command: "飞书搜索消息 测试"
+                    )
+                ],
+                confidence: 0.94
+            )
+        )
+        let toolExecutor = FakeMagicianToolExecutor()
+        toolExecutor.result = .success(
+            MagicianExecutionResult(
+                intent: .feishuCLI,
+                userMessage: "飞书 CLI 执行成功",
+                outputText: "ok",
+                fallbackUsed: false
+            )
+        )
+
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutputCoordinator,
+            magicianWorkflowPlanner: planner,
+            magicianToolExecutor: toolExecutor,
+            transcriptionText: "飞书搜索消息 测试"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.providerSettingsStore.updateFeishuCLIExecutablePathOverride(fakeLarkCLIPath.path)
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .feishuCLI)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .idle)
+        XCTAssertEqual(toolExecutor.callCount, 1)
+        XCTAssertEqual(toolExecutor.lastIntent?.intent, .feishuCLI)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
+    }
+
     func testMagicianMailSuccessPersistsSentHistoryText() async throws {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
@@ -1631,6 +1695,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         return InteractionFixture(
             coordinator: coordinator,
             sessionStore: sessionStore,
+            providerSettingsStore: providerSettingsStore,
             audioCapture: audioCapture,
             textOutputCoordinator: resolvedTextOutputCoordinator,
             localHistoryStore: localHistoryStore,
@@ -1683,6 +1748,7 @@ final class InteractionCoordinatorTests: XCTestCase {
 private struct InteractionFixture {
     let coordinator: InteractionCoordinator
     let sessionStore: SessionStore
+    let providerSettingsStore: ProviderSettingsStore
     let audioCapture: FakeAudioCaptureService
     let textOutputCoordinator: FakeTextOutputCoordinator
     let localHistoryStore: LocalHistoryStore

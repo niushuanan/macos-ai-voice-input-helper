@@ -21,6 +21,30 @@ final class ProviderSettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.cliTextConfig.providerType, .openAICompatible)
         XCTAssertEqual(store.cliTextConfig.baseURLString, "https://api.deepseek.com")
         XCTAssertEqual(store.cliTextConfig.modelName, "deepseek-chat")
+        XCTAssertNil(store.resolvedFeishuCLIExecutablePathOverride)
+    }
+
+    func testFeishuCLIExecutablePathOverridePersistsAcrossReload() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let credentials = MemoryCredentialStoreForSettingsTests()
+        let store = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
+        store.updateFeishuCLIExecutablePathOverride("  /opt/homebrew/bin/lark-cli  ")
+
+        XCTAssertEqual(store.resolvedFeishuCLIExecutablePathOverride, "/opt/homebrew/bin/lark-cli")
+
+        let reloaded = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
+        XCTAssertEqual(
+            reloaded.resolvedFeishuCLIExecutablePathOverride,
+            "/opt/homebrew/bin/lark-cli"
+        )
+
+        reloaded.clearFeishuCLIExecutablePathOverride()
+        XCTAssertNil(reloaded.resolvedFeishuCLIExecutablePathOverride)
+
+        let reloadedAgain = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
+        XCTAssertNil(reloadedAgain.resolvedFeishuCLIExecutablePathOverride)
     }
 
     func testSwitchToLocalSenseVoiceAutoFillsModelPath() {

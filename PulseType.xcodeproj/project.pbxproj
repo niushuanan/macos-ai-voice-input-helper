@@ -64,6 +64,7 @@
 		9080A058BBAEE8F60F2385AD /* DashScopeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3188371858CF2E66EADC78A9 /* DashScopeSupport.swift */; };
 		9527FFE7B235C06A1D6C4473 /* LocalSenseVoiceRuntimeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D71BCBE3A301D990D1FACB2F /* LocalSenseVoiceRuntimeManager.swift */; };
 		95A7E033C811E37484D842FA /* ProviderSettingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ACA092E1EECB7CAE8BEEB9D /* ProviderSettingsStoreTests.swift */; };
+		A1D7C9E24F8B4A10B5C3D2E1 /* FeishuCLIProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E8D0F35A9C4B21C6D4E3F2 /* FeishuCLIProviderTests.swift */; };
 		972AFA7F034A7B07E8E722A8 /* HotkeyNames.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEE9D1B6AD35D4FEE8C8C42D /* HotkeyNames.swift */; };
 		9AAE4E35DD8D04A589EEC7B5 /* DashScopeAndLocalASRTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 194DDF738D89950B26E29DE3 /* DashScopeAndLocalASRTests.swift */; };
 		9E8F31ACADBA102294F4C3C1 /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = 28302DFB9844BDD6EB452B0C /* KeyboardShortcuts */; };
@@ -141,6 +142,7 @@
 		241181D9FA17D66D2CB559E2 /* OpenAITranscriptionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAITranscriptionProvider.swift; sourceTree = "<group>"; };
 		289CC9CA3CBFE14B7FE231B0 /* LocalSenseVoiceRuntimeManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSenseVoiceRuntimeManagerTests.swift; sourceTree = "<group>"; };
 		2ACA092E1EECB7CAE8BEEB9D /* ProviderSettingsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderSettingsStoreTests.swift; sourceTree = "<group>"; };
+		B2E8D0F35A9C4B21C6D4E3F2 /* FeishuCLIProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeishuCLIProviderTests.swift; sourceTree = "<group>"; };
 		2D00964E5D2AB7B373C4B71A /* BrainstormDurationProbePlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrainstormDurationProbePlannerTests.swift; sourceTree = "<group>"; };
 		303298C5AB88FF78EC0CD5C6 /* InteractionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractionCoordinatorTests.swift; sourceTree = "<group>"; };
 		3188371858CF2E66EADC78A9 /* DashScopeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashScopeSupport.swift; sourceTree = "<group>"; };
@@ -454,6 +456,7 @@
 				93A38F69E5582F6FA37EE498 /* ControlCenterStateTests.swift */,
 				063E41521D138280350363BC /* CredentialStoreFactoryTests.swift */,
 				194DDF738D89950B26E29DE3 /* DashScopeAndLocalASRTests.swift */,
+				B2E8D0F35A9C4B21C6D4E3F2 /* FeishuCLIProviderTests.swift */,
 				01372AB45A6C497F3C305577 /* GlobalHotkeyStateMachineTests.swift */,
 				044F5842BEBAF6190BA0EB34 /* HomeStatsFormatterTests.swift */,
 				93D880758C71B0356B2A1533 /* HotkeyStateStoreTests.swift */,
@@ -713,6 +716,7 @@
 				F734785B1EB465FBC73223E3 /* ControlCenterStateTests.swift in Sources */,
 				D99F2AE0A2185AAD3780A31C /* CredentialStoreFactoryTests.swift in Sources */,
 				9AAE4E35DD8D04A589EEC7B5 /* DashScopeAndLocalASRTests.swift in Sources */,
+				A1D7C9E24F8B4A10B5C3D2E1 /* FeishuCLIProviderTests.swift in Sources */,
 				9FED9AEC7B42DFDBD5B7C41A /* GlobalHotkeyStateMachineTests.swift in Sources */,
 				F053B05364A41E8CFED867FE /* HUDProgressStateMachineTests.swift in Sources */,
 				D2EBE5727C796116140DA9BA /* HomeStatsFormatterTests.swift in Sources */,

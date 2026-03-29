@@ -272,24 +272,58 @@ final class FeishuCLIProvider {
 
     static func detectAvailability(
         fileManager: FileManager = .default,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        executableOverride: String? = nil,
+        additionalSearchDirectories: [String] = []
     ) -> FeishuCLIAvailability {
-        if let resolved = resolveExecutable(named: "feishu", fileManager: fileManager, environment: environment) {
-            return FeishuCLIAvailability(
-                backend: FeishuCLIBackendDescriptor(
-                    kind: .feishu,
-                    executablePath: resolved,
-                    commandName: "feishu"
-                )
-            )
+        if
+            let overrideExecutable = resolveOverrideExecutable(
+                executableOverride,
+                fileManager: fileManager
+            ),
+            let descriptor = backendDescriptor(for: overrideExecutable)
+        {
+            return FeishuCLIAvailability(backend: descriptor)
         }
 
-        if let resolved = resolveExecutable(named: "lark-cli", fileManager: fileManager, environment: environment) {
+        let pathDirectories = (environment["PATH"] ?? "")
+            .split(separator: ":")
+            .map(String.init)
+        let fallbackDirectories = defaultSearchDirectories(environment: environment)
+        let mergedDirectories = mergedSearchDirectories(
+            pathDirectories: pathDirectories,
+            fallbackDirectories: fallbackDirectories,
+            additionalDirectories: additionalSearchDirectories
+        )
+
+        if
+            let resolved = resolveExecutable(
+                named: "lark-cli",
+                fileManager: fileManager,
+                directories: mergedDirectories
+            )
+        {
             return FeishuCLIAvailability(
                 backend: FeishuCLIBackendDescriptor(
                     kind: .larkCLI,
                     executablePath: resolved,
                     commandName: "lark-cli"
+                )
+            )
+        }
+
+        if
+            let resolved = resolveExecutable(
+                named: "feishu",
+                fileManager: fileManager,
+                directories: mergedDirectories
+            )
+        {
+            return FeishuCLIAvailability(
+                backend: FeishuCLIBackendDescriptor(
+                    kind: .feishu,
+                    executablePath: resolved,
+                    commandName: "feishu"
                 )
             )
         }
@@ -444,106 +478,146 @@ final class FeishuCLIProvider {
         spokenCommand: String,
         explicitArguments: [String]
     ) -> [String] {
+        let normalizedExplicitArguments = sanitizedExplicitArguments(explicitArguments)
+        let hasExplicitArguments = !normalizedExplicitArguments.isEmpty
+        let queryHint = inferredQuery(from: spokenCommand)
+
         var args: [String]
 
         switch operation {
         case .bitableApp:
-            args = ["base", "+base-get", "--help"]
+            args = hasExplicitArguments ? ["base", "+base-get"] : ["base", "+base-get", "--help"]
         case .bitableAppTable:
-            args = ["base", "+table-list", "--help"]
+            args = hasExplicitArguments ? ["base", "+table-list"] : ["base", "+table-list", "--help"]
         case .bitableAppTableField:
-            args = ["base", "+field-list", "--help"]
+            args = hasExplicitArguments ? ["base", "+field-list"] : ["base", "+field-list", "--help"]
         case .bitableAppTableRecord:
-            args = ["base", "+record-list", "--help"]
+            if containsAny(spokenCommand, keywords: ["写入", "更新", "修改", "新增", "create", "update"]) {
+                args = hasExplicitArguments ? ["base", "+record-upsert"] : ["base", "+record-upsert", "--help"]
+            } else {
+                args = hasExplicitArguments ? ["base", "+record-list"] : ["base", "+record-list", "--help"]
+            }
         case .bitableAppTableView:
-            args = ["base", "+view-list", "--help"]
+            args = hasExplicitArguments ? ["base", "+view-list"] : ["base", "+view-list", "--help"]
         case .calendarCalendar:
             args = ["calendar", "+agenda"]
         case .calendarEvent:
             if containsAny(spokenCommand, keywords: ["创建", "新建", "安排", "建", "create"]) {
-                args = ["calendar", "+create", "--help"]
+                args = hasExplicitArguments ? ["calendar", "+create"] : ["calendar", "+create", "--help"]
             } else {
                 args = ["calendar", "+agenda"]
             }
         case .calendarEventAttendee:
-            args = ["calendar", "+create", "--help"]
+            args = hasExplicitArguments ? ["calendar", "+create"] : ["calendar", "+create", "--help"]
         case .calendarFreebusy:
-            args = ["calendar", "+freebusy", "--help"]
+            args = hasExplicitArguments ? ["calendar", "+freebusy"] : ["calendar", "+freebusy", "--help"]
         case .chat:
-            args = ["im", "+chat-search", "--help"]
+            if let queryHint {
+                args = ["im", "+chat-search", "--query", queryHint]
+            } else {
+                args = hasExplicitArguments ? ["im", "+chat-search"] : ["im", "+chat-search", "--help"]
+            }
         case .chatMembers:
-            args = ["im", "+chat-search", "--help"]
+            if let queryHint {
+                args = ["im", "+chat-search", "--query", queryHint]
+            } else {
+                args = hasExplicitArguments ? ["im", "+chat-search"] : ["im", "+chat-search", "--help"]
+            }
         case .createDoc:
-            args = ["docs", "+create", "--help"]
+            args = hasExplicitArguments ? ["docs", "+create"] : ["docs", "+create", "--help"]
         case .docComments:
-            args = ["drive", "+add-comment", "--help"]
+            args = hasExplicitArguments ? ["drive", "+add-comment"] : ["drive", "+add-comment", "--help"]
         case .docMedia:
             if containsAny(spokenCommand, keywords: ["下载", "download"]) {
-                args = ["docs", "+media-download", "--help"]
+                args = hasExplicitArguments ? ["docs", "+media-download"] : ["docs", "+media-download", "--help"]
             } else {
-                args = ["docs", "+media-upload", "--help"]
+                args = hasExplicitArguments ? ["docs", "+media-insert"] : ["docs", "+media-insert", "--help"]
             }
         case .driveFile:
             if containsAny(spokenCommand, keywords: ["上传", "upload"]) {
-                args = ["drive", "+upload", "--help"]
+                args = hasExplicitArguments ? ["drive", "+upload"] : ["drive", "+upload", "--help"]
             } else {
-                args = ["drive", "+download", "--help"]
+                args = hasExplicitArguments ? ["drive", "+download"] : ["drive", "+download", "--help"]
             }
         case .fetchDoc:
-            args = ["docs", "+fetch", "--help"]
+            args = hasExplicitArguments ? ["docs", "+fetch"] : ["docs", "+fetch", "--help"]
         case .getUser:
-            args = ["contact", "+get-user", "--help"]
+            args = ["contact", "+get-user"]
         case .imBotImage:
-            args = ["im", "+messages-send", "--help"]
+            args = hasExplicitArguments ? ["im", "+messages-send"] : ["im", "+messages-send", "--help"]
         case .imUserFetchResource:
-            args = ["im", "+messages-resources-download", "--help"]
+            args = hasExplicitArguments ? ["im", "+messages-resources-download"] : ["im", "+messages-resources-download", "--help"]
         case .imUserGetMessages:
-            args = ["im", "+chat-messages-list", "--help"]
+            args = hasExplicitArguments ? ["im", "+chat-messages-list"] : ["im", "+chat-messages-list", "--help"]
         case .imUserGetThreadMessages:
-            args = ["im", "+threads-messages-list", "--help"]
+            args = hasExplicitArguments ? ["im", "+threads-messages-list"] : ["im", "+threads-messages-list", "--help"]
         case .imUserMessage:
             if containsAny(spokenCommand, keywords: ["回复", "reply"]) {
-                args = ["im", "+messages-reply", "--help"]
+                args = hasExplicitArguments ? ["im", "+messages-reply"] : ["im", "+messages-reply", "--help"]
             } else {
-                args = ["im", "+messages-send", "--help"]
+                args = hasExplicitArguments ? ["im", "+messages-send"] : ["im", "+messages-send", "--help"]
             }
         case .imUserSearchMessages:
-            args = ["im", "+messages-search", "--help"]
+            if let queryHint {
+                args = ["im", "+messages-search", "--query", queryHint]
+            } else {
+                args = hasExplicitArguments ? ["im", "+messages-search"] : ["im", "+messages-search", "--help"]
+            }
         case .oauth:
             args = ["auth", "status", "--format", "json"]
         case .oauthBatchAuth:
             args = ["auth", "login", "--help"]
         case .searchDocWiki:
-            args = ["docs", "+search", "--help"]
+            if let queryHint {
+                args = ["docs", "+search", "--query", queryHint]
+            } else {
+                args = ["docs", "+search"]
+            }
         case .searchUser:
-            args = ["contact", "+search-user", "--help"]
+            if let queryHint {
+                args = ["contact", "+search-user", "--query", queryHint]
+            } else {
+                args = hasExplicitArguments ? ["contact", "+search-user"] : ["contact", "+search-user", "--help"]
+            }
         case .sheet:
             if containsAny(spokenCommand, keywords: ["写", "追加", "append", "write"]) {
-                args = ["sheets", "+write", "--help"]
+                args = hasExplicitArguments ? ["sheets", "+write"] : ["sheets", "+write", "--help"]
+            } else if containsAny(spokenCommand, keywords: ["导出", "export"]) {
+                args = hasExplicitArguments ? ["sheets", "+export"] : ["sheets", "+export", "--help"]
             } else {
-                args = ["sheets", "+read", "--help"]
+                args = hasExplicitArguments ? ["sheets", "+read"] : ["sheets", "+read", "--help"]
             }
         case .taskComment:
-            args = ["task", "+comment", "--help"]
+            args = hasExplicitArguments ? ["task", "+comment"] : ["task", "+comment", "--help"]
         case .taskSubtask:
-            args = ["task", "+create", "--help"]
+            args = hasExplicitArguments ? ["task", "+create"] : ["task", "+create", "--help"]
         case .taskTask:
             if containsAny(spokenCommand, keywords: ["更新", "update", "完成", "complete"]) {
-                args = ["task", "+update", "--help"]
+                args = hasExplicitArguments ? ["task", "+update"] : ["task", "+update", "--help"]
+            } else if containsAny(spokenCommand, keywords: ["查", "查看", "list", "search"]) {
+                if let queryHint {
+                    args = ["task", "+get-my-tasks", "--query", queryHint]
+                } else {
+                    args = ["task", "+get-my-tasks"]
+                }
             } else {
-                args = ["task", "+create", "--help"]
+                args = hasExplicitArguments ? ["task", "+create"] : ["task", "+create", "--help"]
             }
         case .taskTasklist:
-            args = ["task", "+tasklist-create", "--help"]
+            args = hasExplicitArguments ? ["task", "+tasklist-create"] : ["task", "+tasklist-create", "--help"]
         case .updateDoc:
-            args = ["docs", "+update", "--help"]
+            args = hasExplicitArguments ? ["docs", "+update"] : ["docs", "+update", "--help"]
         case .wikiSpace:
-            args = ["docs", "+search", "--help"]
+            if let queryHint {
+                args = ["docs", "+search", "--query", queryHint]
+            } else {
+                args = ["docs", "+search"]
+            }
         case .wikiSpaceNode:
-            args = ["docs", "+fetch", "--help"]
+            args = hasExplicitArguments ? ["wiki", "spaces", "get_node"] : ["wiki", "spaces", "get_node", "--help"]
         }
 
-        return args + sanitizedExplicitArguments(explicitArguments)
+        return args + normalizedExplicitArguments
     }
 
     private func feishuArguments(
@@ -566,6 +640,48 @@ final class FeishuCLIProvider {
         }
 
         return args + sanitizedExplicitArguments(explicitArguments)
+    }
+
+    private func inferredQuery(from spokenCommand: String) -> String? {
+        let trimmed = spokenCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        let stopWords = [
+            "飞书",
+            "feishu",
+            "lark",
+            "查一下",
+            "搜一下",
+            "搜索",
+            "查询",
+            "帮我",
+            "请",
+            "一下",
+            "消息",
+            "文档",
+            "用户",
+            "群聊",
+            "任务",
+            "日程"
+        ]
+        var reduced = trimmed
+        for stopWord in stopWords {
+            reduced = reduced.replacingOccurrences(
+                of: stopWord,
+                with: "",
+                options: [.caseInsensitive]
+            )
+        }
+        reduced = reduced
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !reduced.isEmpty else {
+            return nil
+        }
+        return String(reduced.prefix(80))
     }
 
     private func sanitizedExplicitArguments(_ raw: [String]) -> [String] {
@@ -630,21 +746,119 @@ final class FeishuCLIProvider {
     private static func resolveExecutable(
         named commandName: String,
         fileManager: FileManager,
-        environment: [String: String]
+        directories: [String]
     ) -> String? {
         if commandName.contains("/") {
             return nil
         }
 
-        let path = environment["PATH"] ?? ""
-        let directories = path.split(separator: ":").map(String.init)
         for directory in directories {
             let fullPath = (directory as NSString).appendingPathComponent(commandName)
             if fileManager.isExecutableFile(atPath: fullPath) {
-                return fullPath
+                return URL(fileURLWithPath: fullPath).standardizedFileURL.path
             }
         }
         return nil
+    }
+
+    private static func resolveOverrideExecutable(
+        _ overridePath: String?,
+        fileManager: FileManager
+    ) -> String? {
+        guard
+            let overridePath = overridePath?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !overridePath.isEmpty
+        else {
+            return nil
+        }
+
+        let expandedPath = (overridePath as NSString).expandingTildeInPath
+        var isDirectory: ObjCBool = false
+        let exists = fileManager.fileExists(atPath: expandedPath, isDirectory: &isDirectory)
+        guard exists else {
+            return nil
+        }
+
+        if isDirectory.boolValue {
+            for command in ["lark-cli", "feishu"] {
+                let candidate = (expandedPath as NSString).appendingPathComponent(command)
+                if fileManager.isExecutableFile(atPath: candidate) {
+                    return URL(fileURLWithPath: candidate).standardizedFileURL.path
+                }
+            }
+            return nil
+        }
+
+        guard fileManager.isExecutableFile(atPath: expandedPath) else {
+            return nil
+        }
+        return URL(fileURLWithPath: expandedPath).standardizedFileURL.path
+    }
+
+    private static func backendDescriptor(for executablePath: String) -> FeishuCLIBackendDescriptor? {
+        let name = URL(fileURLWithPath: executablePath).lastPathComponent.lowercased()
+        switch name {
+        case "lark-cli":
+            return FeishuCLIBackendDescriptor(
+                kind: .larkCLI,
+                executablePath: executablePath,
+                commandName: "lark-cli"
+            )
+        case "feishu":
+            return FeishuCLIBackendDescriptor(
+                kind: .feishu,
+                executablePath: executablePath,
+                commandName: "feishu"
+            )
+        default:
+            return nil
+        }
+    }
+
+    private static func mergedSearchDirectories(
+        pathDirectories: [String],
+        fallbackDirectories: [String],
+        additionalDirectories: [String]
+    ) -> [String] {
+        var merged: [String] = []
+        var seen = Set<String>()
+        for raw in pathDirectories + additionalDirectories + fallbackDirectories {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                continue
+            }
+            let normalized = URL(fileURLWithPath: (trimmed as NSString).expandingTildeInPath)
+                .standardizedFileURL
+                .path
+            guard seen.insert(normalized).inserted else {
+                continue
+            }
+            merged.append(normalized)
+        }
+        return merged
+    }
+
+    private static func defaultSearchDirectories(
+        environment: [String: String]
+    ) -> [String] {
+        let homeDirectory = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var directories: [String] = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin"
+        ]
+
+        if !homeDirectory.isEmpty {
+            directories.append("\(homeDirectory)/.local/bin")
+            directories.append("\(homeDirectory)/.npm-global/bin")
+            directories.append("\(homeDirectory)/.bun/bin")
+            directories.append("\(homeDirectory)/Library/pnpm")
+        }
+        return directories
     }
 }
 

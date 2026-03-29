@@ -3087,7 +3087,7 @@ final class InteractionCoordinator {
             }
 
         case "open_feishu_auth":
-            if let feishuPath = FeishuCLIProvider.detectAvailability().backend?.executablePath {
+            if let feishuPath = currentFeishuCLIAvailability().backend?.executablePath {
                 Task {
                     _ = await runProcessWithTimeout(
                         executablePath: feishuPath,
@@ -3410,7 +3410,7 @@ final class InteractionCoordinator {
 
     private func currentMagicianDependenciesSnapshot() -> MagicianDependencySnapshot {
         let shortcutSupport = MagicianCreateNoteShortcutSupport()
-        let feishuAvailability = FeishuCLIProvider.detectAvailability()
+        let feishuAvailability = currentFeishuCLIAvailability()
         return MagicianDependencySnapshot(
             accessibilityState: permissionsCenter.snapshot.accessibility,
             eventAuthorizationStatus: EKEventStore.authorizationStatus(for: .event),
@@ -3423,6 +3423,12 @@ final class InteractionCoordinator {
             mailAppAvailable: MagicianMailCapability.mailAppAvailable,
             feishuCLIAvailable: feishuAvailability.isAvailable,
             feishuCLICommandName: feishuAvailability.commandName
+        )
+    }
+
+    private func currentFeishuCLIAvailability() -> FeishuCLIAvailability {
+        FeishuCLIProvider.detectAvailability(
+            executableOverride: providerSettingsStore.resolvedFeishuCLIExecutablePathOverride
         )
     }
 
