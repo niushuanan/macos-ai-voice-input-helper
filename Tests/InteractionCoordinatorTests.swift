@@ -642,7 +642,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.sessionStore.phase, .idle)
         XCTAssertEqual(rewriteProvider.callCount, 1)
         XCTAssertTrue(rewriteProvider.lastRequest?.spokenInstruction.contains("场景：音乐命令（Music 应用）。") == true)
-        XCTAssertTrue(rewriteProvider.lastRequest?.spokenInstruction.contains("用户几乎只点周杰伦的歌") == true)
+        XCTAssertTrue(rewriteProvider.lastRequest?.spokenInstruction.contains("不要给任何固定歌手加默认偏好") == true)
         XCTAssertEqual(runtime.lastRequest?.command, "播放周杰伦的稻香")
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.instructionText, "播放周杰伦的稻香")
     }

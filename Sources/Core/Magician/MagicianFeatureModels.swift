@@ -208,7 +208,7 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         case .composeEmailDraft:
             return "给小庄发邮件"
         case .controlMusic:
-            return "播放周杰伦的稻香"
+            return "播放稻香"
         case .feishuCLI:
             return "飞书查今天议程"
         }
