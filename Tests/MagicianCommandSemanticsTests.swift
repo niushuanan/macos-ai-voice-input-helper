@@ -28,4 +28,20 @@ final class MagicianCommandSemanticsTests: XCTestCase {
 
         XCTAssertEqual(payload, "告诉他我今天会晚点到")
     }
+
+    func testExtractMailRecipientHintsForChainedInstruction() {
+        let hints = magicianExtractMailRecipientHints(
+            from: "翻译成日语，并给不孤独发邮件"
+        )
+
+        XCTAssertEqual(hints, ["不孤独"])
+    }
+
+    func testExtractExplicitEmailsFromInstruction() {
+        let emails = magicianExtractExplicitEmails(
+            from: "请发邮件给 team@example.com 和 dev@example.com"
+        )
+
+        XCTAssertEqual(emails, ["team@example.com", "dev@example.com"])
+    }
 }

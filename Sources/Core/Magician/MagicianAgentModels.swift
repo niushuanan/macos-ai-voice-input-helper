@@ -1006,8 +1006,17 @@ final class MagicianAgentRuntimeV2: MagicianAgentRunning {
         case .createNote:
             params.noteBody = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         case .composeEmailDraft:
-            params.mailBody = inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inputText
+            let normalizedBody = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+            params.mailBody = normalizedBody.isEmpty ? nil : inputText
             params.mailDeliveryMode = action.instruction.lowercased().contains("草稿") ? .draftOnly : .autoSendIfResolved
+            let explicitRecipients = magicianExtractExplicitEmails(from: action.instruction)
+            let fallbackExplicitRecipients = magicianExtractExplicitEmails(from: request.command)
+            let recipientHints = magicianExtractMailRecipientHints(from: action.instruction)
+            let fallbackRecipientHints = magicianExtractMailRecipientHints(from: request.command)
+            let mergedExplicitRecipients = explicitRecipients.isEmpty ? fallbackExplicitRecipients : explicitRecipients
+            let mergedRecipientHints = recipientHints.isEmpty ? fallbackRecipientHints : recipientHints
+            params.mailTo = mergedExplicitRecipients.isEmpty ? nil : mergedExplicitRecipients
+            params.mailRecipientHints = mergedRecipientHints.isEmpty ? nil : mergedRecipientHints
         case .createEvent:
             params.notes = inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inputText
         case .controlMusic:
