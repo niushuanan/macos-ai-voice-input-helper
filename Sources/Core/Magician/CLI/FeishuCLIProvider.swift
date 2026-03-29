@@ -254,10 +254,16 @@ enum FeishuCanonicalOperation: String, CaseIterable, Codable {
 }
 
 struct FeishuCLICommandPlan: Equatable {
+    enum ExecutionMode: Equatable {
+        case execute
+        case needsMoreDetail
+    }
+
     let executablePath: String
     let arguments: [String]
     let summary: String
     let riskLevel: FeishuCLIRiskLevel
+    let executionMode: ExecutionMode
 }
 
 final class FeishuCLIProvider {
@@ -331,6 +337,32 @@ final class FeishuCLIProvider {
         return .unavailable
     }
 
+    static func buildProcessEnvironment(
+        executablePath: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String: String] {
+        var resolvedEnvironment = environment
+        let executableDirectory = URL(fileURLWithPath: executablePath)
+            .deletingLastPathComponent()
+            .path
+
+        let currentPathEntries = (environment["PATH"] ?? "")
+            .split(separator: ":")
+            .map(String.init)
+        let fallbackDirectories = defaultSearchDirectories(environment: environment)
+        let mergedPathEntries = mergedSearchDirectories(
+            pathDirectories: currentPathEntries + [executableDirectory],
+            fallbackDirectories: fallbackDirectories,
+            additionalDirectories: []
+        )
+        resolvedEnvironment["PATH"] = mergedPathEntries.joined(separator: ":")
+
+        if (resolvedEnvironment["HOME"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            resolvedEnvironment["HOME"] = NSHomeDirectory()
+        }
+        return resolvedEnvironment
+    }
+
     func execute(
         operation: FeishuCanonicalOperation,
         spokenCommand: String,
@@ -381,11 +413,22 @@ final class FeishuCLIProvider {
             executablePath: plan.executablePath,
             arguments: plan.arguments,
             timeoutSeconds: Self.timeoutSeconds,
-            maxOutputCharacters: Self.maxOutputCharacters
+            maxOutputCharacters: Self.maxOutputCharacters,
+            environment: Self.buildProcessEnvironment(executablePath: plan.executablePath)
         )
 
         if processResult.exitCode == 0 {
             let output = mergedOutput(from: processResult)
+            if plan.executionMode == .needsMoreDetail {
+                return .failure(
+                    MagicianError(
+                        code: .intentParseFailed,
+                        userMessage: missingArgumentMessage(for: operation),
+                        debugMessage: output,
+                        recoverAction: "retry_command"
+                    )
+                )
+            }
             let display = output.isEmpty ? plan.summary : output
             return .success(
                 MagicianExecutionResult(
@@ -456,7 +499,13 @@ final class FeishuCLIProvider {
                 executablePath: backend.executablePath,
                 arguments: args,
                 summary: "\(operation.title)（\(backend.commandName)）",
-                riskLevel: operation.riskLevel
+                riskLevel: operation.riskLevel,
+                executionMode: executionMode(
+                    operation: operation,
+                    spokenCommand: spokenCommand,
+                    arguments: args,
+                    explicitArguments: explicitArguments
+                )
             )
         case .feishu:
             let args = feishuArguments(
@@ -468,7 +517,8 @@ final class FeishuCLIProvider {
                 executablePath: backend.executablePath,
                 arguments: args,
                 summary: "\(operation.title)（\(backend.commandName)）",
-                riskLevel: operation.riskLevel
+                riskLevel: operation.riskLevel,
+                executionMode: .execute
             )
         }
     }
@@ -564,9 +614,9 @@ final class FeishuCLIProvider {
                 args = hasExplicitArguments ? ["im", "+messages-search"] : ["im", "+messages-search", "--help"]
             }
         case .oauth:
-            args = ["auth", "status", "--format", "json"]
+            args = ["auth", "status"]
         case .oauthBatchAuth:
-            args = ["auth", "login", "--help"]
+            args = ["auth", "login", "--recommend", "--no-wait"]
         case .searchDocWiki:
             if let queryHint {
                 args = ["docs", "+search", "--query", queryHint]
@@ -704,6 +754,55 @@ final class FeishuCLIProvider {
         return true
     }
 
+    private func executionMode(
+        operation: FeishuCanonicalOperation,
+        spokenCommand: String,
+        arguments: [String],
+        explicitArguments: [String]
+    ) -> FeishuCLICommandPlan.ExecutionMode {
+        let hasExplicitArguments = !sanitizedExplicitArguments(explicitArguments).isEmpty
+        let askedForHelp = containsAny(
+            spokenCommand,
+            keywords: ["help", "帮助", "参数", "怎么用", "用法", "--help"]
+        )
+        if
+            usesHelpFallback(arguments),
+            !hasExplicitArguments,
+            !askedForHelp,
+            operation != .oauthBatchAuth
+        {
+            return .needsMoreDetail
+        }
+        return .execute
+    }
+
+    private func usesHelpFallback(_ arguments: [String]) -> Bool {
+        arguments.contains("--help")
+    }
+
+    private func missingArgumentMessage(for operation: FeishuCanonicalOperation) -> String {
+        switch operation {
+        case .createDoc, .updateDoc, .fetchDoc, .docMedia, .docComments:
+            return "这条飞书文档命令还缺少必要参数，请补充文档对象或内容后再试。"
+        case .imUserMessage, .imBotImage:
+            return "发消息需要目标和内容，请补充群聊/用户和消息文本后再试。"
+        case .driveFile:
+            return "云盘读写需要文件信息，请补充文件 token 或本地路径后再试。"
+        case .sheet:
+            return "表格操作需要表格地址或 token，请补充后再试。"
+        case .taskTask, .taskComment, .taskSubtask, .taskTasklist:
+            return "任务操作还缺少目标信息，请补充任务或任务列表后再试。"
+        case .bitableApp, .bitableAppTable, .bitableAppTableField, .bitableAppTableRecord, .bitableAppTableView:
+            return "多维表格操作需要 base/table 信息，请补充后再试。"
+        case .calendarEvent, .calendarEventAttendee, .calendarFreebusy:
+            return "日历操作还缺少时间或对象，请补充后再试。"
+        case .wikiSpace, .wikiSpaceNode:
+            return "Wiki 操作需要空间或节点参数，请补充后再试。"
+        default:
+            return "这条飞书命令还缺少必要参数，请补充更具体的信息后再试。"
+        }
+    }
+
     private func isExecutableAllowed(_ executablePath: String) -> Bool {
         let name = URL(fileURLWithPath: executablePath).lastPathComponent.lowercased()
         return name == "feishu" || name == "lark-cli"
@@ -731,6 +830,10 @@ final class FeishuCLIProvider {
             "unauthorized",
             "permission",
             "scope",
+            "not configured",
+            "config init",
+            "device code",
+            "oauth",
             "请先登录",
             "未登录",
             "授权"
@@ -866,14 +969,16 @@ func runProcessWithTimeout(
     executablePath: String,
     arguments: [String],
     timeoutSeconds: TimeInterval,
-    maxOutputCharacters: Int
+    maxOutputCharacters: Int,
+    environment: [String: String]? = nil
 ) async -> MagicianProcessResult {
     await Task.detached(priority: .userInitiated) {
         runProcessWithTimeoutSync(
             executablePath: executablePath,
             arguments: arguments,
             timeoutSeconds: timeoutSeconds,
-            maxOutputCharacters: maxOutputCharacters
+            maxOutputCharacters: maxOutputCharacters,
+            environment: environment
         )
     }.value
 }
@@ -882,11 +987,15 @@ private func runProcessWithTimeoutSync(
     executablePath: String,
     arguments: [String],
     timeoutSeconds: TimeInterval,
-    maxOutputCharacters: Int
+    maxOutputCharacters: Int,
+    environment: [String: String]?
 ) -> MagicianProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
+        if let environment {
+            process.environment = environment
+        }
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()

@@ -3087,14 +3087,22 @@ final class InteractionCoordinator {
             }
 
         case "open_feishu_auth":
-            if let feishuPath = currentFeishuCLIAvailability().backend?.executablePath {
-                Task {
-                    _ = await runProcessWithTimeout(
-                        executablePath: feishuPath,
-                        arguments: ["auth", "status"],
-                        timeoutSeconds: 8,
-                        maxOutputCharacters: 6_000
+            guard let backend = currentFeishuCLIAvailability().backend else {
+                toastPresenter?.show("未检测到飞书 CLI，请先安装或在设置页填写可执行路径。")
+                return
+            }
+            Task { [weak self] in
+                let result = await runProcessWithTimeout(
+                    executablePath: backend.executablePath,
+                    arguments: ["auth", "login", "--recommend", "--no-wait"],
+                    timeoutSeconds: 12,
+                    maxOutputCharacters: 6_000,
+                    environment: FeishuCLIProvider.buildProcessEnvironment(
+                        executablePath: backend.executablePath
                     )
+                )
+                await MainActor.run {
+                    self?.handleFeishuAuthBootstrapResult(result)
                 }
             }
 
@@ -3430,6 +3438,59 @@ final class InteractionCoordinator {
         FeishuCLIProvider.detectAvailability(
             executableOverride: providerSettingsStore.resolvedFeishuCLIExecutablePathOverride
         )
+    }
+
+    private func handleFeishuAuthBootstrapResult(_ result: MagicianProcessResult) {
+        let output = mergedCLIOutput(result)
+        if let authURL = firstURL(in: output) {
+            NSWorkspace.shared.open(authURL)
+            toastPresenter?.show("已打开飞书授权页，完成后再试一次命令。")
+            return
+        }
+
+        let lowered = output.lowercased()
+        if lowered.contains("not configured") || lowered.contains("config init") {
+            toastPresenter?.show("飞书 CLI 还没完成配置，请先执行 lark-cli config init --new。")
+            return
+        }
+
+        if result.exitCode == 0 {
+            toastPresenter?.show("已触发飞书授权，请在浏览器完成登录后重试。")
+            return
+        }
+
+        let brief = output
+            .split(separator: "\n")
+            .prefix(2)
+            .joined(separator: " | ")
+        toastPresenter?.show(
+            brief.isEmpty
+                ? "飞书授权触发失败，请先在终端执行 lark-cli auth login --recommend。"
+                : "飞书授权失败：\(brief)"
+        )
+    }
+
+    private func mergedCLIOutput(_ result: MagicianProcessResult) -> String {
+        let stdout = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !stdout.isEmpty {
+            return stdout
+        }
+        return result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func firstURL(in text: String) -> URL? {
+        let pattern = #"https?://[^\s]+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+        let nsText = text as NSString
+        let range = NSRange(location: 0, length: nsText.length)
+        guard let match = regex.firstMatch(in: text, options: [], range: range) else {
+            return nil
+        }
+        let raw = nsText.substring(with: match.range)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".,;)]}"))
+        return URL(string: raw)
     }
 
     private func historyMode(for lane: InputLane) -> SessionHistoryMode {

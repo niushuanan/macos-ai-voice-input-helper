@@ -593,7 +593,10 @@ struct SettingsView: View {
                 executablePath: backend.executablePath,
                 arguments: arguments,
                 timeoutSeconds: 14,
-                maxOutputCharacters: 2_600
+                maxOutputCharacters: 2_600,
+                environment: FeishuCLIProvider.buildProcessEnvironment(
+                    executablePath: backend.executablePath
+                )
             )
             await MainActor.run {
                 let output = !result.stdout.isEmpty ? result.stdout : result.stderr

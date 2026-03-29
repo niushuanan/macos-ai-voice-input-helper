@@ -2,6 +2,117 @@ import XCTest
 @testable import PulseType
 
 final class FeishuCLIProviderTests: XCTestCase {
+    func testExecuteOAuthUsesStatusWithoutFormatFlag() async throws {
+        let fixture = try makeExecutableFixture(
+            fileName: "lark-cli",
+            script: "#!/bin/sh\necho \"$@\"\nexit 0\n"
+        )
+        defer { fixture.cleanUp() }
+
+        let provider = FeishuCLIProvider()
+        let availability = FeishuCLIAvailability(
+            backend: FeishuCLIBackendDescriptor(
+                kind: .larkCLI,
+                executablePath: fixture.executableURL.path,
+                commandName: "lark-cli"
+            )
+        )
+
+        let result = await provider.execute(
+            operation: .oauth,
+            spokenCommand: "检查飞书授权状态",
+            explicitArguments: [],
+            availability: availability
+        )
+
+        switch result {
+        case let .success(success):
+            XCTAssertEqual(success.intent, .feishuCLI)
+            XCTAssertTrue((success.outputText ?? "").contains("auth status"))
+            XCTAssertFalse((success.outputText ?? "").contains("--format"))
+        case let .failure(error):
+            XCTFail("expected success but got error: \(error)")
+        }
+    }
+
+    func testExecuteOAuthBatchAuthUsesNoWaitLogin() async throws {
+        let fixture = try makeExecutableFixture(
+            fileName: "lark-cli",
+            script: "#!/bin/sh\necho \"$@\"\nexit 0\n"
+        )
+        defer { fixture.cleanUp() }
+
+        let provider = FeishuCLIProvider()
+        let availability = FeishuCLIAvailability(
+            backend: FeishuCLIBackendDescriptor(
+                kind: .larkCLI,
+                executablePath: fixture.executableURL.path,
+                commandName: "lark-cli"
+            )
+        )
+
+        let result = await provider.execute(
+            operation: .oauthBatchAuth,
+            spokenCommand: "飞书批量授权",
+            explicitArguments: [],
+            availability: availability
+        )
+
+        switch result {
+        case let .success(success):
+            XCTAssertTrue((success.outputText ?? "").contains("auth login --recommend --no-wait"))
+        case let .failure(error):
+            XCTFail("expected success but got error: \(error)")
+        }
+    }
+
+    func testExecuteReturnsFailureWhenHelpFallbackIsUsedWithoutDetails() async throws {
+        let fixture = try makeExecutableFixture(
+            fileName: "lark-cli",
+            script: "#!/bin/sh\necho \"usage help\"\nexit 0\n"
+        )
+        defer { fixture.cleanUp() }
+
+        let provider = FeishuCLIProvider()
+        let availability = FeishuCLIAvailability(
+            backend: FeishuCLIBackendDescriptor(
+                kind: .larkCLI,
+                executablePath: fixture.executableURL.path,
+                commandName: "lark-cli"
+            )
+        )
+
+        let result = await provider.execute(
+            operation: .createDoc,
+            spokenCommand: "飞书创建文档",
+            explicitArguments: [],
+            availability: availability
+        )
+
+        switch result {
+        case .success:
+            XCTFail("expected failure but got success")
+        case let .failure(error):
+            XCTAssertEqual(error.code, .intentParseFailed)
+            XCTAssertTrue(error.userMessage.contains("缺少必要参数"))
+        }
+    }
+
+    func testBuildProcessEnvironmentAddsExecutableDirectoryAndFallbackPath() {
+        let environment = FeishuCLIProvider.buildProcessEnvironment(
+            executablePath: "/tmp/custom-bin/lark-cli",
+            environment: [
+                "PATH": "/usr/bin:/bin",
+                "HOME": "/tmp/demo-home"
+            ]
+        )
+        let path = environment["PATH"] ?? ""
+        XCTAssertTrue(path.contains("/tmp/custom-bin"))
+        XCTAssertTrue(path.contains("/usr/local/bin"))
+        XCTAssertTrue(path.contains("/opt/homebrew/bin"))
+        XCTAssertEqual(environment["HOME"], "/tmp/demo-home")
+    }
+
     func testDetectAvailabilityUsesExplicitExecutableOverride() throws {
         let fixture = try makeExecutableFixture(fileName: "lark-cli")
         defer { fixture.cleanUp() }
@@ -57,13 +168,16 @@ final class FeishuCLIProviderTests: XCTestCase {
         XCTAssertEqual(availability.backend?.executablePath, fixture.executableURL.path)
     }
 
-    private func makeExecutableFixture(fileName: String) throws -> ExecutableFixture {
+    private func makeExecutableFixture(
+        fileName: String,
+        script: String = "#!/bin/sh\nexit 0\n"
+    ) throws -> ExecutableFixture {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("feishu-cli-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
 
         let executableURL = directoryURL.appendingPathComponent(fileName)
-        try "#!/bin/sh\nexit 0\n".write(to: executableURL, atomically: true, encoding: .utf8)
+        try script.write(to: executableURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(
             [.posixPermissions: NSNumber(value: Int16(0o755))],
             ofItemAtPath: executableURL.path
