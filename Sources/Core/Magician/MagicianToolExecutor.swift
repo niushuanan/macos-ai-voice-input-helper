@@ -687,7 +687,7 @@ private struct MagicianMusicAdapter {
             switch self {
             case let .play(query):
                 if let query, !query.isEmpty {
-                    return "已尝试播放：\(query)"
+                    return "已开始播放：\(query)"
                 }
                 return "已开始播放音乐。"
             case .pause:
@@ -778,27 +778,7 @@ private struct MagicianMusicAdapter {
         switch action {
         case let .play(query):
             if let query, !query.isEmpty {
-                return await runOsaScript(
-                    lines: [
-                        "on run argv",
-                        "set keywordText to item 1 of argv",
-                        "tell application \"Music\"",
-                        "if not running then launch",
-                        "activate",
-                        "set matchedTracks to (every track of library playlist 1 whose (name contains keywordText) or (artist contains keywordText) or (album contains keywordText))",
-                        "if (count of matchedTracks) > 0 then",
-                        "set targetTrack to item 1 of matchedTracks",
-                        "play targetTrack",
-                        "return \"track=\" & (name of targetTrack)",
-                        "else",
-                        "play",
-                        "return \"fallback=play\"",
-                        "end if",
-                        "end tell",
-                        "end run"
-                    ],
-                    arguments: [query]
-                )
+                return await runPlayAction(query: query)
             }
             return await runOsaScript(
                 lines: [
@@ -861,6 +841,45 @@ private struct MagicianMusicAdapter {
     private func containsAny(_ value: String, keywords: [String]) -> Bool {
         keywords.contains { value.contains($0) }
     }
+
+    private func runPlayAction(query: String) async -> MagicianProcessResult {
+        let searchQueries = magicianMusicSearchQueries(from: query)
+        for item in searchQueries {
+            let result = await runOsaScript(
+                lines: [
+                    "on run argv",
+                    "set keywordText to item 1 of argv",
+                    "tell application \"Music\"",
+                    "if not running then launch",
+                    "activate",
+                    "set matchedTracks to (every track of library playlist 1 whose (name contains keywordText) or (artist contains keywordText) or (album contains keywordText))",
+                    "if (count of matchedTracks) > 0 then",
+                    "set targetTrack to item 1 of matchedTracks",
+                    "play targetTrack",
+                    "return \"track=\" & (name of targetTrack)",
+                    "else",
+                    "return \"no_match\"",
+                    "end if",
+                    "end tell",
+                    "end run"
+                ],
+                arguments: [item]
+            )
+
+            if result.exitCode != 0 {
+                return result
+            }
+            if result.stdout.hasPrefix("track=") {
+                return result
+            }
+        }
+
+        return MagicianProcessResult(
+            exitCode: 1,
+            stdout: "",
+            stderr: "no matched track for query: \(query)"
+        )
+    }
 }
 
 func summarizedHistoryText(_ text: String, limit: Int = 48) -> String {
@@ -871,4 +890,49 @@ func summarizedHistoryText(_ text: String, limit: Int = 48) -> String {
         return "无内容"
     }
     return normalized.count > limit ? "\(normalized.prefix(limit))…" : normalized
+}
+
+func magicianMusicSearchQueries(from rawQuery: String) -> [String] {
+    let punctuationToTrim = CharacterSet(charactersIn: " \t\r\n。．.!！?？,，、:：;；'\"‘’“”（）()《》〈〉[]【】")
+    var value = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    value = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+    value = value.trimmingCharacters(in: punctuationToTrim)
+
+    let leadingTokens = ["播放", "来一首", "放一首", "听", "music", "play"]
+    var lowered = value.lowercased()
+    for token in leadingTokens {
+        if lowered.hasPrefix(token) {
+            value = String(value.dropFirst(token.count)).trimmingCharacters(in: punctuationToTrim)
+            lowered = value.lowercased()
+        }
+    }
+
+    var candidates: [String] = []
+    func appendCandidate(_ candidate: String) {
+        let cleaned = candidate
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: punctuationToTrim)
+        guard !cleaned.isEmpty else {
+            return
+        }
+        guard !candidates.contains(cleaned) else {
+            return
+        }
+        candidates.append(cleaned)
+    }
+
+    appendCandidate(value)
+
+    if let range = value.range(of: "的"), !range.isEmpty {
+        let left = String(value[..<range.lowerBound])
+        let right = String(value[range.upperBound...])
+        appendCandidate(right)
+        appendCandidate(left)
+    }
+
+    value
+        .components(separatedBy: CharacterSet.whitespaces)
+        .forEach { appendCandidate($0) }
+
+    return candidates
 }
