@@ -695,6 +695,60 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.instructionText, "给刘莉丝发消息说会议改到下午三点")
     }
 
+    func testMagicianMusicCommandDoesNotFallbackToTextTransformWhenMusicFeatureDisabled() async throws {
+        let fixture = try makeFixture(
+            transcriptionText: "播放周杰伦的稻香"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
+        fixture.magicianFeatureToggleStore.setEnabled(false, for: .controlMusic)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .error)
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest, nil)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .failed)
+        XCTAssertTrue(
+            fixture.localHistoryStore.entries.first?.errorMessage?
+                .contains("音乐控制能力未开启") == true
+        )
+    }
+
+    func testMagicianCommandInstructionEchoDoesNotWriteBackRawCommand() async throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        let rewriteProvider = CapturingRewriteProvider(
+            result: .success(
+                SelectionRewriteResult(
+                    rewrittenText: "打开 Music。",
+                    actionLabel: "原样返回",
+                    providerName: "Fake Rewrite",
+                    modelName: "fake-model"
+                )
+            )
+        )
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutputCoordinator,
+            rewriteProviders: [rewriteProvider],
+            transcriptionText: "打开 Music"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .error)
+        XCTAssertNil(textOutputCoordinator.lastRequest)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .failed)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.instructionText, "打开 Music")
+        XCTAssertNotNil(fixture.localHistoryStore.entries.first?.errorMessage)
+    }
+
     func testMagicianClipboardFallbackSelectionIsLockedIntoRuntimeRequest() async throws {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = nil

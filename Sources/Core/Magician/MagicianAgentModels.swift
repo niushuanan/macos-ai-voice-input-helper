@@ -244,6 +244,10 @@ private struct MagicianAgentPlanBuilderV2 {
                 recoverAction: "retry_command"
             )
         }
+        try validateToolCommandGuards(
+            command: normalizedCommand,
+            enabledFeatures: request.enabledFeatures
+        )
 
         let segments = splitSegments(in: normalizedCommand)
         let goal = MagicianAgentGoal(
@@ -297,6 +301,51 @@ private struct MagicianAgentPlanBuilderV2 {
         }
 
         return MagicianAgentExecutionPlanV2(goal: goal, actions: Array(actions.prefix(6)))
+    }
+
+    private func validateToolCommandGuards(
+        command: String,
+        enabledFeatures: Set<MagicianFeatureID>
+    ) throws {
+        let lowered = command.lowercased()
+        let checks: [(feature: MagicianFeatureID, tokens: [String], message: String)] = [
+            (
+                .controlMusic,
+                ["音乐", "歌曲", "播放", "暂停", "继续播放", "下一首", "上一首", "music", "play", "pause", "next", "previous"],
+                "检测到音乐命令，但音乐控制能力未开启。请先在魔术先生里开启“苹果原生应用”能力。"
+            ),
+            (
+                .feishuCLI,
+                ["飞书", "feishu", "lark", "群聊", "文档", "wiki", "多维表格", "bitable"],
+                "检测到飞书命令，但飞书 CLI 能力未开启。请先在魔术先生里开启“飞书”能力。"
+            ),
+            (
+                .composeEmailDraft,
+                ["邮件", "mail", "email", "草稿", "发邮件", "写邮件", "邮箱"],
+                "检测到邮件命令，但邮件助手能力未开启。请先在魔术先生里开启“苹果原生应用”能力。"
+            ),
+            (
+                .createNote,
+                ["备忘录", "note", "写进备忘录", "写入备忘录", "记到备忘录", "记录到备忘录"],
+                "检测到备忘录命令，但备忘录能力未开启。请先在魔术先生里开启“苹果原生应用”能力。"
+            ),
+            (
+                .createEvent,
+                ["日程", "会议", "calendar", "event", "安排", "提醒", "行程"],
+                "检测到日程命令，但日程能力未开启。请先在魔术先生里开启“苹果原生应用”能力。"
+            )
+        ]
+
+        for item in checks where containsAny(lowered, tokens: item.tokens) {
+            if !enabledFeatures.contains(item.feature) {
+                throw MagicianError(
+                    code: .intentParseFailed,
+                    userMessage: item.message,
+                    debugMessage: "tool command feature disabled: \(item.feature.rawValue)",
+                    recoverAction: "open_magician_settings"
+                )
+            }
+        }
     }
 
     private func splitSegments(in command: String) -> [String] {
@@ -530,6 +579,17 @@ private struct MagicianAgentTextBackend {
             ? rewriteResult.rewrittenText
             : applyResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        if action.input == .commandInstruction,
+           magicianCommandLooksLikeToolCommand(normalizedInput),
+           magicianTextIsEchoOfCommandOutput(finalText, command: normalizedInput) {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "这句更像操作命令，不会把原命令直接写进输入框或剪贴板。请重试，或开启对应能力。",
+                debugMessage: "command echo detected for commandInstruction route",
+                recoverAction: "retry_command"
+            )
+        }
+
         guard shouldWriteToEditor else {
             return MagicianAgentActionResult(
                 userMessage: "文字处理已完成",
@@ -595,6 +655,30 @@ private struct MagicianAgentTextBackend {
         pasteboard.clearContents()
         return pasteboard.setString(text, forType: .string)
     }
+}
+
+func magicianCommandLooksLikeToolCommand(_ text: String) -> Bool {
+    let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !normalized.isEmpty else {
+        return false
+    }
+
+    let tokens = [
+        "播放", "打开", "启动", "暂停", "继续", "下一首", "上一首",
+        "创建", "建立", "安排", "提醒", "记到", "记下", "写进", "写入",
+        "发给", "发送", "发消息", "搜索", "查询",
+        "music", "play", "pause", "resume", "next", "previous"
+    ]
+    return tokens.contains { normalized.contains($0) }
+}
+
+func magicianTextIsEchoOfCommandOutput(_ output: String, command: String) -> Bool {
+    normalizedMagicianCommandEchoText(output) == normalizedMagicianCommandEchoText(command)
+}
+
+private func normalizedMagicianCommandEchoText(_ text: String) -> String {
+    let punctuation = CharacterSet(charactersIn: " \t\r\n。．.!！?？,，、:：;；'\"‘’“”（）()《》〈〉[]【】")
+    return text.trimmingCharacters(in: punctuation).lowercased()
 }
 
 private struct MagicianAgentActionResult {
