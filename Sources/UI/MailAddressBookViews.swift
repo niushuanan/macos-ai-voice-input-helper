@@ -169,13 +169,16 @@ struct MailAddressBookManagementSheetView: View {
             HStack(alignment: .top, spacing: 18) {
                 listColumn
                     .frame(width: 300)
+                    .frame(maxHeight: .infinity)
 
                 editorColumn
                     .frame(maxWidth: .infinity)
+                    .frame(maxHeight: .infinity)
             }
+            .frame(maxHeight: .infinity, alignment: .top)
         }
         .padding(24)
-        .frame(width: 940, height: 560)
+        .frame(width: 960, height: 640)
         .background(
             LinearGradient(
                 colors: [
@@ -193,6 +196,7 @@ struct MailAddressBookManagementSheetView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(.ultraThinMaterial)
+                    .mailAddressBookGlassSurface(cornerRadius: 14, interactive: false)
                 Image(systemName: "tray.full")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.primary)
@@ -212,7 +216,7 @@ struct MailAddressBookManagementSheetView: View {
             Button("完成") {
                 onClose()
             }
-            .buttonStyle(.borderedProminent)
+            .mailAddressBookPrimaryActionStyle()
         }
     }
 
@@ -258,9 +262,11 @@ struct MailAddressBookManagementSheetView: View {
                     }
                 }
             }
+            .frame(maxHeight: .infinity, alignment: .top)
         }
         .padding(16)
         .pulseCard(cornerRadius: 18)
+        .mailAddressBookGlassSurface(cornerRadius: 18, interactive: false)
     }
 
     private var editorColumn: some View {
@@ -281,37 +287,39 @@ struct MailAddressBookManagementSheetView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 12) {
-                MailAddressBookField(title: "显示名", text: $model.displayNameDraft, placeholder: "例如：小庄")
-                MailAddressBookField(title: "完整邮箱", text: $model.emailDraft, placeholder: "name@example.com")
-                MailAddressBookField(title: "别名", text: $model.aliasesDraft, placeholder: "逗号分隔，例如：小庄, 1379804870, 谷歌邮箱")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    MailAddressBookField(title: "显示名", text: $model.displayNameDraft, placeholder: "例如：小庄")
+                    MailAddressBookField(title: "完整邮箱", text: $model.emailDraft, placeholder: "name@example.com")
+                    MailAddressBookField(title: "别名", text: $model.aliasesDraft, placeholder: "逗号分隔，例如：小庄, 1379804870, 谷歌邮箱")
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("备注")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    TextEditor(text: $model.noteDraft)
-                        .font(.body)
-                        .scrollContentBackground(.hidden)
-                        .frame(minHeight: 120)
-                        .padding(10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(Color.white.opacity(0.76))
-                        )
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("备注")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        TextEditor(text: $model.noteDraft)
+                            .font(.body)
+                            .scrollContentBackground(.hidden)
+                            .frame(minHeight: 140)
+                            .padding(10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(Color.white.opacity(0.76))
+                            )
+                    }
+
+                    if !model.aliasPreview.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("别名预览")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            FlowTagList(tags: model.aliasPreview)
+                        }
+                    }
                 }
+                .padding(.bottom, 6)
             }
-
-            if !model.aliasPreview.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("别名预览")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    FlowTagList(tags: model.aliasPreview)
-                }
-            }
-
-            Spacer()
+            .frame(maxHeight: .infinity, alignment: .top)
 
             HStack {
                 Button("删除") {
@@ -330,11 +338,12 @@ struct MailAddressBookManagementSheetView: View {
                 Button("保存") {
                     onOutcome(model.saveDraft())
                 }
-                .buttonStyle(.borderedProminent)
+                .mailAddressBookPrimaryActionStyle()
             }
         }
         .padding(18)
         .pulseCard(cornerRadius: 18)
+        .mailAddressBookGlassSurface(cornerRadius: 18, interactive: false)
     }
 
 }
@@ -359,11 +368,17 @@ private struct MailAddressBookEntryRow: View {
             Text(entry.email)
                 .font(.subheadline)
                 .foregroundStyle(.primary.opacity(0.82))
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
 
             if !entry.aliases.isEmpty {
                 Text(entry.aliases.joined(separator: " · "))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -413,6 +428,8 @@ private struct FlowTagList: View {
             ForEach(tags, id: \.self) { tag in
                 Text(tag)
                     .font(.caption)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background(
@@ -420,6 +437,30 @@ private struct FlowTagList: View {
                             .fill(Color.accentColor.opacity(0.14))
                     )
             }
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func mailAddressBookGlassSurface(cornerRadius: CGFloat, interactive: Bool) -> some View {
+        if #available(macOS 26, *) {
+            if interactive {
+                self.glassEffect(.regular.interactive(), in: .rect(cornerRadius: cornerRadius))
+            } else {
+                self.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+            }
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func mailAddressBookPrimaryActionStyle() -> some View {
+        if #available(macOS 26, *) {
+            self.buttonStyle(.glassProminent)
+        } else {
+            self.buttonStyle(.borderedProminent)
         }
     }
 }

@@ -375,6 +375,59 @@ final class MagicianMailSupportTests: XCTestCase {
         XCTAssertEqual(appleScripter.lastShouldSend, false)
     }
 
+    func testMailAdapterSummarizesDraftSubjectAndBodyBeforeOutput() async throws {
+        let resolver = StubMailRecipientResolver(
+            resolution: MailRecipientResolution(
+                recipients: [],
+                unresolvedHints: ["产品组"]
+            ),
+            shouldAutoSend: false
+        )
+        let appleScripter = RecordingMailAppleScripter(
+            result: MagicianProcessResult(exitCode: 0, stdout: "", stderr: "")
+        )
+
+        let adapter = MagicianMailAdapter(
+            addressBookStore: MailAddressBookStore(defaults: makeDefaults(suffix: "adapter.summary")),
+            recipientResolver: resolver,
+            appleScripter: appleScripter,
+            fallbackOpener: RecordingMailFallbackOpener(result: false),
+            mailCapabilityProvider: {
+                MagicianMailCapabilitySnapshot(
+                    composeEmailServiceAvailable: true,
+                    mailtoAvailable: true,
+                    mailAppAvailable: true
+                )
+            }
+        )
+
+        let result = try await adapter.execute(
+            intent: MagicianIntent(
+                intent: .composeEmailDraft,
+                confidence: 0.91,
+                sourceText: "",
+                params: MagicianIntentParams(
+                    mailRecipientHints: ["产品组"],
+                    mailDeliveryMode: .draftOnly,
+                    mailSubject: "周会纪要和风险同步",
+                    mailBody: "今天和研发、设计、测试做了周会，确认版本计划。第一，语音链路已稳定。第二，联系人编辑面板存在超出显示区域的问题。第三，需要本周内完成 UI 调整并回归验证。"
+                )
+            ),
+            context: MagicianExecutionContext(
+                command: "给产品组写一封周会同步邮件",
+                selection: nil,
+                focusContext: testFocusContext()
+            )
+        )
+
+        XCTAssertNotNil(appleScripter.lastSubject)
+        XCTAssertNotNil(appleScripter.lastBody)
+        XCTAssertLessThanOrEqual(appleScripter.lastSubject?.count ?? 0, 36)
+        XCTAssertTrue((appleScripter.lastBody ?? "").contains("\n"))
+        XCTAssertTrue((result.outputText ?? "").contains("标题："))
+        XCTAssertTrue((result.outputText ?? "").contains("正文："))
+    }
+
     func testMailAdapterReportsAutomationDeniedClearly() async {
         let resolver = StubMailRecipientResolver(
             resolution: MailRecipientResolution(
@@ -555,6 +608,8 @@ private final class RecordingMailAppleScripter: MagicianMailAppleScripting {
     private let result: MagicianProcessResult
     private(set) var lastRecipients: [String] = []
     private(set) var lastShouldSend: Bool?
+    private(set) var lastSubject: String?
+    private(set) var lastBody: String?
 
     init(result: MagicianProcessResult) {
         self.result = result
@@ -566,8 +621,8 @@ private final class RecordingMailAppleScripter: MagicianMailAppleScripting {
         body: String,
         shouldSend: Bool
     ) async -> MagicianProcessResult {
-        _ = subject
-        _ = body
+        lastSubject = subject
+        lastBody = body
         lastRecipients = recipients
         lastShouldSend = shouldSend
         return result

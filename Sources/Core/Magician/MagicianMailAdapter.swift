@@ -93,6 +93,11 @@ struct DefaultMagicianMailDraftFallbackOpener: MagicianMailDraftFallbackOpening 
 
 @MainActor
 struct MagicianMailAdapter: MagicianMailExecuting {
+    private struct MailDraftSummary {
+        let title: String
+        let body: String
+    }
+
     private let addressBookStore: MailAddressBookStore
     private let recipientResolver: any MagicianMailRecipientResolving
     private let appleScripter: any MagicianMailAppleScripting
@@ -126,8 +131,11 @@ struct MagicianMailAdapter: MagicianMailExecuting {
         intent: MagicianIntent,
         context: MagicianExecutionContext
     ) async throws -> MagicianExecutionResult {
-        let subject = resolvedSubject(intent: intent, context: context)
-        let body = resolvedBody(intent: intent, context: context)
+        let initialSubject = resolvedSubject(intent: intent, context: context)
+        let initialBody = resolvedBody(intent: intent, context: context)
+        let summary = summarizedDraft(subject: initialSubject, body: initialBody)
+        let subject = summary.title
+        let body = summary.body
         let resolution = await recipientResolver.resolve(
             command: context.command,
             selection: context.selectedText,
@@ -239,7 +247,7 @@ struct MagicianMailAdapter: MagicianMailExecuting {
         return MagicianExecutionResult(
             intent: .composeEmailDraft,
             userMessage: message,
-            outputText: body,
+            outputText: "标题：\(subject)\n正文：\(body)",
             historyDisplayText: historyText,
             fallbackUsed: fallbackUsed,
             observation: MagicianAgentObservation(
@@ -341,5 +349,75 @@ struct MagicianMailAdapter: MagicianMailExecuting {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .prefix(48)
         )
+    }
+
+    private func summarizedDraft(subject: String, body: String) -> MailDraftSummary {
+        let normalizedBody = normalizeTextForSummary(body)
+        let normalizedSubject = normalizeTextForSummary(subject)
+        let bodySummary = summarizeBody(normalizedBody)
+        let titleSummary = summarizeTitle(preferred: normalizedSubject, fallbackBody: bodySummary)
+        return MailDraftSummary(title: titleSummary, body: bodySummary)
+    }
+
+    private func summarizeBody(_ text: String) -> String {
+        let placeholder = "（请补充邮件正文）"
+        guard !text.isEmpty, text != placeholder else {
+            return placeholder
+        }
+
+        let sentenceSeparators = CharacterSet(charactersIn: "。！？!?；;\n")
+        let sentences = text
+            .components(separatedBy: sentenceSeparators)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        if sentences.isEmpty {
+            return String(text.prefix(220))
+        }
+
+        var summarySentences: [String] = []
+        var totalLength = 0
+        for sentence in sentences {
+            let trimmed = sentence.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            guard !trimmed.isEmpty else {
+                continue
+            }
+            let projectedLength = totalLength + trimmed.count
+            if projectedLength > 220, !summarySentences.isEmpty {
+                break
+            }
+            summarySentences.append(trimmed)
+            totalLength = projectedLength
+            if summarySentences.count >= 4 {
+                break
+            }
+        }
+
+        if summarySentences.isEmpty {
+            return String(text.prefix(220))
+        }
+        return summarySentences.joined(separator: "\n")
+    }
+
+    private func summarizeTitle(preferred: String, fallbackBody: String) -> String {
+        let candidate = preferred.isEmpty ? fallbackBody : preferred
+        let compact = normalizeTextForSummary(candidate)
+        guard !compact.isEmpty else {
+            return "邮件草稿"
+        }
+
+        let splitters = CharacterSet(charactersIn: "\n。！？!?；;，,：:")
+        let firstSegment = compact
+            .components(separatedBy: splitters)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? compact
+        let bounded = firstSegment.isEmpty ? compact : firstSegment
+        return String(bounded.prefix(36))
+    }
+
+    private func normalizeTextForSummary(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
