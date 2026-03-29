@@ -1193,6 +1193,7 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
     private let emailPromptBuilder: MagicianEmailPromptBuilder
     private let mailComposerPromptBuilder: MagicianMailComposerPromptBuilder
     private let feishuCLIPromptBuilder: MagicianFeishuCLIPromptBuilder
+    private let heuristicFallbackRouter: HeuristicMagicianIntentRouter
 
     init(
         providerSettingsStore: ProviderSettingsStore,
@@ -1203,7 +1204,8 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         notePromptBuilder: MagicianNotePromptBuilder = MagicianNotePromptBuilder(),
         emailPromptBuilder: MagicianEmailPromptBuilder = MagicianEmailPromptBuilder(),
         mailComposerPromptBuilder: MagicianMailComposerPromptBuilder = MagicianMailComposerPromptBuilder(),
-        feishuCLIPromptBuilder: MagicianFeishuCLIPromptBuilder = MagicianFeishuCLIPromptBuilder()
+        feishuCLIPromptBuilder: MagicianFeishuCLIPromptBuilder = MagicianFeishuCLIPromptBuilder(),
+        heuristicFallbackRouter: HeuristicMagicianIntentRouter? = nil
     ) {
         self.providerSettingsStore = providerSettingsStore
         self.generationProvider = generationProvider
@@ -1214,6 +1216,7 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
         self.emailPromptBuilder = emailPromptBuilder
         self.mailComposerPromptBuilder = mailComposerPromptBuilder
         self.feishuCLIPromptBuilder = feishuCLIPromptBuilder
+        self.heuristicFallbackRouter = heuristicFallbackRouter ?? HeuristicMagicianIntentRouter()
     }
 
     func route(
@@ -1325,8 +1328,31 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
                 selection: normalizedSelection
             )
         } catch let magicianError as MagicianError {
+            if
+                shouldFallbackToHeuristicCLI(
+                    isCLICommandMode: isCLICommandMode,
+                    errorCode: magicianError.code
+                ),
+                let fallbackIntent = try? await heuristicFallbackRouter.route(
+                    command: normalizedCommand,
+                    selection: selection,
+                    enabledFeatures: enabledFeatures
+                )
+            {
+                return fallbackIntent
+            }
             throw magicianError
         } catch {
+            if
+                isCLICommandMode,
+                let fallbackIntent = try? await heuristicFallbackRouter.route(
+                    command: normalizedCommand,
+                    selection: selection,
+                    enabledFeatures: enabledFeatures
+                )
+            {
+                return fallbackIntent
+            }
             throw MagicianError(
                 code: .intentParseFailed,
                 userMessage: "文本模型没能稳定解析这条指令，请重试或检查设置。",
@@ -1407,6 +1433,13 @@ struct LLMMagicianIntentRouter: MagicianIntentRouting {
     ) -> Bool {
         enabledFeatures == [.feishuCLI]
             && selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func shouldFallbackToHeuristicCLI(
+        isCLICommandMode: Bool,
+        errorCode: MagicianErrorCode
+    ) -> Bool {
+        isCLICommandMode && errorCode == .intentParseFailed
     }
 
     private func extractMailPayload(
@@ -1842,7 +1875,12 @@ struct HeuristicMagicianWorkflowPlanner: MagicianWorkflowPlanning {
             )
         }
 
-        let segments = splitWorkflowCommand(trimmedCommand)
+        let segments: [String]
+        if enabledFeatures == [.feishuCLI], trimmedSelection.isEmpty {
+            segments = [trimmedCommand]
+        } else {
+            segments = splitWorkflowCommand(trimmedCommand)
+        }
         var steps: [MagicianWorkflowStep] = []
         for (index, segment) in segments.prefix(MagicianStepRegistry.maxStepCount).enumerated() {
             let intent = try await intentRouter.route(
@@ -1986,7 +2024,7 @@ struct LLMMagicianWorkflowPlanner: MagicianWorkflowPlanning {
     private let providerSettingsStore: ProviderSettingsStore
     private let generationProvider: any TextGenerationProvider
     private let intentRouter: any MagicianIntentRouting
-    private let fallbackPlanner: HeuristicMagicianWorkflowPlanner
+    private let fallbackPlanner: any MagicianWorkflowPlanning
     private let promptBuilder: MagicianWorkflowPlannerPromptBuilder
     private let stepRegistry: MagicianStepRegistry
 
@@ -1994,7 +2032,7 @@ struct LLMMagicianWorkflowPlanner: MagicianWorkflowPlanning {
         providerSettingsStore: ProviderSettingsStore,
         generationProvider: any TextGenerationProvider = OpenAITextGenerationProvider(),
         intentRouter: (any MagicianIntentRouting)? = nil,
-        fallbackPlanner: HeuristicMagicianWorkflowPlanner? = nil,
+        fallbackPlanner: (any MagicianWorkflowPlanning)? = nil,
         promptBuilder: MagicianWorkflowPlannerPromptBuilder = MagicianWorkflowPlannerPromptBuilder(),
         stepRegistry: MagicianStepRegistry = MagicianStepRegistry()
     ) {
@@ -2087,7 +2125,12 @@ struct LLMMagicianWorkflowPlanner: MagicianWorkflowPlanning {
                 }
                 let stepCommand = draftStep.command?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                let resolvedCommand = (stepCommand?.isEmpty == false) ? stepCommand! : normalizedCommand
+                let resolvedCommand: String = {
+                    if draftStep.feature == .feishuCLI {
+                        return normalizedCommand
+                    }
+                    return (stepCommand?.isEmpty == false) ? stepCommand! : normalizedCommand
+                }()
                 let forcedFeatures: Set<MagicianFeatureID> = [draftStep.feature]
                 let intent = try await intentRouter.route(
                     command: resolvedCommand,

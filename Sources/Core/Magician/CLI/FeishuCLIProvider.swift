@@ -205,12 +205,26 @@ enum FeishuCanonicalOperation: String, CaseIterable, Codable {
             return operation
         }
 
+        if matchesPattern(
+            normalized,
+            pattern: #"(添加|新增|创建|安排|加一个|设定).*(日程|行程|会议|课程|上课)"#
+        ) {
+            return .calendarEvent
+        }
+
+        if matchesPattern(
+            normalized,
+            pattern: #"(今天|明天|后天|上午|下午|晚上|周[一二三四五六日天]|\d+点|:\d{2}).*(日程|行程|会议|课程|上课)"#
+        ) {
+            return .calendarEvent
+        }
+
         let rules: [(FeishuCanonicalOperation, [String])] = [
             (.oauthBatchAuth, ["批量授权", "batch auth"]),
             (.oauth, ["oauth", "授权", "登录飞书", "飞书登录", "auth"]),
             (.calendarFreebusy, ["忙闲", "freebusy", "空闲"]),
             (.calendarEventAttendee, ["参会", "attendee", "邀请"]),
-            (.calendarEvent, ["日程", "议程", "会议", "calendar event", "agenda"]),
+            (.calendarEvent, ["日程", "议程", "会议", "行程", "课程", "上课", "calendar event", "agenda", "添加日程", "新建日程", "安排日程"]),
             (.calendarCalendar, ["日历", "calendar"]),
             (.createDoc, ["创建文档", "新建文档", "create doc"]),
             (.updateDoc, ["更新文档", "改文档", "update doc"]),
@@ -250,6 +264,14 @@ enum FeishuCanonicalOperation: String, CaseIterable, Codable {
         }
 
         return nil
+    }
+
+    private static func matchesPattern(_ text: String, pattern: String) -> Bool {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return false
+        }
+        let range = NSRange(location: 0, length: (text as NSString).length)
+        return regex.firstMatch(in: text, options: [], range: range) != nil
     }
 }
 

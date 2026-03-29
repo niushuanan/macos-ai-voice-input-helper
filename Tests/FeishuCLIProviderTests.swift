@@ -2,6 +2,13 @@ import XCTest
 @testable import PulseType
 
 final class FeishuCLIProviderTests: XCTestCase {
+    func testInferCalendarEventFromNaturalChineseSentence() {
+        let operation = FeishuCanonicalOperation.infer(
+            from: "飞书，今天下午三点添加一个上课的日程。"
+        )
+        XCTAssertEqual(operation, .calendarEvent)
+    }
+
     func testExecuteOAuthUsesStatusWithoutFormatFlag() async throws {
         let fixture = try makeExecutableFixture(
             fileName: "lark-cli",

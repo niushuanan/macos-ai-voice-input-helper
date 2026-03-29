@@ -52,6 +52,22 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertNotNil(intent.params.cliOperation)
     }
 
+    func testHeuristicWorkflowPlannerKeepsFeishuCommandOnlyAsSingleStep() async throws {
+        let planner = HeuristicMagicianWorkflowPlanner()
+        let command = "飞书，今天下午三点添加一个上课的日程。"
+
+        let plan = try await planner.plan(
+            command: command,
+            selection: nil,
+            enabledFeatures: [.feishuCLI]
+        )
+
+        XCTAssertEqual(plan.steps.count, 1)
+        XCTAssertEqual(plan.steps[0].feature, .feishuCLI)
+        XCTAssertEqual(plan.steps[0].command, command)
+        XCTAssertEqual(plan.steps[0].params.cliOperation, "feishu_calendar_event")
+    }
+
     func testSchemaValidatorRejectsDisabledIntent() {
         let validator = MagicianIntentSchemaValidator()
         let intent = MagicianIntent(
@@ -533,6 +549,38 @@ final class MagicianIntentRouterTests: XCTestCase {
         }
     }
 
+    func testLLMRouterFallsBackToHeuristicInCLICommandModeWhenLLMExtractionInvalid() async throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-cli-fallback"])
+        )
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputTexts: [
+                #"{"intent":"feishu_cli","confidence":0.92}"#,
+                "not-json"
+            ]
+        )
+
+        let router = LLMMagicianIntentRouter(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider
+        )
+
+        let intent = try await router.route(
+            command: "飞书，今天下午三点添加一个上课的日程。",
+            selection: nil,
+            enabledFeatures: [.feishuCLI]
+        )
+
+        XCTAssertEqual(intent.intent, .feishuCLI)
+        XCTAssertEqual(intent.params.cliOperation, "feishu_calendar_event")
+        XCTAssertEqual(generationProvider.callCount, 2)
+    }
+
     func testLLMWorkflowPlannerBuildsOrderedSteps() async throws {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
@@ -633,6 +681,42 @@ final class MagicianIntentRouterTests: XCTestCase {
         XCTAssertEqual(plan.steps[1].feature, .createNote)
         XCTAssertEqual(plan.steps[0].inputBinding, .selectionText)
         XCTAssertEqual(plan.steps[1].inputBinding, .previousOutput)
+        XCTAssertEqual(generationProvider.callCount, 1)
+    }
+
+    func testLLMWorkflowPlannerUsesOriginalCommandForFeishuStepWhenDraftIsTooShort() async throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let providerStore = ProviderSettingsStore(
+            defaults: defaults,
+            credentialStore: MemoryCredentialStore(storage: ["text.primary": "sk-test"])
+        )
+
+        let generationProvider = TrackingTextGenerationProvider(
+            outputText: """
+            {"steps":[{"feature":"feishu_cli","command":"添加","inputBinding":"command_only"}],"confidence":0.87,"rationale":"single_step_cli"}
+            """
+        )
+
+        let planner = LLMMagicianWorkflowPlanner(
+            providerSettingsStore: providerStore,
+            generationProvider: generationProvider,
+            intentRouter: HeuristicMagicianIntentRouter(),
+            fallbackPlanner: FailingWorkflowPlanner()
+        )
+
+        let command = "飞书，今天下午三点添加一个上课的日程。"
+        let plan = try await planner.plan(
+            command: command,
+            selection: nil,
+            enabledFeatures: [.feishuCLI]
+        )
+
+        XCTAssertEqual(plan.steps.count, 1)
+        XCTAssertEqual(plan.steps[0].feature, .feishuCLI)
+        XCTAssertEqual(plan.steps[0].command, command)
+        XCTAssertEqual(plan.steps[0].params.cliOperation, "feishu_calendar_event")
         XCTAssertEqual(generationProvider.callCount, 1)
     }
 
@@ -755,6 +839,24 @@ private final class TrackingTextGenerationProvider: TextGenerationProvider {
             providerName: "Fake OpenAI",
             modelName: "fake-model",
             outputText: outputTexts[outputIndex]
+        )
+    }
+}
+
+private struct FailingWorkflowPlanner: MagicianWorkflowPlanning {
+    func plan(
+        command: String,
+        selection: String?,
+        enabledFeatures: Set<MagicianFeatureID>
+    ) async throws -> MagicianWorkflowPlan {
+        _ = command
+        _ = selection
+        _ = enabledFeatures
+        throw MagicianError(
+            code: .intentParseFailed,
+            userMessage: "forced fallback failure",
+            debugMessage: "forced fallback failure",
+            recoverAction: nil
         )
     }
 }
