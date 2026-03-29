@@ -85,7 +85,7 @@ final class InteractionCoordinator {
             providerSettingsStore: providerSettingsStore,
             mailAddressBookStore: resolvedMailAddressBookStore
         )
-        self.magicianAgentRuntime = magicianAgentRuntime ?? MagicianAgentRuntimeV2(
+        self.magicianAgentRuntime = magicianAgentRuntime ?? MagicianAgentRuntimeV3(
             providerSettingsStore: providerSettingsStore,
             rewriteProviderRegistry: rewriteProviderRegistry,
             textOutputCoordinator: textOutputCoordinator,
