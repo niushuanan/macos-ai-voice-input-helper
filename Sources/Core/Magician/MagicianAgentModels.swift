@@ -2380,8 +2380,8 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
     ) -> MagicianFastPlanMatchV3? {
         let command = request.command.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowered = command.lowercased()
-        let hasMailNoun = containsAny(lowered, keywords: ["邮件", "mail", "email"])
-        let hasMailAction = containsAny(
+        let hasMailNoun = fastContainsAny(lowered, keywords: ["邮件", "mail", "email"])
+        let hasMailAction = fastContainsAny(
             lowered,
             keywords: ["发邮件", "发送邮件", "写邮件", "写一封邮件", "草稿", "起草", "compose", "send", "发给"]
         )
@@ -2393,7 +2393,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             return nil
         }
 
-        let prefersDraft = containsAny(
+        let prefersDraft = fastContainsAny(
             lowered,
             keywords: ["草稿", "起草", "写邮件", "写一封邮件", "compose", "draft"]
         )
@@ -2431,7 +2431,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         }
 
         if
-            containsAny(lowered, keywords: ["暂停", "pause", "停止播放", "停一下"]),
+            fastContainsAny(lowered, keywords: ["暂停", "pause", "停止播放", "停一下"]),
             catalog.manifest(for: "apple.music.pause") != nil
         {
             return MagicianFastPlanMatchV3(
@@ -2444,7 +2444,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             )
         }
         if
-            containsAny(lowered, keywords: ["继续", "恢复", "resume", "继续播放"]),
+            fastContainsAny(lowered, keywords: ["继续", "恢复", "resume", "继续播放"]),
             catalog.manifest(for: "apple.music.resume") != nil
         {
             return MagicianFastPlanMatchV3(
@@ -2457,7 +2457,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             )
         }
         if
-            containsAny(lowered, keywords: ["下一首", "下一曲", "next", "切歌"]),
+            fastContainsAny(lowered, keywords: ["下一首", "下一曲", "next", "切歌"]),
             catalog.manifest(for: "apple.music.next_track") != nil
         {
             return MagicianFastPlanMatchV3(
@@ -2470,7 +2470,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             )
         }
         if
-            containsAny(lowered, keywords: ["上一首", "上一曲", "previous", "prev"]),
+            fastContainsAny(lowered, keywords: ["上一首", "上一曲", "previous", "prev"]),
             catalog.manifest(for: "apple.music.previous_track") != nil
         {
             return MagicianFastPlanMatchV3(
@@ -2484,7 +2484,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         }
 
         guard
-            containsAny(lowered, keywords: ["播放", "放一首", "来一首", "听", "music", "歌曲", "音乐", "歌", "play"])
+            fastContainsAny(lowered, keywords: ["播放", "放一首", "来一首", "听", "music", "歌曲", "音乐", "歌", "play"])
         else {
             return nil
         }
@@ -2524,7 +2524,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         let lowered = command.lowercased()
         guard
             !command.isEmpty,
-            containsAny(lowered, keywords: ["备忘录", "note", "notes", "记到", "记下", "记下来", "写进备忘录", "写入备忘录"])
+            fastContainsAny(lowered, keywords: ["备忘录", "note", "notes", "记到", "记下", "记下来", "写进备忘录", "写入备忘录"])
         else {
             return nil
         }
@@ -2604,6 +2604,10 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             return nil
         }
         return trimmed
+    }
+
+    private func fastContainsAny(_ value: String, keywords: [String]) -> Bool {
+        keywords.contains { value.contains($0) }
     }
 
     private func preprocessCommand(request: MagicianAgentRequest) async throws -> String {
