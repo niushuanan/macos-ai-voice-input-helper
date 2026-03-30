@@ -155,6 +155,76 @@ final class MagicianAgentRuntimeScenarioTests: XCTestCase {
         )
     }
 
+    func testAppleScriptRunsFromExecutionDecision() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanUp() }
+
+        let runtime = MagicianAgentRuntimeV3(
+            providerSettingsStore: fixture.providerSettingsStore,
+            rewriteProviderRegistry: RewriteProviderRegistry(providers: []),
+            textOutputCoordinator: fixture.textOutputCoordinator,
+            skillRuleStore: fixture.skillRuleStore,
+            toolExecutor: ScenarioToolExecutor(),
+            llmProvider: ScenarioTextGenerationProvider()
+        )
+
+        let request = MagicianAgentRequest(
+            traceID: "scenario-applescript-1",
+            command: "用 AppleScript 返回桌面就绪",
+            selectionSnapshot: nil,
+            focusContext: FocusedAppContext(
+                appName: "Finder",
+                bundleID: "com.apple.finder",
+                focusedRole: nil,
+                hasEditableTarget: true,
+                strategyHint: "test"
+            ),
+            enabledFeatures: Set(MagicianFeatureID.allCases)
+        )
+
+        let outcome = try await runtime.run(request: request, onEvent: nil)
+        XCTAssertEqual(outcome.finalStatusMessage, "全部步骤已完成")
+        XCTAssertTrue(outcome.steps.contains(where: { $0.userMessage == "AppleScript 已执行" }))
+        XCTAssertEqual(outcome.finalOutputText, "desktop_ready")
+    }
+
+    func testExecutionDecisionPromptIncludesAgentGuideAndDynamicEnvironment() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanUp() }
+
+        let llmProvider = ScenarioTextGenerationProvider()
+        let runtime = MagicianAgentRuntimeV3(
+            providerSettingsStore: fixture.providerSettingsStore,
+            rewriteProviderRegistry: RewriteProviderRegistry(providers: []),
+            textOutputCoordinator: fixture.textOutputCoordinator,
+            skillRuleStore: fixture.skillRuleStore,
+            toolExecutor: ScenarioToolExecutor(),
+            llmProvider: llmProvider
+        )
+
+        let request = MagicianAgentRequest(
+            traceID: "scenario-prompt-1",
+            command: "统计 Magician Swift 文件数量并输出",
+            selectionSnapshot: nil,
+            focusContext: FocusedAppContext(
+                appName: "Terminal",
+                bundleID: "com.apple.Terminal",
+                focusedRole: nil,
+                hasEditableTarget: true,
+                strategyHint: "test"
+            ),
+            enabledFeatures: Set(MagicianFeatureID.allCases)
+        )
+
+        _ = try await runtime.run(request: request, onEvent: nil)
+        let prompt = try XCTUnwrap(llmProvider.executionDecisionPrompts.last)
+        XCTAssertTrue(prompt.contains("MacBook Air"))
+        XCTAssertTrue(prompt.contains("Apple M2"))
+        XCTAssertTrue(prompt.contains("current_directory:"))
+        XCTAssertTrue(prompt.contains("frontmost_app: Terminal"))
+        XCTAssertTrue(prompt.contains("developer_dir:"))
+    }
+
     func testMusicPlayQueryFailsWhenTrackEvidenceMissing() async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanUp() }
@@ -332,6 +402,7 @@ private final class DummyTextOutputCoordinator: TextOutputCoordinator {
 private final class ScenarioTextGenerationProvider: TextGenerationProvider {
     let supportedProviderTypes: [ProviderType] = [.openAI, .openAICompatible]
     private var stepsByGoal: [String: Int] = [:]
+    private(set) var executionDecisionPrompts: [String] = []
 
     func generateText(
         request: TextGenerationRequest,
@@ -351,6 +422,9 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
             let plan = makePlan(for: command)
             stepsByGoal[plan.goal] = plan.stepsCount
             output = plan.json
+        } else if systemPrompt.contains("执行决策模型") {
+            executionDecisionPrompts.append(request.userPrompt)
+            output = executionDecision(for: request.userPrompt)
         } else if systemPrompt.contains("skill router") {
             output = #"{"skills":[]}"#
         } else if systemPrompt.contains("核心推理执行器") {
@@ -382,7 +456,16 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
                 goal: "统计文件数量",
                 stepsCount: 1,
                 json: """
-                {"goal":"统计文件数量","todo":[{"id":"1","text":"执行终端统计命令","status":"pending"}],"steps":[{"id":"step-1","objective":"统计 Magician Swift 文件数量","skill_id":"shell.command.run","input":{"command":"rg --files Sources/Core/Magician | wc -l"}}]}
+                {"goal":"统计文件数量","todo":[{"id":"1","text":"执行终端统计命令","status":"pending"}],"steps":[{"id":"step-1","objective":"统计 Magician Swift 文件数量","feature_id":"text_transform","input":{}}]}
+                """
+            )
+        }
+        if command.contains("AppleScript") && command.contains("桌面就绪") {
+            return (
+                goal: "AppleScript 自检",
+                stepsCount: 1,
+                json: """
+                {"goal":"AppleScript 自检","todo":[{"id":"1","text":"执行 AppleScript","status":"pending"}],"steps":[{"id":"step-1","objective":"用 AppleScript 返回桌面就绪","feature_id":"text_transform","input":{}}]}
                 """
             )
         }
@@ -391,7 +474,7 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
                 goal: "播放稻香",
                 stepsCount: 1,
                 json: """
-                {"goal":"播放稻香","todo":[{"id":"1","text":"播放歌曲","status":"pending"}],"steps":[{"id":"step-1","objective":"播放稻香","skill_id":"apple.music.play_query","input":{"query":"稻香"}}]}
+                {"goal":"播放稻香","todo":[{"id":"1","text":"播放歌曲","status":"pending"}],"steps":[{"id":"step-1","objective":"播放稻香","feature_id":"control_music","input":{"query":"稻香"}}]}
                 """
             )
         }
@@ -400,7 +483,7 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
                 goal: "播放跨时代",
                 stepsCount: 1,
                 json: """
-                {"goal":"播放跨时代","todo":[{"id":"1","text":"播放歌曲","status":"pending"}],"steps":[{"id":"step-1","objective":"播放跨时代","skill_id":"apple.music.play_query","input":{"query":"跨时代"}}]}
+                {"goal":"播放跨时代","todo":[{"id":"1","text":"播放歌曲","status":"pending"}],"steps":[{"id":"step-1","objective":"播放跨时代","feature_id":"control_music","input":{"query":"跨时代"}}]}
                 """
             )
         }
@@ -409,7 +492,7 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
                 goal: "写入备忘录",
                 stepsCount: 1,
                 json: """
-                {"goal":"写入备忘录","todo":[{"id":"1","text":"创建备忘录","status":"pending"}],"steps":[{"id":"step-1","objective":"创建备忘录","skill_id":"apple.notes.create_note","input":{"body":"这是需要写入备忘录的内容"}}]}
+                {"goal":"写入备忘录","todo":[{"id":"1","text":"创建备忘录","status":"pending"}],"steps":[{"id":"step-1","objective":"创建备忘录","feature_id":"create_note","input":{"body":"这是需要写入备忘录的内容"}}]}
                 """
             )
         }
@@ -418,7 +501,7 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
                 goal: "写小说并写进邮件",
                 stepsCount: 2,
                 json: """
-                {"goal":"写小说并写进邮件","todo":[{"id":"1","text":"生成短篇小说","status":"pending"},{"id":"2","text":"写入邮件草稿","status":"pending"}],"steps":[{"id":"step-1","objective":"写一篇短篇小说","skill_id":"core.reason.respond","input":{"instruction":"写一篇短篇小说，约300字"}},{"id":"step-2","objective":"把小说写进邮件","skill_id":"apple.mail.compose","input":{"subject":"短篇小说草稿"}}]}
+                {"goal":"写小说并写进邮件","todo":[{"id":"1","text":"生成短篇小说","status":"pending"},{"id":"2","text":"写入邮件草稿","status":"pending"}],"steps":[{"id":"step-1","objective":"写一篇短篇小说","feature_id":"text_transform","input":{"instruction":"写一篇短篇小说，约300字"}},{"id":"step-2","objective":"把小说写进邮件","feature_id":"compose_email_draft","input":{"subject":"短篇小说草稿"}}]}
                 """
             )
         }
@@ -427,7 +510,7 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
                 goal: "翻译并写飞书日程",
                 stepsCount: 2,
                 json: """
-                {"goal":"翻译并写飞书日程","todo":[{"id":"1","text":"翻译文本","status":"pending"},{"id":"2","text":"写入飞书日程","status":"pending"}],"steps":[{"id":"step-1","objective":"翻译成日语","skill_id":"core.reason.respond","input":{"instruction":"把选中文本翻译成日语"}},{"id":"step-2","objective":"写入飞书日程","skill_id":"feishu_calendar_event","input":{"spoken_command":"在飞书创建日程并写入日语内容"}}]}
+                {"goal":"翻译并写飞书日程","todo":[{"id":"1","text":"翻译文本","status":"pending"},{"id":"2","text":"写入飞书日程","status":"pending"}],"steps":[{"id":"step-1","objective":"翻译成日语","feature_id":"text_transform","input":{"instruction":"把选中文本翻译成日语"}},{"id":"step-2","objective":"写入飞书日程","feature_id":"feishu_cli","input":{"spoken_command":"在飞书创建日程并写入日语内容"}}]}
                 """
             )
         }
@@ -436,7 +519,7 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
                 goal: "七言绝句总结",
                 stepsCount: 1,
                 json: """
-                {"goal":"七言绝句总结","todo":[{"id":"1","text":"写七言绝句","status":"pending"}],"steps":[{"id":"step-1","objective":"把新闻总结为七言绝句","skill_id":"core.reason.respond","input":{"instruction":"请用一首七言绝句总结上述新闻"}}]}
+                {"goal":"七言绝句总结","todo":[{"id":"1","text":"写七言绝句","status":"pending"}],"steps":[{"id":"step-1","objective":"把新闻总结为七言绝句","feature_id":"text_transform","input":{"instruction":"请用一首七言绝句总结上述新闻"}}]}
                 """
             )
         }
@@ -445,7 +528,7 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
                 goal: "给飞书助手发消息",
                 stepsCount: 1,
                 json: """
-                {"goal":"给飞书助手发消息","todo":[{"id":"1","text":"发送飞书消息","status":"pending"}],"steps":[{"id":"step-1","objective":"发送飞书消息","skill_id":"feishu_im_user_message","input":{"arguments":["--text","这条消息来自 PulseType，很高兴认识你。"]}}]}
+                {"goal":"给飞书助手发消息","todo":[{"id":"1","text":"发送飞书消息","status":"pending"}],"steps":[{"id":"step-1","objective":"发送飞书消息","feature_id":"feishu_cli","input":{"arguments":["--text","这条消息来自 PulseType，很高兴认识他。"]}}]}
                 """
             )
         }
@@ -454,7 +537,7 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
                 goal: "调研进出口并写邮件",
                 stepsCount: 2,
                 json: """
-                {"goal":"调研进出口并写邮件","todo":[{"id":"1","text":"调研并整理要点","status":"pending"},{"id":"2","text":"写成邮件草稿","status":"pending"}],"steps":[{"id":"step-1","objective":"整理2025年上半年中国进出口情况","skill_id":"core.reason.respond","input":{"instruction":"整理2025年上半年中国进出口的关键数据和结论"}},{"id":"step-2","objective":"写成新邮件","skill_id":"apple.mail.compose","input":{"subject":"2025年上半年中国进出口简报"}}]}
+                {"goal":"调研进出口并写邮件","todo":[{"id":"1","text":"调研并整理要点","status":"pending"},{"id":"2","text":"写成邮件草稿","status":"pending"}],"steps":[{"id":"step-1","objective":"整理2025年上半年中国进出口情况","feature_id":"text_transform","input":{}},{"id":"step-2","objective":"写成新邮件","feature_id":"compose_email_draft","input":{"subject":"2025年上半年中国进出口简报"}}]}
                 """
             )
         }
@@ -462,24 +545,112 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
             goal: command,
             stepsCount: 1,
             json: """
-            {"goal":"\(escape(command))","todo":[{"id":"1","text":"处理请求","status":"pending"}],"steps":[{"id":"step-1","objective":"处理请求","skill_id":"core.reason.respond","input":{"instruction":"\(escape(command))"}}]}
+            {"goal":"\(escape(command))","todo":[{"id":"1","text":"处理请求","status":"pending"}],"steps":[{"id":"step-1","objective":"处理请求","feature_id":"text_transform","input":{"instruction":"\(escape(command))"}}]}
             """
         )
+    }
+
+    private func executionDecision(for userPrompt: String) -> String {
+        let step = section("current_step", in: userPrompt)
+        if step.contains("统计 Magician Swift 文件数量") {
+            return """
+            {"action":"run_shell","feature_id":"text_transform","command":"rg --files Sources/Core/Magician | wc -l","user_message":"终端统计已完成"}
+            """
+        }
+        if step.contains("AppleScript") && step.contains("桌面就绪") {
+            return """
+            {"action":"run_applescript","feature_id":"text_transform","applescript_lines":["return \\"desktop_ready\\""],"user_message":"AppleScript 已执行"}
+            """
+        }
+        if step.contains("播放稻香") {
+            return """
+            {"action":"use_skill","feature_id":"control_music","skill_id":"apple.music.play_query","skill_input":{"query":"稻香"}}
+            """
+        }
+        if step.contains("播放跨时代") {
+            return """
+            {"action":"use_skill","feature_id":"control_music","skill_id":"apple.music.play_query","skill_input":{"query":"跨时代"}}
+            """
+        }
+        if step.contains("创建备忘录") {
+            return """
+            {"action":"use_skill","feature_id":"create_note","skill_id":"apple.notes.create_note","skill_input":{"body":"这是需要写入备忘录的内容"}}
+            """
+        }
+        if step.contains("写一篇短篇小说") {
+            return """
+            {"action":"finish","feature_id":"text_transform","output_text":"\(escape(reasonOutputText(for: "短篇小说")))","user_message":"短篇小说已生成"}
+            """
+        }
+        if step.contains("把小说写进邮件") {
+            return """
+            {"action":"use_skill","feature_id":"compose_email_draft","skill_id":"apple.mail.compose","skill_input":{"subject":"短篇小说草稿"}}
+            """
+        }
+        if step.contains("翻译成日语") {
+            return """
+            {"action":"finish","feature_id":"text_transform","output_text":"\(escape(reasonOutputText(for: "翻译成日语")))","user_message":"翻译已完成"}
+            """
+        }
+        if step.contains("写入飞书日程") {
+            return """
+            {"action":"use_skill","feature_id":"feishu_cli","skill_id":"feishu_calendar_event","skill_input":{"spoken_command":"在飞书创建日程并写入日语内容"}}
+            """
+        }
+        if step.contains("把新闻总结为七言绝句") {
+            return """
+            {"action":"finish","feature_id":"text_transform","output_text":"\(escape(reasonOutputText(for: "七言绝句")))","user_message":"总结已完成"}
+            """
+        }
+        if step.contains("发送飞书消息") {
+            return """
+            {"action":"use_skill","feature_id":"feishu_cli","skill_id":"feishu_im_user_message","skill_input":{"arguments":["--text","这条消息来自 PulseType，很高兴认识他。"]}}
+            """
+        }
+        if step.contains("整理2025年上半年中国进出口情况") {
+            return """
+            {"action":"run_shell","feature_id":"text_transform","command":"printf '主题：2025年上半年中国进出口情况简报\\n\\n1) 总体规模保持韧性，出口结构继续向机电与高附加值产品集中。\\n2) 对东盟与共建“一带一路”市场保持较高活跃度，区域市场多元化趋势延续。\\n3) 进口端在能源与关键工业原材料上保持稳定，部分消费品与高端设备需求回升。\\n4) 建议：继续关注外需波动、运价变化与汇率区间，并提前布局重点行业订单节奏。\\n'","user_message":"调研已完成"}
+            """
+        }
+        if step.contains("写成新邮件") {
+            return """
+            {"action":"use_skill","feature_id":"compose_email_draft","skill_id":"apple.mail.compose","skill_input":{"subject":"2025年上半年中国进出口简报"}}
+            """
+        }
+        return """
+        {"action":"finish","feature_id":"text_transform","output_text":"已完成文本处理。","user_message":"步骤已完成"}
+        """
     }
 
     private func reasonOutput(for userPrompt: String) -> String {
         let instruction = section("instruction", in: userPrompt)
         if instruction.contains("短篇小说") {
+            return reasonOutputText(for: "短篇小说")
+        }
+        if instruction.contains("翻译成日语") {
+            return reasonOutputText(for: "翻译成日语")
+        }
+        if instruction.contains("七言绝句") {
+            return reasonOutputText(for: "七言绝句")
+        }
+        if instruction.contains("进出口") {
+            return reasonOutputText(for: "进出口")
+        }
+        return "已完成文本处理。"
+    }
+
+    private func reasonOutputText(for key: String) -> String {
+        if key.contains("短篇小说") {
             return """
             雨夜里的路灯像一封迟到的信，照着巷口那家旧书店。阿青推门时，风把门铃吹成了轻颤的琴音。柜台后，白发店主递来一本没有封面的薄册，只说：“你找的答案，在最后一页。”阿青翻到终章，却只看到一行字：请回到第一页。她怔住，再读开头，才发现第一段悄悄多了一句“谢谢你愿意再来一次”。那一刻她明白，人生并非一直向前，有些章节要在回望里才会被真正读懂。她合上书，雨也停了，巷子尽头亮起一盏新的灯。
             """
         }
-        if instruction.contains("翻译成日语") {
+        if key.contains("翻译成日语") {
             return """
             ByteDance 2026インターン採用説明会（深セン大学城会場）が開催されます。時間は3月30日19:00、会場は北京大学深セン大学院・国際会議センター（J棟）です。事業責任者と卒業生の共有、現場マッチング、面接直通カードの機会、さらに抽選ギフトもあります。申込リンク：https://xy.liepin.com/bytedance2026
             """
         }
-        if instruction.contains("七言绝句") {
+        if key.contains("七言绝句") {
             return """
             九域风云一纸笺
             边关海市起狼烟
@@ -487,7 +658,7 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
             夜雨敲窗问太平
             """
         }
-        if instruction.contains("进出口") {
+        if key.contains("进出口") {
             return """
             主题：2025年上半年中国进出口情况简报
 
@@ -565,7 +736,7 @@ private final class ScenarioToolExecutor: MagicianToolExecuting {
             let output = "subject: \(subject)\nbody: \(body)"
             return MagicianExecutionResult(
                 intent: .composeEmailDraft,
-                userMessage: "邮件草稿已生成",
+                userMessage: "邮件已填入，待你确认",
                 outputText: output,
                 historyDisplayText: "邮件草稿：\(subject)",
                 fallbackUsed: false,

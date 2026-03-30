@@ -20,6 +20,7 @@ final class InteractionCoordinator {
     private let asrDictionaryStore: ASRDictionaryStore
     private let magicianFeatureToggleStore: MagicianFeatureToggleStore
     private let workflowTelemetryReporter: any WorkflowTelemetryReporting
+    private let magicianNativeRuntime: any MagicianAgentRunning
     private let magicianAgentRuntime: any MagicianAgentRunning
     private let toastPresenter: ToastPresenter?
     private let dictationPostProcessor: DictationPostProcessor
@@ -57,6 +58,7 @@ final class InteractionCoordinator {
         magicianFeatureToggleStore: MagicianFeatureToggleStore? = nil,
         workflowTelemetryReporter: (any WorkflowTelemetryReporting)? = nil,
         magicianToolExecutor: (any MagicianToolExecuting)? = nil,
+        magicianNativeRuntime: (any MagicianAgentRunning)? = nil,
         magicianAgentRuntime: (any MagicianAgentRunning)? = nil,
         toastPresenter: ToastPresenter? = nil,
         dictationPostProcessor: DictationPostProcessor = LLMDictationPostProcessor(),
@@ -84,6 +86,13 @@ final class InteractionCoordinator {
         let resolvedToolExecutor = magicianToolExecutor ?? MagicianToolExecutor(
             providerSettingsStore: providerSettingsStore,
             mailAddressBookStore: resolvedMailAddressBookStore
+        )
+        self.magicianNativeRuntime = magicianNativeRuntime ?? MagicianNativeRuntime(
+            providerSettingsStore: providerSettingsStore,
+            rewriteProviderRegistry: rewriteProviderRegistry,
+            textOutputCoordinator: textOutputCoordinator,
+            skillRuleStore: skillRuleStore,
+            toolExecutor: resolvedToolExecutor
         )
         self.magicianAgentRuntime = magicianAgentRuntime ?? MagicianAgentRuntimeV3(
             providerSettingsStore: providerSettingsStore,
@@ -1693,21 +1702,23 @@ final class InteractionCoordinator {
     ) async {
         let traceID = ensureTraceID()
         let rawInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sanitizedInstructionResult = MagicianCommandSanitizer.sanitize(rawInstruction)
-        let localInstructionApplyResult = skillRuleStore.applyRewriteInstruction(sanitizedInstructionResult.text)
-        let processedInstruction = localInstructionApplyResult.text
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        var spokenInstruction = processedInstruction.isEmpty ? rawInstruction : processedInstruction
-        var commandAppliedSkills = mergedSkills(
-            lhs: sanitizedInstructionResult.appliedSkills,
-            rhs: localInstructionApplyResult.appliedSkills
-        )
         let initialFocusContext = contextDetector.focusedAppContext()
         let selectionSnapshot = await resolvedMagicianSelectionSnapshot()
         if abortIfSessionCancelled() {
             return
         }
         let fallbackFocusContext = selectionSnapshot?.focusContext ?? initialFocusContext
+        let commandPreprocessResult = await MagicianCommandSemanticPreprocessor(
+            providerSettingsStore: providerSettingsStore,
+            rewriteProviderRegistry: rewriteProviderRegistry,
+            skillRuleStore: skillRuleStore,
+            asrDictionaryStore: asrDictionaryStore
+        ).preprocess(
+            rawCommand: rawInstruction,
+            focusContext: fallbackFocusContext
+        )
+        let spokenInstruction = commandPreprocessResult.command
+        let commandAppliedSkills = commandPreprocessResult.appliedSkills
         let selectionText = selectionSnapshot?.selectedText ?? ""
         let enabledFeatures = magicianFeatureToggleStore.enabledFeatures
         var runtimeEvents: [MagicianAgentRuntimeEvent] = []
@@ -1786,6 +1797,88 @@ final class InteractionCoordinator {
             return
         }
 
+        do {
+            try magicianValidateToolCommandGuards(
+                command: spokenInstruction,
+                enabledFeatures: enabledFeatures
+            )
+        } catch let magicianError as MagicianError {
+            let failureTrace = magicianFailureExecutionTraceText(
+                traceID: traceID,
+                command: spokenInstruction,
+                stage: "lane_guard",
+                errorCode: magicianError.code.rawValue,
+                errorMessage: magicianError.userMessage,
+                debugMessage: magicianError.debugMessage,
+                recoverAction: magicianError.recoverAction,
+                focusContext: fallbackFocusContext,
+                runtimeEvents: runtimeEvents
+            )
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: fallbackFocusContext.appName,
+                    bundleID: fallbackFocusContext.bundleID,
+                    inputText: selectionText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    magicianRuntimeVersion: 3,
+                    magicianExecutionTrace: failureTrace,
+                    status: .failed,
+                    errorMessage: magicianError.userMessage,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: commandAppliedSkills
+                )
+            )
+            handleMagicianRecoverAction(magicianError.recoverAction)
+            sessionStore.fail(message: magicianError.userMessage)
+            currentTraceID = nil
+            return
+        } catch {}
+
+        let laneDecision = MagicianLaneClassifier().decide(
+            command: spokenInstruction,
+            selectionSnapshot: selectionSnapshot,
+            enabledFeatures: enabledFeatures
+        )
+        if laneDecision.lane == .unsupportedMixedExternal {
+            let message = laneDecision.userMessage ?? "这条命令当前不支持混搭执行，请拆开说。"
+            let failureTrace = magicianFailureExecutionTraceText(
+                traceID: traceID,
+                command: spokenInstruction,
+                stage: "lane_classifier",
+                errorCode: MagicianErrorCode.intentParseFailed.rawValue,
+                errorMessage: message,
+                debugMessage: laneDecision.reason,
+                recoverAction: "retry_command",
+                focusContext: fallbackFocusContext,
+                runtimeEvents: runtimeEvents
+            )
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: fallbackFocusContext.appName,
+                    bundleID: fallbackFocusContext.bundleID,
+                    inputText: selectionText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    magicianRuntimeVersion: 3,
+                    magicianExecutionTrace: failureTrace,
+                    status: .failed,
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: commandAppliedSkills
+                )
+            )
+            sessionStore.fail(message: message)
+            currentTraceID = nil
+            return
+        }
+
         let runtimeRequest = MagicianAgentRequest(
             traceID: traceID,
             command: spokenInstruction,
@@ -1793,9 +1886,22 @@ final class InteractionCoordinator {
             focusContext: fallbackFocusContext,
             enabledFeatures: enabledFeatures
         )
+        let selectedRuntime: any MagicianAgentRunning
+        let runtimeVersion: Int
+        switch laneDecision.lane {
+        case .nativeFast:
+            selectedRuntime = magicianNativeRuntime
+            runtimeVersion = 2
+        case .agent:
+            selectedRuntime = magicianAgentRuntime
+            runtimeVersion = 3
+        case .unsupportedMixedExternal:
+            selectedRuntime = magicianAgentRuntime
+            runtimeVersion = 3
+        }
 
         do {
-            let outcome = try await magicianAgentRuntime.run(
+            let outcome = try await selectedRuntime.run(
                 request: runtimeRequest,
                 onEvent: { [weak self] event in
                     runtimeEvents.append(event)
@@ -1822,7 +1928,7 @@ final class InteractionCoordinator {
                     displayText: outcome.displayText,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
-                    magicianRuntimeVersion: 3,
+                    magicianRuntimeVersion: runtimeVersion,
                     magicianSessionID: outcome.sessionID,
                     magicianRunID: outcome.runID,
                     magicianGoalSummary: outcome.goalSummary,
@@ -1874,7 +1980,7 @@ final class InteractionCoordinator {
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
-                    magicianRuntimeVersion: 3,
+                    magicianRuntimeVersion: runtimeVersion,
                     magicianExecutionTrace: failureTrace,
                     status: .failed,
                     errorMessage: magicianError.userMessage,
@@ -1923,7 +2029,7 @@ final class InteractionCoordinator {
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
-                    magicianRuntimeVersion: 3,
+                    magicianRuntimeVersion: runtimeVersion,
                     magicianExecutionTrace: failureTrace,
                     status: .failed,
                     errorMessage: message,

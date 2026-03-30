@@ -409,6 +409,7 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
+            magicianNativeRuntime: runtime,
             magicianAgentRuntime: runtime,
             transcriptionText: "帮我写进备忘录"
         )
@@ -430,6 +431,158 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianEvidenceSummary, "note-id=test-runtime-1")
     }
 
+    func testSelectionRewriteRoutesPureTextToNativeRuntime() async throws {
+        let nativeRuntime = FakeMagicianAgentRuntime(
+            result: .success(
+                MagicianAgentRunOutcome(
+                    sessionID: "session-native-text",
+                    runID: "run-native-text",
+                    goalSummary: "润色文本",
+                    finalStatusMessage: "文字处理并写入完成",
+                    finalOutputText: "润色后的文本",
+                    displayText: "text.transform",
+                    steps: [
+                        MagicianAgentStepRecord(
+                            id: "step-1",
+                            featureID: .textTransform,
+                            instruction: "帮我润色一下",
+                            userMessage: "文字处理并写入完成",
+                            outputText: "润色后的文本",
+                            observation: MagicianAgentObservation(verificationStatus: .verified)
+                        )
+                    ],
+                    evidenceSummary: "native-text"
+                )
+            )
+        )
+        let agentRuntime = FakeMagicianAgentRuntime(
+            result: .failure(
+                MagicianError(
+                    code: .toolExecutionFailed,
+                    userMessage: "agent 不应被调用",
+                    debugMessage: nil,
+                    recoverAction: nil
+                )
+            )
+        )
+
+        let fixture = try makeFixture(
+            magicianNativeRuntime: nativeRuntime,
+            magicianAgentRuntime: agentRuntime,
+            transcriptionText: "帮我润色一下"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(nativeRuntime.callCount, 1)
+        XCTAssertEqual(agentRuntime.callCount, 0)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianRuntimeVersion, 2)
+    }
+
+    func testSelectionRewriteRoutesFeishuCommandToAgentRuntime() async throws {
+        let nativeRuntime = FakeMagicianAgentRuntime(
+            result: .failure(
+                MagicianError(
+                    code: .toolExecutionFailed,
+                    userMessage: "native 不应被调用",
+                    debugMessage: nil,
+                    recoverAction: nil
+                )
+            )
+        )
+        let agentRuntime = FakeMagicianAgentRuntime(
+            result: .success(
+                MagicianAgentRunOutcome(
+                    sessionID: "session-agent-feishu",
+                    runID: "run-agent-feishu",
+                    goalSummary: "发送飞书消息",
+                    finalStatusMessage: "消息已发送",
+                    finalOutputText: nil,
+                    displayText: "Agent: 飞书",
+                    steps: [
+                        MagicianAgentStepRecord(
+                            id: "step-1",
+                            featureID: .feishuCLI,
+                            instruction: "给产品组发飞书消息说今天延后半小时",
+                            userMessage: "消息已发送",
+                            outputText: nil,
+                            observation: MagicianAgentObservation(
+                                verificationStatus: .verified,
+                                evidenceSummary: "message_id=om_agent"
+                            )
+                        )
+                    ],
+                    evidenceSummary: "message_id=om_agent"
+                )
+            )
+        )
+
+        let fixture = try makeFixture(
+            magicianNativeRuntime: nativeRuntime,
+            magicianAgentRuntime: agentRuntime,
+            transcriptionText: "给产品组发飞书消息说今天延后半小时"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .feishuCLI)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(nativeRuntime.callCount, 0)
+        XCTAssertEqual(agentRuntime.callCount, 1)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianRuntimeVersion, 3)
+    }
+
+    func testSelectionRewriteRejectsMixedMailAndFeishuBeforeRuntime() async throws {
+        let nativeRuntime = FakeMagicianAgentRuntime(
+            result: .failure(
+                MagicianError(
+                    code: .toolExecutionFailed,
+                    userMessage: "native 不应被调用",
+                    debugMessage: nil,
+                    recoverAction: nil
+                )
+            )
+        )
+        let agentRuntime = FakeMagicianAgentRuntime(
+            result: .failure(
+                MagicianError(
+                    code: .toolExecutionFailed,
+                    userMessage: "agent 不应被调用",
+                    debugMessage: nil,
+                    recoverAction: nil
+                )
+            )
+        )
+
+        let fixture = try makeFixture(
+            magicianNativeRuntime: nativeRuntime,
+            magicianAgentRuntime: agentRuntime,
+            transcriptionText: "发邮件给产品组并同步到飞书"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .composeEmailDraft)
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .feishuCLI)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(nativeRuntime.callCount, 0)
+        XCTAssertEqual(agentRuntime.callCount, 0)
+        XCTAssertEqual(fixture.sessionStore.phase, .error)
+        XCTAssertTrue(fixture.sessionStore.errorMessage?.contains("拆开说") == true)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .failed)
+    }
+
     func testCancelDuringMagicianThinkingKeepsCancelledState() async throws {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
@@ -449,6 +602,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         )
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
+            magicianNativeRuntime: runtime,
             magicianAgentRuntime: runtime,
             transcriptionText: "帮我写进备忘录"
         )
@@ -502,6 +656,7 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
+            magicianNativeRuntime: runtime,
             magicianAgentRuntime: runtime,
             transcriptionText: "嗯，帮我把现在这句话记到备忘录里面"
         )
@@ -563,6 +718,7 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
+            magicianNativeRuntime: runtime,
             magicianAgentRuntime: runtime,
             transcriptionText: "先整理成三点，再写进备忘录"
         )
@@ -641,6 +797,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         )
 
         let fixture = try makeFixture(
+            magicianNativeRuntime: runtime,
             magicianAgentRuntime: runtime,
             rewriteProviders: [rewriteProvider],
             transcriptionText: "播放周杰侖的稻香"
@@ -689,6 +846,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         )
 
         let fixture = try makeFixture(
+            magicianNativeRuntime: runtime,
             magicianAgentRuntime: runtime,
             rewriteProviders: [rewriteProvider],
             transcriptionText: "播放周杰伦的稻香"
@@ -735,6 +893,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         )
 
         let fixture = try makeFixture(
+            magicianNativeRuntime: runtime,
             magicianAgentRuntime: runtime,
             rewriteProviders: [rewriteProvider],
             transcriptionText: "给刘里斯发消息说会议改到下午三点"
@@ -768,6 +927,7 @@ final class InteractionCoordinatorTests: XCTestCase {
             )
         )
         let fixture = try makeFixture(
+            magicianNativeRuntime: runtime,
             magicianAgentRuntime: runtime,
             transcriptionText: "播放周杰伦的稻香"
         )
@@ -803,6 +963,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         )
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
+            magicianNativeRuntime: runtime,
             magicianAgentRuntime: runtime,
             transcriptionText: "打开 Music"
         )
@@ -860,6 +1021,7 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
+            magicianNativeRuntime: runtime,
             magicianAgentRuntime: runtime,
             transcriptionText: "帮我建立日程"
         )
@@ -915,6 +1077,7 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
+            magicianNativeRuntime: runtime,
             magicianAgentRuntime: runtime,
             transcriptionText: "帮我润色一下"
         )
@@ -963,6 +1126,7 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
+            magicianNativeRuntime: runtime,
             magicianAgentRuntime: runtime,
             transcriptionText: "转换为中国古诗风格"
         )
@@ -1135,6 +1299,7 @@ final class InteractionCoordinatorTests: XCTestCase {
             )
         ),
         magicianToolExecutor: (any MagicianToolExecuting)? = nil,
+        magicianNativeRuntime: (any MagicianAgentRunning)? = nil,
         magicianAgentRuntime: (any MagicianAgentRunning)? = nil,
         rewriteProviders: [any RewriteProvider] = [],
         transcriptionText: String = "hello world",
@@ -1232,6 +1397,7 @@ final class InteractionCoordinatorTests: XCTestCase {
             magicianFeatureToggleStore: magicianFeatureToggleStore,
             workflowTelemetryReporter: workflowTelemetryReporter,
             magicianToolExecutor: magicianToolExecutor ?? MagicianToolExecutor(),
+            magicianNativeRuntime: magicianNativeRuntime,
             magicianAgentRuntime: magicianAgentRuntime,
             toastPresenter: resolvedToastPresenter,
             dictationPostProcessor: dictationPostProcessor,

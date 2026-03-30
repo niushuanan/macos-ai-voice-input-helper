@@ -330,7 +330,7 @@ final class MagicianMailSupportTests: XCTestCase {
         XCTAssertNotNil(addressBookStore.entries.first?.lastUsedAt)
     }
 
-    func testMailAdapterLeavesMailOpenWhenRecipientNotFullyResolved() async throws {
+    func testMailAdapterReturnsFilledDraftWhenDraftEvidenceIsAvailable() async throws {
         let resolver = StubMailRecipientResolver(
             resolution: MailRecipientResolution(
                 recipients: [],
@@ -379,11 +379,12 @@ final class MagicianMailSupportTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(result.userMessage, "邮箱目标不够明确，已打开草稿窗")
+        XCTAssertEqual(result.userMessage, "邮件已填入，待你确认")
         XCTAssertEqual(appleScripter.lastShouldSend, false)
+        XCTAssertTrue(result.outputText?.contains("draft_id=42") == true)
     }
 
-    func testMailAdapterSummarizesDraftSubjectAndBodyBeforeOutput() async throws {
+    func testMailAdapterKeepsProvidedDraftSubjectAndBody() async throws {
         let resolver = StubMailRecipientResolver(
             resolution: MailRecipientResolution(
                 recipients: [],
@@ -432,12 +433,195 @@ final class MagicianMailSupportTests: XCTestCase {
             )
         )
 
-        XCTAssertNotNil(appleScripter.lastSubject)
-        XCTAssertNotNil(appleScripter.lastBody)
-        XCTAssertLessThanOrEqual(appleScripter.lastSubject?.count ?? 0, 36)
-        XCTAssertTrue((appleScripter.lastBody ?? "").contains("\n"))
+        XCTAssertEqual(appleScripter.lastSubject, "周会纪要和风险同步")
+        XCTAssertEqual(
+            appleScripter.lastBody,
+            "今天和研发、设计、测试做了周会，确认版本计划。第一，语音链路已稳定。第二，联系人编辑面板存在超出显示区域的问题。第三，需要本周内完成 UI 调整并回归验证。"
+        )
         XCTAssertTrue((result.outputText ?? "").contains("标题："))
         XCTAssertTrue((result.outputText ?? "").contains("正文："))
+    }
+
+    func testMailAdapterFallsBackToOpenedWindowWhenDraftEvidenceIsMissing() async throws {
+        let resolver = StubMailRecipientResolver(
+            resolution: MailRecipientResolution(
+                recipients: [
+                    ResolvedMailRecipient(
+                        address: "team@example.com",
+                        source: .explicit,
+                        confidence: 1.0,
+                        matchedHint: "team@example.com"
+                    )
+                ],
+                unresolvedHints: []
+            ),
+            shouldAutoSend: false
+        )
+        let appleScripter = RecordingMailAppleScripter(
+            result: MagicianProcessResult(
+                exitCode: 0,
+                stdout: "mail_status=draft\nsubject=活动通知\nrecipients=team@example.com",
+                stderr: ""
+            )
+        )
+
+        let adapter = MagicianMailAdapter(
+            addressBookStore: MailAddressBookStore(defaults: makeDefaults(suffix: "adapter.window-open")),
+            recipientResolver: resolver,
+            appleScripter: appleScripter,
+            fallbackOpener: RecordingMailFallbackOpener(result: false),
+            mailCapabilityProvider: {
+                MagicianMailCapabilitySnapshot(
+                    composeEmailServiceAvailable: true,
+                    mailtoAvailable: true,
+                    mailAppAvailable: true
+                )
+            }
+        )
+
+        let result = try await adapter.execute(
+            intent: MagicianIntent(
+                intent: .composeEmailDraft,
+                confidence: 0.9,
+                sourceText: "活动通知",
+                params: MagicianIntentParams(
+                    mailTo: ["team@example.com"],
+                    mailDeliveryMode: .draftOnly,
+                    mailSubject: "活动通知",
+                    mailBody: "大家好，这是活动通知。"
+                )
+            ),
+            context: MagicianExecutionContext(
+                command: "给 team@example.com 写邮件",
+                selection: nil,
+                focusContext: testFocusContext()
+            )
+        )
+
+        XCTAssertEqual(result.userMessage, "邮件窗口已打开，请你确认")
+        XCTAssertEqual(appleScripter.lastShouldSend, false)
+        XCTAssertEqual(result.observation?.verificationStatus, .assumed)
+    }
+
+    func testMailAdapterTreatsFallbackDraftOpenAsSuccessWhenMailUnavailable() async throws {
+        let fallbackOpener = RecordingMailFallbackOpener(result: true)
+        let adapter = MagicianMailAdapter(
+            addressBookStore: MailAddressBookStore(defaults: makeDefaults(suffix: "adapter.mailto-success")),
+            recipientResolver: StubMailRecipientResolver(
+                resolution: MailRecipientResolution(
+                    recipients: [
+                        ResolvedMailRecipient(
+                            address: "team@example.com",
+                            source: .explicit,
+                            confidence: 1.0,
+                            matchedHint: "team@example.com"
+                        )
+                    ],
+                    unresolvedHints: []
+                ),
+                shouldAutoSend: false
+            ),
+            appleScripter: RecordingMailAppleScripter(
+                result: MagicianProcessResult(exitCode: 1, stdout: "", stderr: "mail not available")
+            ),
+            fallbackOpener: fallbackOpener,
+            mailCapabilityProvider: {
+                MagicianMailCapabilitySnapshot(
+                    composeEmailServiceAvailable: false,
+                    mailtoAvailable: true,
+                    mailAppAvailable: false
+                )
+            }
+        )
+
+        let result = try await adapter.execute(
+            intent: MagicianIntent(
+                intent: .composeEmailDraft,
+                confidence: 0.9,
+                sourceText: "",
+                params: MagicianIntentParams(
+                    mailTo: ["team@example.com"],
+                    mailDeliveryMode: .draftOnly,
+                    mailSubject: "主题",
+                    mailBody: "正文"
+                )
+            ),
+            context: MagicianExecutionContext(
+                command: "写邮件给 team@example.com",
+                selection: nil,
+                focusContext: testFocusContext()
+            )
+        )
+
+        XCTAssertEqual(result.userMessage, "邮件窗口已打开，请你确认")
+        XCTAssertEqual(fallbackOpener.callCount, 1)
+        XCTAssertEqual(result.observation?.verificationStatus, .assumed)
+        XCTAssertTrue(result.observation?.evidenceSummary?.contains("mailto") == true)
+    }
+
+    func testMailAdapterDoesNotLieAboutSendWhenEvidenceIsInsufficient() async {
+        let resolver = StubMailRecipientResolver(
+            resolution: MailRecipientResolution(
+                recipients: [
+                    ResolvedMailRecipient(
+                        address: "team@example.com",
+                        source: .explicit,
+                        confidence: 1.0,
+                        matchedHint: "team@example.com"
+                    )
+                ],
+                unresolvedHints: []
+            ),
+            shouldAutoSend: true
+        )
+        let appleScripter = RecordingMailAppleScripter(
+            result: MagicianProcessResult(
+                exitCode: 0,
+                stdout: "mail_status=sent\nsubject=主题\nrecipients=team@example.com\nmailbox=sent",
+                stderr: ""
+            )
+        )
+
+        let adapter = MagicianMailAdapter(
+            addressBookStore: MailAddressBookStore(defaults: makeDefaults(suffix: "adapter.send-without-proof")),
+            recipientResolver: resolver,
+            appleScripter: appleScripter,
+            fallbackOpener: RecordingMailFallbackOpener(result: false),
+            mailCapabilityProvider: {
+                MagicianMailCapabilitySnapshot(
+                    composeEmailServiceAvailable: true,
+                    mailtoAvailable: true,
+                    mailAppAvailable: true
+                )
+            }
+        )
+
+        do {
+            _ = try await adapter.execute(
+                intent: MagicianIntent(
+                    intent: .composeEmailDraft,
+                    confidence: 0.9,
+                    sourceText: "",
+                    params: MagicianIntentParams(
+                        mailTo: ["team@example.com"],
+                        mailDeliveryMode: .autoSendIfResolved,
+                        mailSubject: "主题",
+                        mailBody: "正文"
+                    )
+                ),
+                context: MagicianExecutionContext(
+                    command: "发给 team@example.com",
+                    selection: nil,
+                    focusContext: testFocusContext()
+                )
+            )
+            XCTFail("Expected insufficient send evidence to fail")
+        } catch let error as MagicianError {
+            XCTAssertEqual(error.code, .toolExecutionFailed)
+            XCTAssertEqual(error.userMessage, "邮件发送缺少硬证据，已判定失败。")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
 
     func testMailAdapterReportsAutomationDeniedClearly() async {

@@ -224,6 +224,847 @@ protocol MagicianAgentRunning {
     ) async throws -> MagicianAgentRunOutcome
 }
 
+enum MagicianLane {
+    case nativeFast
+    case agent
+    case unsupportedMixedExternal
+}
+
+struct MagicianLaneDecision {
+    let lane: MagicianLane
+    let reason: String
+    let userMessage: String?
+}
+
+private enum MagicianLaneExternalAction: String, Hashable {
+    case mail
+    case note
+    case calendar
+    case music
+    case feishu
+}
+
+struct MagicianLaneClassifier {
+    func decide(
+        command: String,
+        selectionSnapshot: FocusedSelectionSnapshot?,
+        enabledFeatures _: Set<MagicianFeatureID>
+    ) -> MagicianLaneDecision {
+        let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasSelection = !(selectionSnapshot?.selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        guard !normalized.isEmpty else {
+            return MagicianLaneDecision(
+                lane: .nativeFast,
+                reason: "empty_command",
+                userMessage: nil
+            )
+        }
+
+        var actions = Set<MagicianLaneExternalAction>()
+        let containsExplicitFeishuFamily = magicianContainsExplicitFeishuFamily(normalized)
+        let containsFeishuIntent = magicianContainsFeishuIntent(normalized)
+        if containsFeishuIntent {
+            actions.insert(.feishu)
+        }
+        if containsAny(normalized, tokens: ["邮件", "mail", "email", "草稿", "发邮件", "写邮件", "邮箱", "收件人"]) {
+            actions.insert(.mail)
+        }
+        if containsAny(normalized, tokens: ["备忘录", "note", "notes", "记下来", "记到", "写进备忘录", "写入备忘录"]) {
+            actions.insert(.note)
+        }
+        if magicianShouldTreatAsNativeCalendarIntent(
+            normalized,
+            containsExplicitFeishuFamily: containsExplicitFeishuFamily
+        ) {
+            actions.insert(.calendar)
+        }
+        if containsAny(normalized, tokens: ["音乐", "歌曲", "播放", "暂停", "继续播放", "下一首", "上一首", "music", "play", "pause"]) {
+            actions.insert(.music)
+        }
+
+        if actions.contains(.feishu), actions.count > 1 {
+            return MagicianLaneDecision(
+                lane: .unsupportedMixedExternal,
+                reason: "mixed_feishu_and_native",
+                userMessage: "这条命令同时跨了飞书和苹果原生能力，请拆开说。"
+            )
+        }
+
+        if actions.count > 1 {
+            if actions.contains(.music) {
+                return MagicianLaneDecision(
+                    lane: .unsupportedMixedExternal,
+                    reason: "music_mixed_with_other_external",
+                    userMessage: "音乐控制不能和其他外部动作混在一条命令里，请拆开说。"
+                )
+            }
+            return MagicianLaneDecision(
+                lane: .unsupportedMixedExternal,
+                reason: "multiple_native_external_actions",
+                userMessage: "一条命令里同时驱动多个外部动作还不支持，请拆开说。"
+            )
+        }
+
+        if actions.contains(.feishu) {
+            return MagicianLaneDecision(
+                lane: .agent,
+                reason: "feishu_or_external_skill",
+                userMessage: nil
+            )
+        }
+
+        if looksLikeAgentOnlyTask(normalized) {
+            return MagicianLaneDecision(
+                lane: .agent,
+                reason: "research_or_shell_task",
+                userMessage: nil
+            )
+        }
+
+        if hasSelection || actions.isEmpty {
+            return MagicianLaneDecision(
+                lane: .nativeFast,
+                reason: actions.isEmpty ? "pure_text_or_native_default" : "native_fast_action",
+                userMessage: nil
+            )
+        }
+
+        return MagicianLaneDecision(
+            lane: .nativeFast,
+            reason: "native_fast_action",
+            userMessage: nil
+        )
+    }
+
+    private func containsAny(_ value: String, tokens: [String]) -> Bool {
+        tokens.contains { value.contains($0) }
+    }
+
+    private func looksLikeAgentOnlyTask(_ value: String) -> Bool {
+        containsAny(
+            value,
+            tokens: [
+                "终端", "命令行", "shell", "zsh", "bash",
+                "git ", "npm ", "pnpm ", "yarn ", "python ", "node ", "swift ", "xcodebuild",
+                "联网", "查资料", "网页", "浏览器", "搜索网页", "调研", "最新情况", "最近新闻"
+            ]
+        )
+    }
+}
+
+private struct MagicianAgentCheckpoint: Codable {
+    let sessionID: String
+    let runID: String
+    let traceID: String
+    let state: MagicianAgentRuntimeState
+    let goalSummary: String
+    let actions: [MagicianAgentAction]
+    let stepRecords: [MagicianAgentStepRecord]
+    let lastOutputText: String?
+    let updatedAt: Date
+}
+
+func magicianValidateToolCommandGuards(
+    command: String,
+    enabledFeatures: Set<MagicianFeatureID>
+) throws {
+    let lowered = command.lowercased()
+    let checks: [(feature: MagicianFeatureID, matched: Bool, message: String)] = [
+        (
+            .controlMusic,
+            ["音乐", "歌曲", "播放", "暂停", "继续播放", "下一首", "上一首", "music", "play", "pause", "next", "previous"]
+                .contains(where: lowered.contains),
+            "检测到音乐命令，但音乐控制能力未开启。请先在魔术先生里开启“苹果原生应用”能力。"
+        ),
+        (
+            .feishuCLI,
+            magicianContainsFeishuIntent(lowered),
+            "检测到飞书命令，但飞书 CLI 能力未开启。请先在魔术先生里开启“飞书”能力。"
+        ),
+        (
+            .composeEmailDraft,
+            ["邮件", "mail", "email", "草稿", "发邮件", "写邮件", "邮箱"].contains(where: lowered.contains),
+            "检测到邮件命令，但邮件助手能力未开启。请先在魔术先生里开启“苹果原生应用”能力。"
+        ),
+        (
+            .createNote,
+            ["备忘录", "note", "写进备忘录", "写入备忘录", "记到备忘录", "记录到备忘录"].contains(where: lowered.contains),
+            "检测到备忘录命令，但备忘录能力未开启。请先在魔术先生里开启“苹果原生应用”能力。"
+        ),
+        (
+            .createEvent,
+            magicianShouldTreatAsNativeCalendarIntent(lowered),
+            "检测到日程命令，但日程能力未开启。请先在魔术先生里开启“苹果原生应用”能力。"
+        )
+    ]
+
+    for item in checks where item.matched && !enabledFeatures.contains(item.feature) {
+        throw MagicianError(
+            code: .intentParseFailed,
+            userMessage: item.message,
+            debugMessage: "tool command feature disabled: \(item.feature.rawValue)",
+            recoverAction: "open_magician_settings"
+        )
+    }
+}
+
+private func magicianContainsFeishuIntent(_ value: String) -> Bool {
+    if magicianContainsExplicitFeishuFamily(value) {
+        return true
+    }
+    guard let operation = FeishuCanonicalOperation.infer(from: value) else {
+        return false
+    }
+    switch operation {
+    case .calendarCalendar, .calendarEvent, .calendarEventAttendee, .calendarFreebusy:
+        return false
+    default:
+        return true
+    }
+}
+
+private func magicianContainsExplicitFeishuFamily(_ value: String) -> Bool {
+    containsAny(value, tokens: ["飞书", "feishu", "lark"])
+}
+
+private func magicianShouldTreatAsNativeCalendarIntent(
+    _ value: String,
+    containsExplicitFeishuFamily: Bool? = nil
+) -> Bool {
+    guard magicianLooksLikeNativeCalendarIntent(value) else {
+        return false
+    }
+    let hasExplicitFeishuFamily = containsExplicitFeishuFamily ?? magicianContainsExplicitFeishuFamily(value)
+    guard hasExplicitFeishuFamily else {
+        return true
+    }
+    return magicianLooksLikeCalendarAndFeishuMixedIntent(value)
+}
+
+private func magicianLooksLikeCalendarAndFeishuMixedIntent(_ value: String) -> Bool {
+    magicianRegexMatch(
+        value,
+        pattern: #"(同步|发给|发到|发送到|推送到|同步到).*(飞书|feishu|lark)"#
+    )
+}
+
+private func magicianLooksLikeNativeCalendarIntent(_ value: String) -> Bool {
+    if containsAny(value, tokens: ["日历", "calendar", "event", "日程", "行程"]) {
+        return true
+    }
+    return magicianRegexMatch(
+        value,
+        pattern: #"(添加|新增|创建|建立|安排|加一个|设定|提醒).*(日程|行程|会议|课程|上课)"#
+    ) || magicianRegexMatch(
+        value,
+        pattern: #"(今天|明天|后天|上午|下午|晚上|周[一二三四五六日天]|\d+点|:\d{2}).*(日程|行程|会议|课程|上课)"#
+    )
+}
+
+private func containsAny(_ value: String, tokens: [String]) -> Bool {
+    tokens.contains { value.contains($0) }
+}
+
+private func magicianRegexMatch(_ value: String, pattern: String) -> Bool {
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+        return false
+    }
+    let range = NSRange(value.startIndex..<value.endIndex, in: value)
+    return regex.firstMatch(in: value, options: [], range: range) != nil
+}
+
+private struct MagicianNativePlanBuilder {
+    func buildPlan(for request: MagicianAgentRequest) throws -> MagicianAgentExecutionPlanV2 {
+        let normalizedCommand = request.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedCommand.isEmpty else {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "指令为空，请再说一次。",
+                debugMessage: "agent command empty",
+                recoverAction: "retry_command"
+            )
+        }
+        try magicianValidateToolCommandGuards(
+            command: normalizedCommand,
+            enabledFeatures: request.enabledFeatures
+        )
+
+        let segments = splitSegments(in: normalizedCommand)
+        let goal = MagicianAgentGoal(
+            summary: summarizedHistoryText(normalizedCommand, limit: 42),
+            originalCommand: normalizedCommand
+        )
+
+        var actions: [MagicianAgentAction] = []
+        let hasSelection = !(request.selectionSnapshot?.selectedText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ?? true)
+
+        for (index, segment) in segments.enumerated() {
+            let feature = resolvedFeature(
+                for: segment,
+                fullCommand: normalizedCommand,
+                enabledFeatures: request.enabledFeatures
+            )
+            let input: MagicianAgentArtifactInput
+            if index > 0 {
+                input = .previousOutput
+            } else {
+                switch feature {
+                case .textTransform:
+                    input = hasSelection ? .selectionText : .commandInstruction
+                case .createNote, .composeEmailDraft, .createEvent, .controlMusic:
+                    input = hasSelection ? .selectionText : .commandPayload
+                case .feishuCLI:
+                    input = .commandInstruction
+                }
+            }
+            actions.append(
+                MagicianAgentAction(
+                    id: "action-\(index + 1)",
+                    featureID: feature,
+                    domain: domain(for: feature),
+                    kind: actionKind(for: feature),
+                    instruction: segment,
+                    input: input
+                )
+            )
+        }
+
+        guard !actions.isEmpty else {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "没有识别到可执行动作，请换个说法再试。",
+                debugMessage: "agent actions empty",
+                recoverAction: "retry_command"
+            )
+        }
+
+        let plan = MagicianAgentExecutionPlanV2(goal: goal, actions: Array(actions.prefix(2)))
+        try validateAllowedTemplate(plan)
+        return plan
+    }
+
+    private func validateAllowedTemplate(_ plan: MagicianAgentExecutionPlanV2) throws {
+        let features = plan.actions.map(\.featureID)
+        guard !features.contains(.feishuCLI) else {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "飞书和复杂技能请改走 Agent 链路。",
+                debugMessage: "native plan contains feishu step",
+                recoverAction: "retry_command"
+            )
+        }
+
+        guard features.count <= 2 else {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "原生快链路只支持单步，或“先处理文本再执行一个原生动作”的两步命令。",
+                debugMessage: "native plan step overflow",
+                recoverAction: "retry_command"
+            )
+        }
+
+        guard let first = features.first else {
+            return
+        }
+        if features.count == 1 {
+            guard [
+                MagicianFeatureID.textTransform,
+                .createNote,
+                .composeEmailDraft,
+                .createEvent,
+                .controlMusic
+            ].contains(first) else {
+                throw unsupportedTemplateError(features: features)
+            }
+            return
+        }
+
+        let second = features[1]
+        let isAllowed = first == .textTransform && [
+            MagicianFeatureID.textTransform,
+            .createNote,
+            .composeEmailDraft,
+            .createEvent
+        ].contains(second)
+
+        guard isAllowed else {
+            throw unsupportedTemplateError(features: features)
+        }
+    }
+
+    private func unsupportedTemplateError(features: [MagicianFeatureID]) -> MagicianError {
+        MagicianError(
+            code: .intentParseFailed,
+            userMessage: "这条命令不在原生快链路支持范围内，请拆开说，或者改走更复杂的 Agent 任务。",
+            debugMessage: "unsupported native template: \(features.map(\.rawValue).joined(separator: ","))",
+            recoverAction: "retry_command"
+        )
+    }
+
+    private func splitSegments(in command: String) -> [String] {
+        let patterns = [
+            #"(?i)\s*(然后|再|接着|随后|并且|并|之后|最后)\s*"#,
+            #"(?i)\s*[；;]\s*"#
+        ]
+        var segments = [command]
+        for pattern in patterns {
+            segments = segments.flatMap { segment in
+                segment.components(separatedByRegex: pattern)
+            }
+        }
+        let cleaned = segments
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return cleaned.isEmpty ? [command] : cleaned
+    }
+
+    private func domain(for feature: MagicianFeatureID) -> MagicianAgentDomain {
+        switch feature {
+        case .textTransform:
+            return .text
+        case .feishuCLI:
+            return .feishu
+        case .createEvent, .createNote, .composeEmailDraft, .controlMusic:
+            return .apple
+        }
+    }
+
+    private func actionKind(for feature: MagicianFeatureID) -> MagicianAgentActionKind {
+        switch feature {
+        case .textTransform:
+            return .text
+        case .createEvent:
+            return .createEvent
+        case .createNote:
+            return .createNote
+        case .composeEmailDraft:
+            return .composeEmail
+        case .controlMusic:
+            return .controlMusic
+        case .feishuCLI:
+            return .feishu
+        }
+    }
+
+    private func resolvedFeature(
+        for segment: String,
+        fullCommand: String,
+        enabledFeatures: Set<MagicianFeatureID>
+    ) -> MagicianFeatureID {
+        let lowered = segment.lowercased()
+        let fullLowered = fullCommand.lowercased()
+
+        if enabledFeatures.contains(.feishuCLI),
+           (FeishuCanonicalOperation.allCases.contains(where: { lowered.contains($0.rawValue.lowercased()) })
+                || ["飞书", "feishu", "lark"].contains(where: lowered.contains)
+                || ["写进飞书", "发到飞书", "记录在飞书", "飞书日程", "飞书文档"].contains(where: fullLowered.contains))
+        {
+            return .feishuCLI
+        }
+
+        if enabledFeatures.contains(.composeEmailDraft),
+           ["邮件", "mail", "email", "草稿", "发给", "发邮件", "写邮件", "邮箱"].contains(where: lowered.contains)
+        {
+            return .composeEmailDraft
+        }
+
+        if enabledFeatures.contains(.createNote),
+           ["备忘录", "note", "记下来", "记到", "记一下", "写进备忘录", "写入备忘录", "记录在备忘录"].contains(where: lowered.contains)
+        {
+            return .createNote
+        }
+
+        if enabledFeatures.contains(.createEvent),
+           ["日程", "会议", "calendar", "event", "安排", "提醒", "课程", "上课"].contains(where: lowered.contains)
+        {
+            return .createEvent
+        }
+
+        if enabledFeatures.contains(.controlMusic),
+           ["音乐", "歌曲", "播放", "暂停", "继续播放", "下一首", "上一首", "music", "play", "pause", "next", "previous"].contains(where: lowered.contains)
+        {
+            return .controlMusic
+        }
+
+        if enabledFeatures.contains(.textTransform) {
+            return .textTransform
+        }
+
+        if let firstEnabled = MagicianFeatureID.allCases.first(where: { enabledFeatures.contains($0) }) {
+            return firstEnabled
+        }
+        return .textTransform
+    }
+}
+
+private extension String {
+    func components(separatedByRegex pattern: String) -> [String] {
+        guard let expression = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return [self]
+        }
+
+        let range = NSRange(startIndex..<endIndex, in: self)
+        let matches = expression.matches(in: self, options: [], range: range)
+        guard !matches.isEmpty else { return [self] }
+
+        var results = [String]()
+        var currentLocation = range.location
+        for match in matches {
+            let length = match.range.location - currentLocation
+            if length >= 0,
+               let textRange = Range(NSRange(location: currentLocation, length: length), in: self)
+            {
+                results.append(String(self[textRange]))
+            }
+            currentLocation = match.range.location + match.range.length
+        }
+
+        let tailLength = NSMaxRange(range) - currentLocation
+        if tailLength >= 0,
+           let tailRange = Range(NSRange(location: currentLocation, length: tailLength), in: self)
+        {
+            results.append(String(self[tailRange]))
+        }
+
+        return results
+    }
+}
+
+private final class MagicianAgentCheckpointStore {
+    private let directoryURL: URL
+
+    init(
+        directoryName: String = "MagicianNative",
+        fileManager: FileManager = .default
+    ) {
+        let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.temporaryDirectory
+        let bundleFolder = baseURL.appendingPathComponent("PulseType", isDirectory: true)
+        self.directoryURL = bundleFolder.appendingPathComponent(directoryName, isDirectory: true)
+        try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+    }
+
+    func save(_ checkpoint: MagicianAgentCheckpoint) {
+        let url = directoryURL.appendingPathComponent("\(checkpoint.sessionID).json", isDirectory: false)
+        guard let data = try? JSONEncoder().encode(checkpoint) else {
+            return
+        }
+        try? data.write(to: url, options: .atomic)
+    }
+}
+
+@MainActor
+final class MagicianNativeRuntime: MagicianAgentRunning {
+    private let planBuilder = MagicianNativePlanBuilder()
+    private let textBackend: MagicianAgentTextBackend
+    private let toolExecutor: any MagicianToolExecuting
+    private let checkpointStore = MagicianAgentCheckpointStore()
+
+    init(
+        providerSettingsStore: ProviderSettingsStore,
+        rewriteProviderRegistry: RewriteProviderRegistry,
+        textOutputCoordinator: TextOutputCoordinator,
+        skillRuleStore: SkillRuleStore,
+        toolExecutor: any MagicianToolExecuting
+    ) {
+        self.textBackend = MagicianAgentTextBackend(
+            providerSettingsStore: providerSettingsStore,
+            rewriteProviderRegistry: rewriteProviderRegistry,
+            textOutputCoordinator: textOutputCoordinator,
+            skillRuleStore: skillRuleStore
+        )
+        self.toolExecutor = toolExecutor
+    }
+
+    func run(
+        request: MagicianAgentRequest,
+        onEvent: ((MagicianAgentRuntimeEvent) -> Void)?
+    ) async throws -> MagicianAgentRunOutcome {
+        let sessionID = UUID().uuidString
+        let runID = UUID().uuidString
+        onEvent?(
+            MagicianAgentRuntimeEvent(
+                name: .requestAccepted,
+                state: .queued,
+                message: "原生快链路已启动。",
+                progressHint: SessionHUDProgressHint.workflowPreview
+            )
+        )
+        onEvent?(
+            MagicianAgentRuntimeEvent(
+                name: .stateChanged,
+                state: .understanding,
+                message: "正在判断原生动作。",
+                progressHint: SessionHUDProgressHint.workflowPreview
+            )
+        )
+
+        let plan = try planBuilder.buildPlan(for: request)
+        checkpointStore.save(
+            MagicianAgentCheckpoint(
+                sessionID: sessionID,
+                runID: runID,
+                traceID: request.traceID,
+                state: .planning,
+                goalSummary: plan.goal.summary,
+                actions: plan.actions,
+                stepRecords: [],
+                lastOutputText: nil,
+                updatedAt: Date()
+            )
+        )
+
+        onEvent?(
+            MagicianAgentRuntimeEvent(
+                name: .planReady,
+                state: .planning,
+                message: plan.actions.map(\.featureID.displayName).joined(separator: " -> "),
+                progressHint: SessionHUDProgressHint.workflowPreview
+            )
+        )
+
+        var stepRecords: [MagicianAgentStepRecord] = []
+        var latestArtifact: MagicianAgentArtifact?
+
+        for (index, action) in plan.actions.enumerated() {
+            let totalSteps = plan.actions.count
+            onEvent?(
+                MagicianAgentRuntimeEvent(
+                    name: .stepStarted,
+                    state: .executingStep,
+                    message: "第\(index + 1)/\(totalSteps)步：\(action.featureID.progressTitle)",
+                    progressHint: SessionHUDProgressHint.workflowStep(index: index + 1, totalSteps: totalSteps),
+                    stepIndex: index + 1,
+                    totalSteps: totalSteps
+                )
+            )
+
+            let inputText = resolvedInputText(
+                for: action,
+                request: request,
+                latestArtifact: latestArtifact
+            )
+
+            let result = try await executeAction(
+                action,
+                request: request,
+                inputText: inputText,
+                isFinalAction: index == plan.actions.count - 1
+            )
+
+            latestArtifact = result.producedArtifact ?? latestArtifact
+            let stepRecord = MagicianAgentStepRecord(
+                id: action.id,
+                featureID: action.featureID,
+                instruction: action.instruction,
+                userMessage: result.userMessage,
+                outputText: result.outputText,
+                observation: result.observation
+            )
+            stepRecords.append(stepRecord)
+            checkpointStore.save(
+                MagicianAgentCheckpoint(
+                    sessionID: sessionID,
+                    runID: runID,
+                    traceID: request.traceID,
+                    state: .verifying,
+                    goalSummary: plan.goal.summary,
+                    actions: plan.actions,
+                    stepRecords: stepRecords,
+                    lastOutputText: latestArtifact?.text,
+                    updatedAt: Date()
+                )
+            )
+
+            onEvent?(
+                MagicianAgentRuntimeEvent(
+                    name: .stepFinished,
+                    state: .observing,
+                    message: result.userMessage,
+                    progressHint: SessionHUDProgressHint.workflowStep(index: index + 1, totalSteps: totalSteps),
+                    stepIndex: index + 1,
+                    totalSteps: totalSteps
+                )
+            )
+        }
+
+        let finalStatus = stepRecords.last?.userMessage ?? "魔术先生已完成。"
+        let evidenceSummary = stepRecords.compactMap { $0.observation?.evidenceSummary }.last
+        let displayText: String = {
+            let labels = stepRecords.map(\.featureID.displayName)
+            return labels.isEmpty ? "原生快链路" : "流程：\(labels.joined(separator: " -> "))"
+        }()
+        checkpointStore.save(
+            MagicianAgentCheckpoint(
+                sessionID: sessionID,
+                runID: runID,
+                traceID: request.traceID,
+                state: .completed,
+                goalSummary: plan.goal.summary,
+                actions: plan.actions,
+                stepRecords: stepRecords,
+                lastOutputText: latestArtifact?.text,
+                updatedAt: Date()
+            )
+        )
+        onEvent?(
+            MagicianAgentRuntimeEvent(
+                name: .runCompleted,
+                state: .completed,
+                message: finalStatus,
+                progressHint: SessionHUDProgressHint.done
+            )
+        )
+
+        return MagicianAgentRunOutcome(
+            sessionID: sessionID,
+            runID: runID,
+            goalSummary: plan.goal.summary,
+            finalStatusMessage: finalStatus,
+            finalOutputText: latestArtifact?.text,
+            displayText: displayText,
+            steps: stepRecords,
+            evidenceSummary: evidenceSummary
+        )
+    }
+
+    private func executeAction(
+        _ action: MagicianAgentAction,
+        request: MagicianAgentRequest,
+        inputText: String,
+        isFinalAction: Bool
+    ) async throws -> MagicianAgentActionResult {
+        switch action.featureID {
+        case .textTransform:
+            return try await textBackend.execute(
+                action: action,
+                request: request,
+                inputText: inputText,
+                shouldWriteToEditor: isFinalAction
+            )
+        case .createEvent, .createNote, .composeEmailDraft, .controlMusic, .feishuCLI:
+            let intent = buildIntent(
+                for: action,
+                inputText: inputText
+            )
+            let selectionSnapshot: FocusedSelectionSnapshot? = {
+                switch action.input {
+                case .selectionText:
+                    return request.selectionSnapshot
+                case .previousOutput, .commandPayload:
+                    let normalized = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !normalized.isEmpty else {
+                        return request.selectionSnapshot
+                    }
+                    return FocusedSelectionSnapshot(
+                        focusContext: request.focusContext,
+                        selectedText: normalized
+                    )
+                case .commandInstruction:
+                    return nil
+                }
+            }()
+            let result = try await toolExecutor.execute(
+                intent: intent,
+                context: MagicianExecutionContext(
+                    command: action.instruction,
+                    selection: selectionSnapshot,
+                    focusContext: request.focusContext
+                )
+            )
+            return MagicianAgentActionResult(
+                userMessage: result.userMessage,
+                outputText: result.outputText,
+                historyDisplayText: result.historyDisplayText,
+                fallbackUsed: result.fallbackUsed,
+                observation: result.observation,
+                producedArtifact: result.outputText.map { MagicianAgentArtifact(text: $0) }
+            )
+        }
+    }
+
+    private func resolvedInputText(
+        for action: MagicianAgentAction,
+        request: MagicianAgentRequest,
+        latestArtifact: MagicianAgentArtifact?
+    ) -> String {
+        switch action.input {
+        case .selectionText:
+            return request.selectionSnapshot?.selectedText ?? ""
+        case .previousOutput:
+            return latestArtifact?.text ?? ""
+        case .commandPayload:
+            let payload = magicianResolvedPayload(
+                selectedText: request.selectionSnapshot?.selectedText ?? "",
+                sourceText: request.selectionSnapshot?.selectedText ?? "",
+                command: action.instruction,
+                actionTokens: actionTokens(for: action.featureID),
+                stripRecipientDirectives: action.featureID == .composeEmailDraft
+            )
+            if let payload, !payload.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return payload
+            }
+            return action.instruction
+        case .commandInstruction:
+            return action.instruction
+        }
+    }
+
+    private func buildIntent(
+        for action: MagicianAgentAction,
+        inputText: String
+    ) -> MagicianIntent {
+        var params = MagicianIntentParams.empty
+        switch action.featureID {
+        case .createNote:
+            params.noteBody = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .composeEmailDraft:
+            params.mailBody = inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inputText
+            params.mailDeliveryMode = action.instruction.lowercased().contains("草稿") ? .draftOnly : .autoSendIfResolved
+        case .createEvent:
+            params.notes = inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inputText
+        case .controlMusic:
+            break
+        case .feishuCLI:
+            params.cliOperation = FeishuCanonicalOperation.infer(from: action.instruction)?.rawValue
+            params.cliArguments = magicianCommandContainsExplicitCLIFlags(action.instruction)
+                ? action.instruction
+                .split(whereSeparator: \.isWhitespace)
+                .map(String.init)
+                .filter { $0.hasPrefix("-") || $0.contains(":") || $0.contains("+") }
+                : nil
+        case .textTransform:
+            break
+        }
+
+        return MagicianIntent(
+            intent: action.featureID,
+            confidence: 0.9,
+            sourceText: inputText,
+            params: params
+        )
+    }
+
+    private func actionTokens(for featureID: MagicianFeatureID) -> [String] {
+        switch featureID {
+        case .createNote:
+            return ["备忘录", "写进备忘录", "写入备忘录", "记到", "记下来", "note", "记录"]
+        case .composeEmailDraft:
+            return ["邮件", "草稿", "写邮件", "发邮件", "mail", "email", "发给", "发送"]
+        case .createEvent:
+            return ["日程", "建立日程", "创建日程", "建日程", "会议", "calendar", "event", "安排", "提醒"]
+        case .controlMusic:
+            return ["音乐", "歌曲", "播放", "暂停", "继续播放", "下一首", "上一首", "music", "play", "pause"]
+        case .feishuCLI:
+            return ["飞书", "feishu", "lark"]
+        case .textTransform:
+            return []
+        }
+    }
+}
+
 // MARK: - Agent Text Backend
 
 @MainActor
@@ -745,6 +1586,62 @@ private final class MagicianSkillCatalogV3 {
             return "\(parts[0]).\(parts[1])"
         }
         return domain
+    }
+}
+
+private enum MagicianAgentGuideLoaderV3 {
+    private static let relativeGuidePath = "Sources/Resources/MagicianAgent/Agent.md"
+
+    static func load() -> String {
+        for url in candidateURLs() {
+            if let content = try? String(contentsOf: url, encoding: .utf8) {
+                let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
+        return """
+        # Magician Agent Environment
+
+        - Machine: MacBook Air
+        - Chip: Apple M2
+        - Memory: 8GB
+        - macOS: 26.4 (25E241)
+        - Shell: zsh
+        - Apps: Mail, Notes, Calendar, Music, Terminal, Finder, Safari, TextEdit, WeChat, Feishu
+        - Paths: /Applications, /Users/zhuanghongkai/Desktop, /Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法
+        - Preference: prefer deterministic shell / AppleScript when they are straightforward and safe.
+        - Safety: never rely on serial number or UUID; they are intentionally unavailable.
+        """
+    }
+
+    private static func candidateURLs() -> [URL] {
+        var urls: [URL] = []
+
+        let sourceFileURL = URL(fileURLWithPath: #filePath)
+        let repoRoot = sourceFileURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        urls.append(repoRoot.appendingPathComponent(relativeGuidePath, isDirectory: false))
+
+        let currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        urls.append(currentDirectoryURL.appendingPathComponent(relativeGuidePath, isDirectory: false))
+
+        if let resourceURL = Bundle.main.resourceURL {
+            urls.append(resourceURL.appendingPathComponent("MagicianAgent/Agent.md", isDirectory: false))
+            urls.append(resourceURL.appendingPathComponent("Agent.md", isDirectory: false))
+        }
+
+        let testBundle = Bundle(for: MagicianSkillBundleMarkerV3.self)
+        if let resourceURL = testBundle.resourceURL {
+            urls.append(resourceURL.appendingPathComponent("MagicianAgent/Agent.md", isDirectory: false))
+            urls.append(resourceURL.appendingPathComponent("Agent.md", isDirectory: false))
+        }
+
+        return urls
     }
 }
 
@@ -1969,6 +2866,7 @@ private final class MagicianKernelRuntimeContextV3 {
 private struct MagicianIntentPlanStepV3 {
     let id: String
     let objective: String
+    let featureHint: MagicianFeatureID?
     let skillHint: String?
     let input: [String: Any]
 }
@@ -1985,6 +2883,24 @@ private struct MagicianPostStepDecisionV3 {
     let appendedStep: MagicianIntentPlanStepV3?
 }
 
+private enum MagicianExecutionActionKindV3: String {
+    case runShell = "run_shell"
+    case runAppleScript = "run_applescript"
+    case useSkill = "use_skill"
+    case finish
+}
+
+private struct MagicianExecutionDecisionV3 {
+    let action: MagicianExecutionActionKindV3
+    let featureHint: MagicianFeatureID?
+    let skillID: String?
+    let skillInput: [String: Any]
+    let command: String?
+    let appleScriptLines: [String]
+    let outputText: String?
+    let userMessage: String?
+}
+
 private struct MagicianFastPlanMatchV3 {
     let normalizedCommand: String
     let plan: MagicianIntentPlanV3
@@ -1998,6 +2914,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
     private let skillRouter: MagicianSkillRouterV3
     private let skillRuntime: MagicianSkillRuntimeV3
     private let toolRegistry = MagicianToolRegistryV3()
+    private let agentGuideMarkdown: String
 
     init(
         providerSettingsStore: ProviderSettingsStore,
@@ -2024,6 +2941,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             textBackend: textBackend,
             llmClient: llmClient
         )
+        self.agentGuideMarkdown = MagicianAgentGuideLoaderV3.load()
         registerTools()
     }
 
@@ -2159,83 +3077,42 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 )
             )
 
-            var candidateSkillIDs: [String] = []
-            if
-                let hinted = currentStep.skillHint,
-                context.catalog.manifest(for: hinted) != nil
-            {
-                candidateSkillIDs.append(hinted)
-            }
-            if fastPlanMatch == nil {
-                let searchOutcome = try await executeKernelTool(
-                    .skillSearch,
-                    input: [
-                        "query": "\(currentStep.objective)\n\(context.request.command)",
-                        "count": 6
-                    ],
-                    context: context
-                )
-                let searchedSkillIDs = parseSkillIDs(fromSearchOutput: searchOutcome.outputText)
-                for skillID in searchedSkillIDs where !candidateSkillIDs.contains(skillID) {
-                    candidateSkillIDs.append(skillID)
-                }
-                if candidateSkillIDs.isEmpty {
-                    let fallbackCandidates = await skillRouter.search(
-                        query: currentStep.objective,
-                        catalog: context.catalog,
-                        preferredCount: 3,
-                        allowModelSearch: false
-                    )
-                        .map(\.skillID)
-                    for skillID in fallbackCandidates where !candidateSkillIDs.contains(skillID) {
-                        candidateSkillIDs.append(skillID)
-                    }
-                }
-                if candidateSkillIDs.isEmpty {
-                    let probeText = "\(currentStep.objective)\n\(context.request.command)".lowercased()
-                    if
-                        runtimeLooksLikeShellTask(probeText),
-                        context.catalog.manifest(for: "shell.command.run") != nil
-                    {
-                        candidateSkillIDs.append("shell.command.run")
-                    } else if context.catalog.manifest(for: "core.reason.respond") != nil {
-                        candidateSkillIDs.append("core.reason.respond")
-                    }
-                }
-            }
-
-            guard let selectedSkillID = candidateSkillIDs.first else {
-                throw MagicianError(
-                    code: .intentParseFailed,
-                    userMessage: "当前命令找不到可执行 skill。",
-                    debugMessage: "skill candidates empty",
-                    recoverAction: "retry_command"
-                )
-            }
-
-            _ = try await executeKernelTool(
-                .skillLoadMin,
-                input: ["skill_ids": Array(candidateSkillIDs.prefix(3))],
-                context: context
+            let stepInput = enrichedStepInput(
+                currentStep.input,
+                context: context,
+                objective: currentStep.objective
             )
+            let executionDecision: MagicianExecutionDecisionV3
+            if let fastPlanMatch, currentStep.skillHint != nil {
+                _ = fastPlanMatch
+                executionDecision = MagicianExecutionDecisionV3(
+                    action: .useSkill,
+                    featureHint: currentStep.featureHint,
+                    skillID: currentStep.skillHint,
+                    skillInput: stepInput,
+                    command: nil,
+                    appleScriptLines: [],
+                    outputText: nil,
+                    userMessage: nil
+                )
+            } else {
+                executionDecision = try await buildExecutionDecision(
+                    context: context,
+                    plan: plan,
+                    currentStep: currentStep
+                )
+            }
 
-            var invokeOutcome: MagicianKernelToolOutcomeV3?
+            var invokeResult: MagicianSkillInvokeResultV3?
             var verifyOutcome: MagicianKernelToolOutcomeV3?
             var stepError: Error?
             let maxAttempts = 3
             for attempt in 1...maxAttempts {
                 do {
-                    let stepInput = enrichedStepInput(
-                        currentStep.input,
-                        context: context,
-                        objective: currentStep.objective
-                    )
-                    invokeOutcome = try await executeKernelTool(
-                        .skillInvoke,
-                        input: [
-                            "skill_id": selectedSkillID,
-                            "input": stepInput
-                        ],
+                    invokeResult = try await executeDecision(
+                        executionDecision,
+                        currentStep: currentStep,
+                        input: stepInput,
                         context: context
                     )
                     verifyOutcome = try await executeKernelTool(
@@ -2265,7 +3142,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             if let stepError {
                 throw stepError
             }
-            guard let invokeOutcome, let verifyOutcome else {
+            guard let invokeResult, let verifyOutcome else {
                 throw MagicianError(
                     code: .toolExecutionFailed,
                     userMessage: "步骤执行失败，请重试。",
@@ -2278,7 +3155,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 MagicianAgentRuntimeEvent(
                     name: .stepFinished,
                     state: .observing,
-                    message: "\(invokeOutcome.message) | \(verifyOutcome.message)",
+                    message: "\(invokeResult.execution.userMessage) | \(verifyOutcome.message)",
                     progressHint: SessionHUDProgressHint.workflowStep(index: stepCursor + 1, totalSteps: totalStepsHint),
                     stepIndex: stepCursor + 1,
                     totalSteps: totalStepsHint
@@ -2286,7 +3163,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             )
 
             if fastPlanMatch != nil {
-                finalMessage = invokeOutcome.message
+                finalMessage = invokeResult.execution.userMessage
                 plan.todo = buildTodoState(base: plan.todo, currentIndex: stepCursor + 1)
                 _ = try await executeKernelTool(
                     .todoUpdate,
@@ -2556,11 +3433,28 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 MagicianIntentPlanStepV3(
                     id: "step-1",
                     objective: objective,
+                    featureHint: contextFeatureID(for: skillID),
                     skillHint: skillID,
                     input: input
                 )
             ]
         )
+    }
+
+    private func contextFeatureID(for skillID: String) -> MagicianFeatureID? {
+        if let manifest = MagicianSkillCatalogV3(enabledFeatures: Set(MagicianFeatureID.allCases)).manifest(for: skillID) {
+            return manifest.featureID
+        }
+        if let operation = FeishuCanonicalOperation(rawValue: skillID) {
+            _ = operation
+            return .feishuCLI
+        }
+        switch skillID {
+        case "shell.command.run", "core.reason.respond", "text.transform":
+            return .textTransform
+        default:
+            return nil
+        }
     }
 
     private func fastNormalizedMusicQuery(from command: String) -> String? {
@@ -2658,16 +3552,15 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         {
           "goal":"string",
           "todo":[{"id":"1","text":"...","status":"pending"}],
-          "steps":[{"id":"step-1","objective":"...","skill_id":"optional","input":{}}]
+          "steps":[{"id":"step-1","objective":"...","feature_id":"optional","input":{}}]
         }
         约束：
         1) steps 必须按执行顺序排列。
         2) 每个 step 只做一件事。
-        3) 纯文本理解/解释/翻译/总结优先使用 skill_id: "core.reason.respond"。
-        4) 当步骤需要写入编辑器或剪贴板时，使用 skill_id: "text.transform"。
-        5) 只有外部动作才使用 apple.* 或 feishu_* skill。
-        6) status 仅允许 pending / in_progress / completed。
-        7) 如果步骤无法匹配现成 skill，且本质是本机命令执行，使用 skill_id: "shell.command.run"，并在 input.command 给出完整命令。
+        3) 这里不要替步骤决定具体 skill，不要默认往 skill catalog 里塞 skill_id。
+        4) feature_id 只用于标注步骤归属，可选值：text_transform / compose_email_draft / create_note / create_event / control_music / feishu_cli。
+        5) status 仅允许 pending / in_progress / completed。
+        6) 文本中间步骤只描述目标，不要把“调用某个 skill”写进 objective。
         """
         let user = """
         command:
@@ -2679,8 +3572,8 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         focus_app:
         \(context.request.focusContext.appName)
 
-        enabled_skill_domain_index_level_1:
-        \(context.catalog.domainTier1Summary())
+        capability_index:
+        \(context.catalog.searchIndexSummary(maxSkillIDsPerDomain: 8))
         """
         let raw = try await llmClient.generate(
             systemPrompt: system,
@@ -2708,13 +3601,14 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                     continue
                 }
                 let id = stringValue(map["id"]) ?? "step-\(index + 1)"
-                let skillHint = stringValue(map["skill_id"])
+                let featureHint = parseFeatureHint(stringValue(map["feature_id"]))
                 let input = map["input"] as? [String: Any] ?? [:]
                 steps.append(
                     MagicianIntentPlanStepV3(
                         id: id,
                         objective: objective,
-                        skillHint: skillHint,
+                        featureHint: featureHint,
+                        skillHint: nil,
                         input: input
                     )
                 )
@@ -2749,7 +3643,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         {
           "decision":"continue|done",
           "final_message":"optional",
-          "append_step":{"id":"step-x","objective":"...","skill_id":"optional","input":{}}
+          "append_step":{"id":"step-x","objective":"...","feature_id":"optional","input":{}}
         }
         append_step 仅在需要新增一步时返回，否则填 null。
         """
@@ -2795,7 +3689,8 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             appendedStep = MagicianIntentPlanStepV3(
                 id: stepID,
                 objective: objective,
-                skillHint: stringValue(appendMap["skill_id"]),
+                featureHint: parseFeatureHint(stringValue(appendMap["feature_id"])),
+                skillHint: nil,
                 input: appendMap["input"] as? [String: Any] ?? [:]
             )
         }
@@ -2804,6 +3699,315 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             finalMessage: finalMessage,
             appendedStep: appendedStep
         )
+    }
+
+    private func buildExecutionDecision(
+        context: MagicianKernelRuntimeContextV3,
+        plan: MagicianIntentPlanV3,
+        currentStep: MagicianIntentPlanStepV3
+    ) async throws -> MagicianExecutionDecisionV3 {
+        let stepInput = enrichedStepInput(
+            currentStep.input,
+            context: context,
+            objective: currentStep.objective
+        )
+        let system = """
+        你是魔术先生 Agent 的执行决策模型。
+        你负责决定“当前这一步怎么做”，不是重做总计划。
+
+        只输出 JSON：
+        {
+          "action":"run_shell|run_applescript|use_skill|finish",
+          "feature_id":"optional",
+          "skill_id":"optional",
+          "skill_input":{},
+          "command":"optional",
+          "applescript_lines":["optional"],
+          "output_text":"optional",
+          "user_message":"optional"
+        }
+
+        规则：
+        1) 先自己思考，再决定要不要用 skill。
+        2) skill catalog 只是工具目录，不是脑子；不要为了用 skill 而用 skill。
+        3) Feishu 相关动作优先考虑现有 feishu_* skill。
+        4) 纯文本中间步骤，如果你已经能直接给出结果，就用 finish，并在 output_text 返回结果。
+        5) 本机命令执行优先用 run_shell；macOS UI 自动化优先用 run_applescript。
+        6) feature_id 可选值：text_transform / compose_email_draft / create_note / create_event / control_music / feishu_cli。
+        7) 如果 action=use_skill，skill_id 必须来自 capability_index。
+        8) 不要输出任何解释文字。
+        """
+        let user = """
+        goal:
+        \(plan.goal)
+
+        current_step:
+        \(currentStep.objective)
+
+        current_step_feature_hint:
+        \(currentStep.featureHint?.rawValue ?? "")
+
+        spoken_command:
+        \(context.request.command)
+
+        selected_text:
+        \(context.request.selectionSnapshot?.selectedText ?? "")
+
+        step_input_json:
+        \(safeJSONString(stepInput) ?? "{}")
+
+        capability_index:
+        \(context.catalog.searchIndexSummary(maxSkillIDsPerDomain: 8))
+
+        agent_guide:
+        \(agentGuideMarkdown)
+
+        dynamic_environment:
+        \(dynamicAgentEnvironmentSnapshot(for: context.request.focusContext))
+        """
+        let raw = try await llmClient.generate(
+            systemPrompt: system,
+            userPrompt: user,
+            temperature: 0,
+            maxOutputTokens: 720
+        )
+        guard let object = parseJSONObject(raw) else {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "执行决策失败，请重试。",
+                debugMessage: raw,
+                recoverAction: "retry_command"
+            )
+        }
+        let action = MagicianExecutionActionKindV3(
+            rawValue: (stringValue(object["action"]) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        ) ?? .finish
+        let featureHint = parseFeatureHint(stringValue(object["feature_id"])) ?? currentStep.featureHint
+        let skillInput = object["skill_input"] as? [String: Any] ?? [:]
+        let appleScriptLines = stringArrayValue(object["applescript_lines"]) ?? []
+        return MagicianExecutionDecisionV3(
+            action: action,
+            featureHint: featureHint,
+            skillID: stringValue(object["skill_id"]),
+            skillInput: skillInput,
+            command: stringValue(object["command"]),
+            appleScriptLines: appleScriptLines,
+            outputText: stringValue(object["output_text"]),
+            userMessage: stringValue(object["user_message"])
+        )
+    }
+
+    private func executeDecision(
+        _ decision: MagicianExecutionDecisionV3,
+        currentStep: MagicianIntentPlanStepV3,
+        input: [String: Any],
+        context: MagicianKernelRuntimeContextV3
+    ) async throws -> MagicianSkillInvokeResultV3 {
+        let invoked: MagicianSkillInvokeResultV3
+        switch decision.action {
+        case .useSkill:
+            let skillID = try resolvedSkillID(for: decision, currentStep: currentStep, context: context)
+            let mergedInput = input.merging(decision.skillInput) { _, rhs in rhs }
+            if context.catalog.manifest(for: skillID) != nil {
+                _ = try await executeKernelTool(
+                    .skillLoadMin,
+                    input: ["skill_ids": [skillID]],
+                    context: context
+                )
+            }
+            invoked = try await skillRuntime.invoke(
+                skillID: skillID,
+                input: mergedInput,
+                request: context.request,
+                context: context
+            )
+            context.loadedCards.removeAll(keepingCapacity: true)
+        case .runShell:
+            let command = decision.command?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !command.isEmpty else {
+                throw MagicianError(
+                    code: .intentParseFailed,
+                    userMessage: "执行决策没有给出 shell command。",
+                    debugMessage: "run_shell without command",
+                    recoverAction: "retry_command"
+                )
+            }
+            invoked = try await skillRuntime.invoke(
+                skillID: "shell.command.run",
+                input: input.merging([
+                    "command": command,
+                    "objective": currentStep.objective
+                ]) { _, rhs in rhs },
+                request: context.request,
+                context: context
+            )
+        case .runAppleScript:
+            guard !decision.appleScriptLines.isEmpty else {
+                throw MagicianError(
+                    code: .intentParseFailed,
+                    userMessage: "执行决策没有给出 AppleScript。",
+                    debugMessage: "run_applescript without script",
+                    recoverAction: "retry_command"
+                )
+            }
+            invoked = try await executeInlineAppleScript(
+                decision.appleScriptLines,
+                currentStep: currentStep,
+                featureHint: decision.featureHint
+            )
+        case .finish:
+            let output = decision.outputText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !output.isEmpty else {
+                throw MagicianError(
+                    code: .toolExecutionFailed,
+                    userMessage: "执行决策没有产出有效文本。",
+                    debugMessage: "finish action empty output",
+                    recoverAction: "retry_command"
+                )
+            }
+            let featureID = decision.featureHint ?? currentStep.featureHint ?? .textTransform
+            let observation = MagicianAgentObservation(
+                verificationStatus: .verified,
+                targetSummary: currentStep.objective,
+                evidenceSummary: "agent.finish chars=\(output.count)"
+            )
+            invoked = MagicianSkillInvokeResultV3(
+                execution: MagicianExecutionResult(
+                    intent: featureID,
+                    userMessage: decision.userMessage ?? "步骤已完成",
+                    outputText: output,
+                    historyDisplayText: summarizedHistoryText(output),
+                    fallbackUsed: false,
+                    observation: observation
+                ),
+                skillID: "agent.finish",
+                evidence: observation.evidenceSummary ?? "agent.finish"
+            )
+        }
+
+        try enforceHardEvidence(for: invoked)
+        context.lastSkillResult = invoked
+        context.stepRecords.append(
+            MagicianAgentStepRecord(
+                id: currentStep.id,
+                featureID: invoked.execution.intent,
+                instruction: currentStep.objective,
+                userMessage: invoked.execution.userMessage,
+                outputText: invoked.execution.outputText,
+                observation: invoked.execution.observation
+            )
+        )
+        context.transcript.append(
+            """
+            step=\(currentStep.objective)
+            action=\(decision.action.rawValue)
+            message=\(invoked.execution.userMessage)
+            evidence=\(invoked.evidence)
+            """
+        )
+        return invoked
+    }
+
+    private func resolvedSkillID(
+        for decision: MagicianExecutionDecisionV3,
+        currentStep: MagicianIntentPlanStepV3,
+        context: MagicianKernelRuntimeContextV3
+    ) throws -> String {
+        if let skillID = decision.skillID?.trimmingCharacters(in: .whitespacesAndNewlines), !skillID.isEmpty {
+            guard context.catalog.manifest(for: skillID) != nil else {
+                throw MagicianError(
+                    code: .intentParseFailed,
+                    userMessage: "执行决策引用了不存在的 skill。",
+                    debugMessage: "unknown skill id: \(skillID)",
+                    recoverAction: "retry_command"
+                )
+            }
+            return skillID
+        }
+        if let hinted = currentStep.skillHint, context.catalog.manifest(for: hinted) != nil {
+            return hinted
+        }
+        throw MagicianError(
+            code: .intentParseFailed,
+            userMessage: "执行决策没有给出 skill。",
+            debugMessage: "use_skill without skill id",
+            recoverAction: "retry_command"
+        )
+    }
+
+    private func executeInlineAppleScript(
+        _ lines: [String],
+        currentStep: MagicianIntentPlanStepV3,
+        featureHint: MagicianFeatureID?
+    ) async throws -> MagicianSkillInvokeResultV3 {
+        let process = await runOsaScript(lines: lines, arguments: [])
+        guard process.exitCode == 0 else {
+            throw MagicianError(
+                code: .toolExecutionFailed,
+                userMessage: "AppleScript 执行失败。",
+                debugMessage: process.detail,
+                recoverAction: "retry_command"
+            )
+        }
+        let evidence = process.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        let featureID = featureHint ?? .textTransform
+        let observation = MagicianAgentObservation(
+            verificationStatus: .verified,
+            targetSummary: currentStep.objective,
+            evidenceSummary: evidence.isEmpty ? "osascript exit=0" : evidence
+        )
+        return MagicianSkillInvokeResultV3(
+            execution: MagicianExecutionResult(
+                intent: featureID,
+                userMessage: "AppleScript 已执行",
+                outputText: evidence.isEmpty ? nil : evidence,
+                historyDisplayText: "AppleScript：\(currentStep.objective)",
+                fallbackUsed: false,
+                observation: observation
+            ),
+            skillID: "agent.run_applescript",
+            evidence: observation.evidenceSummary ?? "osascript exit=0"
+        )
+    }
+
+    private func dynamicAgentEnvironmentSnapshot(for focusContext: FocusedAppContext) -> String {
+        let processInfo = ProcessInfo.processInfo
+        let currentDirectory = FileManager.default.currentDirectoryPath
+        let developerDir = processInfo.environment["DEVELOPER_DIR"] ?? "/Applications/Xcode.app/Contents/Developer"
+        let commands = ["zsh", "osascript", "git", "xcodebuild", "python3", "node", "npm", "feishu", "lark-cli"]
+            .map { name in
+                if let path = resolvedExecutablePath(named: name) {
+                    return "\(name): exists @ \(path)"
+                }
+                return "\(name): missing"
+            }
+            .joined(separator: "\n")
+        return """
+        frontmost_app: \(focusContext.appName)
+        frontmost_bundle: \(focusContext.bundleID)
+        current_directory: \(currentDirectory)
+        developer_dir: \(developerDir)
+        executables:
+        \(commands)
+        """
+    }
+
+    private func resolvedExecutablePath(named command: String) -> String? {
+        let environmentPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
+        for directory in environmentPath.split(separator: ":") {
+            let path = String(directory) + "/" + command
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+        return nil
+    }
+
+    private func parseFeatureHint(_ raw: String?) -> MagicianFeatureID? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        return MagicianFeatureID(rawValue: raw)
     }
 
     private func executeKernelTool(
@@ -2827,18 +4031,6 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             context.roundsSinceTodo = 0
         } else {
             context.roundsSinceTodo += 1
-        }
-        if let featureID = outcome.featureID {
-            context.stepRecords.append(
-                MagicianAgentStepRecord(
-                    id: "step-\(context.stepRecords.count + 1)",
-                    featureID: featureID,
-                    instruction: tool.rawValue,
-                    userMessage: outcome.message,
-                    outputText: outcome.outputText,
-                    observation: outcome.observation
-                )
-            )
         }
         return outcome
     }
@@ -3223,7 +4415,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
     }
 
     private func requiresMailEvidence(for result: MagicianSkillInvokeResultV3) -> Bool {
-        result.skillID.hasPrefix("apple.mail.") || result.skillID == MagicianFeatureID.composeEmailDraft.rawValue
+        result.skillID == "apple.mail.send"
     }
 
     private func hasMailEvidence(for result: MagicianSkillInvokeResultV3) -> Bool {
@@ -3272,6 +4464,16 @@ private func parseJSONObject(_ raw: String) -> [String: Any]? {
         return nil
     }
     return object
+}
+
+private func safeJSONString(_ raw: Any) -> String? {
+    guard JSONSerialization.isValidJSONObject(raw) else {
+        return nil
+    }
+    guard let data = try? JSONSerialization.data(withJSONObject: raw, options: [.sortedKeys]) else {
+        return nil
+    }
+    return String(data: data, encoding: .utf8)
 }
 
 private func parseTodoItems(_ raw: Any?) -> [MagicianTodoItemV3] {

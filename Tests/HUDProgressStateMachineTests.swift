@@ -219,15 +219,19 @@ final class HUDProgressStateMachineTests: XCTestCase {
     func testCompletionMessageResolverNormalizesMagicianSuccessMessages() {
         XCTAssertEqual(
             StatusPulseHUDMessageResolver.completionTitle(for: "已通过 mailto 打开邮件草稿。"),
-            "邮件已起草，待你确认"
+            "邮件窗口已打开，请你确认"
         )
         XCTAssertEqual(
             StatusPulseHUDMessageResolver.completionTitle(for: "邮件已发送"),
             "邮件已发出"
         )
         XCTAssertEqual(
-            StatusPulseHUDMessageResolver.completionTitle(for: "邮箱目标不够明确，已打开草稿窗"),
-            "邮箱目标不够明确，已打开草稿窗"
+            StatusPulseHUDMessageResolver.completionTitle(for: "邮件已填入，待你确认"),
+            "邮件已填入，待你确认"
+        )
+        XCTAssertEqual(
+            StatusPulseHUDMessageResolver.completionTitle(for: "邮件窗口已打开，请你确认"),
+            "邮件窗口已打开，请你确认"
         )
         XCTAssertEqual(
             StatusPulseHUDMessageResolver.completionTitle(for: "已提交到备忘录快捷指令。"),

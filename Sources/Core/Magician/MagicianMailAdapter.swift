@@ -224,11 +224,8 @@ struct MagicianMailAdapter: MagicianMailExecuting {
         intent: MagicianIntent,
         context: MagicianExecutionContext
     ) async throws -> MagicianExecutionResult {
-        let initialSubject = resolvedSubject(intent: intent, context: context)
-        let initialBody = resolvedBody(intent: intent, context: context)
-        let summary = await summarizedDraft(subject: initialSubject, body: initialBody)
-        let subject = summary.title
-        let body = summary.body
+        let subject = resolvedSubject(intent: intent, context: context)
+        let body = resolvedBody(intent: intent, context: context)
         let resolution = await recipientResolver.resolve(
             command: context.command,
             selection: context.selectedText,
@@ -272,7 +269,6 @@ struct MagicianMailAdapter: MagicianMailExecuting {
                         subject: subject,
                         body: body,
                         resolution: resolution,
-                        deliveryMode: intent.params.mailDeliveryMode,
                         shouldSend: shouldSend,
                         fallbackUsed: false,
                         evidence: evidence
@@ -288,12 +284,18 @@ struct MagicianMailAdapter: MagicianMailExecuting {
                         subject: subject,
                         body: body,
                         resolution: resolution,
-                        deliveryMode: intent.params.mailDeliveryMode,
                         shouldSend: false,
                         fallbackUsed: false,
                         evidence: evidence
                     )
                 }
+                return buildDraftWindowOpenedResult(
+                    subject: subject,
+                    body: body,
+                    resolution: resolution,
+                    fallbackUsed: false,
+                    evidenceSummary: "Mail 草稿窗口已打开，但未返回完整草稿证据。"
+                )
             }
 
             if shouldSend {
@@ -301,11 +303,12 @@ struct MagicianMailAdapter: MagicianMailExecuting {
             }
 
             if fallbackOpener.openDraft(recipients: recipients, subject: subject, body: body) {
-                throw MagicianError(
-                    code: .toolExecutionFailed,
-                    userMessage: "邮件窗口可能已打开，但缺少可核验结果，已判定失败。",
-                    debugMessage: "mail fallback opened without structured evidence; stdout=\(scriptResult.stdout) stderr=\(scriptResult.stderr)",
-                    recoverAction: "retry_command"
+                return buildDraftWindowOpenedResult(
+                    subject: subject,
+                    body: body,
+                    resolution: resolution,
+                    fallbackUsed: true,
+                    evidenceSummary: "Mail fallback 已打开邮件窗口，请确认收件人、标题和正文。"
                 )
             }
 
@@ -330,11 +333,12 @@ struct MagicianMailAdapter: MagicianMailExecuting {
             )
         }
 
-        throw MagicianError(
-            code: .toolExecutionFailed,
-            userMessage: "邮件窗口可能已打开，但缺少可核验结果，已判定失败。",
-            debugMessage: "mail fallback opened without structured evidence; mail app unavailable",
-            recoverAction: "retry_command"
+        return buildDraftWindowOpenedResult(
+            subject: subject,
+            body: body,
+            resolution: resolution,
+            fallbackUsed: true,
+            evidenceSummary: "mailto 已打开邮件窗口，请确认收件人、标题和正文。"
         )
     }
 
@@ -394,34 +398,21 @@ struct MagicianMailAdapter: MagicianMailExecuting {
         subject: String,
         body: String,
         resolution: MailRecipientResolution,
-        deliveryMode: MagicianMailDeliveryMode?,
         shouldSend: Bool,
         fallbackUsed: Bool,
         evidence: MailScriptEvidence
     ) -> MagicianExecutionResult {
         let historyText: String
-        let message: String
         if shouldSend {
             let target = resolution.primaryRecipient?.address ?? "未填写收件人"
             historyText = "已发送邮件：\(summarizedHistoryText(subject)) -> \(target)"
-            message = "邮件已发出"
         } else {
             historyText = "邮件待确认：\(summarizedHistoryText(subject))"
-            if
-                deliveryMode == .autoSendIfResolved,
-                resolution.primaryRecipient == nil
-                    || resolution.isAmbiguous
-                    || !resolution.unresolvedHints.isEmpty
-            {
-                message = "邮箱目标不够明确，已打开草稿窗"
-            } else {
-                message = "邮件已起草，待你确认"
-            }
         }
 
         return MagicianExecutionResult(
             intent: .composeEmailDraft,
-            userMessage: message,
+            userMessage: shouldSend ? "邮件已发出" : "邮件已填入，待你确认",
             outputText: "标题：\(subject)\n正文：\(body)\n\(evidence.evidenceSummary)",
             historyDisplayText: historyText,
             fallbackUsed: fallbackUsed,
@@ -429,6 +420,29 @@ struct MagicianMailAdapter: MagicianMailExecuting {
                 verificationStatus: .verified,
                 targetSummary: resolution.primaryRecipient?.address,
                 evidenceSummary: evidence.evidenceSummary,
+                autoRepairApplied: fallbackUsed
+            )
+        )
+    }
+
+    private func buildDraftWindowOpenedResult(
+        subject: String,
+        body: String,
+        resolution: MailRecipientResolution,
+        fallbackUsed: Bool,
+        evidenceSummary: String
+    ) -> MagicianExecutionResult {
+        let historyText = "邮件待确认：\(summarizedHistoryText(subject))"
+        return MagicianExecutionResult(
+            intent: .composeEmailDraft,
+            userMessage: "邮件窗口已打开，请你确认",
+            outputText: "标题：\(subject)\n正文：\(body)",
+            historyDisplayText: historyText,
+            fallbackUsed: fallbackUsed,
+            observation: MagicianAgentObservation(
+                verificationStatus: .assumed,
+                targetSummary: resolution.primaryRecipient?.address,
+                evidenceSummary: evidenceSummary,
                 autoRepairApplied: fallbackUsed
             )
         )
