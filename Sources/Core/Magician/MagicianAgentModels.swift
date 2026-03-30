@@ -1487,9 +1487,13 @@ private final class MagicianSkillRouterV3 {
         catalog: MagicianSkillCatalogV3,
         preferredCount: Int? = nil
     ) async -> [MagicianSkillSearchCandidateV3] {
+        let rule = ruleSearch(query: query, catalog: catalog)
         let lexical = lexicalSearch(query: query, catalog: catalog)
         let model = await modelSearch(query: query, catalog: catalog)
         var scoreMap: [String: Double] = [:]
+        for candidate in rule {
+            scoreMap[candidate.skillID] = max(scoreMap[candidate.skillID] ?? 0, candidate.score)
+        }
         for candidate in lexical {
             scoreMap[candidate.skillID] = max(scoreMap[candidate.skillID] ?? 0, candidate.score)
         }
@@ -1508,6 +1512,102 @@ private final class MagicianSkillRouterV3 {
                     reason: "router_score"
                 )
             }
+    }
+
+    private func ruleSearch(
+        query: String,
+        catalog: MagicianSkillCatalogV3
+    ) -> [MagicianSkillSearchCandidateV3] {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else {
+            return []
+        }
+
+        var matchedIDs: [String] = []
+        func appendIfExists(_ skillID: String?) {
+            guard
+                let skillID,
+                catalog.manifest(for: skillID) != nil,
+                !matchedIDs.contains(skillID)
+            else {
+                return
+            }
+            matchedIDs.append(skillID)
+        }
+
+        if
+            containsAny(normalized, tokens: ["飞书", "feishu", "lark"])
+                || FeishuCanonicalOperation.allCases.contains(where: {
+                    normalized.contains($0.rawValue.lowercased())
+                })
+        {
+            appendIfExists(FeishuCanonicalOperation.infer(from: normalized)?.rawValue)
+        }
+
+        if containsAny(normalized, tokens: ["音乐", "歌曲", "music", "播放", "暂停", "下一首", "上一首", "继续"]) {
+            if containsAny(normalized, tokens: ["暂停", "pause", "停止播放", "停一下"]) {
+                appendIfExists("apple.music.pause")
+            } else if containsAny(normalized, tokens: ["下一首", "下一曲", "next", "skip"]) {
+                appendIfExists("apple.music.next_track")
+            } else if containsAny(normalized, tokens: ["上一首", "上一曲", "previous", "back"]) {
+                appendIfExists("apple.music.previous_track")
+            } else if containsAny(normalized, tokens: ["继续", "恢复", "resume", "继续播放"]) {
+                appendIfExists("apple.music.resume")
+            } else {
+                let hasQueryHint = containsAny(
+                    normalized,
+                    tokens: ["《", "》", "歌单", "专辑", "歌手", "歌曲", "playlist", "album", "artist", " by ", "的"]
+                ) || normalized.count >= 8
+                appendIfExists(hasQueryHint ? "apple.music.play_query" : "apple.music.play")
+            }
+        }
+
+        if containsAny(normalized, tokens: ["邮件", "mail", "email", "收件人", "主题", "抄送", "草稿"]) {
+            if containsAny(normalized, tokens: ["发送", "发出", "send"]) && !containsAny(normalized, tokens: ["草稿", "draft"]) {
+                appendIfExists("apple.mail.send")
+            } else if containsAny(normalized, tokens: ["联系人", "找人", "收件人是谁", "resolve recipient"]) {
+                appendIfExists("apple.mail.resolve_recipient")
+            } else {
+                appendIfExists("apple.mail.compose")
+            }
+        }
+
+        if containsAny(normalized, tokens: ["日程", "会议", "calendar", "event", "行程", "安排", "提醒"]) {
+            if containsAny(normalized, tokens: ["查询", "查找", "看看", "有没有", "find", "search", "list"]) {
+                appendIfExists("apple.calendar.find_event")
+            } else if containsAny(normalized, tokens: ["更新", "改到", "推迟", "提前", "调整", "变更", "update", "reschedule"]) {
+                appendIfExists("apple.calendar.update_event")
+            } else {
+                appendIfExists("apple.calendar.create_event")
+            }
+        }
+
+        if containsAny(normalized, tokens: ["备忘录", "note", "笔记"]) {
+            if containsAny(normalized, tokens: ["追加", "补充", "加到", "append"]) {
+                appendIfExists("apple.notes.append_note")
+            } else if containsAny(normalized, tokens: ["查找", "查询", "搜索", "find", "search"]) {
+                appendIfExists("apple.notes.find_note")
+            } else {
+                appendIfExists("apple.notes.create_note")
+            }
+        }
+
+        if containsAny(normalized, tokens: ["翻译", "润色", "改写", "总结", "提炼", "rewrite", "summarize", "translate"]) {
+            appendIfExists("text.transform")
+        }
+
+        let base = 0.97
+        return matchedIDs.enumerated().map { index, skillID in
+            MagicianSkillSearchCandidateV3(
+                skillID: skillID,
+                score: max(0.6, base - (Double(index) * 0.08)),
+                reason: "rule_match"
+            )
+        }
+    }
+
+    private func containsAny(_ value: String, tokens: [String]) -> Bool {
+        tokens.contains { value.contains($0) }
     }
 
     private func lexicalSearch(
@@ -2272,7 +2372,11 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             return true
         }
 
-        let textKeywords = ["翻译", "润色", "改写", "精简", "整理", "translate", "polish", "rewrite", "summarize"]
+        let textKeywords = [
+            "翻译", "翻成", "翻到", "润色", "改写", "精简", "整理", "总结", "提炼", "扩写",
+            "简化", "简洁", "纠错", "错别字", "语法", "语气", "优化措辞", "改得更", "改成更",
+            "translate", "polish", "rewrite", "summarize", "paraphrase"
+        ]
         let toolKeywords = [
             "日程", "会议", "calendar", "event", "备忘录", "note",
             "邮件", "mail", "email", "音乐", "播放", "暂停", "下一首", "上一首",
