@@ -22,7 +22,7 @@ enum DesktopSection: String, CaseIterable, Identifiable {
         case .dictionary:
             return "词典"
         case .skills:
-            return "Skill"
+            return "Now you see me"
         case .model:
             return "模型"
         case .magician:

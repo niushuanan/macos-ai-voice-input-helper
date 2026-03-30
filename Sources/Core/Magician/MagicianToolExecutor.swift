@@ -1045,25 +1045,7 @@ private struct MagicianMusicAdapter {
     }
 
     private func musicEvidenceMatchesQuery(output: String, query: String) -> Bool {
-        guard let range = output.range(of: "track=") else {
-            return false
-        }
-        let payload = String(output[range.upperBound...]).lowercased()
-        let normalizedQuery = query
-            .lowercased()
-            .replacingOccurrences(of: "[《》“”‘’\"'·•\\s]+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedQuery.isEmpty else {
-            return true
-        }
-        let terms = normalizedQuery
-            .split(separator: " ")
-            .map(String.init)
-            .filter { $0.count >= 2 }
-        if terms.isEmpty {
-            return payload.contains(normalizedQuery)
-        }
-        return terms.allSatisfy { payload.contains($0) }
+        magicianMusicEvidenceMatchesQuery(output: output, query: query)
     }
 
     private func runPlayAction(query: String) async -> MagicianProcessResult {
@@ -1183,4 +1165,46 @@ func magicianMusicSearchQueries(from rawQuery: String) -> [String] {
         .forEach { appendCandidate($0) }
 
     return candidates
+}
+
+func magicianMusicEvidenceMatchesQuery(output: String, query: String) -> Bool {
+    guard let range = output.range(of: "track=") else {
+        return false
+    }
+    let payload = String(output[range.upperBound...])
+    let normalizedPayload = normalizedMusicMatchText(payload)
+    guard !normalizedPayload.isEmpty else {
+        return false
+    }
+
+    var candidateQueries = magicianMusicSearchQueries(from: query)
+    candidateQueries.append(query)
+    for candidate in candidateQueries {
+        let normalizedCandidate = normalizedMusicMatchText(candidate)
+        guard !normalizedCandidate.isEmpty else {
+            continue
+        }
+        if normalizedPayload.contains(normalizedCandidate) {
+            return true
+        }
+        let candidateTerms = normalizedMusicCandidateTerms(from: normalizedCandidate)
+        if !candidateTerms.isEmpty && candidateTerms.allSatisfy({ normalizedPayload.contains($0) }) {
+            return true
+        }
+    }
+    return false
+}
+
+private func normalizedMusicCandidateTerms(from value: String) -> [String] {
+    value
+        .split(separator: "的")
+        .map(String.init)
+        .filter { $0.count >= 2 }
+}
+
+private func normalizedMusicMatchText(_ value: String) -> String {
+    value
+        .lowercased()
+        .replacingOccurrences(of: "[\\p{P}\\p{S}\\s]+", with: "", options: .regularExpression)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
 }

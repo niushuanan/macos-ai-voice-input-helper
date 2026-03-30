@@ -15,4 +15,22 @@ final class MagicianMusicQueryTests: XCTestCase {
 
         XCTAssertEqual(queries, ["稻香"])
     }
+
+    func testEvidenceMatchAcceptsQueryWithActionTokens() {
+        XCTAssertTrue(
+            magicianMusicEvidenceMatchesQuery(
+                output: "track=稻香|artist=周杰伦",
+                query: "播放周杰伦的稻香"
+            )
+        )
+    }
+
+    func testEvidenceMatchRejectsUnrelatedTrack() {
+        XCTAssertFalse(
+            magicianMusicEvidenceMatchesQuery(
+                output: "track=七里香|artist=周杰伦",
+                query: "播放周杰伦的稻香"
+            )
+        )
+    }
 }
