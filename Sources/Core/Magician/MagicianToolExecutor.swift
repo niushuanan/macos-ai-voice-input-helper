@@ -849,14 +849,28 @@ private struct MagicianMusicAdapter {
         }
 
         let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        if case let .play(query?) = action {
+            guard output.hasPrefix("track=") else {
+                throw MagicianError(
+                    code: .musicControlFailed,
+                    userMessage: "音乐已触发播放，但没拿到曲目证据，请重试。",
+                    debugMessage: "music output missing track evidence; query=\(query); output=\(output)",
+                    recoverAction: "retry_command"
+                )
+            }
+            if !musicEvidenceMatchesQuery(output: output, query: query) {
+                throw MagicianError(
+                    code: .musicControlFailed,
+                    userMessage: "当前播放曲目与请求不一致，已判定失败。",
+                    debugMessage: "query=\(query) output=\(output)",
+                    recoverAction: "retry_command"
+                )
+            }
+        }
         let evidence = output.isEmpty ? "Music action done" : output
         let verificationStatus: MagicianAgentVerificationStatus
         if case .play = action {
-            if case let .play(query?) = action, output.hasPrefix("track=") {
-                verificationStatus = musicEvidenceMatchesQuery(output: output, query: query) ? .verified : .assumed
-            } else {
-                verificationStatus = output.hasPrefix("track=") ? .verified : .assumed
-            }
+            verificationStatus = output.hasPrefix("track=") ? .verified : .assumed
         } else {
             verificationStatus = .verified
         }

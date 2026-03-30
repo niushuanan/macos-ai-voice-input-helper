@@ -1232,10 +1232,15 @@ private struct MagicianAgentTextBackend {
 
     private func resolvedWritebackTarget(for request: MagicianAgentRequest) -> WritebackTargetSnapshot? {
         if let selectionSnapshot = request.selectionSnapshot {
+            let bundleID = selectionSnapshot.focusContext.bundleID
+            let pid = NSRunningApplication
+                .runningApplications(withBundleIdentifier: bundleID)
+                .first?
+                .processIdentifier
             return WritebackTargetSnapshot(
                 appName: selectionSnapshot.focusContext.appName,
-                bundleID: selectionSnapshot.focusContext.bundleID,
-                processIdentifier: nil
+                bundleID: bundleID,
+                processIdentifier: pid
             )
         }
 
@@ -1246,10 +1251,14 @@ private struct MagicianAgentTextBackend {
         else {
             return nil
         }
+        let pid = NSRunningApplication
+            .runningApplications(withBundleIdentifier: request.focusContext.bundleID)
+            .first?
+            .processIdentifier
         return WritebackTargetSnapshot(
             appName: request.focusContext.appName,
             bundleID: request.focusContext.bundleID,
-            processIdentifier: nil
+            processIdentifier: pid
         )
     }
 }

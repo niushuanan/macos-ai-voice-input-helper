@@ -415,6 +415,16 @@ final class InteractionCoordinator {
             return pendingMagicianSelectionSnapshot
         }
 
+        if
+            let warmableCoordinator = textOutputCoordinator as? AccessibilityTextOutputCoordinator,
+            let externalTarget = lastExternalDictationTarget
+        {
+            await warmableCoordinator.prepareForWrite(
+                preferredTarget: externalTarget.snapshot,
+                fallbackFocusContext: externalTarget.focusContext
+            )
+        }
+
         if let capturedSnapshot = await pendingMagicianSelectionCaptureTask?.value {
             pendingMagicianSelectionSnapshot = capturedSnapshot
             pendingMagicianSelectionCaptureTask = nil
@@ -1713,7 +1723,19 @@ final class InteractionCoordinator {
         if abortIfSessionCancelled() {
             return
         }
-        let fallbackFocusContext = selectionSnapshot?.focusContext ?? initialFocusContext
+        let fallbackFocusContext: FocusedAppContext = {
+            if let selectionSnapshot {
+                return selectionSnapshot.focusContext
+            }
+            let selfBundleID = Bundle.main.bundleIdentifier
+            if
+                initialFocusContext.bundleID == selfBundleID,
+                let externalTarget = lastExternalDictationTarget
+            {
+                return externalTarget.focusContext
+            }
+            return initialFocusContext
+        }()
         let commandPreprocessResult = await MagicianCommandSemanticPreprocessor(
             providerSettingsStore: providerSettingsStore,
             rewriteProviderRegistry: rewriteProviderRegistry,

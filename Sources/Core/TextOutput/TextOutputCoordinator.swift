@@ -864,10 +864,6 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             return targetApplication.processIdentifier
         }
 
-        if let frontmost = currentFrontmostApplication() {
-            return frontmost.processIdentifier
-        }
-
         if
             let bundleID = candidateExternalBundleID(
                 resolvedFocusContext: resolvedFocusContext,
@@ -876,6 +872,10 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             let targetApplication = runningApplications(withBundleIdentifier: bundleID).first
         {
             return targetApplication.processIdentifier
+        }
+
+        if let frontmost = currentFrontmostApplication() {
+            return frontmost.processIdentifier
         }
 
         return nil
