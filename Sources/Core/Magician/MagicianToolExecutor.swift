@@ -849,28 +849,14 @@ private struct MagicianMusicAdapter {
         }
 
         let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        if case let .play(query?) = action {
-            guard output.hasPrefix("track=") else {
-                throw MagicianError(
-                    code: .musicControlFailed,
-                    userMessage: "没有找到匹配歌曲，未执行播放。",
-                    debugMessage: output.isEmpty ? "play query output empty" : output,
-                    recoverAction: "retry_command"
-                )
-            }
-            if !musicEvidenceMatchesQuery(output: output, query: query) {
-                throw MagicianError(
-                    code: .musicControlFailed,
-                    userMessage: "当前播放曲目与请求不一致，已停止返回成功。",
-                    debugMessage: "query=\(query) output=\(output)",
-                    recoverAction: "retry_command"
-                )
-            }
-        }
         let evidence = output.isEmpty ? "Music action done" : output
         let verificationStatus: MagicianAgentVerificationStatus
         if case .play = action {
-            verificationStatus = output.hasPrefix("track=") ? .verified : .assumed
+            if case let .play(query?) = action, output.hasPrefix("track=") {
+                verificationStatus = musicEvidenceMatchesQuery(output: output, query: query) ? .verified : .assumed
+            } else {
+                verificationStatus = output.hasPrefix("track=") ? .verified : .assumed
+            }
         } else {
             verificationStatus = .verified
         }
@@ -1077,9 +1063,19 @@ private struct MagicianMusicAdapter {
                     "end repeat",
                     "if targetTrack is not missing value then",
                     "play targetTrack",
-                    "delay 0.1",
+                    "set nowTrack to missing value",
+                    "repeat with retryIdx from 1 to 20",
+                    "try",
                     "set nowTrack to current track",
+                    "exit repeat",
+                    "on error",
+                    "delay 0.12",
+                    "end try",
+                    "end repeat",
+                    "if nowTrack is not missing value then",
                     "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack)",
+                    "end if",
+                    "return \"state=play\"",
                     "end if",
                     "return \"track_not_found\"",
                     "end tell",
@@ -1095,18 +1091,35 @@ private struct MagicianMusicAdapter {
                 return result
             }
             if result.stdout == "lookup_error" {
-                return MagicianProcessResult(
-                    exitCode: 1,
-                    stdout: "",
-                    stderr: "music lookup error for query: \(item)"
-                )
+                continue
             }
         }
 
-        return MagicianProcessResult(
-            exitCode: 1,
-            stdout: "",
-            stderr: "no matched track for query: \(query)"
+        return await runFallbackPlayAction()
+    }
+
+    private func runFallbackPlayAction() async -> MagicianProcessResult {
+        await runOsaScript(
+            lines: [
+                "tell application \"Music\"",
+            ] + magicianEnsureApplicationReadyAppleScriptLines() + [
+                "play",
+                "set nowTrack to missing value",
+                "repeat with retryIdx from 1 to 20",
+                "try",
+                "set nowTrack to current track",
+                "exit repeat",
+                "on error",
+                "delay 0.12",
+                "end try",
+                "end repeat",
+                "if nowTrack is not missing value then",
+                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|fallback=1\"",
+                "end if",
+                "return \"state=play|fallback=1\"",
+                "end tell"
+            ],
+            arguments: []
         )
     }
 }

@@ -365,34 +365,19 @@ struct SettingsView: View {
 
     private var magicianNativeFeatureBoard: some View {
         let textScope = MagicianPermissionScope.textProcessing
+        let appleScope = MagicianPermissionScope.appleNativeApps
         let textResolution = magicianStatusResolver.resolve(
             feature: .textTransform,
             isEnabled: magicianFeatureToggleStore.isEnabled(textScope),
             dependencies: currentMagicianDependencies
         )
-        let appleScope = MagicianPermissionScope.appleNativeApps
-        let appleRows: [(feature: MagicianFeatureID, resolution: MagicianFeatureStatusResolution)] = [
-            .createEvent,
-            .createNote,
-            .composeEmailDraft,
-            .controlMusic
-        ].map { feature in
-            (
-                feature: feature,
-                resolution: magicianStatusResolver.resolve(
-                    feature: feature,
-                    isEnabled: magicianFeatureToggleStore.isEnabled(appleScope),
-                    dependencies: currentMagicianDependencies
-                )
-            )
-        }
 
         return VStack(alignment: .leading, spacing: 8) {
-            Label("原生功能", systemImage: "apple.logo")
+            Text("原生功能")
                 .font(.headline)
-            HStack(alignment: .top, spacing: 12) {
-                Label(textScope.displayName, systemImage: textScope.symbolName)
-                    .font(.headline)
+            HStack(spacing: 12) {
+                Text("文本处理")
+                    .font(.subheadline)
                 Spacer()
                 Toggle(
                     "",
@@ -409,29 +394,9 @@ struct SettingsView: View {
                 .fixedSize()
             }
 
-            Text("长按主键（默认右 Shift）说命令，松开即执行。")
-                .font(.subheadline)
-            Text("有选中时改写选中文本；无选中时可直接当文本命令助手。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text("边界：只写入文本结果，不触发系统动作。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text("示例：无选中说“帮我写一段简短会议结论”。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if let reason = textResolution.reason {
-                Text(reason)
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
-
-            Divider()
-
-            HStack(alignment: .top, spacing: 12) {
-                Label(appleScope.displayName, systemImage: appleScope.symbolName)
-                    .font(.headline)
+            HStack(spacing: 12) {
+                Text("日历 / 备忘录 / 邮件 / 音乐")
+                    .font(.subheadline)
                 Spacer()
                 Toggle(
                     "",
@@ -448,28 +413,15 @@ struct SettingsView: View {
                 .fixedSize()
             }
 
-            Text("覆盖日历、备忘录、邮件、音乐，仅调用本机原生应用。")
+            Text("长按主键（默认右 Shift）说命令，松开执行。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            ForEach(Array(appleRows.enumerated()), id: \.offset) { _, row in
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(row.feature.displayName)
-                            .font(.caption.weight(.semibold))
-                        Text(row.resolution.status.labelText)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    if let reason = row.resolution.reason {
-                        Text(reason)
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
-                    }
-                }
+            if let reason = textResolution.reason {
+                Text(reason)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
             }
-
-            mailAssistantAddressBookSection
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
@@ -478,17 +430,15 @@ struct SettingsView: View {
 
     private var magicianCLIControlCard: some View {
         let scope = MagicianPermissionScope.feishu
-        let descriptor = MagicianFeatureDescriptor.all.first(where: { $0.id == .feishuCLI })!
         let resolution = magicianStatusResolver.resolve(
-            feature: descriptor.id,
+            feature: .feishuCLI,
             isEnabled: magicianFeatureToggleStore.isEnabled(scope),
             dependencies: currentMagicianDependencies
         )
-        let grouped = feishuSupportTierGroups
 
-        return VStack(alignment: .leading, spacing: 10) {
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 12) {
-                Label("外部 Agent 功能", systemImage: "network")
+                Text("skill")
                     .font(.headline)
                 Spacer()
                 Toggle(
@@ -506,14 +456,8 @@ struct SettingsView: View {
                 .fixedSize()
             }
 
-            Text("第二块用于外部 Agent 能力。当前可用的是飞书 CLI。")
-                .font(.subheadline)
-            Text("后续你上传的 skill 对应 Agent 能力，也会显示在这块。")
+            Text("外部 Agent 能力由 skill 提供（例如飞书）。")
                 .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Label("CLI 模式（飞书）", systemImage: descriptor.symbolName)
-                .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 8) {
@@ -529,95 +473,6 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let healthDetail = magicianFeishuCLIHealth.detail {
-                Text(healthDetail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            let feishuLimitations = magicianFeishuCLIHealth.limitationItems
-            if !feishuLimitations.isEmpty {
-                ForEach(feishuLimitations, id: \.self) { item in
-                    Text(item)
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-            }
-
-            Text("路径：\(magicianFeishuCLIResolvedPath)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .textSelection(.enabled)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("CLI 可执行路径（可选）")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                TextField(
-                    "/opt/homebrew/bin/lark-cli 或 /opt/homebrew/bin",
-                    text: magicianCLIExecutablePathBinding
-                )
-                .textFieldStyle(.roundedBorder)
-            }
-
-            HStack(spacing: 8) {
-                Button("重新探测") {
-                    refreshMagicianCapabilityState()
-                    showToast(magicianFeishuCLIAvailable ? "飞书 CLI 已就绪。" : "还没检测到飞书 CLI。")
-                }
-                .buttonStyle(.bordered)
-
-                Button(magicianCLIAuthChecking ? "auth 检查中…" : "检查 auth") {
-                    runFeishuCLIQuickCheck(arguments: ["auth", "status"], mode: .auth)
-                }
-                .buttonStyle(.bordered)
-                .disabled(magicianCLIAuthChecking || magicianCLIDoctorChecking || magicianCLIScopeFixing)
-
-                Button(magicianCLIDoctorChecking ? "doctor 诊断中…" : "运行 doctor") {
-                    runFeishuCLIQuickCheck(arguments: ["doctor"], mode: .doctor)
-                }
-                .buttonStyle(.bordered)
-                .disabled(magicianCLIAuthChecking || magicianCLIDoctorChecking || magicianCLIScopeFixing)
-
-                let missingScopes = magicianFeishuCLIHealth.missingScopes
-                if !missingScopes.isEmpty {
-                    Button(magicianCLIScopeFixing ? "补齐 scope 中…" : "补齐 scope") {
-                        runFeishuCLIScopeFix(missingScopes)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(magicianCLIAuthChecking || magicianCLIDoctorChecking || magicianCLIScopeFixing)
-                }
-            }
-
-            Text("留空会按 PATH + 常见目录自动探测。若你从 GUI 启动 App，建议填绝对路径，稳定性更高。")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-            ForEach(grouped, id: \.tier) { bucket in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(bucket.tier.title)
-                        .font(.caption.weight(.semibold))
-                    Text(bucket.tier.summary)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(bucket.operations.map(\.operation.title).joined(separator: "、"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("来自本地 skill 文件的 Agent 能力")
-                    .font(.caption.weight(.semibold))
-                Text("功能待开发：等 skill 上传能力接好后，这里会自动显示新能力。")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
             if let reason = resolution.reason {
                 Text(reason)
                     .font(.caption)
@@ -630,17 +485,7 @@ struct SettingsView: View {
     }
 
     private var magicianSkillUploadCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("本地 skill 文件", systemImage: "square.and.arrow.up")
-                .font(.headline)
-            Text("第三块用于上传你在网上找到的 skill 文件。")
-                .font(.subheadline)
-            Text("上传完成后，文件会进入产品 skill 目录，同时对应 Agent 能力会出现在“外部 Agent 功能”板块。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text("目录：`Sources/Resources/MagicianSkills/`")
-                .font(.system(size: 12, weight: .regular, design: .monospaced))
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
             Button("上传 skill 文件") {
                 showToast("功能待开发")
             }
@@ -812,8 +657,6 @@ struct SettingsView: View {
                     subtitle: "这里是你的自定义区：表达风格、规则偏好、场景策略都在这。"
                 )
 
-                nowYouSeeMeIntroCard
-
                 ForEach(skillRuleStore.visibleRules()) { rule in
                     SkillRuleCardView(
                         ruleID: rule.id,
@@ -845,27 +688,6 @@ struct SettingsView: View {
             .padding(.horizontal, 24)
             .padding(.vertical, 22)
         }
-    }
-
-    private var nowYouSeeMeIntroCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("为什么叫 Now you see me", systemImage: "sparkles")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            Text("这里不再强调“skill”概念，而是把重点放在“你怎么定义自己的表达和行为偏好”。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text("skill 本身已转移到魔术先生页统一管理。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.48))
-        )
     }
 
     private var modelPage: some View {
