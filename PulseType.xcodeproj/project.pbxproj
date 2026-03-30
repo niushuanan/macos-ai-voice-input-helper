@@ -30,6 +30,7 @@
 		2DC70FB9C90A5ADE8D4B7B3A /* RewriteProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0353B0863F44CC93650023 /* RewriteProvider.swift */; };
 		2E4626BA75CBD561114FD663 /* MagicianFeatureToggleStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AEEB7AB9337B30BFC9608E5 /* MagicianFeatureToggleStore.swift */; };
 		2EC32C636372DEE9E912CB05 /* OpenAIEndpointResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 651B002BCD715F07DBF78CE4 /* OpenAIEndpointResolver.swift */; };
+		2F2A04C1D5FDA2474C0D76DE /* magician-skills.json in Resources */ = {isa = PBXBuildFile; fileRef = F79E962ED8F59F0A98A6A43C /* magician-skills.json */; };
 		30A834C1E7880AD332755CCB /* MagicianFeatureToggleStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 045D84679EE789BE00D2B376 /* MagicianFeatureToggleStoreTests.swift */; };
 		30B6BF4063B862B03504917D /* ModifierCaptureStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35AEAF4A969D25A995B7A233 /* ModifierCaptureStateMachine.swift */; };
 		321CDE1E3F347483B9AA29F2 /* MagicianCLIRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8F2851B668DC5C7A7B80A79 /* MagicianCLIRegistry.swift */; };
@@ -41,6 +42,7 @@
 		45AAFCCA9AD49785CBC2AD76 /* MagicianPermissionPromptModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FB98392E5B2986B631DAA4B /* MagicianPermissionPromptModel.swift */; };
 		490D2EABE5826DEC50D865EA /* FeishuCLIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD25D2EF83C635F7C4FCA538 /* FeishuCLIProvider.swift */; };
 		4E5BE5E537B636B37B660CCE /* HotkeyStateStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93D880758C71B0356B2A1533 /* HotkeyStateStoreTests.swift */; };
+		4EF028BDFBC87B2EF2BC414F /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 0DA3A4BDF1849B5061ECDB2B /* README.md */; };
 		4F57C2900D8426124B8823E8 /* FeishuOperationCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7997CA4C2F1B63C15EAC54E /* FeishuOperationCatalog.swift */; };
 		506D2F6F8BD28EFAA794A708 /* SpeechTranscriptionErrorPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3141432F39E579F9ED47CC5 /* SpeechTranscriptionErrorPresentation.swift */; };
 		51CDBD08451B5DEA1B5C2376 /* MagicianCommandSemantics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FC7EF082A9CBA3E06BC787F /* MagicianCommandSemantics.swift */; };
@@ -137,6 +139,7 @@
 		045D84679EE789BE00D2B376 /* MagicianFeatureToggleStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicianFeatureToggleStoreTests.swift; sourceTree = "<group>"; };
 		063E41521D138280350363BC /* CredentialStoreFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialStoreFactoryTests.swift; sourceTree = "<group>"; };
 		08A4DD0C302CC25FFC1B7985 /* ModifierCaptureStateMachineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModifierCaptureStateMachineTests.swift; sourceTree = "<group>"; };
+		0DA3A4BDF1849B5061ECDB2B /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		0DB26F7CC49FA783F26760E3 /* HomeStatsFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeStatsFormatter.swift; sourceTree = "<group>"; };
 		0FD3BEE22B923D79D9B8964B /* AppScenePolicyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppScenePolicyStore.swift; sourceTree = "<group>"; };
 		157337AD796A00BA0C88EF3E /* KeychainProviderCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainProviderCredentialStore.swift; sourceTree = "<group>"; };
@@ -242,6 +245,7 @@
 		F27E549959E4CC7A13EEC8A0 /* AppRuntimePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRuntimePolicy.swift; sourceTree = "<group>"; };
 		F5394216801286962BEEC4BB /* FeishuTargetResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeishuTargetResolver.swift; sourceTree = "<group>"; };
 		F647CE4661A5CCCA8EA7CC20 /* ContextDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextDetector.swift; sourceTree = "<group>"; };
+		F79E962ED8F59F0A98A6A43C /* magician-skills.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "magician-skills.json"; sourceTree = "<group>"; };
 		F8F2851B668DC5C7A7B80A79 /* MagicianCLIRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicianCLIRegistry.swift; sourceTree = "<group>"; };
 		FB0353B0863F44CC93650023 /* RewriteProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewriteProvider.swift; sourceTree = "<group>"; };
 		FD25D2EF83C635F7C4FCA538 /* FeishuCLIProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeishuCLIProvider.swift; sourceTree = "<group>"; };
@@ -436,6 +440,7 @@
 			isa = PBXGroup;
 			children = (
 				594DF521169CAA5D28FF73ED /* diagnostic-voice-zh.wav */,
+				EA7E5964955BA6E9D627CEAF /* MagicianSkills */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -528,6 +533,15 @@
 				D9D6113DB9FD87EB75D2DC65 /* Release.xcconfig */,
 			);
 			path = Config;
+			sourceTree = "<group>";
+		};
+		EA7E5964955BA6E9D627CEAF /* MagicianSkills */ = {
+			isa = PBXGroup;
+			children = (
+				F79E962ED8F59F0A98A6A43C /* magician-skills.json */,
+				0DA3A4BDF1849B5061ECDB2B /* README.md */,
+			);
+			path = MagicianSkills;
 			sourceTree = "<group>";
 		};
 		ED48F905002E6AE0DBDE7853 /* Diagnostics */ = {
@@ -658,7 +672,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				06123C002DCFE32A3B4F9826 /* AppRuntimePolicy.plist in Resources */,
+				4EF028BDFBC87B2EF2BC414F /* README.md in Resources */,
 				641E792711B5617AFAC0F3A8 /* diagnostic-voice-zh.wav in Resources */,
+				2F2A04C1D5FDA2474C0D76DE /* magician-skills.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

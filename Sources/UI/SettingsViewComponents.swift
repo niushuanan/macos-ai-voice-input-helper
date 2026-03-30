@@ -27,6 +27,7 @@ struct MemoryRowView: View {
     let onCopyCommand: () -> Void
     let onDelete: () -> Void
     @State private var brainstormDetailsExpanded = false
+    @State private var magicianTraceExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -203,6 +204,29 @@ struct MemoryRowView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
                     }
+
+                    if magicianTraceExpanded, let magicianExecutionTrace {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("执行链路")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(magicianExecutionTrace)
+                                .font(.system(size: 11.5, weight: .regular, design: .monospaced))
+                                .foregroundStyle(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.primary.opacity(0.04))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                                )
+                        )
+                    }
                 }
             } else {
                 Text(singleTextPreview)
@@ -239,6 +263,12 @@ struct MemoryRowView: View {
                     }
                     .buttonStyle(.bordered)
                     .disabled(!hasBrainstormDetails)
+                } else if entry.mode == .selectionRewrite {
+                    Button(magicianTraceExpanded ? "隐藏执行链路" : "展开执行链路") {
+                        magicianTraceExpanded.toggle()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!hasMagicianTrace)
                 }
 
                 Button("删除", role: .destructive) {
@@ -316,6 +346,18 @@ struct MemoryRowView: View {
 
     private var magicianInstructionText: String? {
         MemoryEntryTextResolver.magicianInstructionText(for: entry)
+    }
+
+    private var magicianExecutionTrace: String? {
+        let value = entry.magicianExecutionTrace?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let value, !value.isEmpty {
+            return value
+        }
+        return nil
+    }
+
+    private var hasMagicianTrace: Bool {
+        magicianExecutionTrace != nil
     }
 
     private var singleTextPreview: String {

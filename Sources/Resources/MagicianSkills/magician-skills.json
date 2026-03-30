@@ -1,0 +1,164 @@
+[
+  {
+    "id": "core.reason.respond",
+    "featureID": "text_transform",
+    "domain": "core.reason",
+    "intentScope": "纯文本推理与内容生成",
+    "inputSchema": "{\"instruction\":string,\"previous_output\":string?}",
+    "riskNote": "只读，不会直接写入外部应用",
+    "verifyPolicy": "llm_output_non_empty"
+  },
+  {
+    "id": "text.transform",
+    "featureID": "text_transform",
+    "domain": "text",
+    "intentScope": "按语音指令处理文本",
+    "inputSchema": "{\"instruction\":string,\"input_text\":string?}",
+    "riskNote": "会写入当前编辑位或剪贴板",
+    "verifyPolicy": "text_written_or_clipboard"
+  },
+  {
+    "id": "shell.command.run",
+    "featureID": "text_transform",
+    "domain": "shell.command",
+    "intentScope": "在本机终端执行命令",
+    "inputSchema": "{\"command\":string,\"timeout_seconds\":number?,\"objective\":string?}",
+    "riskNote": "会在本机执行终端命令",
+    "verifyPolicy": "process_exit_zero_or_reason"
+  },
+  {
+    "id": "apple.calendar.create_event",
+    "featureID": "create_event",
+    "domain": "apple.calendar",
+    "intentScope": "创建系统日程",
+    "inputSchema": "{\"title\":string,\"start_at\":string,\"end_at\":string?,\"location\":string?,\"notes\":string?}",
+    "riskNote": "会写入系统日历",
+    "verifyPolicy": "event_exists_after_write"
+  },
+  {
+    "id": "apple.calendar.update_event",
+    "featureID": "create_event",
+    "domain": "apple.calendar",
+    "intentScope": "更新系统日程",
+    "inputSchema": "{\"title\":string,\"new_title\":string?,\"start_at\":string?,\"end_at\":string?,\"location\":string?,\"notes\":string?}",
+    "riskNote": "会修改系统日历",
+    "verifyPolicy": "event_found_and_updated"
+  },
+  {
+    "id": "apple.calendar.find_event",
+    "featureID": "create_event",
+    "domain": "apple.calendar",
+    "intentScope": "查询系统日程",
+    "inputSchema": "{\"title\":string?,\"date\":string?}",
+    "riskNote": "只读",
+    "verifyPolicy": "event_query_non_empty"
+  },
+  {
+    "id": "apple.notes.create_note",
+    "featureID": "create_note",
+    "domain": "apple.notes",
+    "intentScope": "创建备忘录",
+    "inputSchema": "{\"title\":string?,\"body\":string}",
+    "riskNote": "会写入系统备忘录",
+    "verifyPolicy": "note_created"
+  },
+  {
+    "id": "apple.notes.append_note",
+    "featureID": "create_note",
+    "domain": "apple.notes",
+    "intentScope": "追加内容到备忘录",
+    "inputSchema": "{\"title\":string,\"append_text\":string}",
+    "riskNote": "会修改系统备忘录",
+    "verifyPolicy": "note_body_appended"
+  },
+  {
+    "id": "apple.notes.find_note",
+    "featureID": "create_note",
+    "domain": "apple.notes",
+    "intentScope": "检索备忘录",
+    "inputSchema": "{\"title\":string}",
+    "riskNote": "只读",
+    "verifyPolicy": "note_query_non_empty"
+  },
+  {
+    "id": "apple.mail.compose",
+    "featureID": "compose_email_draft",
+    "domain": "apple.mail",
+    "intentScope": "创建邮件草稿",
+    "inputSchema": "{\"to\":string[]?,\"subject\":string?,\"body\":string?}",
+    "riskNote": "会打开 Mail 并写入草稿",
+    "verifyPolicy": "mail_compose_window_opened"
+  },
+  {
+    "id": "apple.mail.send",
+    "featureID": "compose_email_draft",
+    "domain": "apple.mail",
+    "intentScope": "按语义尝试直接发送",
+    "inputSchema": "{\"to\":string[]?,\"subject\":string?,\"body\":string?}",
+    "riskNote": "可能发送邮件",
+    "verifyPolicy": "mail_send_or_reason"
+  },
+  {
+    "id": "apple.mail.resolve_recipient",
+    "featureID": "compose_email_draft",
+    "domain": "apple.mail",
+    "intentScope": "解析收件人",
+    "inputSchema": "{\"query\":string}",
+    "riskNote": "只读",
+    "verifyPolicy": "recipient_resolution_non_empty"
+  },
+  {
+    "id": "apple.music.play",
+    "featureID": "control_music",
+    "domain": "apple.music",
+    "intentScope": "开始播放",
+    "inputSchema": "{}",
+    "riskNote": "会控制 Music 应用",
+    "verifyPolicy": "music_command_success"
+  },
+  {
+    "id": "apple.music.pause",
+    "featureID": "control_music",
+    "domain": "apple.music",
+    "intentScope": "暂停播放",
+    "inputSchema": "{}",
+    "riskNote": "会控制 Music 应用",
+    "verifyPolicy": "music_command_success"
+  },
+  {
+    "id": "apple.music.resume",
+    "featureID": "control_music",
+    "domain": "apple.music",
+    "intentScope": "继续播放",
+    "inputSchema": "{}",
+    "riskNote": "会控制 Music 应用",
+    "verifyPolicy": "music_command_success"
+  },
+  {
+    "id": "apple.music.next_track",
+    "featureID": "control_music",
+    "domain": "apple.music",
+    "intentScope": "下一曲",
+    "inputSchema": "{}",
+    "riskNote": "会控制 Music 应用",
+    "verifyPolicy": "music_command_success"
+  },
+  {
+    "id": "apple.music.previous_track",
+    "featureID": "control_music",
+    "domain": "apple.music",
+    "intentScope": "上一曲",
+    "inputSchema": "{}",
+    "riskNote": "会控制 Music 应用",
+    "verifyPolicy": "music_command_success"
+  },
+  {
+    "id": "apple.music.play_query",
+    "featureID": "control_music",
+    "domain": "apple.music",
+    "intentScope": "播放指定歌曲或歌单",
+    "inputSchema": "{\"query\":string}",
+    "riskNote": "会控制 Music 应用",
+    "verifyPolicy": "music_command_success"
+  }
+]

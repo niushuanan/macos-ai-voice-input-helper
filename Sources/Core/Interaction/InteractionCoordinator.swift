@@ -1710,28 +1710,23 @@ final class InteractionCoordinator {
         let fallbackFocusContext = selectionSnapshot?.focusContext ?? initialFocusContext
         let selectionText = selectionSnapshot?.selectedText ?? ""
         let enabledFeatures = magicianFeatureToggleStore.enabledFeatures
-        if shouldRunMagicianSemanticPreprocess(
-            command: spokenInstruction,
-            enabledFeatures: enabledFeatures
-        ) {
-            let preprocessor = MagicianCommandSemanticPreprocessor(
-                providerSettingsStore: providerSettingsStore,
-                rewriteProviderRegistry: rewriteProviderRegistry,
-                skillRuleStore: skillRuleStore,
-                asrDictionaryStore: asrDictionaryStore
-            )
-            let preprocessResult = await preprocessor.preprocess(
-                rawCommand: spokenInstruction,
-                focusContext: fallbackFocusContext
-            )
-            let rewrittenCommand = preprocessResult.command.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !rewrittenCommand.isEmpty {
-                spokenInstruction = rewrittenCommand
-            }
-            commandAppliedSkills = preprocessResult.appliedSkills
-            if let notice = preprocessResult.notice, !notice.isEmpty {
-                toastPresenter?.show(notice, duration: 2.2)
-            }
+        let preprocessor = MagicianCommandSemanticPreprocessor(
+            providerSettingsStore: providerSettingsStore,
+            rewriteProviderRegistry: rewriteProviderRegistry,
+            skillRuleStore: skillRuleStore,
+            asrDictionaryStore: asrDictionaryStore
+        )
+        let preprocessResult = await preprocessor.preprocess(
+            rawCommand: spokenInstruction,
+            focusContext: fallbackFocusContext
+        )
+        let rewrittenCommand = preprocessResult.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !rewrittenCommand.isEmpty {
+            spokenInstruction = rewrittenCommand
+        }
+        commandAppliedSkills = preprocessResult.appliedSkills
+        if let notice = preprocessResult.notice, !notice.isEmpty {
+            toastPresenter?.show(notice, duration: 2.2)
         }
 
         guard !spokenInstruction.isEmpty else {
@@ -1802,6 +1797,10 @@ final class InteractionCoordinator {
             if abortIfSessionCancelled() {
                 return
             }
+            let executionTrace = magicianExecutionTraceText(
+                command: spokenInstruction,
+                outcome: outcome
+            )
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -1820,6 +1819,7 @@ final class InteractionCoordinator {
                     magicianGoalSummary: outcome.goalSummary,
                     magicianStepSummaries: outcome.steps.map { "\($0.featureID.rawValue):\($0.userMessage)" },
                     magicianEvidenceSummary: outcome.evidenceSummary,
+                    magicianExecutionTrace: executionTrace,
                     status: .success,
                     audioDurationSeconds: audioDurationSeconds,
                     appliedSkills: commandAppliedSkills
@@ -2006,31 +2006,6 @@ final class InteractionCoordinator {
         }
     }
 
-    private func shouldRunMagicianSemanticPreprocess(
-        command: String,
-        enabledFeatures: Set<MagicianFeatureID>
-    ) -> Bool {
-        let lowered = command.lowercased()
-        if enabledFeatures.contains(.controlMusic),
-           containsAny(lowered, keywords: ["音乐", "歌曲", "播放", "暂停", "下一首", "上一首", "music", "play", "pause", "next", "previous"]) {
-            return true
-        }
-
-        if enabledFeatures.contains(.feishuCLI),
-           containsAny(
-               lowered,
-               keywords: ["飞书", "lark", "消息", "群", "chat", "文档", "wiki", "日程", "calendar", "任务", "多维表格", "bitable", "发给", "通知", "搜索"]
-           ) {
-            return true
-        }
-
-        return false
-    }
-
-    private func containsAny(_ value: String, keywords: [String]) -> Bool {
-        keywords.contains { value.contains($0) }
-    }
-
     private func mergedSkills(
         lhs: [SkillRuleID],
         rhs: [SkillRuleID]
@@ -2043,6 +2018,47 @@ final class InteractionCoordinator {
             merged.append(skill)
         }
         return merged
+    }
+
+    private func magicianExecutionTraceText(
+        command: String,
+        outcome: MagicianAgentRunOutcome
+    ) -> String {
+        var lines: [String] = []
+        lines.append("goal: \(outcome.goalSummary)")
+        lines.append("command: \(command)")
+        lines.append("session_id: \(outcome.sessionID)")
+        lines.append("run_id: \(outcome.runID)")
+        lines.append("")
+
+        for (index, step) in outcome.steps.enumerated() {
+            lines.append("[step \(index + 1)]")
+            lines.append("feature: \(step.featureID.rawValue)")
+            lines.append("tool: \(step.instruction)")
+            lines.append("message: \(step.userMessage)")
+            if let output = step.outputText?.trimmingCharacters(in: .whitespacesAndNewlines), !output.isEmpty {
+                lines.append("output: \(output)")
+            }
+            if let status = step.observation?.verificationStatus.rawValue {
+                lines.append("verify: \(status)")
+            }
+            if let target = step.observation?.targetSummary, !target.isEmpty {
+                lines.append("target: \(target)")
+            }
+            if let evidence = step.observation?.evidenceSummary, !evidence.isEmpty {
+                lines.append("evidence: \(evidence)")
+            }
+            lines.append("")
+        }
+
+        lines.append("final_status: \(outcome.finalStatusMessage)")
+        if let finalOutput = outcome.finalOutputText?.trimmingCharacters(in: .whitespacesAndNewlines), !finalOutput.isEmpty {
+            lines.append("final_output: \(finalOutput)")
+        }
+        if let evidence = outcome.evidenceSummary, !evidence.isEmpty {
+            lines.append("final_evidence: \(evidence)")
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func bindListeningLevel() {

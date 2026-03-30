@@ -60,6 +60,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
     let magicianGoalSummary: String?
     let magicianStepSummaries: [String]?
     let magicianEvidenceSummary: String?
+    let magicianExecutionTrace: String?
     let status: SessionHistoryStatus
     let errorMessage: String?
     let audioDurationSeconds: Double?
@@ -88,6 +89,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         magicianGoalSummary: String? = nil,
         magicianStepSummaries: [String]? = nil,
         magicianEvidenceSummary: String? = nil,
+        magicianExecutionTrace: String? = nil,
         status: SessionHistoryStatus,
         errorMessage: String? = nil,
         audioDurationSeconds: Double? = nil,
@@ -115,6 +117,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         self.magicianGoalSummary = magicianGoalSummary
         self.magicianStepSummaries = magicianStepSummaries
         self.magicianEvidenceSummary = magicianEvidenceSummary
+        self.magicianExecutionTrace = magicianExecutionTrace
         self.status = status
         self.errorMessage = errorMessage
         self.audioDurationSeconds = audioDurationSeconds
@@ -144,6 +147,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         case magicianGoalSummary
         case magicianStepSummaries
         case magicianEvidenceSummary
+        case magicianExecutionTrace
         case status
         case errorMessage
         case audioDurationSeconds
@@ -178,6 +182,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         magicianGoalSummary = try container.decodeIfPresent(String.self, forKey: .magicianGoalSummary)
         magicianStepSummaries = try container.decodeIfPresent([String].self, forKey: .magicianStepSummaries)
         magicianEvidenceSummary = try container.decodeIfPresent(String.self, forKey: .magicianEvidenceSummary)
+        magicianExecutionTrace = try container.decodeIfPresent(String.self, forKey: .magicianExecutionTrace)
         status = try container.decode(SessionHistoryStatus.self, forKey: .status)
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         audioDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .audioDurationSeconds)
@@ -208,6 +213,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(magicianGoalSummary, forKey: .magicianGoalSummary)
         try container.encodeIfPresent(magicianStepSummaries, forKey: .magicianStepSummaries)
         try container.encodeIfPresent(magicianEvidenceSummary, forKey: .magicianEvidenceSummary)
+        try container.encodeIfPresent(magicianExecutionTrace, forKey: .magicianExecutionTrace)
         try container.encode(status, forKey: .status)
         try container.encodeIfPresent(errorMessage, forKey: .errorMessage)
         try container.encodeIfPresent(audioDurationSeconds, forKey: .audioDurationSeconds)

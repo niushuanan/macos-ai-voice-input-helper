@@ -116,6 +116,45 @@ final class MagicianAgentRuntimeScenarioTests: XCTestCase {
         )
     }
 
+    func testShellCommandRunSkillExecutesInAgentLoop() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanUp() }
+
+        let runtime = MagicianAgentRuntimeV3(
+            providerSettingsStore: fixture.providerSettingsStore,
+            rewriteProviderRegistry: RewriteProviderRegistry(providers: []),
+            textOutputCoordinator: fixture.textOutputCoordinator,
+            skillRuleStore: fixture.skillRuleStore,
+            toolExecutor: ScenarioToolExecutor(),
+            llmProvider: ScenarioTextGenerationProvider()
+        )
+
+        let request = MagicianAgentRequest(
+            traceID: "scenario-shell-1",
+            command: "统计 Magician Swift 文件数量并输出",
+            selectionSnapshot: nil,
+            focusContext: FocusedAppContext(
+                appName: "Terminal",
+                bundleID: "com.apple.Terminal",
+                focusedRole: nil,
+                hasEditableTarget: true,
+                strategyHint: "test"
+            ),
+            enabledFeatures: Set(MagicianFeatureID.allCases)
+        )
+
+        let outcome = try await runtime.run(request: request, onEvent: nil)
+        XCTAssertEqual(outcome.finalStatusMessage, "全部步骤已完成")
+        XCTAssertTrue(
+            outcome.steps.contains(where: { $0.userMessage.contains("终端命令已执行") }),
+            "应包含 shell.command.run 的执行步骤"
+        )
+        XCTAssertTrue(
+            (outcome.finalOutputText ?? "").contains(where: { $0.isNumber }),
+            "shell 命令输出应包含统计数字"
+        )
+    }
+
     private func makeFixture() throws -> ScenarioFixture {
         let suiteName = "MagicianAgentRuntimeScenarioTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -255,6 +294,15 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
     }
 
     private func makePlan(for command: String) -> (goal: String, stepsCount: Int, json: String) {
+        if command.contains("统计 Magician Swift 文件数量") {
+            return (
+                goal: "统计文件数量",
+                stepsCount: 1,
+                json: """
+                {"goal":"统计文件数量","todo":[{"id":"1","text":"执行终端统计命令","status":"pending"}],"steps":[{"id":"step-1","objective":"统计 Magician Swift 文件数量","skill_id":"shell.command.run","input":{"command":"rg --files Sources/Core/Magician | wc -l"}}]}
+                """
+            )
+        }
         if command.contains("播放稻香") {
             return (
                 goal: "播放稻香",

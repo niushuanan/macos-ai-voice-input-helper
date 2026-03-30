@@ -798,6 +798,8 @@ struct SettingsView: View {
                     subtitle: ""
                 )
 
+                agentSkillCatalogCard
+
                 ForEach(skillRuleStore.visibleRules()) { rule in
                     SkillRuleCardView(
                         ruleID: rule.id,
@@ -829,6 +831,29 @@ struct SettingsView: View {
             .padding(.horizontal, 24)
             .padding(.vertical, 22)
         }
+    }
+
+    private var agentSkillCatalogCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Agent Skill 目录", systemImage: "folder")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            Text("`Sources/Resources/MagicianSkills/magician-skills.json`")
+                .font(.system(size: 12, weight: .regular, design: .monospaced))
+                .textSelection(.enabled)
+                .foregroundStyle(.primary)
+
+            Text("魔术先生会先做计划，再按步骤加载最小卡片。纯文本任务优先走模型推理；匹配不到现成 skill 时，会走终端命令执行链路。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.48))
+        )
     }
 
     private var modelPage: some View {

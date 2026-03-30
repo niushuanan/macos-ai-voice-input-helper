@@ -535,186 +535,136 @@ private struct MagicianSkillSearchCandidateV3: Equatable {
     let reason: String
 }
 
+private struct MagicianSkillManifestDiskRecordV3: Decodable {
+    let id: String
+    let featureID: String
+    let domain: String
+    let intentScope: String
+    let inputSchema: String
+    let riskNote: String
+    let verifyPolicy: String
+
+    func asManifest() -> MagicianSkillManifestV3? {
+        guard let feature = MagicianFeatureID(rawValue: featureID) else {
+            return nil
+        }
+        return MagicianSkillManifestV3(
+            id: id,
+            featureID: feature,
+            domain: domain,
+            intentScope: intentScope,
+            inputSchema: inputSchema,
+            riskNote: riskNote,
+            verifyPolicy: verifyPolicy
+        )
+    }
+}
+
+private final class MagicianSkillBundleMarkerV3 {}
+
+private enum MagicianSkillManifestLoaderV3 {
+    private static let relativeSkillManifestPath = "Sources/Resources/MagicianSkills/magician-skills.json"
+
+    static func loadEnabledManifests(
+        enabledFeatures: Set<MagicianFeatureID>
+    ) -> [MagicianSkillManifestV3] {
+        let records = loadDiskRecords()
+        var output: [MagicianSkillManifestV3] = []
+        var seen = Set<String>()
+        for record in records {
+            guard
+                let manifest = record.asManifest(),
+                enabledFeatures.contains(manifest.featureID),
+                seen.insert(manifest.id).inserted
+            else {
+                continue
+            }
+            output.append(manifest)
+        }
+        return output
+    }
+
+    private static func loadDiskRecords() -> [MagicianSkillManifestDiskRecordV3] {
+        let decoder = JSONDecoder()
+        for url in candidateURLs() {
+            guard
+                let data = try? Data(contentsOf: url),
+                let records = try? decoder.decode([MagicianSkillManifestDiskRecordV3].self, from: data),
+                !records.isEmpty
+            else {
+                continue
+            }
+            return records
+        }
+        return []
+    }
+
+    private static func candidateURLs() -> [URL] {
+        var urls: [URL] = []
+
+        let sourceFileURL = URL(fileURLWithPath: #filePath)
+        let repoRoot = sourceFileURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        urls.append(
+            repoRoot.appendingPathComponent(
+                relativeSkillManifestPath,
+                isDirectory: false
+            )
+        )
+
+        let currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        urls.append(
+            currentDirectoryURL.appendingPathComponent(
+                relativeSkillManifestPath,
+                isDirectory: false
+            )
+        )
+
+        if let resourceURL = Bundle.main.resourceURL {
+            urls.append(
+                resourceURL.appendingPathComponent(
+                    "MagicianSkills/magician-skills.json",
+                    isDirectory: false
+                )
+            )
+            urls.append(
+                resourceURL.appendingPathComponent(
+                    "magician-skills.json",
+                    isDirectory: false
+                )
+            )
+        }
+
+        let testBundle = Bundle(for: MagicianSkillBundleMarkerV3.self)
+        if let resourceURL = testBundle.resourceURL {
+            urls.append(
+                resourceURL.appendingPathComponent(
+                    "MagicianSkills/magician-skills.json",
+                    isDirectory: false
+                )
+            )
+            urls.append(
+                resourceURL.appendingPathComponent(
+                    "magician-skills.json",
+                    isDirectory: false
+                )
+            )
+        }
+        return urls
+    }
+}
+
 private final class MagicianSkillCatalogV3 {
     private(set) var manifests: [MagicianSkillManifestV3]
     private var map: [String: MagicianSkillManifestV3]
 
     init(enabledFeatures: Set<MagicianFeatureID>) {
-        var entries: [MagicianSkillManifestV3] = [
-            .init(
-                id: "core.reason.respond",
-                featureID: .textTransform,
-                domain: "core.reason",
-                intentScope: "纯文本推理与内容生成",
-                inputSchema: "{\"instruction\":string,\"previous_output\":string?}",
-                riskNote: "只读，不会直接写入外部应用",
-                verifyPolicy: "llm_output_non_empty"
-            )
-        ]
-        if enabledFeatures.contains(.createEvent) {
-            entries.append(contentsOf: [
-                .init(
-                    id: "apple.calendar.create_event",
-                    featureID: .createEvent,
-                    domain: "apple.calendar",
-                    intentScope: "创建系统日程",
-                    inputSchema: "{\"title\":string,\"start_at\":string,\"end_at\":string?,\"location\":string?,\"notes\":string?}",
-                    riskNote: "会写入系统日历",
-                    verifyPolicy: "event_exists_after_write"
-                ),
-                .init(
-                    id: "apple.calendar.update_event",
-                    featureID: .createEvent,
-                    domain: "apple.calendar",
-                    intentScope: "更新系统日程",
-                    inputSchema: "{\"title\":string,\"new_title\":string?,\"start_at\":string?,\"end_at\":string?,\"location\":string?,\"notes\":string?}",
-                    riskNote: "会修改系统日历",
-                    verifyPolicy: "event_found_and_updated"
-                ),
-                .init(
-                    id: "apple.calendar.find_event",
-                    featureID: .createEvent,
-                    domain: "apple.calendar",
-                    intentScope: "查询系统日程",
-                    inputSchema: "{\"title\":string?,\"date\":string?}",
-                    riskNote: "只读",
-                    verifyPolicy: "event_query_non_empty"
-                )
-            ])
-        }
-        if enabledFeatures.contains(.createNote) {
-            entries.append(contentsOf: [
-                .init(
-                    id: "apple.notes.create_note",
-                    featureID: .createNote,
-                    domain: "apple.notes",
-                    intentScope: "创建备忘录",
-                    inputSchema: "{\"title\":string?,\"body\":string}",
-                    riskNote: "会写入系统备忘录",
-                    verifyPolicy: "note_created"
-                ),
-                .init(
-                    id: "apple.notes.append_note",
-                    featureID: .createNote,
-                    domain: "apple.notes",
-                    intentScope: "追加内容到备忘录",
-                    inputSchema: "{\"title\":string,\"append_text\":string}",
-                    riskNote: "会修改系统备忘录",
-                    verifyPolicy: "note_body_appended"
-                ),
-                .init(
-                    id: "apple.notes.find_note",
-                    featureID: .createNote,
-                    domain: "apple.notes",
-                    intentScope: "检索备忘录",
-                    inputSchema: "{\"title\":string}",
-                    riskNote: "只读",
-                    verifyPolicy: "note_query_non_empty"
-                )
-            ])
-        }
-        if enabledFeatures.contains(.composeEmailDraft) {
-            entries.append(contentsOf: [
-                .init(
-                    id: "apple.mail.compose",
-                    featureID: .composeEmailDraft,
-                    domain: "apple.mail",
-                    intentScope: "创建邮件草稿",
-                    inputSchema: "{\"to\":string[]?,\"subject\":string?,\"body\":string?}",
-                    riskNote: "会打开 Mail 并写入草稿",
-                    verifyPolicy: "mail_compose_window_opened"
-                ),
-                .init(
-                    id: "apple.mail.send",
-                    featureID: .composeEmailDraft,
-                    domain: "apple.mail",
-                    intentScope: "按语义尝试直接发送",
-                    inputSchema: "{\"to\":string[]?,\"subject\":string?,\"body\":string?}",
-                    riskNote: "可能发送邮件",
-                    verifyPolicy: "mail_send_or_reason"
-                ),
-                .init(
-                    id: "apple.mail.resolve_recipient",
-                    featureID: .composeEmailDraft,
-                    domain: "apple.mail",
-                    intentScope: "解析收件人",
-                    inputSchema: "{\"query\":string}",
-                    riskNote: "只读",
-                    verifyPolicy: "recipient_resolution_non_empty"
-                )
-            ])
-        }
-        if enabledFeatures.contains(.controlMusic) {
-            entries.append(contentsOf: [
-                .init(
-                    id: "apple.music.play",
-                    featureID: .controlMusic,
-                    domain: "apple.music",
-                    intentScope: "开始播放",
-                    inputSchema: "{}",
-                    riskNote: "会控制 Music 应用",
-                    verifyPolicy: "music_command_success"
-                ),
-                .init(
-                    id: "apple.music.pause",
-                    featureID: .controlMusic,
-                    domain: "apple.music",
-                    intentScope: "暂停播放",
-                    inputSchema: "{}",
-                    riskNote: "会控制 Music 应用",
-                    verifyPolicy: "music_command_success"
-                ),
-                .init(
-                    id: "apple.music.resume",
-                    featureID: .controlMusic,
-                    domain: "apple.music",
-                    intentScope: "继续播放",
-                    inputSchema: "{}",
-                    riskNote: "会控制 Music 应用",
-                    verifyPolicy: "music_command_success"
-                ),
-                .init(
-                    id: "apple.music.next_track",
-                    featureID: .controlMusic,
-                    domain: "apple.music",
-                    intentScope: "下一曲",
-                    inputSchema: "{}",
-                    riskNote: "会控制 Music 应用",
-                    verifyPolicy: "music_command_success"
-                ),
-                .init(
-                    id: "apple.music.previous_track",
-                    featureID: .controlMusic,
-                    domain: "apple.music",
-                    intentScope: "上一曲",
-                    inputSchema: "{}",
-                    riskNote: "会控制 Music 应用",
-                    verifyPolicy: "music_command_success"
-                ),
-                .init(
-                    id: "apple.music.play_query",
-                    featureID: .controlMusic,
-                    domain: "apple.music",
-                    intentScope: "播放指定歌曲或歌单",
-                    inputSchema: "{\"query\":string}",
-                    riskNote: "会控制 Music 应用",
-                    verifyPolicy: "music_command_success"
-                )
-            ])
-        }
-        if enabledFeatures.contains(.textTransform) {
-            entries.append(
-                .init(
-                    id: "text.transform",
-                    featureID: .textTransform,
-                    domain: "text",
-                    intentScope: "按语音指令处理文本",
-                    inputSchema: "{\"instruction\":string,\"input_text\":string?}",
-                    riskNote: "会写入当前编辑位或剪贴板",
-                    verifyPolicy: "text_written_or_clipboard"
-                )
-            )
-        }
+        var entries = MagicianSkillManifestLoaderV3.loadEnabledManifests(
+            enabledFeatures: enabledFeatures
+        )
         if enabledFeatures.contains(.feishuCLI) {
             for operation in FeishuCanonicalOperation.allCases {
                 entries.append(
@@ -1026,8 +976,15 @@ private final class MagicianSkillRouterV3 {
         if containsAny(normalized, tokens: ["翻译", "润色", "改写", "总结", "提炼", "rewrite", "summarize", "translate"]) {
             appendIfExists("text.transform")
         }
+        if containsAny(normalized, tokens: ["终端", "命令行", "shell", "zsh", "bash", "执行命令", "run command", "运行命令"]) {
+            appendIfExists("shell.command.run")
+        }
         if matchedIDs.isEmpty {
-            appendIfExists("core.reason.respond")
+            if looksLikeShellTask(normalized) {
+                appendIfExists("shell.command.run")
+            } else {
+                appendIfExists("core.reason.respond")
+            }
         }
 
         let base = 0.97
@@ -1042,6 +999,24 @@ private final class MagicianSkillRouterV3 {
 
     private func containsAny(_ value: String, tokens: [String]) -> Bool {
         tokens.contains { value.contains($0) }
+    }
+
+    private func looksLikeShellTask(_ value: String) -> Bool {
+        if containsAny(
+            value,
+            tokens: [
+                "ls ", "pwd", "find ", "grep ", "rg ",
+                "git ", "npm ", "pnpm ", "yarn ",
+                "python ", "node ", "swift ", "xcodebuild",
+                "chmod ", "chown ", "mkdir ", "cp ", "mv ", "cat "
+            ]
+        ) {
+            return true
+        }
+        if value.contains("```") || value.contains("-la") || value.contains("--help") {
+            return true
+        }
+        return false
     }
 
     private func lexicalSearch(
@@ -1106,6 +1081,7 @@ private final class MagicianSkillRouterV3 {
         规则：
         1) 只在需要外部动作时选择 apple.* 或 feishu_* skill。
         2) 纯文本理解、解释、翻译、总结优先选择 core.reason.respond 或 text.transform。
+        3) 当步骤需要在本机终端执行命令时，选择 shell.command.run。
         不要输出其他文字。
         """
         let user = """
@@ -1196,6 +1172,9 @@ private final class MagicianSkillRuntimeV3 {
         }
         if skillID == "text.transform" {
             return try await transformTextSkill(input: input, request: request)
+        }
+        if skillID == "shell.command.run" {
+            return try await shellCommandSkill(input: input, request: request)
         }
 
         if skillID.hasPrefix("feishu_"), let operation = FeishuCanonicalOperation(rawValue: skillID) {
@@ -1472,6 +1451,124 @@ private final class MagicianSkillRuntimeV3 {
             skillID: "core.reason.respond",
             evidence: observation.evidenceSummary ?? "core.reason.respond"
         )
+    }
+
+    private func shellCommandSkill(
+        input: [String: Any],
+        request: MagicianAgentRequest
+    ) async throws -> MagicianSkillInvokeResultV3 {
+        let objective = stringValue(input["objective"]) ?? request.command
+        let command = try await resolvedShellCommand(input: input, objective: objective, request: request)
+        try validateShellCommandSafety(command)
+
+        let timeout = max(5.0, min(180.0, Double(intValue(input["timeout_seconds"]) ?? 45)))
+        let result = await runProcessWithTimeout(
+            executablePath: "/bin/zsh",
+            arguments: ["-lc", command],
+            timeoutSeconds: timeout,
+            maxOutputCharacters: 12_000
+        )
+
+        if result.exitCode != 0 {
+            throw MagicianError(
+                code: .toolExecutionFailed,
+                userMessage: "终端命令执行失败：\(result.detail)",
+                debugMessage: "shell command failed: \(command) | exit=\(result.exitCode)",
+                recoverAction: "retry_command"
+            )
+        }
+
+        let output = [result.stdout, result.stderr]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        let normalizedOutput = output.isEmpty ? "(no output)" : output
+        let observation = MagicianAgentObservation(
+            verificationStatus: .verified,
+            targetSummary: objective,
+            evidenceSummary: "exit=0"
+        )
+        return MagicianSkillInvokeResultV3(
+            execution: MagicianExecutionResult(
+                intent: .textTransform,
+                userMessage: "终端命令已执行",
+                outputText: normalizedOutput,
+                historyDisplayText: "shell: \(summarizedHistoryText(command, limit: 96))",
+                fallbackUsed: false,
+                observation: observation
+            ),
+            skillID: "shell.command.run",
+            evidence: "exit=0"
+        )
+    }
+
+    private func resolvedShellCommand(
+        input: [String: Any],
+        objective: String,
+        request: MagicianAgentRequest
+    ) async throws -> String {
+        if let explicit = stringValue(input["command"])?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
+            return explicit
+        }
+
+        let system = """
+        你是终端命令生成器。请根据目标生成一条可直接执行的 macOS zsh 命令。
+        仅输出 JSON：{"command":"..."}
+        规则：
+        1) 只输出一条命令，不要解释。
+        2) 不要包含 sudo。
+        3) 命令必须可在当前项目目录执行。
+        """
+        let user = """
+        objective:
+        \(objective)
+
+        original_command:
+        \(request.command)
+
+        selected_text:
+        \(request.selectionSnapshot?.selectedText ?? "")
+        """
+        let raw = try await llmClient.generate(
+            systemPrompt: system,
+            userPrompt: user,
+            temperature: 0,
+            maxOutputTokens: 220
+        )
+        guard
+            let object = parseJSONObject(raw),
+            let command = stringValue(object["command"])?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !command.isEmpty
+        else {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "终端命令生成失败，请补充更具体的目标。",
+                debugMessage: raw,
+                recoverAction: "retry_command"
+            )
+        }
+        return command
+    }
+
+    private func validateShellCommandSafety(_ command: String) throws {
+        let lowered = command.lowercased()
+        let blockedPatterns = [
+            "rm -rf /",
+            "sudo ",
+            "shutdown",
+            "reboot",
+            "mkfs",
+            "diskutil erasedisk",
+            ":(){:|:&};:"
+        ]
+        if blockedPatterns.contains(where: { lowered.contains($0) }) {
+            throw MagicianError(
+                code: .toolExecutionFailed,
+                userMessage: "命令包含高风险操作，已拒绝执行。",
+                debugMessage: "blocked shell command: \(command)",
+                recoverAction: "retry_command"
+            )
+        }
     }
 
     private func updateEventSkill(
@@ -1827,6 +1924,14 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         )
 
         let catalog = MagicianSkillCatalogV3(enabledFeatures: normalizedRequest.enabledFeatures)
+        guard !catalog.manifests.isEmpty else {
+            throw MagicianError(
+                code: .intentParseFailed,
+                userMessage: "未加载到可用 skill 清单，请检查本地 skill 目录。",
+                debugMessage: "skill catalog empty",
+                recoverAction: "retry_command"
+            )
+        }
         let context = MagicianKernelRuntimeContextV3(request: normalizedRequest, catalog: catalog)
         let sessionID = UUID().uuidString
         let runID = UUID().uuidString
@@ -1910,8 +2015,16 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                     candidateSkillIDs.append(skillID)
                 }
             }
-            if candidateSkillIDs.isEmpty, context.catalog.manifest(for: "core.reason.respond") != nil {
-                candidateSkillIDs.append("core.reason.respond")
+            if candidateSkillIDs.isEmpty {
+                let probeText = "\(currentStep.objective)\n\(context.request.command)".lowercased()
+                if
+                    runtimeLooksLikeShellTask(probeText),
+                    context.catalog.manifest(for: "shell.command.run") != nil
+                {
+                    candidateSkillIDs.append("shell.command.run")
+                } else if context.catalog.manifest(for: "core.reason.respond") != nil {
+                    candidateSkillIDs.append("core.reason.respond")
+                }
             }
 
             guard let selectedSkillID = candidateSkillIDs.first else {
@@ -2074,6 +2187,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         4) 当步骤需要写入编辑器或剪贴板时，使用 skill_id: "text.transform"。
         5) 只有外部动作才使用 apple.* 或 feishu_* skill。
         6) status 仅允许 pending / in_progress / completed。
+        7) 如果步骤无法匹配现成 skill，且本质是本机命令执行，使用 skill_id: "shell.command.run"，并在 input.command 给出完整命令。
         """
         let user = """
         command:
@@ -2324,6 +2438,16 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         return ids
     }
 
+    private func runtimeLooksLikeShellTask(_ text: String) -> Bool {
+        let tokens = [
+            "终端", "命令行", "shell", "zsh", "bash",
+            "ls ", "pwd", "git ", "npm ", "pnpm ", "yarn ",
+            "python ", "node ", "swift ", "xcodebuild",
+            "find ", "grep ", "rg "
+        ]
+        return tokens.contains { text.contains($0) }
+    }
+
     private func registerTools() {
         toolRegistry.register(.todoUpdate) { [weak self] input, context in
             guard self != nil else {
@@ -2376,6 +2500,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         toolRegistry.register(.skillLoadMin) { input, context in
             let skillIDs = stringArrayValue(input["skill_ids"]) ?? []
             let cards = context.catalog.minimalCards(for: skillIDs)
+            context.loadedCards.removeAll(keepingCapacity: true)
             for card in cards {
                 context.loadedCards[card.skillID] = card
             }
@@ -2400,7 +2525,6 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 )
             }
             let explicitSkillID = stringValue(input["skill_id"])
-            let loadedSkillID = context.loadedCards.keys.first
             let stepObjective = stringValue((input["input"] as? [String: Any])?["objective"]) ?? context.request.command
             let routedSkillID = await self.skillRouter.search(
                 query: stepObjective,
@@ -2410,7 +2534,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 .first?
                 .skillID
             let coreSkillID = context.catalog.manifest(for: "core.reason.respond") != nil ? "core.reason.respond" : nil
-            let skillID = explicitSkillID ?? loadedSkillID ?? routedSkillID ?? coreSkillID ?? ""
+            let skillID = explicitSkillID ?? routedSkillID ?? coreSkillID ?? ""
             guard !skillID.isEmpty else {
                 throw MagicianError(
                     code: .intentParseFailed,
@@ -2439,6 +2563,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                         request: context.request,
                         context: context
                     )
+                    context.loadedCards.removeAll(keepingCapacity: true)
                     context.lastSkillResult = invoked
                     return MagicianKernelToolOutcomeV3(
                         message: invoked.execution.userMessage,
@@ -2456,6 +2581,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                     finalError = error
                 }
             }
+            context.loadedCards.removeAll(keepingCapacity: true)
             throw (finalError ?? MagicianError(
                 code: .toolExecutionFailed,
                 userMessage: "skill 执行失败。",

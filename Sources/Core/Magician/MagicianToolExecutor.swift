@@ -735,6 +735,15 @@ private struct MagicianMusicAdapter {
         }
 
         let action = resolvedAction(intent: intent, context: context)
+        let warmup = await warmupMusicLibrary()
+        guard warmup.exitCode == 0 else {
+            throw MagicianError(
+                code: .musicControlFailed,
+                userMessage: "Music 启动失败，请确认应用可正常打开后再试。",
+                debugMessage: warmup.detail,
+                recoverAction: "open_music_app"
+            )
+        }
         let result = await runAction(action)
         guard result.exitCode == 0 else {
             throw MagicianError(
@@ -856,6 +865,31 @@ private struct MagicianMusicAdapter {
         }
     }
 
+    private func warmupMusicLibrary() async -> MagicianProcessResult {
+        await runOsaScript(
+            lines: [
+                "tell application \"Music\"",
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false, timeoutSeconds: 12) + [
+                "set ready to false",
+                "repeat with idx from 1 to 24",
+                "try",
+                "set _count to (count of tracks of library playlist 1)",
+                "set ready to true",
+                "exit repeat",
+                "on error",
+                "delay 0.2",
+                "end try",
+                "end repeat",
+                "if ready then",
+                "return \"library_ready\"",
+                "end if",
+                "return \"library_pending\"",
+                "end tell"
+            ],
+            arguments: []
+        )
+    }
+
     private func containsAny(_ value: String, keywords: [String]) -> Bool {
         keywords.contains { value.contains($0) }
     }
@@ -869,14 +903,25 @@ private struct MagicianMusicAdapter {
                     "set keywordText to item 1 of argv",
                     "tell application \"Music\"",
                 ] + magicianEnsureApplicationReadyAppleScriptLines() + [
+                    "set targetTrack to missing value",
+                    "repeat with idx from 1 to 20",
+                    "try",
                     "set matchedTracks to (every track of library playlist 1 whose (name contains keywordText) or (artist contains keywordText) or (album contains keywordText))",
                     "if (count of matchedTracks) > 0 then",
                     "set targetTrack to item 1 of matchedTracks",
+                    "exit repeat",
+                    "end if",
+                    "on error",
+                    "if idx is 20 then return \"lookup_error\"",
+                    "end try",
+                    "delay 0.18",
+                    "end repeat",
+                    "if targetTrack is not missing value then",
                     "play targetTrack",
                     "return \"track=\" & (name of targetTrack)",
-                    "else",
-                    "return \"no_match\"",
                     "end if",
+                    "play",
+                    "return \"state=play_fallback\"",
                     "end tell",
                     "end run"
                 ],
@@ -886,7 +931,7 @@ private struct MagicianMusicAdapter {
             if result.exitCode != 0 {
                 return result
             }
-            if result.stdout.hasPrefix("track=") {
+            if result.stdout.hasPrefix("track=") || result.stdout == "state=play_fallback" {
                 return result
             }
         }
