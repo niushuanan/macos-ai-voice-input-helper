@@ -1710,24 +1710,6 @@ final class InteractionCoordinator {
         let fallbackFocusContext = selectionSnapshot?.focusContext ?? initialFocusContext
         let selectionText = selectionSnapshot?.selectedText ?? ""
         let enabledFeatures = magicianFeatureToggleStore.enabledFeatures
-        let preprocessor = MagicianCommandSemanticPreprocessor(
-            providerSettingsStore: providerSettingsStore,
-            rewriteProviderRegistry: rewriteProviderRegistry,
-            skillRuleStore: skillRuleStore,
-            asrDictionaryStore: asrDictionaryStore
-        )
-        let preprocessResult = await preprocessor.preprocess(
-            rawCommand: spokenInstruction,
-            focusContext: fallbackFocusContext
-        )
-        let rewrittenCommand = preprocessResult.command.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !rewrittenCommand.isEmpty {
-            spokenInstruction = rewrittenCommand
-        }
-        commandAppliedSkills = preprocessResult.appliedSkills
-        if let notice = preprocessResult.notice, !notice.isEmpty {
-            toastPresenter?.show(notice, duration: 2.2)
-        }
         var runtimeEvents: [MagicianAgentRuntimeEvent] = []
 
         guard !spokenInstruction.isEmpty else {

@@ -29,6 +29,27 @@ struct DefaultMagicianMailAppleScripter: MagicianMailAppleScripting {
         arguments.append(contentsOf: recipients)
         return await runOsaScript(
             lines: [
+                "on joinList(itemList, delimiterValue)",
+                "set previousDelimiters to AppleScript's text item delimiters",
+                "set AppleScript's text item delimiters to delimiterValue",
+                "set joinedValue to itemList as string",
+                "set AppleScript's text item delimiters to previousDelimiters",
+                "return joinedValue",
+                "end joinList",
+                "on recipientAddresses(recipientItems)",
+                "set outputList to {}",
+                "repeat with recipientItem in recipientItems",
+                "set end of outputList to (address of recipientItem) as string",
+                "end repeat",
+                "return outputList",
+                "end recipientAddresses",
+                "on recipientSummaryMatches(candidateRecipients, expectedRecipients)",
+                "if (count of candidateRecipients) is not (count of expectedRecipients) then return false",
+                "repeat with expectedRecipient in expectedRecipients",
+                "if (contents of expectedRecipient) is not in candidateRecipients then return false",
+                "end repeat",
+                "return true",
+                "end recipientSummaryMatches",
                 "on run argv",
                 "set mailSubject to item 1 of argv",
                 "set mailBody to item 2 of argv",
@@ -39,6 +60,7 @@ struct DefaultMagicianMailAppleScripter: MagicianMailAppleScripting {
                 "set end of recipientList to (item idx of argv)",
                 "end repeat",
                 "end if",
+                "set recipientSummary to my joinList(recipientList, \"|\")",
                 "tell application \"Mail\"",
             ] + magicianEnsureApplicationReadyAppleScriptLines() + [
                 "set draftMessage to make new outgoing message with properties {visible:true, subject:mailSubject, content:mailBody & return & return}",
@@ -47,9 +69,32 @@ struct DefaultMagicianMailAppleScripter: MagicianMailAppleScripting {
                 "make new to recipient at end of to recipients with properties {address:(contents of addr)}",
                 "end repeat",
                 "end tell",
+                "set draftID to \"missing\"",
+                "try",
+                "set draftID to (id of draftMessage) as string",
+                "end try",
                 "if shouldSendNow then",
+                "set sentMessageID to \"\"",
+                "set verifyDeadline to (current date) + 8",
                 "send draftMessage",
+                "repeat while sentMessageID is \"\" and ((current date) < verifyDeadline)",
+                "try",
+                "set sentCandidates to (messages of sent mailbox whose subject is mailSubject)",
+                "repeat with sentCandidate in sentCandidates",
+                "set candidateRecipients to my recipientAddresses(to recipients of sentCandidate)",
+                "if my recipientSummaryMatches(candidateRecipients, recipientList) then",
+                "set sentMessageID to (message id of sentCandidate) as string",
+                "if sentMessageID is not \"\" then exit repeat",
                 "end if",
+                "end if",
+                "end repeat",
+                "end try",
+                "if sentMessageID is \"\" then delay 0.25",
+                "end repeat",
+                "if sentMessageID is \"\" then error \"mail send verification failed\"",
+                "return \"mail_status=sent\" & return & \"message_id=\" & sentMessageID & return & \"subject=\" & mailSubject & return & \"recipients=\" & recipientSummary & return & \"mailbox=sent\"",
+                "end if",
+                "return \"mail_status=draft\" & return & \"draft_id=\" & draftID & return & \"subject=\" & mailSubject & return & \"recipients=\" & recipientSummary & return & \"visible=\" & ((visible of draftMessage) as string)",
                 "end tell",
                 "end run"
             ],
@@ -96,6 +141,45 @@ struct MagicianMailAdapter: MagicianMailExecuting {
     private struct MailDraftSummary {
         let title: String
         let body: String
+    }
+
+    private struct MailScriptEvidence {
+        let status: String
+        let draftID: String?
+        let messageID: String?
+        let subject: String
+        let recipients: [String]
+        let mailbox: String?
+        let visible: Bool?
+
+        var evidenceSummary: String {
+            var parts: [String] = ["mail_status=\(status)"]
+            if let draftID {
+                parts.append("draft_id=\(draftID)")
+            }
+            if let messageID {
+                parts.append("message_id=\(messageID)")
+            }
+            if let mailbox {
+                parts.append("mailbox=\(mailbox)")
+            }
+            if let visible {
+                parts.append("visible=\(visible)")
+            }
+            if !recipients.isEmpty {
+                parts.append("recipients=\(recipients.joined(separator: "|"))")
+            }
+            parts.append("subject=\(subject)")
+            return parts.joined(separator: "; ")
+        }
+
+        var isVerifiedDraft: Bool {
+            status == "draft" && draftID != nil && visible == true
+        }
+
+        var isVerifiedSent: Bool {
+            status == "sent" && messageID != nil && mailbox == "sent"
+        }
     }
 
     private struct MailSummaryPayload: Codable {
@@ -166,17 +250,50 @@ struct MagicianMailAdapter: MagicianMailExecuting {
                 shouldSend: shouldSend
             )
             if scriptResult.exitCode == 0 {
+                let evidence = parsedMailScriptEvidence(from: scriptResult.stdout)
                 if let primaryRecipient = resolution.primaryRecipient?.address {
                     addressBookStore.markUsed(addresses: [primaryRecipient])
                 }
-                return buildResult(
-                    subject: subject,
-                    body: body,
-                    resolution: resolution,
-                    deliveryMode: intent.params.mailDeliveryMode,
-                    shouldSend: shouldSend,
-                    fallbackUsed: false
-                )
+                if shouldSend {
+                    guard
+                        let evidence,
+                        evidence.isVerifiedSent,
+                        evidence.subject == subject,
+                        evidence.recipients == recipients
+                    else {
+                        throw MagicianError(
+                            code: .toolExecutionFailed,
+                            userMessage: "邮件发送缺少硬证据，已判定失败。",
+                            debugMessage: "mail send unverified; stdout=\(scriptResult.stdout)",
+                            recoverAction: "retry_command"
+                        )
+                    }
+                    return buildResult(
+                        subject: subject,
+                        body: body,
+                        resolution: resolution,
+                        deliveryMode: intent.params.mailDeliveryMode,
+                        shouldSend: shouldSend,
+                        fallbackUsed: false,
+                        evidence: evidence
+                    )
+                }
+                if
+                    let evidence,
+                    evidence.isVerifiedDraft,
+                    evidence.subject == subject,
+                    evidence.recipients == recipients
+                {
+                    return buildResult(
+                        subject: subject,
+                        body: body,
+                        resolution: resolution,
+                        deliveryMode: intent.params.mailDeliveryMode,
+                        shouldSend: false,
+                        fallbackUsed: false,
+                        evidence: evidence
+                    )
+                }
             }
 
             if shouldSend {
@@ -184,13 +301,11 @@ struct MagicianMailAdapter: MagicianMailExecuting {
             }
 
             if fallbackOpener.openDraft(recipients: recipients, subject: subject, body: body) {
-                return buildResult(
-                    subject: subject,
-                    body: body,
-                    resolution: resolution,
-                    deliveryMode: intent.params.mailDeliveryMode,
-                    shouldSend: false,
-                    fallbackUsed: true
+                throw MagicianError(
+                    code: .toolExecutionFailed,
+                    userMessage: "邮件窗口可能已打开，但缺少可核验结果，已判定失败。",
+                    debugMessage: "mail fallback opened without structured evidence; stdout=\(scriptResult.stdout) stderr=\(scriptResult.stderr)",
+                    recoverAction: "retry_command"
                 )
             }
 
@@ -215,14 +330,64 @@ struct MagicianMailAdapter: MagicianMailExecuting {
             )
         }
 
-        return buildResult(
-            subject: subject,
-            body: body,
-            resolution: resolution,
-            deliveryMode: intent.params.mailDeliveryMode,
-            shouldSend: false,
-            fallbackUsed: true
+        throw MagicianError(
+            code: .toolExecutionFailed,
+            userMessage: "邮件窗口可能已打开，但缺少可核验结果，已判定失败。",
+            debugMessage: "mail fallback opened without structured evidence; mail app unavailable",
+            recoverAction: "retry_command"
         )
+    }
+
+    private func parsedMailScriptEvidence(from stdout: String) -> MailScriptEvidence? {
+        let lines = stdout
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !lines.isEmpty else {
+            return nil
+        }
+
+        var fields: [String: String] = [:]
+        for line in lines {
+            let parts = line.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else {
+                continue
+            }
+            let key = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !key.isEmpty {
+                fields[key] = value
+            }
+        }
+
+        guard
+            let status = fields["mail_status"],
+            let subject = fields["subject"]
+        else {
+            return nil
+        }
+
+        let recipients = fields["recipients"]?
+            .split(separator: "|")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? []
+
+        return MailScriptEvidence(
+            status: status,
+            draftID: sanitizedMailEvidenceValue(fields["draft_id"]),
+            messageID: sanitizedMailEvidenceValue(fields["message_id"]),
+            subject: subject,
+            recipients: recipients,
+            mailbox: sanitizedMailEvidenceValue(fields["mailbox"]),
+            visible: fields["visible"].map { $0.lowercased() == "true" }
+        )
+    }
+
+    private func sanitizedMailEvidenceValue(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value == "missing" ? nil : value
     }
 
     private func buildResult(
@@ -231,7 +396,8 @@ struct MagicianMailAdapter: MagicianMailExecuting {
         resolution: MailRecipientResolution,
         deliveryMode: MagicianMailDeliveryMode?,
         shouldSend: Bool,
-        fallbackUsed: Bool
+        fallbackUsed: Bool,
+        evidence: MailScriptEvidence
     ) -> MagicianExecutionResult {
         let historyText: String
         let message: String
@@ -256,15 +422,13 @@ struct MagicianMailAdapter: MagicianMailExecuting {
         return MagicianExecutionResult(
             intent: .composeEmailDraft,
             userMessage: message,
-            outputText: "标题：\(subject)\n正文：\(body)",
+            outputText: "标题：\(subject)\n正文：\(body)\n\(evidence.evidenceSummary)",
             historyDisplayText: historyText,
             fallbackUsed: fallbackUsed,
             observation: MagicianAgentObservation(
-                verificationStatus: shouldSend ? .assumed : .verified,
+                verificationStatus: .verified,
                 targetSummary: resolution.primaryRecipient?.address,
-                evidenceSummary: shouldSend
-                    ? "Mail AppleScript 已执行发送动作"
-                    : "邮件草稿窗口已打开：\(summarizedHistoryText(subject))",
+                evidenceSummary: evidence.evidenceSummary,
                 autoRepairApplied: fallbackUsed
             )
         )
@@ -361,10 +525,6 @@ struct MagicianMailAdapter: MagicianMailExecuting {
     }
 
     private func summarizedDraft(subject: String, body: String) async -> MailDraftSummary {
-        if let modelSummary = await summarizedDraftWithModel(subject: subject, body: body) {
-            return modelSummary
-        }
-
         let normalizedBody = normalizeTextForSummary(body)
         let normalizedSubject = normalizeTextForSummary(subject)
         let bodySummary = summarizeBody(normalizedBody)

@@ -1985,6 +1985,11 @@ private struct MagicianPostStepDecisionV3 {
     let appendedStep: MagicianIntentPlanStepV3?
 }
 
+private struct MagicianFastPlanMatchV3 {
+    let normalizedCommand: String
+    let plan: MagicianIntentPlanV3
+}
+
 // MARK: - Agent Kernel Runtime
 
 @MainActor
@@ -2047,21 +2052,12 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             MagicianAgentRuntimeEvent(
                 name: .stateChanged,
                 state: .understanding,
-                message: "正在进行命令预处理。",
+                message: "正在理解命令。",
                 progressHint: SessionHUDProgressHint.workflowPreview
             )
         )
 
-        let normalizedCommand = try await preprocessCommand(request: request)
-        let normalizedRequest = MagicianAgentRequest(
-            traceID: request.traceID,
-            command: normalizedCommand,
-            selectionSnapshot: request.selectionSnapshot,
-            focusContext: request.focusContext,
-            enabledFeatures: request.enabledFeatures
-        )
-
-        let catalog = MagicianSkillCatalogV3(enabledFeatures: normalizedRequest.enabledFeatures)
+        let catalog = MagicianSkillCatalogV3(enabledFeatures: request.enabledFeatures)
         guard !catalog.manifests.isEmpty else {
             throw MagicianError(
                 code: .intentParseFailed,
@@ -2070,20 +2066,57 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 recoverAction: "retry_command"
             )
         }
+        let fastPlanMatch = buildFastPlanIfPossible(request: request, catalog: catalog)
+        let normalizedCommand: String
+        let normalizedRequest: MagicianAgentRequest
+        if let fastPlanMatch {
+            normalizedCommand = fastPlanMatch.normalizedCommand
+            normalizedRequest = MagicianAgentRequest(
+                traceID: request.traceID,
+                command: normalizedCommand,
+                selectionSnapshot: request.selectionSnapshot,
+                focusContext: request.focusContext,
+                enabledFeatures: request.enabledFeatures
+            )
+            onEvent?(
+                MagicianAgentRuntimeEvent(
+                    name: .stateChanged,
+                    state: .planning,
+                    message: "命中单动作快路径，跳过复杂规划。",
+                    progressHint: SessionHUDProgressHint.workflowPreview
+                )
+            )
+        } else {
+            normalizedCommand = try await preprocessCommand(request: request)
+            normalizedRequest = MagicianAgentRequest(
+                traceID: request.traceID,
+                command: normalizedCommand,
+                selectionSnapshot: request.selectionSnapshot,
+                focusContext: request.focusContext,
+                enabledFeatures: request.enabledFeatures
+            )
+        }
         let context = MagicianKernelRuntimeContextV3(request: normalizedRequest, catalog: catalog)
         let sessionID = UUID().uuidString
         let runID = UUID().uuidString
 
-        onEvent?(
-            MagicianAgentRuntimeEvent(
-                name: .stateChanged,
-                state: .planning,
-                message: "正在生成结构化计划。",
-                progressHint: SessionHUDProgressHint.workflowPreview
+        if fastPlanMatch == nil {
+            onEvent?(
+                MagicianAgentRuntimeEvent(
+                    name: .stateChanged,
+                    state: .planning,
+                    message: "正在生成结构化计划。",
+                    progressHint: SessionHUDProgressHint.workflowPreview
+                )
             )
-        )
+        }
 
-        var plan = try await buildIntentPlan(context: context)
+        var plan: MagicianIntentPlanV3
+        if let fastPlanMatch {
+            plan = fastPlanMatch.plan
+        } else {
+            plan = try await buildIntentPlan(context: context)
+        }
         if plan.todo.isEmpty {
             plan.todo = plan.steps.enumerated().map { index, step in
                 MagicianTodoItemV3(id: step.id.isEmpty ? String(index + 1) : step.id, text: step.objective, status: .pending)
@@ -2126,43 +2159,48 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 )
             )
 
-            let searchOutcome = try await executeKernelTool(
-                .skillSearch,
-                input: [
-                    "query": "\(currentStep.objective)\n\(context.request.command)",
-                    "count": 6
-                ],
-                context: context
-            )
-            let searchedSkillIDs = parseSkillIDs(fromSearchOutput: searchOutcome.outputText)
             var candidateSkillIDs: [String] = []
-            if let hinted = currentStep.skillHint, context.catalog.manifest(for: hinted) != nil {
+            if
+                let hinted = currentStep.skillHint,
+                context.catalog.manifest(for: hinted) != nil
+            {
                 candidateSkillIDs.append(hinted)
             }
-            for skillID in searchedSkillIDs where !candidateSkillIDs.contains(skillID) {
-                candidateSkillIDs.append(skillID)
-            }
-            if candidateSkillIDs.isEmpty {
-                let fallbackCandidates = await skillRouter.search(
-                    query: currentStep.objective,
-                    catalog: context.catalog,
-                    preferredCount: 3,
-                    allowModelSearch: false
+            if fastPlanMatch == nil {
+                let searchOutcome = try await executeKernelTool(
+                    .skillSearch,
+                    input: [
+                        "query": "\(currentStep.objective)\n\(context.request.command)",
+                        "count": 6
+                    ],
+                    context: context
                 )
-                    .map(\.skillID)
-                for skillID in fallbackCandidates where !candidateSkillIDs.contains(skillID) {
+                let searchedSkillIDs = parseSkillIDs(fromSearchOutput: searchOutcome.outputText)
+                for skillID in searchedSkillIDs where !candidateSkillIDs.contains(skillID) {
                     candidateSkillIDs.append(skillID)
                 }
-            }
-            if candidateSkillIDs.isEmpty {
-                let probeText = "\(currentStep.objective)\n\(context.request.command)".lowercased()
-                if
-                    runtimeLooksLikeShellTask(probeText),
-                    context.catalog.manifest(for: "shell.command.run") != nil
-                {
-                    candidateSkillIDs.append("shell.command.run")
-                } else if context.catalog.manifest(for: "core.reason.respond") != nil {
-                    candidateSkillIDs.append("core.reason.respond")
+                if candidateSkillIDs.isEmpty {
+                    let fallbackCandidates = await skillRouter.search(
+                        query: currentStep.objective,
+                        catalog: context.catalog,
+                        preferredCount: 3,
+                        allowModelSearch: false
+                    )
+                        .map(\.skillID)
+                    for skillID in fallbackCandidates where !candidateSkillIDs.contains(skillID) {
+                        candidateSkillIDs.append(skillID)
+                    }
+                }
+                if candidateSkillIDs.isEmpty {
+                    let probeText = "\(currentStep.objective)\n\(context.request.command)".lowercased()
+                    if
+                        runtimeLooksLikeShellTask(probeText),
+                        context.catalog.manifest(for: "shell.command.run") != nil
+                    {
+                        candidateSkillIDs.append("shell.command.run")
+                    } else if context.catalog.manifest(for: "core.reason.respond") != nil {
+                        candidateSkillIDs.append("core.reason.respond")
+                    }
                 }
             }
 
@@ -2247,33 +2285,44 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 )
             )
 
-            let postDecision = try await decidePostStep(
-                context: context,
-                plan: plan,
-                currentStep: currentStep,
-                currentIndex: stepCursor
-            )
-            if let final = postDecision.finalMessage, !final.isEmpty {
-                finalMessage = final
-            }
-            if let appendedStep = postDecision.appendedStep, plan.steps.count < 14 {
-                plan.steps.append(appendedStep)
-                plan.todo.append(
-                    MagicianTodoItemV3(
-                        id: appendedStep.id,
-                        text: appendedStep.objective,
-                        status: .pending
-                    )
+            if fastPlanMatch != nil {
+                finalMessage = invokeOutcome.message
+                plan.todo = buildTodoState(base: plan.todo, currentIndex: stepCursor + 1)
+                _ = try await executeKernelTool(
+                    .todoUpdate,
+                    input: ["items": serializeTodoItems(plan.todo)],
+                    context: context
                 )
-            }
-            plan.todo = buildTodoState(base: plan.todo, currentIndex: stepCursor + 1)
-            _ = try await executeKernelTool(
-                .todoUpdate,
-                input: ["items": serializeTodoItems(plan.todo)],
-                context: context
-            )
-            if postDecision.isDone {
                 break
+            } else {
+                let postDecision = try await decidePostStep(
+                    context: context,
+                    plan: plan,
+                    currentStep: currentStep,
+                    currentIndex: stepCursor
+                )
+                if let final = postDecision.finalMessage, !final.isEmpty {
+                    finalMessage = final
+                }
+                if let appendedStep = postDecision.appendedStep, plan.steps.count < 14 {
+                    plan.steps.append(appendedStep)
+                    plan.todo.append(
+                        MagicianTodoItemV3(
+                            id: appendedStep.id,
+                            text: appendedStep.objective,
+                            status: .pending
+                        )
+                    )
+                }
+                plan.todo = buildTodoState(base: plan.todo, currentIndex: stepCursor + 1)
+                _ = try await executeKernelTool(
+                    .todoUpdate,
+                    input: ["items": serializeTodoItems(plan.todo)],
+                    context: context
+                )
+                if postDecision.isDone {
+                    break
+                }
             }
             stepCursor += 1
         }
@@ -2307,6 +2356,254 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             steps: context.stepRecords,
             evidenceSummary: evidence
         )
+    }
+
+    private func buildFastPlanIfPossible(
+        request: MagicianAgentRequest,
+        catalog: MagicianSkillCatalogV3
+    ) -> MagicianFastPlanMatchV3? {
+        if let match = fastMailPlan(request: request, catalog: catalog) {
+            return match
+        }
+        if let match = fastMusicPlan(request: request, catalog: catalog) {
+            return match
+        }
+        if let match = fastNotePlan(request: request, catalog: catalog) {
+            return match
+        }
+        return nil
+    }
+
+    private func fastMailPlan(
+        request: MagicianAgentRequest,
+        catalog: MagicianSkillCatalogV3
+    ) -> MagicianFastPlanMatchV3? {
+        let command = request.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowered = command.lowercased()
+        let hasMailNoun = containsAny(lowered, keywords: ["邮件", "mail", "email"])
+        let hasMailAction = containsAny(
+            lowered,
+            keywords: ["发邮件", "发送邮件", "写邮件", "写一封邮件", "草稿", "起草", "compose", "send", "发给"]
+        )
+        guard
+            !command.isEmpty,
+            hasMailNoun,
+            hasMailAction
+        else {
+            return nil
+        }
+
+        let prefersDraft = containsAny(
+            lowered,
+            keywords: ["草稿", "起草", "写邮件", "写一封邮件", "compose", "draft"]
+        )
+        let skillID = prefersDraft ? "apple.mail.compose" : "apple.mail.send"
+        guard catalog.manifest(for: skillID) != nil else {
+            return nil
+        }
+
+        var input: [String: Any] = [:]
+        let explicitEmails = magicianExtractExplicitEmails(from: command)
+        if !explicitEmails.isEmpty {
+            input["to"] = explicitEmails
+        }
+
+        let objective = prefersDraft ? "起草邮件" : "发送邮件"
+        return MagicianFastPlanMatchV3(
+            normalizedCommand: command,
+            plan: singleStepPlan(
+                goal: objective,
+                objective: objective,
+                skillID: skillID,
+                input: input
+            )
+        )
+    }
+
+    private func fastMusicPlan(
+        request: MagicianAgentRequest,
+        catalog: MagicianSkillCatalogV3
+    ) -> MagicianFastPlanMatchV3? {
+        let command = request.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowered = command.lowercased()
+        guard !command.isEmpty else {
+            return nil
+        }
+
+        if
+            containsAny(lowered, keywords: ["暂停", "pause", "停止播放", "停一下"]),
+            catalog.manifest(for: "apple.music.pause") != nil
+        {
+            return MagicianFastPlanMatchV3(
+                normalizedCommand: "暂停",
+                plan: singleStepPlan(
+                    goal: "暂停音乐",
+                    objective: "暂停音乐",
+                    skillID: "apple.music.pause"
+                )
+            )
+        }
+        if
+            containsAny(lowered, keywords: ["继续", "恢复", "resume", "继续播放"]),
+            catalog.manifest(for: "apple.music.resume") != nil
+        {
+            return MagicianFastPlanMatchV3(
+                normalizedCommand: "继续播放",
+                plan: singleStepPlan(
+                    goal: "继续播放音乐",
+                    objective: "继续播放音乐",
+                    skillID: "apple.music.resume"
+                )
+            )
+        }
+        if
+            containsAny(lowered, keywords: ["下一首", "下一曲", "next", "切歌"]),
+            catalog.manifest(for: "apple.music.next_track") != nil
+        {
+            return MagicianFastPlanMatchV3(
+                normalizedCommand: "下一首",
+                plan: singleStepPlan(
+                    goal: "播放下一首",
+                    objective: "播放下一首",
+                    skillID: "apple.music.next_track"
+                )
+            )
+        }
+        if
+            containsAny(lowered, keywords: ["上一首", "上一曲", "previous", "prev"]),
+            catalog.manifest(for: "apple.music.previous_track") != nil
+        {
+            return MagicianFastPlanMatchV3(
+                normalizedCommand: "上一首",
+                plan: singleStepPlan(
+                    goal: "播放上一首",
+                    objective: "播放上一首",
+                    skillID: "apple.music.previous_track"
+                )
+            )
+        }
+
+        guard
+            containsAny(lowered, keywords: ["播放", "放一首", "来一首", "听", "music", "歌曲", "音乐", "歌", "play"])
+        else {
+            return nil
+        }
+
+        if
+            let query = fastNormalizedMusicQuery(from: command),
+            catalog.manifest(for: "apple.music.play_query") != nil
+        {
+            return MagicianFastPlanMatchV3(
+                normalizedCommand: "播放 \(query)",
+                plan: singleStepPlan(
+                    goal: "播放 \(query)",
+                    objective: "播放 \(query)",
+                    skillID: "apple.music.play_query",
+                    input: ["query": query]
+                )
+            )
+        }
+        guard catalog.manifest(for: "apple.music.play") != nil else {
+            return nil
+        }
+        return MagicianFastPlanMatchV3(
+            normalizedCommand: "播放",
+            plan: singleStepPlan(
+                goal: "播放音乐",
+                objective: "播放音乐",
+                skillID: "apple.music.play"
+            )
+        )
+    }
+
+    private func fastNotePlan(
+        request: MagicianAgentRequest,
+        catalog: MagicianSkillCatalogV3
+    ) -> MagicianFastPlanMatchV3? {
+        let command = request.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowered = command.lowercased()
+        guard
+            !command.isEmpty,
+            containsAny(lowered, keywords: ["备忘录", "note", "notes", "记到", "记下", "记下来", "写进备忘录", "写入备忘录"])
+        else {
+            return nil
+        }
+        guard catalog.manifest(for: "apple.notes.create_note") != nil else {
+            return nil
+        }
+        return MagicianFastPlanMatchV3(
+            normalizedCommand: command,
+            plan: singleStepPlan(
+                goal: "写入备忘录",
+                objective: "写入备忘录",
+                skillID: "apple.notes.create_note"
+            )
+        )
+    }
+
+    private func singleStepPlan(
+        goal: String,
+        objective: String,
+        skillID: String,
+        input: [String: Any] = [:]
+    ) -> MagicianIntentPlanV3 {
+        MagicianIntentPlanV3(
+            goal: goal,
+            todo: [
+                MagicianTodoItemV3(id: "1", text: objective, status: .pending)
+            ],
+            steps: [
+                MagicianIntentPlanStepV3(
+                    id: "step-1",
+                    objective: objective,
+                    skillHint: skillID,
+                    input: input
+                )
+            ]
+        )
+    }
+
+    private func fastNormalizedMusicQuery(from command: String) -> String? {
+        let explicit = magicianSemanticPayload(
+            from: command,
+            actionTokens: [
+                "播放", "放一首", "来一首", "听", "music", "歌曲", "音乐", "暂停", "继续", "下一首", "上一首"
+            ],
+            extraCommandTokens: ["请", "帮我"]
+        )
+        return fastNormalizedMusicQuery(explicit)
+            ?? fastNormalizedMusicQuery(command)
+    }
+
+    private func fastNormalizedMusicQuery(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        let trimmed = value
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        let compact = compactIntentText(trimmed)
+        if compact.isEmpty {
+            return nil
+        }
+        let genericQueries: Set<String> = [
+            compactIntentText("播放"),
+            compactIntentText("来一首"),
+            compactIntentText("放一首"),
+            compactIntentText("听"),
+            compactIntentText("music"),
+            compactIntentText("play"),
+            compactIntentText("歌曲"),
+            compactIntentText("音乐"),
+            compactIntentText("歌")
+        ]
+        if genericQueries.contains(compact) {
+            return nil
+        }
+        return trimmed
     }
 
     private func preprocessCommand(request: MagicianAgentRequest) async throws -> String {
@@ -2842,6 +3139,9 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         if result.skillID.hasPrefix("apple.notes.") || result.skillID == MagicianFeatureID.createNote.rawValue {
             return true
         }
+        if result.skillID.hasPrefix("apple.mail.") || result.skillID == MagicianFeatureID.composeEmailDraft.rawValue {
+            return true
+        }
         return false
     }
 
@@ -2883,6 +3183,14 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 recoverAction: "retry_command"
             )
         }
+        if requiresMailEvidence(for: result), !hasMailEvidence(for: result) {
+            throw MagicianError(
+                code: .toolExecutionFailed,
+                userMessage: "邮件动作缺少结构化证据，校验失败。",
+                debugMessage: "mail evidence missing for \(result.skillID), output=\(result.execution.outputText ?? "nil"), evidence=\(result.evidence)",
+                recoverAction: "retry_command"
+            )
+        }
     }
 
     private func hasMusicTrackEvidence(for result: MagicianSkillInvokeResultV3) -> Bool {
@@ -2907,6 +3215,28 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         return outputs.contains { value in
             let lowered = value.lowercased()
             return lowered.contains("x-coredata://") || lowered.contains("note-id=")
+        }
+    }
+
+    private func requiresMailEvidence(for result: MagicianSkillInvokeResultV3) -> Bool {
+        result.skillID.hasPrefix("apple.mail.") || result.skillID == MagicianFeatureID.composeEmailDraft.rawValue
+    }
+
+    private func hasMailEvidence(for result: MagicianSkillInvokeResultV3) -> Bool {
+        let outputs = [
+            result.execution.outputText ?? "",
+            result.evidence,
+            result.execution.observation?.evidenceSummary ?? ""
+        ]
+        return outputs.contains { value in
+            let lowered = value.lowercased()
+            if lowered.contains("mail_status=sent") {
+                return lowered.contains("message_id=") && lowered.contains("mailbox=sent")
+            }
+            if lowered.contains("mail_status=draft") {
+                return lowered.contains("draft_id=") && lowered.contains("visible=true")
+            }
+            return false
         }
     }
 }

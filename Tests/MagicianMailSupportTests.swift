@@ -282,7 +282,11 @@ final class MagicianMailSupportTests: XCTestCase {
             shouldAutoSend: true
         )
         let appleScripter = RecordingMailAppleScripter(
-            result: MagicianProcessResult(exitCode: 0, stdout: "", stderr: "")
+            result: MagicianProcessResult(
+                exitCode: 0,
+                stdout: "mail_status=sent\nmessage_id=<fake-message-id>\nsubject=路线图同步\nrecipients=1379804870zhk@gmail.com\nmailbox=sent",
+                stderr: ""
+            )
         )
         let fallbackOpener = RecordingMailFallbackOpener(result: false)
 
@@ -335,7 +339,11 @@ final class MagicianMailSupportTests: XCTestCase {
             shouldAutoSend: false
         )
         let appleScripter = RecordingMailAppleScripter(
-            result: MagicianProcessResult(exitCode: 0, stdout: "", stderr: "")
+            result: MagicianProcessResult(
+                exitCode: 0,
+                stdout: "mail_status=draft\ndraft_id=42\nsubject=活动通知\nrecipients=\nvisible=true",
+                stderr: ""
+            )
         )
 
         let adapter = MagicianMailAdapter(
@@ -384,7 +392,11 @@ final class MagicianMailSupportTests: XCTestCase {
             shouldAutoSend: false
         )
         let appleScripter = RecordingMailAppleScripter(
-            result: MagicianProcessResult(exitCode: 0, stdout: "", stderr: "")
+            result: MagicianProcessResult(
+                exitCode: 0,
+                stdout: "mail_status=draft\ndraft_id=108\nsubject=周会纪要和风险同步\nrecipients=\nvisible=true",
+                stderr: ""
+            )
         )
 
         let adapter = MagicianMailAdapter(
