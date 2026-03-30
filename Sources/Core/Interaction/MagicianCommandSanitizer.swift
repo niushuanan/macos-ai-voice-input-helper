@@ -66,6 +66,21 @@ struct MagicianCommandSemanticPreprocessor {
         case generic
     }
 
+    private let musicActionTokens = [
+        "播放", "放一首", "来一首", "听", "music", "歌曲", "音乐", "暂停", "继续", "下一首", "上一首"
+    ]
+    private let genericMusicPayloads: Set<String> = [
+        compactIntentText("播放"),
+        compactIntentText("放一首"),
+        compactIntentText("来一首"),
+        compactIntentText("听"),
+        compactIntentText("music"),
+        compactIntentText("play"),
+        compactIntentText("歌曲"),
+        compactIntentText("音乐"),
+        compactIntentText("歌")
+    ]
+
     let providerSettingsStore: ProviderSettingsStore
     let rewriteProviderRegistry: RewriteProviderRegistry
     let skillRuleStore: SkillRuleStore
@@ -163,6 +178,18 @@ struct MagicianCommandSemanticPreprocessor {
                     notice: nil
                 )
             }
+            if shouldFallbackToBaseCommand(
+                scene: scene,
+                baseCommand: baseCommand,
+                rewrittenCommand: finalCommand
+            ) {
+                return MagicianCommandPreprocessResult(
+                    command: baseCommand,
+                    appliedSkills: appliedSkills,
+                    usedModel: false,
+                    notice: "命令语义预处理结果丢失关键信息，已按原句执行。"
+                )
+            }
             appliedSkills = mergedSkills(appliedSkills, modelApply.appliedSkills)
             return MagicianCommandPreprocessResult(
                 command: finalCommand,
@@ -195,6 +222,54 @@ struct MagicianCommandSemanticPreprocessor {
             return .feishu
         }
         return .generic
+    }
+
+    private func shouldFallbackToBaseCommand(
+        scene: Scene,
+        baseCommand: String,
+        rewrittenCommand: String
+    ) -> Bool {
+        switch scene {
+        case .music:
+            return musicRewriteLosesSemanticPayload(
+                baseCommand: baseCommand,
+                rewrittenCommand: rewrittenCommand
+            )
+        case .feishu, .generic:
+            return false
+        }
+    }
+
+    private func musicRewriteLosesSemanticPayload(
+        baseCommand: String,
+        rewrittenCommand: String
+    ) -> Bool {
+        let basePayload = magicianSemanticPayload(
+            from: baseCommand,
+            actionTokens: musicActionTokens,
+            extraCommandTokens: ["请", "帮我"]
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rewrittenPayload = magicianSemanticPayload(
+            from: rewrittenCommand,
+            actionTokens: musicActionTokens,
+            extraCommandTokens: ["请", "帮我"]
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let basePayload, !basePayload.isEmpty else {
+            return false
+        }
+        guard let rewrittenPayload, !rewrittenPayload.isEmpty else {
+            return true
+        }
+        return isGenericMusicPayload(rewrittenPayload)
+    }
+
+    private func isGenericMusicPayload(_ payload: String) -> Bool {
+        let compactPayload = compactIntentText(payload)
+        guard !compactPayload.isEmpty else {
+            return true
+        }
+        return genericMusicPayloads.contains(compactPayload)
     }
 
     private func commandPrompt(scene: Scene, dictionaryTerms: [String]) -> String {

@@ -192,6 +192,52 @@ final class MagicianAgentRuntimeScenarioTests: XCTestCase {
         }
     }
 
+    func testCreateNoteFailsWhenStructuredEvidenceMissing() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanUp() }
+
+        let runtime = MagicianAgentRuntimeV3(
+            providerSettingsStore: fixture.providerSettingsStore,
+            rewriteProviderRegistry: RewriteProviderRegistry(providers: []),
+            textOutputCoordinator: fixture.textOutputCoordinator,
+            skillRuleStore: fixture.skillRuleStore,
+            toolExecutor: NoteWeakEvidenceToolExecutor(),
+            llmProvider: ScenarioTextGenerationProvider()
+        )
+
+        let request = MagicianAgentRequest(
+            traceID: "scenario-note-evidence-missing",
+            command: "帮我记到备忘录",
+            selectionSnapshot: FocusedSelectionSnapshot(
+                focusContext: FocusedAppContext(
+                    appName: "TextEdit",
+                    bundleID: "com.apple.TextEdit",
+                    focusedRole: "AXTextArea",
+                    hasEditableTarget: true,
+                    strategyHint: "test"
+                ),
+                selectedText: "这是需要写入备忘录的内容"
+            ),
+            focusContext: FocusedAppContext(
+                appName: "TextEdit",
+                bundleID: "com.apple.TextEdit",
+                focusedRole: "AXTextArea",
+                hasEditableTarget: true,
+                strategyHint: "test"
+            ),
+            enabledFeatures: Set(MagicianFeatureID.allCases)
+        )
+
+        do {
+            _ = try await runtime.run(request: request, onEvent: nil)
+            XCTFail("expected missing note evidence to fail verification")
+        } catch let error as MagicianError {
+            XCTAssertEqual(error.code, .toolExecutionFailed)
+            XCTAssertTrue(error.userMessage.contains("备忘录写入缺少结构化证据"))
+            XCTAssertTrue((error.debugMessage ?? "").contains("apple.notes.create_note"))
+        }
+    }
+
     private func makeFixture() throws -> ScenarioFixture {
         let suiteName = "MagicianAgentRuntimeScenarioTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -355,6 +401,15 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
                 stepsCount: 1,
                 json: """
                 {"goal":"播放跨时代","todo":[{"id":"1","text":"播放歌曲","status":"pending"}],"steps":[{"id":"step-1","objective":"播放跨时代","skill_id":"apple.music.play_query","input":{"query":"跨时代"}}]}
+                """
+            )
+        }
+        if command.contains("备忘录") {
+            return (
+                goal: "写入备忘录",
+                stepsCount: 1,
+                json: """
+                {"goal":"写入备忘录","todo":[{"id":"1","text":"创建备忘录","status":"pending"}],"steps":[{"id":"step-1","objective":"创建备忘录","skill_id":"apple.notes.create_note","input":{"body":"这是需要写入备忘录的内容"}}]}
                 """
             )
         }
@@ -595,6 +650,38 @@ private final class MusicFallbackToolExecutor: MagicianToolExecuting {
             )
         }
 
+        return MagicianExecutionResult(
+            intent: intent.intent,
+            userMessage: "OK",
+            outputText: "OK",
+            historyDisplayText: "OK",
+            fallbackUsed: false,
+            observation: MagicianAgentObservation(verificationStatus: .verified)
+        )
+    }
+}
+
+@MainActor
+private final class NoteWeakEvidenceToolExecutor: MagicianToolExecuting {
+    func execute(
+        intent: MagicianIntent,
+        context: MagicianExecutionContext
+    ) async throws -> MagicianExecutionResult {
+        _ = context
+        if intent.intent == .createNote {
+            return MagicianExecutionResult(
+                intent: .createNote,
+                userMessage: "已写入备忘录。",
+                outputText: "shortcut_triggered",
+                historyDisplayText: "已写入备忘录。",
+                fallbackUsed: true,
+                observation: MagicianAgentObservation(
+                    verificationStatus: .verified,
+                    targetSummary: "备忘录",
+                    evidenceSummary: "shortcut_triggered"
+                )
+            )
+        }
         return MagicianExecutionResult(
             intent: intent.intent,
             userMessage: "OK",

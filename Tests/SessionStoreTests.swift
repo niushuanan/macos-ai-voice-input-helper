@@ -297,7 +297,7 @@ final class TextOutputCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.pasteFallbackCount, 0)
     }
 
-    func testNoEditableTargetReturnsClipboardOnly() async throws {
+    func testNoEditableTargetThrowsNoEditableTargetError() async {
         let focusContext = FocusedAppContext(
             appName: "Finder",
             bundleID: "com.apple.finder",
@@ -309,21 +309,31 @@ final class TextOutputCoordinatorTests: XCTestCase {
             contextDetector: StaticContextDetector(focusContext: focusContext)
         )
 
-        let result = try await coordinator.write(
-            request: TextOutputRequest(
-                text: "hello",
-                operation: .insertText,
-                focusContext: focusContext
+        do {
+            _ = try await coordinator.write(
+                request: TextOutputRequest(
+                    text: "hello",
+                    operation: .insertText,
+                    focusContext: focusContext
+                )
             )
-        )
+            XCTFail("Expected noEditableTarget")
+        } catch let error as TextOutputError {
+            switch error {
+            case .noEditableTarget:
+                break
+            default:
+                XCTFail("Expected noEditableTarget, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
 
-        XCTAssertEqual(result.path, .clipboardOnly)
-        XCTAssertFalse(result.didInsertIntoEditor)
         XCTAssertEqual(coordinator.accessibilityWriteCount, 0)
         XCTAssertEqual(coordinator.pasteFallbackCount, 0)
     }
 
-    func testMissingTargetAppFallsBackToClipboardOnlyInsteadOfError() async throws {
+    func testMissingTargetAppThrowsNoEditableTargetError() async {
         let preferredFocusContext = FocusedAppContext(
             appName: "TextEdit",
             bundleID: "com.apple.TextEdit",
@@ -344,21 +354,33 @@ final class TextOutputCoordinatorTests: XCTestCase {
         )
         coordinator.availableTargetBundleIDs = []
 
-        let result = try await coordinator.write(
-            request: TextOutputRequest(
-                text: "hello",
-                operation: .insertText,
-                focusContext: preferredFocusContext,
-                preferredTarget: WritebackTargetSnapshot(
-                    appName: "TextEdit",
-                    bundleID: "com.apple.TextEdit",
-                    processIdentifier: 42
+        do {
+            _ = try await coordinator.write(
+                request: TextOutputRequest(
+                    text: "hello",
+                    operation: .insertText,
+                    focusContext: preferredFocusContext,
+                    preferredTarget: WritebackTargetSnapshot(
+                        appName: "TextEdit",
+                        bundleID: "com.apple.TextEdit",
+                        processIdentifier: 42
+                    )
                 )
             )
-        )
+            XCTFail("Expected noEditableTarget")
+        } catch let error as TextOutputError {
+            switch error {
+            case .noEditableTarget:
+                break
+            default:
+                XCTFail("Expected noEditableTarget, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
 
-        XCTAssertEqual(result.path, .clipboardOnly)
-        XCTAssertEqual(result.appName, "TextEdit")
+        XCTAssertEqual(coordinator.accessibilityWriteCount, 0)
+        XCTAssertEqual(coordinator.pasteFallbackCount, 0)
     }
 
     func testStaleEditableFocusUsesBestEffortPasteFallback() async throws {

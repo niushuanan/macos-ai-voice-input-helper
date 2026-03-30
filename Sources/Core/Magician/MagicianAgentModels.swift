@@ -369,24 +369,13 @@ private struct MagicianAgentTextBackend {
                 producedArtifact: MagicianAgentArtifact(text: finalText)
             )
         } catch {
-            if persistToClipboard(finalText) {
-                return MagicianAgentActionResult(
-                    userMessage: "未检测到可写入输入框，结果已复制到剪贴板。",
-                    outputText: finalText,
-                    historyDisplayText: "文字处理：\(summarizedHistoryText(finalText))",
-                    fallbackUsed: true,
-                    observation: MagicianAgentObservation(
-                        verificationStatus: .verified,
-                        evidenceSummary: "文本已复制到剪贴板",
-                        autoRepairApplied: true
-                    ),
-                    producedArtifact: MagicianAgentArtifact(text: finalText)
-                )
-            }
+            let didCopyToClipboard = persistToClipboard(finalText)
             throw MagicianError(
                 code: .toolExecutionFailed,
-                userMessage: "文字处理结果无法写回当前应用，请稍后再试。",
-                debugMessage: error.localizedDescription,
+                userMessage: didCopyToClipboard
+                    ? "文字处理结果未写入目标输入框，已放入剪贴板。请先聚焦输入框后重试。"
+                    : "文字处理结果无法写回当前应用，请先聚焦输入框后重试。",
+                debugMessage: "text writeback failed: \(error.localizedDescription); clipboardCopied=\(didCopyToClipboard)",
                 recoverAction: "retry_command"
             )
         }
@@ -1261,40 +1250,39 @@ private final class MagicianSkillRuntimeV3 {
             )
         case "apple.music.play":
             return try await executeMusicSkill(
-                command: "播放",
                 request: request,
-                skillID: "apple.music.play"
+                skillID: "apple.music.play",
+                explicitCommand: "播放"
             )
         case "apple.music.pause":
             return try await executeMusicSkill(
-                command: "暂停",
                 request: request,
-                skillID: "apple.music.pause"
+                skillID: "apple.music.pause",
+                explicitCommand: "暂停"
             )
         case "apple.music.resume":
             return try await executeMusicSkill(
-                command: "继续播放",
                 request: request,
-                skillID: "apple.music.resume"
+                skillID: "apple.music.resume",
+                explicitCommand: "继续播放"
             )
         case "apple.music.next_track":
             return try await executeMusicSkill(
-                command: "下一首",
                 request: request,
-                skillID: "apple.music.next_track"
+                skillID: "apple.music.next_track",
+                explicitCommand: "下一首"
             )
         case "apple.music.previous_track":
             return try await executeMusicSkill(
-                command: "上一首",
                 request: request,
-                skillID: "apple.music.previous_track"
+                skillID: "apple.music.previous_track",
+                explicitCommand: "上一首"
             )
         case "apple.music.play_query":
-            let query = stringValue(input["query"]) ?? request.command
             return try await executeMusicSkill(
-                command: "播放 \(query)",
                 request: request,
-                skillID: "apple.music.play_query"
+                skillID: "apple.music.play_query",
+                explicitQuery: stringValue(input["query"])
             )
         default:
             throw MagicianError(
@@ -1334,11 +1322,18 @@ private final class MagicianSkillRuntimeV3 {
     }
 
     private func executeMusicSkill(
-        command: String,
         request: MagicianAgentRequest,
-        skillID: String
+        skillID: String,
+        explicitCommand: String? = nil,
+        explicitQuery: String? = nil
     ) async throws -> MagicianSkillInvokeResultV3 {
-        try await executeByToolExecutor(
+        let command = try resolvedMusicCommand(
+            request: request,
+            skillID: skillID,
+            explicitCommand: explicitCommand,
+            explicitQuery: explicitQuery
+        )
+        return try await executeByToolExecutor(
             intent: MagicianIntent(
                 intent: .controlMusic,
                 confidence: 0.95,
@@ -1349,6 +1344,86 @@ private final class MagicianSkillRuntimeV3 {
             selectionText: request.selectionSnapshot?.selectedText,
             resolvedSkillID: skillID
         )
+    }
+
+    private func resolvedMusicCommand(
+        request: MagicianAgentRequest,
+        skillID: String,
+        explicitCommand: String?,
+        explicitQuery: String?
+    ) throws -> String {
+        if skillID == "apple.music.play_query" {
+            let normalizedExplicitQuery = normalizedMusicQuery(explicitQuery)
+            let semanticQuery = normalizedMusicQuery(
+                magicianSemanticPayload(
+                    from: request.command,
+                    actionTokens: [
+                        "播放", "放一首", "来一首", "听", "music", "歌曲", "音乐", "暂停", "继续", "下一首", "上一首"
+                    ],
+                    extraCommandTokens: ["请", "帮我"]
+                )
+            )
+            let fallbackQuery = normalizedMusicQuery(request.command)
+            guard let query = normalizedExplicitQuery ?? semanticQuery ?? fallbackQuery else {
+                throw MagicianError(
+                    code: .intentParseFailed,
+                    userMessage: "没有识别到具体歌曲或歌手，请补一句更明确的播放内容。",
+                    debugMessage: "music play_query unresolved; command=\(request.command); explicitQuery=\(explicitQuery ?? "nil")",
+                    recoverAction: "retry_command"
+                )
+            }
+            return "播放 \(query)"
+        }
+
+        if skillID == "apple.music.play" {
+            if let semanticQuery = normalizedMusicQuery(
+                magicianSemanticPayload(
+                    from: request.command,
+                    actionTokens: [
+                        "播放", "放一首", "来一首", "听", "music", "歌曲", "音乐", "暂停", "继续", "下一首", "上一首"
+                    ],
+                    extraCommandTokens: ["请", "帮我"]
+                )
+            ) {
+                return "播放 \(semanticQuery)"
+            }
+        }
+
+        if let explicitCommand, !explicitCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return explicitCommand
+        }
+        return request.command
+    }
+
+    private func normalizedMusicQuery(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        let trimmed = value
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        let compact = compactIntentText(trimmed)
+        if compact.isEmpty {
+            return nil
+        }
+        let genericQueries: Set<String> = [
+            compactIntentText("播放"),
+            compactIntentText("来一首"),
+            compactIntentText("放一首"),
+            compactIntentText("听"),
+            compactIntentText("music"),
+            compactIntentText("play"),
+            compactIntentText("歌曲"),
+            compactIntentText("音乐"),
+            compactIntentText("歌")
+        ]
+        if genericQueries.contains(compact) {
+            return nil
+        }
+        return trimmed
     }
 
     private var requestFocusContextFallback: FocusedAppContext {
@@ -2657,6 +2732,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                         context: context
                     )
                     context.loadedCards.removeAll(keepingCapacity: true)
+                    try self.enforceHardEvidence(for: invoked)
                     context.lastSkillResult = invoked
                     return MagicianKernelToolOutcomeV3(
                         message: invoked.execution.userMessage,
@@ -2665,7 +2741,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                         usedSkillID: candidate,
                         featureID: invoked.execution.intent,
                         observation: invoked.execution.observation ?? MagicianAgentObservation(
-                            verificationStatus: .verified,
+                            verificationStatus: .unverified,
                             targetSummary: candidate,
                             evidenceSummary: invoked.evidence
                         )
@@ -2705,23 +2781,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 targetSummary: latest.skillID,
                 evidenceSummary: latest.evidence
             )
-            let strictVerificationRequired = self.requiresStrictVerification(for: latest)
-            if strictVerificationRequired, latestObservation.verificationStatus != .verified {
-                throw MagicianError(
-                    code: .toolExecutionFailed,
-                    userMessage: "执行结果缺少硬证据，校验失败。",
-                    debugMessage: "strict verify failed for \(latest.skillID), status=\(latestObservation.verificationStatus.rawValue), evidence=\(latest.evidence)",
-                    recoverAction: "retry_command"
-                )
-            }
-            if self.requiresMusicTrackEvidence(for: latest), !self.hasMusicTrackEvidence(for: latest) {
-                throw MagicianError(
-                    code: .toolExecutionFailed,
-                    userMessage: "音乐播放未拿到曲目证据，校验失败。",
-                    debugMessage: "music track evidence missing for \(latest.skillID), output=\(latest.execution.outputText ?? "nil"), evidence=\(latest.evidence)",
-                    recoverAction: "retry_command"
-                )
-            }
+            try self.enforceHardEvidence(for: latest)
             let target = stringValue(input["target"]) ?? latest.skillID
             let payload = """
             {"target":"\(target)","operation":"\(latest.skillID)","evidence":"\(latest.evidence)","status":"\(latestObservation.verificationStatus.rawValue)"}
@@ -2756,6 +2816,9 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 .descriptor(for: operation)
                 .requiresStructuredVerification
         }
+        if result.skillID.hasPrefix("apple.notes.") || result.skillID == MagicianFeatureID.createNote.rawValue {
+            return true
+        }
         return false
     }
 
@@ -2767,6 +2830,38 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             && result.execution.userMessage.hasPrefix("已开始播放：")
     }
 
+    private func enforceHardEvidence(for result: MagicianSkillInvokeResultV3) throws {
+        let observation = result.execution.observation ?? MagicianAgentObservation(
+            verificationStatus: .unverified,
+            targetSummary: result.skillID,
+            evidenceSummary: result.evidence
+        )
+        if requiresStrictVerification(for: result), observation.verificationStatus != .verified {
+            throw MagicianError(
+                code: .toolExecutionFailed,
+                userMessage: "执行结果缺少硬证据，校验失败。",
+                debugMessage: "strict verify failed for \(result.skillID), status=\(observation.verificationStatus.rawValue), evidence=\(result.evidence)",
+                recoverAction: "retry_command"
+            )
+        }
+        if requiresMusicTrackEvidence(for: result), !hasMusicTrackEvidence(for: result) {
+            throw MagicianError(
+                code: .toolExecutionFailed,
+                userMessage: "音乐播放未拿到曲目证据，校验失败。",
+                debugMessage: "music track evidence missing for \(result.skillID), output=\(result.execution.outputText ?? "nil"), evidence=\(result.evidence)",
+                recoverAction: "retry_command"
+            )
+        }
+        if requiresNoteEvidence(for: result), !hasNoteEvidence(for: result) {
+            throw MagicianError(
+                code: .toolExecutionFailed,
+                userMessage: "备忘录写入缺少结构化证据，校验失败。",
+                debugMessage: "note evidence missing for \(result.skillID), output=\(result.execution.outputText ?? "nil"), evidence=\(result.evidence)",
+                recoverAction: "retry_command"
+            )
+        }
+    }
+
     private func hasMusicTrackEvidence(for result: MagicianSkillInvokeResultV3) -> Bool {
         let outputs = [
             result.execution.outputText ?? "",
@@ -2774,6 +2869,22 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             result.execution.observation?.evidenceSummary ?? ""
         ]
         return outputs.contains { $0.lowercased().contains("track=") }
+    }
+
+    private func requiresNoteEvidence(for result: MagicianSkillInvokeResultV3) -> Bool {
+        result.skillID.hasPrefix("apple.notes.") || result.skillID == MagicianFeatureID.createNote.rawValue
+    }
+
+    private func hasNoteEvidence(for result: MagicianSkillInvokeResultV3) -> Bool {
+        let outputs = [
+            result.execution.outputText ?? "",
+            result.evidence,
+            result.execution.observation?.evidenceSummary ?? ""
+        ]
+        return outputs.contains { value in
+            let lowered = value.lowercased()
+            return lowered.contains("x-coredata://") || lowered.contains("note-id=")
+        }
     }
 }
 

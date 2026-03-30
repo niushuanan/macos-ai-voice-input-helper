@@ -155,7 +155,7 @@ exit 0
             RouteCase(operation: .bitableAppTableRecord, command: "飞书查看记录", explicitArguments: ["--probe", "1"], expectedTokens: ["base +record-list"]),
             RouteCase(operation: .bitableAppTableView, command: "飞书查看视图", explicitArguments: ["--probe", "1"], expectedTokens: ["base +view-list"]),
             RouteCase(operation: .calendarCalendar, command: "飞书看今天日历", explicitArguments: [], expectedTokens: ["calendar +agenda"]),
-            RouteCase(operation: .calendarEvent, command: "飞书看今天日程", explicitArguments: [], expectedTokens: ["calendar +agenda"]),
+            RouteCase(operation: .calendarEvent, command: "飞书新增日程：产品评审", explicitArguments: [], expectedTokens: ["calendar +create"]),
             RouteCase(operation: .calendarEventAttendee, command: "飞书添加参会人", explicitArguments: ["--probe", "1"], expectedTokens: ["calendar event.attendees create"]),
             RouteCase(operation: .calendarFreebusy, command: "飞书查忙闲", explicitArguments: ["--start", "2026-03-29T15:00:00+08:00", "--end", "2026-03-29T15:30:00+08:00"], expectedTokens: ["calendar +freebusy"]),
             RouteCase(operation: .chat, command: "飞书搜索群聊 产品群", explicitArguments: [], expectedTokens: ["im +chat-search", "--query"]),
@@ -432,6 +432,47 @@ exit 0
             XCTAssertTrue(output.contains("--start"))
             XCTAssertTrue(output.contains("--end"))
             XCTAssertFalse(output.contains("calendar +create --summary --start --end"))
+        case let .failure(error):
+            XCTFail("expected success but got error: \(error)")
+        }
+    }
+
+    func testCalendarEventWithoutTimeUsesCreateFallbackInsteadOfAgenda() async throws {
+        let fixture = try makeExecutableFixture(
+            fileName: "lark-cli",
+            script: """
+#!/bin/sh
+echo "$@"
+echo '{"ok":true,"identity":"user","data":{"event_id":"evt_fallback_123"}}'
+exit 0
+"""
+        )
+        defer { fixture.cleanUp() }
+
+        let provider = FeishuCLIProvider()
+        let availability = FeishuCLIAvailability(
+            backend: FeishuCLIBackendDescriptor(
+                kind: .larkCLI,
+                executablePath: fixture.executableURL.path,
+                commandName: "lark-cli"
+            )
+        )
+
+        let result = await provider.execute(
+            operation: .calendarEvent,
+            spokenCommand: "把下面内容翻译成日语并写进飞书日程",
+            explicitArguments: [],
+            availability: availability
+        )
+
+        switch result {
+        case let .success(success):
+            let output = success.outputText ?? ""
+            XCTAssertTrue(output.contains("calendar +create"))
+            XCTAssertTrue(output.contains("--summary"))
+            XCTAssertTrue(output.contains("--start"))
+            XCTAssertTrue(output.contains("--end"))
+            XCTAssertFalse(output.contains("calendar +agenda"))
         case let .failure(error):
             XCTFail("expected success but got error: \(error)")
         }

@@ -436,7 +436,20 @@ private struct MagicianNoteAdapter {
                 body: noteBody
             )
             if notesResult.exitCode == 0 {
-                let evidence = await resolvedNoteEvidence(title: noteTitle, body: noteBody) ?? notesResult.stdout
+                guard
+                    let evidence = await resolveVerifiedNoteEvidence(
+                        title: noteTitle,
+                        body: noteBody,
+                        primaryEvidence: notesResult.stdout
+                    )
+                else {
+                    throw MagicianError(
+                        code: .toolExecutionFailed,
+                        userMessage: "备忘录写入结果无法核验，已判定失败。",
+                        debugMessage: "notes applescript succeeded but evidence missing; stdout=\(notesResult.stdout)",
+                        recoverAction: "retry_command"
+                    )
+                }
                 return MagicianExecutionResult(
                     intent: .createNote,
                     userMessage: "已写入 Notes。",
@@ -444,9 +457,9 @@ private struct MagicianNoteAdapter {
                     historyDisplayText: "已写入备忘录：\(summarizedHistoryText(noteBody))",
                     fallbackUsed: false,
                     observation: MagicianAgentObservation(
-                        verificationStatus: evidence.isEmpty ? .assumed : .verified,
+                        verificationStatus: .verified,
                         targetSummary: noteTitle,
-                        evidenceSummary: evidence.isEmpty ? "Notes 新笔记已创建" : evidence
+                        evidenceSummary: evidence
                     )
                 )
             }
@@ -458,7 +471,20 @@ private struct MagicianNoteAdapter {
         if shortcutSupport.cliAvailable, shortcutExists {
             let result = try await runShortcut(name: shortcutName, inputText: noteBody)
             if result.exitCode == 0 {
-                let evidence = await resolvedNoteEvidence(title: noteTitle, body: noteBody)
+                guard
+                    let evidence = await resolveVerifiedNoteEvidence(
+                        title: noteTitle,
+                        body: noteBody,
+                        primaryEvidence: result.stdout
+                    )
+                else {
+                    throw MagicianError(
+                        code: .toolExecutionFailed,
+                        userMessage: "快捷指令已触发，但备忘录写入结果无法核验，已判定失败。",
+                        debugMessage: "shortcuts cli succeeded but evidence missing; stdout=\(result.stdout)",
+                        recoverAction: "retry_command"
+                    )
+                }
                 return MagicianExecutionResult(
                     intent: .createNote,
                     userMessage: "已提交到备忘录快捷指令。",
@@ -466,9 +492,9 @@ private struct MagicianNoteAdapter {
                     historyDisplayText: "已写入备忘录：\(summarizedHistoryText(noteBody))",
                     fallbackUsed: notesScriptDetail != nil,
                     observation: MagicianAgentObservation(
-                        verificationStatus: evidence == nil ? .assumed : .verified,
+                        verificationStatus: .verified,
                         targetSummary: noteTitle,
-                        evidenceSummary: evidence ?? "快捷指令已触发"
+                        evidenceSummary: evidence
                     )
                 )
             }
@@ -485,12 +511,32 @@ private struct MagicianNoteAdapter {
             }
 
             if runShortcutViaURLScheme(name: shortcutName, inputText: noteBody) {
+                guard
+                    let evidence = await resolveVerifiedNoteEvidence(
+                        title: noteTitle,
+                        body: noteBody,
+                        primaryEvidence: nil
+                    )
+                else {
+                    throw MagicianError(
+                        code: .toolExecutionFailed,
+                        userMessage: "Shortcuts URL 已触发，但备忘录写入结果无法核验，已判定失败。",
+                        debugMessage: "shortcuts url fallback triggered but evidence missing",
+                        recoverAction: "retry_command"
+                    )
+                }
                 return MagicianExecutionResult(
                     intent: .createNote,
-                    userMessage: "CLI 执行失败，已改用 Shortcuts URL 触发写入。",
+                    userMessage: "CLI 执行失败，已改用 Shortcuts URL 触发并完成写入。",
                     outputText: noteBody,
                     historyDisplayText: "已写入备忘录：\(summarizedHistoryText(noteBody))",
-                    fallbackUsed: true
+                    fallbackUsed: true,
+                    observation: MagicianAgentObservation(
+                        verificationStatus: .verified,
+                        targetSummary: noteTitle,
+                        evidenceSummary: evidence,
+                        autoRepairApplied: true
+                    )
                 )
             }
 
@@ -504,17 +550,31 @@ private struct MagicianNoteAdapter {
         }
 
         if runShortcutViaURLScheme(name: shortcutName, inputText: noteBody) {
-            let evidence = await resolvedNoteEvidence(title: noteTitle, body: noteBody)
+            guard
+                let evidence = await resolveVerifiedNoteEvidence(
+                    title: noteTitle,
+                    body: noteBody,
+                    primaryEvidence: nil
+                )
+            else {
+                throw MagicianError(
+                    code: .toolExecutionFailed,
+                    userMessage: "Shortcuts URL 已触发，但备忘录写入结果无法核验，已判定失败。",
+                    debugMessage: "shortcuts url succeeded but evidence missing",
+                    recoverAction: "retry_command"
+                )
+            }
             return MagicianExecutionResult(
                 intent: .createNote,
-                userMessage: "已通过 Shortcuts URL 触发写入。",
+                userMessage: "已通过 Shortcuts URL 触发并完成写入。",
                 outputText: noteBody,
                 historyDisplayText: "已写入备忘录：\(summarizedHistoryText(noteBody))",
                 fallbackUsed: true,
                 observation: MagicianAgentObservation(
-                    verificationStatus: evidence == nil ? .assumed : .verified,
+                    verificationStatus: .verified,
                     targetSummary: noteTitle,
-                    evidenceSummary: evidence ?? "Shortcuts URL 已触发"
+                    evidenceSummary: evidence,
+                    autoRepairApplied: true
                 )
             )
         }
@@ -529,6 +589,40 @@ private struct MagicianNoteAdapter {
             debugMessage: "\(noteDetail) \(shortcutDetail)",
             recoverAction: shortcutSupport.cliAvailable ? "create_note_shortcut" : "open_shortcuts"
         )
+    }
+
+    private func resolveVerifiedNoteEvidence(
+        title: String,
+        body: String,
+        primaryEvidence: String?
+    ) async -> String? {
+        if let evidence = normalizedStructuredNoteEvidence(primaryEvidence) {
+            return evidence
+        }
+        for attempt in 0..<5 {
+            if let evidence = await resolvedNoteEvidence(title: title, body: body) {
+                return evidence
+            }
+            if attempt < 4 {
+                try? await Task.sleep(nanoseconds: 220_000_000)
+            }
+        }
+        return nil
+    }
+
+    private func normalizedStructuredNoteEvidence(_ raw: String?) -> String? {
+        guard let raw else {
+            return nil
+        }
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            return nil
+        }
+        let lowered = value.lowercased()
+        guard lowered.contains("x-coredata://") || lowered.contains("note-id=") else {
+            return nil
+        }
+        return value
     }
 
     private func resolvedNoteBody(
@@ -690,7 +784,7 @@ private struct MagicianNoteAdapter {
             return nil
         }
         let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        return output.isEmpty ? nil : output
+        return normalizedStructuredNoteEvidence(output)
     }
 }
 
@@ -748,14 +842,38 @@ private struct MagicianMusicAdapter {
         guard result.exitCode == 0 else {
             throw MagicianError(
                 code: .musicControlFailed,
-                userMessage: "音乐控制失败，请确认 Music 已启动后再试。",
+                userMessage: "音乐控制失败，请确认 Music 已启动且曲库可访问后再试。",
                 debugMessage: result.detail,
                 recoverAction: "open_music_app"
             )
         }
 
         let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        if case let .play(query?) = action {
+            guard output.hasPrefix("track=") else {
+                throw MagicianError(
+                    code: .musicControlFailed,
+                    userMessage: "没有找到匹配歌曲，未执行播放。",
+                    debugMessage: output.isEmpty ? "play query output empty" : output,
+                    recoverAction: "retry_command"
+                )
+            }
+            if !musicEvidenceMatchesQuery(output: output, query: query) {
+                throw MagicianError(
+                    code: .musicControlFailed,
+                    userMessage: "当前播放曲目与请求不一致，已停止返回成功。",
+                    debugMessage: "query=\(query) output=\(output)",
+                    recoverAction: "retry_command"
+                )
+            }
+        }
         let evidence = output.isEmpty ? "Music action done" : output
+        let verificationStatus: MagicianAgentVerificationStatus
+        if case .play = action {
+            verificationStatus = output.hasPrefix("track=") ? .verified : .assumed
+        } else {
+            verificationStatus = .verified
+        }
         return MagicianExecutionResult(
             intent: .controlMusic,
             userMessage: action.userMessage,
@@ -763,7 +881,7 @@ private struct MagicianMusicAdapter {
             historyDisplayText: action.userMessage,
             fallbackUsed: false,
             observation: MagicianAgentObservation(
-                verificationStatus: .verified,
+                verificationStatus: verificationStatus,
                 evidenceSummary: evidence
             )
         )
@@ -787,16 +905,17 @@ private struct MagicianMusicAdapter {
             return .previous
         }
 
-        let query = magicianSemanticPayload(
+        let query = normalizedPlayableQuery(
+            magicianSemanticPayload(
             from: context.command,
             actionTokens: ["播放", "放一首", "来一首", "听", "music", "歌曲", "音乐", "暂停", "继续", "下一首", "上一首"],
             extraCommandTokens: ["请", "帮我"]
-        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        )
         if let query, !query.isEmpty {
             return .play(query: query)
         }
-        let source = intent.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !source.isEmpty {
+        if let source = normalizedPlayableQuery(intent.sourceText) {
             return .play(query: source)
         }
         return .play(query: nil)
@@ -871,13 +990,13 @@ private struct MagicianMusicAdapter {
                 "tell application \"Music\"",
             ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false, timeoutSeconds: 12) + [
                 "set ready to false",
-                "repeat with idx from 1 to 24",
+                "repeat with idx from 1 to 12",
                 "try",
                 "set _count to (count of tracks of library playlist 1)",
                 "set ready to true",
                 "exit repeat",
                 "on error",
-                "delay 0.2",
+                "delay 0.12",
                 "end try",
                 "end repeat",
                 "if ready then",
@@ -894,6 +1013,59 @@ private struct MagicianMusicAdapter {
         keywords.contains { value.contains($0) }
     }
 
+    private func normalizedPlayableQuery(_ raw: String?) -> String? {
+        guard let raw else {
+            return nil
+        }
+        let trimmed = raw
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        let compact = compactIntentText(trimmed)
+        guard !compact.isEmpty else {
+            return nil
+        }
+        let generic: Set<String> = [
+            compactIntentText("播放"),
+            compactIntentText("来一首"),
+            compactIntentText("放一首"),
+            compactIntentText("听"),
+            compactIntentText("music"),
+            compactIntentText("play"),
+            compactIntentText("歌曲"),
+            compactIntentText("音乐"),
+            compactIntentText("歌")
+        ]
+        if generic.contains(compact) {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func musicEvidenceMatchesQuery(output: String, query: String) -> Bool {
+        guard let range = output.range(of: "track=") else {
+            return false
+        }
+        let payload = String(output[range.upperBound...]).lowercased()
+        let normalizedQuery = query
+            .lowercased()
+            .replacingOccurrences(of: "[《》“”‘’\"'·•\\s]+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedQuery.isEmpty else {
+            return true
+        }
+        let terms = normalizedQuery
+            .split(separator: " ")
+            .map(String.init)
+            .filter { $0.count >= 2 }
+        if terms.isEmpty {
+            return payload.contains(normalizedQuery)
+        }
+        return terms.allSatisfy { payload.contains($0) }
+    }
+
     private func runPlayAction(query: String) async -> MagicianProcessResult {
         let searchQueries = magicianMusicSearchQueries(from: query)
         for item in searchQueries {
@@ -906,6 +1078,11 @@ private struct MagicianMusicAdapter {
                     "set targetTrack to missing value",
                     "repeat with idx from 1 to 20",
                     "try",
+                    "set exactTracks to (every track of library playlist 1 whose (name is keywordText))",
+                    "if (count of exactTracks) > 0 then",
+                    "set targetTrack to item 1 of exactTracks",
+                    "exit repeat",
+                    "end if",
                     "set matchedTracks to (every track of library playlist 1 whose (name contains keywordText) or (artist contains keywordText) or (album contains keywordText))",
                     "if (count of matchedTracks) > 0 then",
                     "set targetTrack to item 1 of matchedTracks",
@@ -914,14 +1091,15 @@ private struct MagicianMusicAdapter {
                     "on error",
                     "if idx is 20 then return \"lookup_error\"",
                     "end try",
-                    "delay 0.18",
+                    "delay 0.12",
                     "end repeat",
                     "if targetTrack is not missing value then",
                     "play targetTrack",
-                    "return \"track=\" & (name of targetTrack)",
+                    "delay 0.1",
+                    "set nowTrack to current track",
+                    "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack)",
                     "end if",
-                    "play",
-                    "return \"state=play_fallback\"",
+                    "return \"track_not_found\"",
                     "end tell",
                     "end run"
                 ],
@@ -931,8 +1109,15 @@ private struct MagicianMusicAdapter {
             if result.exitCode != 0 {
                 return result
             }
-            if result.stdout.hasPrefix("track=") || result.stdout == "state=play_fallback" {
+            if result.stdout.hasPrefix("track=") {
                 return result
+            }
+            if result.stdout == "lookup_error" {
+                return MagicianProcessResult(
+                    exitCode: 1,
+                    stdout: "",
+                    stderr: "music lookup error for query: \(item)"
+                )
             }
         }
 

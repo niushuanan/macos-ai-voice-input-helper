@@ -91,13 +91,16 @@ xcodegen generate
 
 ## 开发测试
 
+快速关键用例（推荐）：
+
 ```bash
-PULSETYPE_ALLOW_DEBUG_RUNTIME=1 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-  xcodebuild \
-  -project PulseType.xcodeproj \
-  -scheme PulseType \
-  -configuration Debug \
-  test
+./scripts/test-magician-fast.sh
+```
+
+全量测试：
+
+```bash
+./scripts/test-magician-fast.sh --full
 ```
 
 环境检查：

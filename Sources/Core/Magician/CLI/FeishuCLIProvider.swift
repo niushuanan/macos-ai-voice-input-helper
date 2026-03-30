@@ -714,16 +714,12 @@ final class FeishuCLIProvider {
         case .calendarCalendar:
             args = inferredAgendaArguments(from: spokenCommand) ?? ["calendar", "+agenda"]
         case .calendarEvent:
-            if isCalendarCreateCommand(spokenCommand) {
-                if hasExplicitArguments {
-                    args = ["calendar", "+create"]
-                } else if let inferredCreateArgs = inferredCalendarCreateArguments(from: spokenCommand) {
-                    args = inferredCreateArgs
-                } else {
-                    args = ["calendar", "+create", "--help"]
-                }
+            if hasExplicitArguments {
+                args = ["calendar", "+create"]
+            } else if let inferredCreateArgs = inferredCalendarCreateArguments(from: spokenCommand) {
+                args = inferredCreateArgs
             } else {
-                args = inferredAgendaArguments(from: spokenCommand) ?? ["calendar", "+agenda"]
+                args = inferredCalendarCreateFallbackArguments(from: spokenCommand)
             }
         case .calendarEventAttendee:
             args = hasExplicitArguments
@@ -1052,7 +1048,8 @@ final class FeishuCLIProvider {
             spokenCommand,
             keywords: [
                 "创建", "新建", "安排", "建", "添加", "新增", "加入", "加一个", "设定",
-                "记录到日程", "记到日程", "create"
+                "记录到日程", "记到日程", "写进日程", "写入日程", "写进飞书日程", "写入飞书日程",
+                "同步到日程", "放进日程", "create"
             ]
         )
     }
@@ -1138,6 +1135,41 @@ final class FeishuCLIProvider {
             "--end",
             iso8601LocalString(from: range.end)
         ]
+    }
+
+    private func inferredCalendarCreateFallbackArguments(from spokenCommand: String) -> [String] {
+        let summary = inferredCalendarSummary(from: spokenCommand)
+        let start = roundedDateToNextFiveMinutes(from: Date().addingTimeInterval(120))
+        let end = start.addingTimeInterval(1_800)
+        return [
+            "calendar",
+            "+create",
+            "--summary",
+            summary,
+            "--start",
+            iso8601LocalString(from: start),
+            "--end",
+            iso8601LocalString(from: end)
+        ]
+    }
+
+    private func roundedDateToNextFiveMinutes(from date: Date) -> Date {
+        let calendar = Calendar.current
+        var components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        let minute = components.minute ?? 0
+        let roundedMinute = ((minute + 4) / 5) * 5
+        if roundedMinute >= 60 {
+            if let hourDate = calendar.date(byAdding: .hour, value: 1, to: date) {
+                var hourComponents = calendar.dateComponents([.year, .month, .day, .hour], from: hourDate)
+                hourComponents.minute = 0
+                hourComponents.second = 0
+                return calendar.date(from: hourComponents) ?? date
+            }
+            return date
+        }
+        components.minute = roundedMinute
+        components.second = 0
+        return calendar.date(from: components) ?? date
     }
 
     private func inferredAgendaArguments(from spokenCommand: String) -> [String]? {

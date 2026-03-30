@@ -67,4 +67,29 @@ final class FeishuResultVerifierTests: XCTestCase {
             XCTAssertTrue(userMessage.contains("多维表格标识"))
         }
     }
+
+    func testStructuredWriteWithoutEvidenceFails() {
+        let result = verifier.verifySuccess(
+            operation: .updateDoc,
+            plan: FeishuCLICommandPlan(
+                executablePath: "/tmp/lark-cli",
+                arguments: ["docs", "+update", "--doc", "doccn123"],
+                summary: "更新文档（lark-cli）",
+                riskLevel: .write,
+                executionMode: .execute
+            ),
+            output: #"{"ok":true,"identity":"user","data":{"status":"ok"}}"#
+        )
+
+        switch result {
+        case .verified:
+            XCTFail("expected verification failure without evidence id")
+        case let .failed(userMessage, _):
+            XCTAssertTrue(
+                userMessage.contains("可核验")
+                    || userMessage.contains("文档标识")
+                    || userMessage.contains("无法确认")
+            )
+        }
+    }
 }

@@ -168,6 +168,12 @@ struct FeishuResultVerifier {
                     )
                 )
             }
+            if requiresStructuredVerification {
+                return .failed(
+                    userMessage: "飞书没有返回可核验证据，无法确认写入是否成功，请重试。",
+                    debugMessage: output
+                )
+            }
             return .verified(
                 MagicianAgentObservation(
                     verificationStatus: .assumed,

@@ -72,12 +72,19 @@ enum FeishuOperationCatalog {
                 summary: "查看时间段忙闲状态。",
                 requiresStructuredVerification: operation.riskLevel != .read
             )
-        case .chat, .imUserSearchMessages, .searchDocWiki, .searchUser, .oauth, .oauthBatchAuth:
+        case .chat, .imUserSearchMessages, .searchDocWiki, .searchUser:
             return FeishuOperationDescriptor(
                 operation: operation,
                 supportTier: .direct,
                 summary: "高频查询或授权动作，通常可直接完成。",
                 requiresStructuredVerification: operation.riskLevel != .read
+            )
+        case .oauth, .oauthBatchAuth:
+            return FeishuOperationDescriptor(
+                operation: operation,
+                supportTier: .direct,
+                summary: "授权类动作以命令执行状态为准，不强制结构化对象标识。",
+                requiresStructuredVerification: false
             )
         case .bitableApp:
             return FeishuOperationDescriptor(

@@ -231,15 +231,8 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             if !didPersistToClipboard {
                 throw TextOutputError.pasteboardUnavailable
             }
-            logger.log("[write] no-editable-target app=\(resolvedFocusContext.appName) bundle=\(resolvedFocusContext.bundleID)")
-            return TextOutputResult(
-                appName: resolvedFocusContext.appName,
-                bundleID: resolvedFocusContext.bundleID,
-                path: .clipboardOnly,
-                usedFallback: false,
-                didInsertIntoEditor: false,
-                operation: request.operation
-            )
+            logger.log("[write] no-editable-target hard-fail app=\(resolvedFocusContext.appName) bundle=\(resolvedFocusContext.bundleID)")
+            throw TextOutputError.noEditableTarget
         }
 
         do {

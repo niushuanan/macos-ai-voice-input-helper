@@ -662,6 +662,52 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.instructionText, "播放周杰伦的稻香")
     }
 
+    func testMagicianMusicCommandSemanticPreprocessFallsBackWhenModelDropsPayload() async throws {
+        let rewriteProvider = CapturingRewriteProvider(
+            result: .success(
+                SelectionRewriteResult(
+                    rewrittenText: "播放",
+                    actionLabel: "错误降级",
+                    providerName: "Fake Rewrite",
+                    modelName: "fake-model"
+                )
+            )
+        )
+        let runtime = FakeMagicianAgentRuntime(
+            result: .success(
+                MagicianAgentRunOutcome(
+                    sessionID: "session-music-fallback-1",
+                    runID: "run-music-fallback-1",
+                    goalSummary: "控制音乐播放",
+                    finalStatusMessage: "已尝试播放：播放周杰伦的稻香",
+                    finalOutputText: nil,
+                    displayText: "已尝试播放：播放周杰伦的稻香",
+                    steps: [],
+                    evidenceSummary: "Music action done"
+                )
+            )
+        )
+
+        let fixture = try makeFixture(
+            magicianAgentRuntime: runtime,
+            rewriteProviders: [rewriteProvider],
+            transcriptionText: "播放周杰伦的稻香"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.dictionaryStore.save(rawText: "周杰伦\n稻香")
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .controlMusic)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .idle)
+        XCTAssertEqual(rewriteProvider.callCount, 1)
+        XCTAssertEqual(runtime.lastRequest?.command, "播放周杰伦的稻香")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.instructionText, "播放周杰伦的稻香")
+    }
+
     func testMagicianFeishuCommandRunsSemanticPreprocessBeforeRuntime() async throws {
         let rewriteProvider = CapturingRewriteProvider(
             result: .success(
