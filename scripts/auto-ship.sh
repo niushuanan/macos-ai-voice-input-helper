@@ -8,17 +8,19 @@ runtime_policy_init
 usage() {
   cat <<'USAGE'
 用法:
-  scripts/auto-ship.sh --message "<commit message>" --files <file1> [file2 ...] [--skip-install]
+  scripts/auto-ship.sh --message "<commit message>" --files <file1> [file2 ...] [--skip-install] [--with-test]
 
 参数:
   --message       必填，commit message
   --files         必填，仅提交这些文件
   --skip-install  可选，跳过 /Applications 覆盖安装
+  --with-test     可选，先执行测试后再发布（默认不测）
 USAGE
 }
 DEVELOPER_DIR_VALUE="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 commit_message=""
 skip_install=0
+run_tests=0
 files=()
 
 while [[ $# -gt 0 ]]; do
@@ -42,6 +44,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-install)
       skip_install=1
+      shift
+      ;;
+    --with-test)
+      run_tests=1
       shift
       ;;
     -h|--help)
@@ -96,17 +102,27 @@ if ! git remote get-url origin >/dev/null 2>&1; then
   exit 2
 fi
 
-echo "[1/4] 执行测试..."
-PULSETYPE_ALLOW_DEBUG_RUNTIME=1 \
-DEVELOPER_DIR="$DEVELOPER_DIR_VALUE" \
-  xcodebuild \
-  -project PulseType.xcodeproj \
-  -scheme PulseType \
-  -configuration Debug \
-  -destination "platform=macOS" \
-  test
+if [[ "$run_tests" -eq 1 ]]; then
+  echo "[1/4] 执行测试..."
+  PULSETYPE_ALLOW_DEBUG_RUNTIME=1 \
+  DEVELOPER_DIR="$DEVELOPER_DIR_VALUE" \
+    xcodebuild \
+    -project PulseType.xcodeproj \
+    -scheme PulseType \
+    -configuration Debug \
+    -destination "platform=macOS" \
+    test
+  commit_step="[2/4]"
+  push_step="[3/4]"
+  install_step="[4/4]"
+else
+  echo "[info] 默认跳过测试；如需先测请添加 --with-test"
+  commit_step="[1/3]"
+  push_step="[2/3]"
+  install_step="[3/3]"
+fi
 
-echo "[2/4] 准备提交..."
+echo "$commit_step 准备提交..."
 git add -- "${files[@]}"
 
 if git diff --cached --quiet; then
@@ -117,7 +133,7 @@ fi
 git commit -m "$commit_message"
 commit_sha="$(git rev-parse --short HEAD)"
 
-echo "[3/4] 推送到 origin/$branch_name ..."
+echo "$push_step 推送到 origin/$branch_name ..."
 push_ok=0
 for attempt in {1..8}; do
   echo "push attempt $attempt"
@@ -133,7 +149,7 @@ if [[ "$push_ok" -ne 1 ]]; then
   exit 4
 fi
 
-echo "[4/4] 覆盖安装本地应用..."
+echo "$install_step 覆盖安装本地应用..."
 if [[ "$skip_install" -eq 1 ]]; then
   echo "已跳过安装步骤 (--skip-install)"
 else
@@ -145,6 +161,11 @@ echo "完成"
 echo "commit: $commit_sha"
 echo "branch: $branch_name"
 echo "push: origin/$branch_name"
+if [[ "$run_tests" -eq 1 ]]; then
+  echo "test: enabled"
+else
+  echo "test: skipped"
+fi
 if [[ "$skip_install" -eq 1 ]]; then
   echo "install: skipped"
 else

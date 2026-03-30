@@ -1593,28 +1593,51 @@ private final class MagicianSkillRuntimeV3 {
             )
         }
 
-        let output = [result.stdout, result.stderr]
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-        let normalizedOutput = output.isEmpty ? "(no output)" : output
+        let stdout = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        let transcript = terminalExecutionTranscript(
+            command: command,
+            exitCode: result.exitCode,
+            stdout: stdout,
+            stderr: stderr
+        )
+        let evidence = """
+        command=\(command)
+        exit=\(result.exitCode)
+        """
         let observation = MagicianAgentObservation(
             verificationStatus: .verified,
-            targetSummary: objective,
-            evidenceSummary: "exit=0"
+            targetSummary: "shell.command.run",
+            evidenceSummary: evidence
         )
         return MagicianSkillInvokeResultV3(
             execution: MagicianExecutionResult(
                 intent: .textTransform,
                 userMessage: "终端命令已执行",
-                outputText: normalizedOutput,
+                outputText: transcript,
                 historyDisplayText: "shell: \(summarizedHistoryText(command, limit: 96))",
                 fallbackUsed: false,
                 observation: observation
             ),
             skillID: "shell.command.run",
-            evidence: "exit=0"
+            evidence: evidence
         )
+    }
+
+    private func terminalExecutionTranscript(
+        command: String,
+        exitCode: Int32,
+        stdout: String,
+        stderr: String
+    ) -> String {
+        var lines: [String] = []
+        lines.append("terminal_command: \(command)")
+        lines.append("exit_code: \(exitCode)")
+        lines.append("stdout:")
+        lines.append(stdout.isEmpty ? "(empty)" : stdout)
+        lines.append("stderr:")
+        lines.append(stderr.isEmpty ? "(empty)" : stderr)
+        return lines.joined(separator: "\n")
     }
 
     private func resolvedShellCommand(

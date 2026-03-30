@@ -2024,6 +2024,29 @@ final class InteractionCoordinator {
         command: String,
         outcome: MagicianAgentRunOutcome
     ) -> String {
+        func appendField(
+            _ lines: inout [String],
+            key: String,
+            value: String?
+        ) {
+            guard let raw = value else {
+                return
+            }
+            let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty else {
+                return
+            }
+            let parts = normalized.components(separatedBy: .newlines)
+            if parts.count == 1 {
+                lines.append("\(key): \(normalized)")
+                return
+            }
+            lines.append("\(key):")
+            for part in parts {
+                lines.append("  \(part)")
+            }
+        }
+
         var lines: [String] = []
         lines.append("goal: \(outcome.goalSummary)")
         lines.append("command: \(command)")
@@ -2033,31 +2056,22 @@ final class InteractionCoordinator {
 
         for (index, step) in outcome.steps.enumerated() {
             lines.append("[step \(index + 1)]")
+            lines.append("step_id: \(step.id)")
             lines.append("feature: \(step.featureID.rawValue)")
             lines.append("tool: \(step.instruction)")
-            lines.append("message: \(step.userMessage)")
-            if let output = step.outputText?.trimmingCharacters(in: .whitespacesAndNewlines), !output.isEmpty {
-                lines.append("output: \(output)")
-            }
+            appendField(&lines, key: "message", value: step.userMessage)
+            appendField(&lines, key: "output", value: step.outputText)
             if let status = step.observation?.verificationStatus.rawValue {
                 lines.append("verify: \(status)")
             }
-            if let target = step.observation?.targetSummary, !target.isEmpty {
-                lines.append("target: \(target)")
-            }
-            if let evidence = step.observation?.evidenceSummary, !evidence.isEmpty {
-                lines.append("evidence: \(evidence)")
-            }
+            appendField(&lines, key: "target", value: step.observation?.targetSummary)
+            appendField(&lines, key: "evidence", value: step.observation?.evidenceSummary)
             lines.append("")
         }
 
         lines.append("final_status: \(outcome.finalStatusMessage)")
-        if let finalOutput = outcome.finalOutputText?.trimmingCharacters(in: .whitespacesAndNewlines), !finalOutput.isEmpty {
-            lines.append("final_output: \(finalOutput)")
-        }
-        if let evidence = outcome.evidenceSummary, !evidence.isEmpty {
-            lines.append("final_evidence: \(evidence)")
-        }
+        appendField(&lines, key: "final_output", value: outcome.finalOutputText)
+        appendField(&lines, key: "final_evidence", value: outcome.evidenceSummary)
         return lines.joined(separator: "\n")
     }
 
