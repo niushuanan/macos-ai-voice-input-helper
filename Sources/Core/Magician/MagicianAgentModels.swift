@@ -1204,7 +1204,14 @@ private final class MagicianSkillRuntimeV3 {
             if let args = input["arguments"] as? [String] {
                 params.cliArguments = args
             }
-            let command = stringValue(input["spoken_command"]) ?? request.command
+            let baseCommand = stringValue(input["spoken_command"]) ?? request.command
+            let previousOutput = stringValue(input["previous_output"])
+            let command: String
+            if let previousOutput, !previousOutput.isEmpty {
+                command = "\(baseCommand)\n\n附加文本：\(previousOutput)"
+            } else {
+                command = baseCommand
+            }
             return try await executeByToolExecutor(
                 intent: MagicianIntent(
                     intent: .feishuCLI,
@@ -1757,7 +1764,8 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         rewriteProviderRegistry: RewriteProviderRegistry,
         textOutputCoordinator: TextOutputCoordinator,
         skillRuleStore: SkillRuleStore,
-        toolExecutor: any MagicianToolExecuting
+        toolExecutor: any MagicianToolExecuting,
+        llmProvider: any TextGenerationProvider = OpenAITextGenerationProvider()
     ) {
         let textBackend = MagicianAgentTextBackend(
             providerSettingsStore: providerSettingsStore,
@@ -1765,7 +1773,10 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             textOutputCoordinator: textOutputCoordinator,
             skillRuleStore: skillRuleStore
         )
-        let llmClient = MagicianKernelLLMClientV3(providerSettingsStore: providerSettingsStore)
+        let llmClient = MagicianKernelLLMClientV3(
+            providerSettingsStore: providerSettingsStore,
+            provider: llmProvider
+        )
         self.llmClient = llmClient
         self.skillRouter = MagicianSkillRouterV3(llmClient: llmClient)
         self.skillRuntime = MagicianSkillRuntimeV3(
@@ -2281,8 +2292,8 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         if input["spoken_command"] == nil {
             input["spoken_command"] = context.request.command
         }
-        let previousOutput = context.stepRecords.compactMap(\.outputText).last
-            ?? context.lastSkillResult?.execution.outputText
+        let previousOutput = context.lastSkillResult?.execution.outputText
+            ?? context.stepRecords.compactMap(\.outputText).last
         if let previousOutput, !previousOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             if input["previous_output"] == nil {
                 input["previous_output"] = previousOutput

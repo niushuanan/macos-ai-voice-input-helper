@@ -927,6 +927,7 @@ func magicianMusicSearchQueries(from rawQuery: String) -> [String] {
     var candidates: [String] = []
     func appendCandidate(_ candidate: String) {
         let cleaned = candidate
+            .replacingOccurrences(of: "[《》“”‘’\"']", with: "", options: .regularExpression)
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: punctuationToTrim)
         guard !cleaned.isEmpty else {
