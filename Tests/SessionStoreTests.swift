@@ -461,7 +461,7 @@ final class TextOutputCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.pasteFallbackCount, 1)
     }
 
-    func testExternalTargetUsesPasteFallbackWhenAccessibilityPathFails() async throws {
+    func testCodexTargetPrefersPasteFallbackBeforeAccessibilityWrite() async throws {
         let focusContext = FocusedAppContext(
             appName: "Codex",
             bundleID: "com.openai.codex",
@@ -485,7 +485,7 @@ final class TextOutputCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(result.path, .pasteFallbackCommandV)
         XCTAssertTrue(result.didInsertIntoEditor)
-        XCTAssertEqual(coordinator.accessibilityWriteCount, 1)
+        XCTAssertEqual(coordinator.accessibilityWriteCount, 0)
         XCTAssertEqual(coordinator.pasteFallbackCount, 1)
     }
 

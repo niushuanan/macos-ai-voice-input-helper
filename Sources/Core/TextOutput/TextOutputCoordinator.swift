@@ -163,6 +163,7 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             throw TextOutputError.emptyText
         }
         let writeStartedAt = Date()
+        let prefersPasteFirst = prefersPasteFallbackFirst(for: request)
 
         if let preferredTarget = request.preferredTarget {
             logger.log(
@@ -233,6 +234,35 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             }
             logger.log("[write] no-editable-target hard-fail app=\(resolvedFocusContext.appName) bundle=\(resolvedFocusContext.bundleID)")
             throw TextOutputError.noEditableTarget
+        }
+
+        if prefersPasteFirst {
+            do {
+                let fallbackStartedAt = Date()
+                let targetProcessIdentifier = resolvedTargetProcessIdentifier(
+                    preferredTarget: request.preferredTarget,
+                    resolvedFocusContext: resolvedFocusContext,
+                    fallbackFocusContext: request.focusContext
+                )
+                try await performPasteFallback(
+                    text: request.text,
+                    targetProcessIdentifier: targetProcessIdentifier
+                )
+                let result = TextOutputResult(
+                    appName: resolvedFocusContext.appName,
+                    bundleID: resolvedFocusContext.bundleID,
+                    path: .pasteFallbackCommandV,
+                    usedFallback: true,
+                    didInsertIntoEditor: true,
+                    operation: request.operation
+                )
+                let fallbackMs = elapsedMilliseconds(since: fallbackStartedAt)
+                let totalMs = elapsedMilliseconds(since: writeStartedAt)
+                logger.log("[write] paste-first-success path=\(result.path.rawValue) fallback_ms=\(fallbackMs) total_ms=\(totalMs)")
+                return result
+            } catch {
+                logger.log("[write] paste-first-failed reason=\(error.localizedDescription)")
+            }
         }
 
         do {
@@ -421,16 +451,22 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             throw TextOutputError.pasteboardUnavailable
         }
 
+        let frontmostBundleID = currentFrontmostApplication()?.bundleIdentifier
+        let shouldUseGlobalShortcut = prefersGlobalShortcutInjection(bundleID: frontmostBundleID)
+
         if
+            !shouldUseGlobalShortcut,
             let targetProcessIdentifier,
             targetProcessIdentifier > 0
         {
             logger.log("[write] paste-fallback target-pid=\(targetProcessIdentifier)")
         } else {
-            logger.log("[write] paste-fallback global")
+            logger.log("[write] paste-fallback global bundle=\(frontmostBundleID ?? "unknown")")
         }
 
-        try triggerCommandV(targetProcessIdentifier: targetProcessIdentifier)
+        try triggerCommandV(
+            targetProcessIdentifier: shouldUseGlobalShortcut ? nil : targetProcessIdentifier
+        )
         try await Task.sleep(nanoseconds: 80_000_000)
     }
 
@@ -538,8 +574,13 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             restorePasteboard(snapshot, to: pasteboard)
         }
 
+        let frontmostBundleID = currentFrontmostApplication()?.bundleIdentifier
+        let copyTargetProcessIdentifier: pid_t? = prefersGlobalShortcutInjection(bundleID: frontmostBundleID)
+            ? nil
+            : currentFrontmostApplication()?.processIdentifier
+
         do {
-            try triggerCommandC(targetProcessIdentifier: currentFrontmostApplication()?.processIdentifier)
+            try triggerCommandC(targetProcessIdentifier: copyTargetProcessIdentifier)
         } catch {
             logger.log("[selection] copy-fallback-trigger-failed reason=\(error.localizedDescription)")
             return nil
@@ -846,6 +887,20 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         }
         let selfBundleID = Bundle.main.bundleIdentifier
         return bundleID != selfBundleID
+    }
+
+    private func prefersPasteFallbackFirst(for request: TextOutputRequest) -> Bool {
+        if request.focusContext.bundleID == "com.openai.codex" {
+            return true
+        }
+        if request.preferredTarget?.bundleID == "com.openai.codex" {
+            return true
+        }
+        return false
+    }
+
+    private func prefersGlobalShortcutInjection(bundleID: String?) -> Bool {
+        bundleID == "com.openai.codex"
     }
 
     func resolvedTargetProcessIdentifier(
