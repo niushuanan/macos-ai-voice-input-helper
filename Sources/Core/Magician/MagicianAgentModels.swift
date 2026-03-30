@@ -1188,11 +1188,13 @@ private struct MagicianAgentTextBackend {
         }
 
         do {
+            let preferredTarget = resolvedWritebackTarget(for: request)
             let outputResult = try await textOutputCoordinator.write(
                 request: TextOutputRequest(
                     text: finalText,
                     operation: action.input == .commandInstruction ? .insertText : .replaceSelectedText,
-                    focusContext: request.focusContext
+                    focusContext: request.focusContext,
+                    preferredTarget: preferredTarget
                 )
             )
             return MagicianAgentActionResult(
@@ -1226,6 +1228,29 @@ private struct MagicianAgentTextBackend {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         return pasteboard.setString(text, forType: .string)
+    }
+
+    private func resolvedWritebackTarget(for request: MagicianAgentRequest) -> WritebackTargetSnapshot? {
+        if let selectionSnapshot = request.selectionSnapshot {
+            return WritebackTargetSnapshot(
+                appName: selectionSnapshot.focusContext.appName,
+                bundleID: selectionSnapshot.focusContext.bundleID,
+                processIdentifier: nil
+            )
+        }
+
+        let selfBundleID = Bundle.main.bundleIdentifier
+        guard
+            !request.focusContext.bundleID.isEmpty,
+            request.focusContext.bundleID != selfBundleID
+        else {
+            return nil
+        }
+        return WritebackTargetSnapshot(
+            appName: request.focusContext.appName,
+            bundleID: request.focusContext.bundleID,
+            processIdentifier: nil
+        )
     }
 }
 

@@ -365,7 +365,6 @@ struct SettingsView: View {
 
     private var magicianNativeFeatureBoard: some View {
         let textScope = MagicianPermissionScope.textProcessing
-        let appleScope = MagicianPermissionScope.appleNativeApps
         let textResolution = magicianStatusResolver.resolve(
             feature: .textTransform,
             isEnabled: magicianFeatureToggleStore.isEnabled(textScope),
@@ -376,7 +375,7 @@ struct SettingsView: View {
             Text("原生功能")
                 .font(.headline)
             HStack(spacing: 12) {
-                Text("文本处理")
+                Text("文本处理 / 原生动作")
                     .font(.subheadline)
                 Spacer()
                 Toggle(
@@ -394,24 +393,9 @@ struct SettingsView: View {
                 .fixedSize()
             }
 
-            HStack(spacing: 12) {
-                Text("日历 / 备忘录 / 邮件 / 音乐")
-                    .font(.subheadline)
-                Spacer()
-                Toggle(
-                    "",
-                    isOn: Binding(
-                        get: { magicianFeatureToggleStore.isEnabled(appleScope) },
-                        set: { enabled in
-                            handleMagicianScopeToggleChange(scope: appleScope, enabled: enabled)
-                        }
-                    )
-                )
-                .labelsHidden()
-                .toggleStyle(SwitchToggleStyle())
-                .scaleEffect(0.8)
-                .fixedSize()
-            }
+            Text("日历 / 备忘录 / 邮件 / 音乐")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Text("长按主键（默认右 Shift）说命令，松开执行。")
                 .font(.caption)
@@ -429,10 +413,10 @@ struct SettingsView: View {
     }
 
     private var magicianCLIControlCard: some View {
-        let scope = MagicianPermissionScope.feishu
+        let sharedScope = MagicianPermissionScope.textProcessing
         let resolution = magicianStatusResolver.resolve(
-            feature: .feishuCLI,
-            isEnabled: magicianFeatureToggleStore.isEnabled(scope),
+            feature: .textTransform,
+            isEnabled: magicianFeatureToggleStore.isEnabled(sharedScope),
             dependencies: currentMagicianDependencies
         )
 
@@ -444,9 +428,9 @@ struct SettingsView: View {
                 Toggle(
                     "",
                     isOn: Binding(
-                        get: { magicianFeatureToggleStore.isEnabled(scope) },
+                        get: { magicianFeatureToggleStore.isEnabled(sharedScope) },
                         set: { enabled in
-                            handleMagicianScopeToggleChange(scope: scope, enabled: enabled)
+                            handleMagicianScopeToggleChange(scope: sharedScope, enabled: enabled)
                         }
                     )
                 )
@@ -456,22 +440,9 @@ struct SettingsView: View {
                 .fixedSize()
             }
 
-            Text("外部 Agent 能力由 skill 提供（例如飞书）。")
+            Text("skill 用来接外部 Agent 能力（例如飞书）。这个开关与上面的“文本处理 / 原生动作”共用。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-
-            HStack(spacing: 8) {
-                Label(
-                    magicianFeishuCLIHealth.title,
-                    systemImage: feishuHealthSymbolName
-                )
-                .font(.caption)
-                .foregroundStyle(feishuHealthColor)
-
-                Text("命令：\(magicianFeishuCLICommandName)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
 
             if let reason = resolution.reason {
                 Text(reason)
@@ -485,15 +456,15 @@ struct SettingsView: View {
     }
 
     private var magicianSkillUploadCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        HStack {
             Button("上传 skill 文件") {
                 showToast("功能待开发")
             }
             .buttonStyle(.borderedProminent)
+            .tint(.accentColor)
+            Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .pulseCard(cornerRadius: 12)
     }
 
     private var feishuSupportTierGroups: [(tier: FeishuOperationSupportTier, operations: [FeishuOperationDescriptor])] {

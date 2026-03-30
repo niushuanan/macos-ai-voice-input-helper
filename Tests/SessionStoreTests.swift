@@ -425,6 +425,42 @@ final class TextOutputCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.pasteFallbackCount, 1)
     }
 
+    func testExternalFocusWithoutEditableFlagStillUsesBestEffortPasteFallback() async throws {
+        let requestFocusContext = FocusedAppContext(
+            appName: "Finder",
+            bundleID: "com.apple.finder",
+            focusedRole: nil,
+            hasEditableTarget: false,
+            strategyHint: "test"
+        )
+        let coordinator = TestAccessibilityTextOutputCoordinator(
+            contextDetector: StaticContextDetector(
+                focusContext: FocusedAppContext(
+                    appName: "PulseType",
+                    bundleID: Bundle.main.bundleIdentifier ?? "tests.bundle",
+                    focusedRole: nil,
+                    hasEditableTarget: false,
+                    strategyHint: "test"
+                )
+            )
+        )
+        coordinator.availableTargetBundleIDs = ["com.apple.finder"]
+        coordinator.forcedExternalTargetReady = false
+
+        let result = try await coordinator.write(
+            request: TextOutputRequest(
+                text: "hello",
+                operation: .insertText,
+                focusContext: requestFocusContext
+            )
+        )
+
+        XCTAssertEqual(result.path, .pasteFallbackCommandV)
+        XCTAssertTrue(result.didInsertIntoEditor)
+        XCTAssertEqual(coordinator.accessibilityWriteCount, 0)
+        XCTAssertEqual(coordinator.pasteFallbackCount, 1)
+    }
+
     func testExternalTargetUsesPasteFallbackWhenAccessibilityPathFails() async throws {
         let focusContext = FocusedAppContext(
             appName: "Codex",

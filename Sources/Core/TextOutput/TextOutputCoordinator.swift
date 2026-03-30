@@ -294,6 +294,15 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             return resolveTargetApplication(preferredTarget) != nil
         }
 
+        if isExternalApplicationBundle(request.focusContext.bundleID) {
+            if currentFrontmostApplication()?.bundleIdentifier == request.focusContext.bundleID {
+                return true
+            }
+            if !runningApplications(withBundleIdentifier: request.focusContext.bundleID).isEmpty {
+                return true
+            }
+        }
+
         guard
             request.focusContext.hasEditableTarget,
             isExternalApplicationBundle(request.focusContext.bundleID)

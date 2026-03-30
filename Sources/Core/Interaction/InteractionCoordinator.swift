@@ -421,6 +421,12 @@ final class InteractionCoordinator {
             return capturedSnapshot
         }
 
+        if let recapturedSnapshot = await textOutputCoordinator.captureSelectionSnapshot() {
+            pendingMagicianSelectionSnapshot = recapturedSnapshot
+            pendingMagicianSelectionCaptureTask = nil
+            return recapturedSnapshot
+        }
+
         let fallbackSnapshot = textOutputCoordinator.currentSelectionSnapshot()
         pendingMagicianSelectionSnapshot = fallbackSnapshot
         pendingMagicianSelectionCaptureTask = nil
@@ -2372,6 +2378,18 @@ final class InteractionCoordinator {
             let target = DictationWritebackTarget(
                 focusContext: focusContext,
                 processIdentifier: currentApp?.processIdentifier
+            )
+            lastExternalDictationTarget = target
+            return target
+        }
+
+        if
+            !focusContext.bundleID.isEmpty,
+            focusContext.bundleID != Bundle.main.bundleIdentifier
+        {
+            let target = DictationWritebackTarget(
+                focusContext: focusContext,
+                processIdentifier: nil
             )
             lastExternalDictationTarget = target
             return target
