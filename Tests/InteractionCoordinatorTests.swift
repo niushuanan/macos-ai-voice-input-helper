@@ -473,16 +473,28 @@ final class InteractionCoordinatorTests: XCTestCase {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = nil
 
-        let toolExecutor = FakeMagicianToolExecutor()
-        toolExecutor.result = .success(
-            MagicianExecutionResult(
-                intent: .createNote,
-                userMessage: "已写入备忘录。",
-                outputText: "现在这句话",
-                historyDisplayText: "已写入备忘录：现在这句话",
-                fallbackUsed: false,
-                observation: MagicianAgentObservation(
-                    verificationStatus: .verified,
+        let runtime = FakeMagicianAgentRuntime(
+            result: .success(
+                MagicianAgentRunOutcome(
+                    sessionID: "session-note-1",
+                    runID: "run-note-1",
+                    goalSummary: "写进备忘录",
+                    finalStatusMessage: "已写入备忘录。",
+                    finalOutputText: "现在这句话",
+                    displayText: "已写入备忘录：现在这句话",
+                    steps: [
+                        MagicianAgentStepRecord(
+                            id: "step-1",
+                            featureID: .createNote,
+                            instruction: "帮我把现在这句话记到备忘录里面",
+                            userMessage: "已写入备忘录。",
+                            outputText: "现在这句话",
+                            observation: MagicianAgentObservation(
+                                verificationStatus: .verified,
+                                evidenceSummary: "note-id=test-note-1"
+                            )
+                        )
+                    ],
                     evidenceSummary: "note-id=test-note-1"
                 )
             )
@@ -490,7 +502,7 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
-            magicianToolExecutor: toolExecutor,
+            magicianAgentRuntime: runtime,
             transcriptionText: "嗯，帮我把现在这句话记到备忘录里面"
         )
         defer { fixture.cleanUp() }
@@ -502,9 +514,8 @@ final class InteractionCoordinatorTests: XCTestCase {
         await waitForPipeline(using: fixture.sessionStore)
 
         XCTAssertEqual(fixture.sessionStore.phase, .idle)
-        XCTAssertEqual(toolExecutor.callCount, 1)
-        XCTAssertEqual(toolExecutor.lastIntent?.intent, .createNote)
-        XCTAssertFalse((toolExecutor.lastIntent?.params.noteBody ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        XCTAssertEqual(runtime.callCount, 1)
+        XCTAssertFalse((runtime.lastRequest?.command ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianEvidenceSummary, "note-id=test-note-1")
         XCTAssertNotNil(fixture.localHistoryStore.entries.first?.magicianSessionID)
@@ -515,26 +526,36 @@ final class InteractionCoordinatorTests: XCTestCase {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = nil
 
-        let rewriteProvider = CapturingRewriteProvider(
+        let runtime = FakeMagicianAgentRuntime(
             result: .success(
-                SelectionRewriteResult(
-                    rewrittenText: "1. 先确认口径\n2. 再整理时间线\n3. 最后补结论",
-                    actionLabel: "整理成三点",
-                    providerName: "Fake Rewrite",
-                    modelName: "fake-model"
-                )
-            )
-        )
-        let toolExecutor = FakeMagicianToolExecutor()
-        toolExecutor.result = .success(
-            MagicianExecutionResult(
-                intent: .createNote,
-                userMessage: "已写入备忘录。",
-                outputText: "1. 先确认口径\n2. 再整理时间线\n3. 最后补结论",
-                historyDisplayText: "已写入备忘录",
-                fallbackUsed: false,
-                observation: MagicianAgentObservation(
-                    verificationStatus: .verified,
+                MagicianAgentRunOutcome(
+                    sessionID: "session-note-2",
+                    runID: "run-note-2",
+                    goalSummary: "整理后写入备忘录",
+                    finalStatusMessage: "已写入备忘录。",
+                    finalOutputText: "1. 先确认口径\n2. 再整理时间线\n3. 最后补结论",
+                    displayText: "text -> note",
+                    steps: [
+                        MagicianAgentStepRecord(
+                            id: "step-1",
+                            featureID: .textTransform,
+                            instruction: "先整理成三点",
+                            userMessage: "文字处理完成",
+                            outputText: "1. 先确认口径\n2. 再整理时间线\n3. 最后补结论",
+                            observation: MagicianAgentObservation(verificationStatus: .verified)
+                        ),
+                        MagicianAgentStepRecord(
+                            id: "step-2",
+                            featureID: .createNote,
+                            instruction: "再写进备忘录",
+                            userMessage: "已写入备忘录。",
+                            outputText: "1. 先确认口径\n2. 再整理时间线\n3. 最后补结论",
+                            observation: MagicianAgentObservation(
+                                verificationStatus: .verified,
+                                evidenceSummary: "note-id=test-note-2"
+                            )
+                        )
+                    ],
                     evidenceSummary: "note-id=test-note-2"
                 )
             )
@@ -542,8 +563,7 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
-            magicianToolExecutor: toolExecutor,
-            rewriteProviders: [rewriteProvider],
+            magicianAgentRuntime: runtime,
             transcriptionText: "先整理成三点，再写进备忘录"
         )
         defer { fixture.cleanUp() }
@@ -556,12 +576,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         await waitForPipeline(using: fixture.sessionStore)
 
         XCTAssertEqual(fixture.sessionStore.phase, .idle)
-        XCTAssertEqual(rewriteProvider.callCount, 1)
-        XCTAssertEqual(toolExecutor.callCount, 1)
-        XCTAssertEqual(
-            toolExecutor.lastIntent?.params.noteBody,
-            "1. 先确认口径\n2. 再整理时间线\n3. 最后补结论"
-        )
+        XCTAssertEqual(runtime.callCount, 1)
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianStepSummaries?.count, 2)
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianEvidenceSummary, "note-id=test-note-2")
@@ -696,7 +711,18 @@ final class InteractionCoordinatorTests: XCTestCase {
     }
 
     func testMagicianMusicCommandDoesNotFallbackToTextTransformWhenMusicFeatureDisabled() async throws {
+        let runtime = FakeMagicianAgentRuntime(
+            result: .failure(
+                MagicianError(
+                    code: .intentParseFailed,
+                    userMessage: "检测到音乐命令，但音乐控制能力未开启。请先在魔术先生里开启“苹果原生应用”能力。",
+                    debugMessage: "music command while disabled",
+                    recoverAction: "open_magician_settings"
+                )
+            )
+        )
         let fixture = try makeFixture(
+            magicianAgentRuntime: runtime,
             transcriptionText: "播放周杰伦的稻香"
         )
         defer { fixture.cleanUp() }
@@ -719,19 +745,19 @@ final class InteractionCoordinatorTests: XCTestCase {
 
     func testMagicianCommandInstructionEchoDoesNotWriteBackRawCommand() async throws {
         let textOutputCoordinator = FakeTextOutputCoordinator()
-        let rewriteProvider = CapturingRewriteProvider(
-            result: .success(
-                SelectionRewriteResult(
-                    rewrittenText: "打开 Music。",
-                    actionLabel: "原样返回",
-                    providerName: "Fake Rewrite",
-                    modelName: "fake-model"
+        let runtime = FakeMagicianAgentRuntime(
+            result: .failure(
+                MagicianError(
+                    code: .intentParseFailed,
+                    userMessage: "这句更像操作命令，不会直接写回。",
+                    debugMessage: "command echo blocked",
+                    recoverAction: "retry_command"
                 )
             )
         )
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
-            rewriteProviders: [rewriteProvider],
+            magicianAgentRuntime: runtime,
             transcriptionText: "打开 Music"
         )
         defer { fixture.cleanUp() }
@@ -817,20 +843,33 @@ final class InteractionCoordinatorTests: XCTestCase {
     func testMagicianTextTransformWithoutSelectionUsesCommandModeAndInsertText() async throws {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = nil
-        let rewriteProvider = CapturingRewriteProvider(
+        let runtime = FakeMagicianAgentRuntime(
             result: .success(
-                SelectionRewriteResult(
-                    rewrittenText: "这是命令模式下的文本结果。",
-                    actionLabel: "命令文本助手",
-                    providerName: "Fake OpenAI",
-                    modelName: "fake-model"
+                MagicianAgentRunOutcome(
+                    sessionID: "session-text-1",
+                    runID: "run-text-1",
+                    goalSummary: "文本处理",
+                    finalStatusMessage: "文字处理并写入完成",
+                    finalOutputText: "这是命令模式下的文本结果。",
+                    displayText: "text.transform",
+                    steps: [
+                        MagicianAgentStepRecord(
+                            id: "step-1",
+                            featureID: .textTransform,
+                            instruction: "帮我润色一下",
+                            userMessage: "文字处理并写入完成",
+                            outputText: "这是命令模式下的文本结果。",
+                            observation: MagicianAgentObservation(verificationStatus: .verified)
+                        )
+                    ],
+                    evidenceSummary: "文本已写入"
                 )
             )
         )
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
-            rewriteProviders: [rewriteProvider],
+            magicianAgentRuntime: runtime,
             transcriptionText: "帮我润色一下"
         )
         defer { fixture.cleanUp() }
@@ -842,9 +881,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         await waitForPipeline(using: fixture.sessionStore)
 
         XCTAssertEqual(fixture.sessionStore.phase, .idle)
-        XCTAssertEqual(textOutputCoordinator.lastRequest?.operation, .insertText)
-        XCTAssertEqual(textOutputCoordinator.lastRequest?.text, "这是命令模式下的文本结果。")
-        XCTAssertEqual(rewriteProvider.lastRequest?.selectedText, "帮我润色一下")
+        XCTAssertEqual(runtime.callCount, 1)
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
     }
 
@@ -854,20 +891,33 @@ final class InteractionCoordinatorTests: XCTestCase {
             focusContext: FixedContextDetector().focusedAppContext(),
             selectedText: "今天下午三点在会议室开产品评审会。"
         )
-        let rewriteProvider = CapturingRewriteProvider(
+        let runtime = FakeMagicianAgentRuntime(
             result: .success(
-                SelectionRewriteResult(
-                    rewrittenText: "今日申时会于堂中议策。",
-                    actionLabel: "转换为中国古诗风格",
-                    providerName: "Fake OpenAI",
-                    modelName: "fake-model"
+                MagicianAgentRunOutcome(
+                    sessionID: "session-text-2",
+                    runID: "run-text-2",
+                    goalSummary: "文本转换",
+                    finalStatusMessage: "文字处理并写入完成",
+                    finalOutputText: "今日申时会于堂中议策。",
+                    displayText: "text.transform",
+                    steps: [
+                        MagicianAgentStepRecord(
+                            id: "step-1",
+                            featureID: .textTransform,
+                            instruction: "转换为中国古诗风格",
+                            userMessage: "文字处理并写入完成",
+                            outputText: "今日申时会于堂中议策。",
+                            observation: MagicianAgentObservation(verificationStatus: .verified)
+                        )
+                    ],
+                    evidenceSummary: "文本已写入"
                 )
             )
         )
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
-            rewriteProviders: [rewriteProvider],
+            magicianAgentRuntime: runtime,
             transcriptionText: "转换为中国古诗风格"
         )
         defer { fixture.cleanUp() }
@@ -886,11 +936,9 @@ final class InteractionCoordinatorTests: XCTestCase {
         fixture.coordinator.handleStopInput()
         await waitForPipeline(using: fixture.sessionStore)
 
-        XCTAssertEqual(rewriteProvider.callCount, 1)
-        XCTAssertNil(rewriteProvider.lastRequest?.appPrompt)
-        XCTAssertNil(rewriteProvider.lastRequest?.userSystemPrompt)
-        XCTAssertEqual(rewriteProvider.lastRequest?.spokenInstruction, "转换为中国古诗风格")
-        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "今日申时会于堂中议策。")
+        XCTAssertEqual(runtime.callCount, 1)
+        XCTAssertEqual(runtime.lastRequest?.selectionSnapshot?.selectedText, "今天下午三点在会议室开产品评审会。")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "今日申时会于堂中议策。")
     }
 
     func testDictationSkipsPostProcessWhenSystemPromptIsEmpty() async throws {
