@@ -1728,9 +1728,21 @@ final class InteractionCoordinator {
         if let notice = preprocessResult.notice, !notice.isEmpty {
             toastPresenter?.show(notice, duration: 2.2)
         }
+        var runtimeEvents: [MagicianAgentRuntimeEvent] = []
 
         guard !spokenInstruction.isEmpty else {
             let message = "改写指令为空，请重试并说出明确命令。"
+            let failureTrace = magicianFailureExecutionTraceText(
+                traceID: traceID,
+                command: spokenInstruction,
+                stage: "input_validation",
+                errorCode: MagicianErrorCode.intentParseFailed.rawValue,
+                errorMessage: message,
+                debugMessage: "spoken instruction empty after preprocessing",
+                recoverAction: "retry_command",
+                focusContext: fallbackFocusContext,
+                runtimeEvents: runtimeEvents
+            )
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -1742,6 +1754,7 @@ final class InteractionCoordinator {
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     magicianRuntimeVersion: 3,
+                    magicianExecutionTrace: failureTrace,
                     status: .failed,
                     errorMessage: message,
                     audioDurationSeconds: audioDurationSeconds,
@@ -1757,6 +1770,17 @@ final class InteractionCoordinator {
             let message = selectionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? "无选中场景当前没有可用能力，请先在魔术先生页面打开权限开关。"
                 : "当前没有可用能力，请先在魔术先生页面打开权限开关。"
+            let failureTrace = magicianFailureExecutionTraceText(
+                traceID: traceID,
+                command: spokenInstruction,
+                stage: "capability_check",
+                errorCode: MagicianErrorCode.intentParseFailed.rawValue,
+                errorMessage: message,
+                debugMessage: "enabled feature set empty",
+                recoverAction: nil,
+                focusContext: fallbackFocusContext,
+                runtimeEvents: runtimeEvents
+            )
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -1768,6 +1792,7 @@ final class InteractionCoordinator {
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     magicianRuntimeVersion: 3,
+                    magicianExecutionTrace: failureTrace,
                     status: .failed,
                     errorMessage: message,
                     audioDurationSeconds: audioDurationSeconds,
@@ -1791,6 +1816,7 @@ final class InteractionCoordinator {
             let outcome = try await magicianAgentRuntime.run(
                 request: runtimeRequest,
                 onEvent: { [weak self] event in
+                    runtimeEvents.append(event)
                     self?.handleMagicianRuntimeEvent(event)
                 }
             )
@@ -1799,7 +1825,8 @@ final class InteractionCoordinator {
             }
             let executionTrace = magicianExecutionTraceText(
                 command: spokenInstruction,
-                outcome: outcome
+                outcome: outcome,
+                runtimeEvents: runtimeEvents
             )
             localHistoryStore.append(
                 SessionHistoryEntry(
@@ -1844,6 +1871,17 @@ final class InteractionCoordinator {
             if abortIfSessionCancelled() {
                 return
             }
+            let failureTrace = magicianFailureExecutionTraceText(
+                traceID: traceID,
+                command: spokenInstruction,
+                stage: "runtime",
+                errorCode: magicianError.code.rawValue,
+                errorMessage: magicianError.userMessage,
+                debugMessage: magicianError.debugMessage,
+                recoverAction: magicianError.recoverAction,
+                focusContext: fallbackFocusContext,
+                runtimeEvents: runtimeEvents
+            )
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -1855,6 +1893,7 @@ final class InteractionCoordinator {
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     magicianRuntimeVersion: 3,
+                    magicianExecutionTrace: failureTrace,
                     status: .failed,
                     errorMessage: magicianError.userMessage,
                     audioDurationSeconds: audioDurationSeconds,
@@ -1881,6 +1920,17 @@ final class InteractionCoordinator {
                 return
             }
             let message = "魔术先生执行失败：\(error.localizedDescription)"
+            let failureTrace = magicianFailureExecutionTraceText(
+                traceID: traceID,
+                command: spokenInstruction,
+                stage: "runtime",
+                errorCode: MagicianErrorCode.toolExecutionFailed.rawValue,
+                errorMessage: message,
+                debugMessage: error.localizedDescription,
+                recoverAction: nil,
+                focusContext: fallbackFocusContext,
+                runtimeEvents: runtimeEvents
+            )
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
@@ -1892,6 +1942,7 @@ final class InteractionCoordinator {
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
                     magicianRuntimeVersion: 3,
+                    magicianExecutionTrace: failureTrace,
                     status: .failed,
                     errorMessage: message,
                     audioDurationSeconds: audioDurationSeconds,
@@ -2022,31 +2073,9 @@ final class InteractionCoordinator {
 
     private func magicianExecutionTraceText(
         command: String,
-        outcome: MagicianAgentRunOutcome
+        outcome: MagicianAgentRunOutcome,
+        runtimeEvents: [MagicianAgentRuntimeEvent]
     ) -> String {
-        func appendField(
-            _ lines: inout [String],
-            key: String,
-            value: String?
-        ) {
-            guard let raw = value else {
-                return
-            }
-            let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !normalized.isEmpty else {
-                return
-            }
-            let parts = normalized.components(separatedBy: .newlines)
-            if parts.count == 1 {
-                lines.append("\(key): \(normalized)")
-                return
-            }
-            lines.append("\(key):")
-            for part in parts {
-                lines.append("  \(part)")
-            }
-        }
-
         var lines: [String] = []
         lines.append("goal: \(outcome.goalSummary)")
         lines.append("command: \(command)")
@@ -2054,25 +2083,103 @@ final class InteractionCoordinator {
         lines.append("run_id: \(outcome.runID)")
         lines.append("")
 
+        appendTraceEvents(&lines, runtimeEvents: runtimeEvents)
+
         for (index, step) in outcome.steps.enumerated() {
             lines.append("[step \(index + 1)]")
             lines.append("step_id: \(step.id)")
             lines.append("feature: \(step.featureID.rawValue)")
             lines.append("tool: \(step.instruction)")
-            appendField(&lines, key: "message", value: step.userMessage)
-            appendField(&lines, key: "output", value: step.outputText)
+            appendTraceField(&lines, key: "message", value: step.userMessage)
+            appendTraceField(&lines, key: "output", value: step.outputText)
             if let status = step.observation?.verificationStatus.rawValue {
                 lines.append("verify: \(status)")
             }
-            appendField(&lines, key: "target", value: step.observation?.targetSummary)
-            appendField(&lines, key: "evidence", value: step.observation?.evidenceSummary)
+            appendTraceField(&lines, key: "target", value: step.observation?.targetSummary)
+            appendTraceField(&lines, key: "evidence", value: step.observation?.evidenceSummary)
             lines.append("")
         }
 
         lines.append("final_status: \(outcome.finalStatusMessage)")
-        appendField(&lines, key: "final_output", value: outcome.finalOutputText)
-        appendField(&lines, key: "final_evidence", value: outcome.evidenceSummary)
+        appendTraceField(&lines, key: "final_output", value: outcome.finalOutputText)
+        appendTraceField(&lines, key: "final_evidence", value: outcome.evidenceSummary)
         return lines.joined(separator: "\n")
+    }
+
+    private func magicianFailureExecutionTraceText(
+        traceID: String,
+        command: String,
+        stage: String,
+        errorCode: String?,
+        errorMessage: String,
+        debugMessage: String?,
+        recoverAction: String?,
+        focusContext: FocusedAppContext,
+        runtimeEvents: [MagicianAgentRuntimeEvent]
+    ) -> String {
+        var lines: [String] = []
+        lines.append("goal: (plan unavailable)")
+        lines.append("command: \(command)")
+        lines.append("trace_id: \(traceID)")
+        lines.append("status: failed")
+        lines.append("failed_stage: \(stage)")
+        lines.append("focus_app: \(focusContext.appName)")
+        lines.append("focus_bundle: \(focusContext.bundleID)")
+        if let errorCode {
+            lines.append("error_code: \(errorCode)")
+        }
+        appendTraceField(&lines, key: "error_message", value: errorMessage)
+        appendTraceField(&lines, key: "error_debug", value: debugMessage)
+        appendTraceField(&lines, key: "recover_action", value: recoverAction)
+        lines.append("")
+        appendTraceEvents(&lines, runtimeEvents: runtimeEvents)
+        return lines.joined(separator: "\n")
+    }
+
+    private func appendTraceEvents(
+        _ lines: inout [String],
+        runtimeEvents: [MagicianAgentRuntimeEvent]
+    ) {
+        if runtimeEvents.isEmpty {
+            lines.append("events: (none)")
+            lines.append("")
+            return
+        }
+        lines.append("events:")
+        for (index, event) in runtimeEvents.enumerated() {
+            lines.append("  [event \(index + 1)] \(event.name.rawValue) | state=\(event.state.rawValue)")
+            appendTraceField(&lines, key: "  message", value: event.message)
+            if let stepIndex = event.stepIndex, let total = event.totalSteps {
+                lines.append("  step: \(stepIndex)/\(total)")
+            }
+            if let progressHint = event.progressHint {
+                lines.append("  progress_hint: \(String(format: "%.3f", progressHint))")
+            }
+        }
+        lines.append("")
+    }
+
+    private func appendTraceField(
+        _ lines: inout [String],
+        key: String,
+        value: String?
+    ) {
+        guard let raw = value else {
+            return
+        }
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return
+        }
+        let parts = normalized.components(separatedBy: .newlines)
+        if parts.count == 1 {
+            lines.append("\(key): \(normalized)")
+            return
+        }
+        lines.append("\(key):")
+        for part in parts {
+            lines.append("  \(part)")
+        }
     }
 
     private func bindListeningLevel() {
