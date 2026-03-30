@@ -2,6 +2,8 @@ import AppKit
 import EventKit
 import Foundation
 
+// MARK: - Agent Contracts
+
 enum MagicianAgentVerificationStatus: String, Codable, Equatable {
     case verified
     case assumed
@@ -221,6 +223,8 @@ protocol MagicianAgentRunning {
         onEvent: ((MagicianAgentRuntimeEvent) -> Void)?
     ) async throws -> MagicianAgentRunOutcome
 }
+
+// MARK: - Agent Text Backend
 
 @MainActor
 private struct MagicianAgentTextBackend {
@@ -442,6 +446,8 @@ private enum MagicianTodoStatusV3: String, Codable {
     case completed
 }
 
+// MARK: - Kernel Todo + Skill Catalog
+
 private struct MagicianTodoItemV3: Codable, Equatable {
     let id: String
     let text: String
@@ -534,7 +540,17 @@ private final class MagicianSkillCatalogV3 {
     private var map: [String: MagicianSkillManifestV3]
 
     init(enabledFeatures: Set<MagicianFeatureID>) {
-        var entries: [MagicianSkillManifestV3] = []
+        var entries: [MagicianSkillManifestV3] = [
+            .init(
+                id: "core.reason.respond",
+                featureID: .textTransform,
+                domain: "core.reason",
+                intentScope: "纯文本推理与内容生成",
+                inputSchema: "{\"instruction\":string,\"previous_output\":string?}",
+                riskNote: "只读，不会直接写入外部应用",
+                verifyPolicy: "llm_output_non_empty"
+            )
+        ]
         if enabledFeatures.contains(.createEvent) {
             entries.append(contentsOf: [
                 .init(
@@ -746,6 +762,51 @@ private final class MagicianSkillCatalogV3 {
             }
         return lines.joined(separator: "\n")
     }
+
+    // 一级目录：只给“域级”线索，避免把完整 skill 明细塞进主上下文。
+    func domainTier1Summary() -> String {
+        let grouped = Dictionary(grouping: manifests) { manifest in
+            domainTier1Key(from: manifest.domain)
+        }
+        return grouped
+            .sorted { $0.key < $1.key }
+            .map { key, items in
+                let samples = items
+                    .map(\.id)
+                    .sorted()
+                    .prefix(2)
+                    .joined(separator: ", ")
+                if items.count > 2 {
+                    return "\(key) | count=\(items.count) | sample=\(samples) ..."
+                }
+                return "\(key) | count=\(items.count) | sample=\(samples)"
+            }
+            .joined(separator: "\n")
+    }
+
+    // 搜索索引：按域分组并截断每组 skill 数量，减少 router 模型上下文体积。
+    func searchIndexSummary(maxSkillIDsPerDomain: Int = 6) -> String {
+        let grouped = Dictionary(grouping: manifests, by: \.domain)
+        return grouped
+            .sorted { $0.key < $1.key }
+            .map { domain, items in
+                let sortedIDs = items.map(\.id).sorted()
+                let kept = Array(sortedIDs.prefix(maxSkillIDsPerDomain))
+                if sortedIDs.count > kept.count {
+                    return "\(domain): \(kept.joined(separator: ", ")) ... (+\(sortedIDs.count - kept.count))"
+                }
+                return "\(domain): \(kept.joined(separator: ", "))"
+            }
+            .joined(separator: "\n")
+    }
+
+    private func domainTier1Key(from domain: String) -> String {
+        let parts = domain.split(separator: ".")
+        if parts.count >= 2 {
+            return "\(parts[0]).\(parts[1])"
+        }
+        return domain
+    }
 }
 
 private struct MagicianKernelToolOutcomeV3 {
@@ -756,6 +817,8 @@ private struct MagicianKernelToolOutcomeV3 {
     let featureID: MagicianFeatureID?
     let observation: MagicianAgentObservation?
 }
+
+// MARK: - Kernel Tooling + Router
 
 private final class MagicianToolRegistryV3 {
     typealias ToolHandler = (_ input: [String: Any], _ context: MagicianKernelRuntimeContextV3) async throws -> MagicianKernelToolOutcomeV3
@@ -963,6 +1026,9 @@ private final class MagicianSkillRouterV3 {
         if containsAny(normalized, tokens: ["翻译", "润色", "改写", "总结", "提炼", "rewrite", "summarize", "translate"]) {
             appendIfExists("text.transform")
         }
+        if matchedIDs.isEmpty {
+            appendIfExists("core.reason.respond")
+        }
 
         let base = 0.97
         return matchedIDs.enumerated().map { index, skillID in
@@ -1017,6 +1083,15 @@ private final class MagicianSkillRouterV3 {
                 )
             }
         }
+        if output.isEmpty, catalog.manifest(for: "core.reason.respond") != nil {
+            output.append(
+                MagicianSkillSearchCandidateV3(
+                    skillID: "core.reason.respond",
+                    score: 0.25,
+                    reason: "default_reasoner"
+                )
+            )
+        }
         return output.sorted { $0.score > $1.score }.prefix(8).map { $0 }
     }
 
@@ -1028,6 +1103,9 @@ private final class MagicianSkillRouterV3 {
         你是 skill router。请基于用户意图，从给定 skill 目录里挑最匹配的 skill id。
         只输出 JSON：
         {"skills":["id1","id2","id3"]}
+        规则：
+        1) 只在需要外部动作时选择 apple.* 或 feishu_* skill。
+        2) 纯文本理解、解释、翻译、总结优先选择 core.reason.respond 或 text.transform。
         不要输出其他文字。
         """
         let user = """
@@ -1035,7 +1113,7 @@ private final class MagicianSkillRouterV3 {
         \(query)
 
         skill_domain_index:
-        \(catalog.domainIndexSummary())
+        \(catalog.searchIndexSummary(maxSkillIDsPerDomain: 6))
         """
         do {
             let raw = try await llmClient.generate(
@@ -1050,7 +1128,17 @@ private final class MagicianSkillRouterV3 {
             else {
                 return []
             }
-            return ids.compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            var output: [String] = []
+            for item in ids {
+                guard let id = (item as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
+                    continue
+                }
+                guard catalog.manifest(for: id) != nil, !output.contains(id) else {
+                    continue
+                }
+                output.append(id)
+            }
+            return output
         } catch {
             return []
         }
@@ -1063,18 +1151,23 @@ private struct MagicianSkillInvokeResultV3 {
     let evidence: String
 }
 
+// MARK: - Skill Runtime
+
 @MainActor
 private final class MagicianSkillRuntimeV3 {
     private let toolExecutor: any MagicianToolExecuting
     private let textBackend: MagicianAgentTextBackend
+    private let llmClient: MagicianKernelLLMClientV3
     private let calendarStore = EKEventStore()
 
     init(
         toolExecutor: any MagicianToolExecuting,
-        textBackend: MagicianAgentTextBackend
+        textBackend: MagicianAgentTextBackend,
+        llmClient: MagicianKernelLLMClientV3
     ) {
         self.toolExecutor = toolExecutor
         self.textBackend = textBackend
+        self.llmClient = llmClient
     }
 
     func invoke(
@@ -1097,6 +1190,9 @@ private final class MagicianSkillRuntimeV3 {
         }
         if skillID == "apple.mail.resolve_recipient" {
             return try resolveRecipientSkill(input: input, request: request)
+        }
+        if skillID == "core.reason.respond" {
+            return try await coreReasonSkill(input: input, request: request, context: context)
         }
         if skillID == "text.transform" {
             return try await transformTextSkill(input: input, request: request)
@@ -1249,7 +1345,9 @@ private final class MagicianSkillRuntimeV3 {
         var params = MagicianIntentParams.empty
         params.mailTo = stringArrayValue(input["to"])
         params.mailSubject = stringValue(input["subject"])
-        params.mailBody = stringValue(input["body"]) ?? request.selectionSnapshot?.selectedText
+        params.mailBody = stringValue(input["body"])
+            ?? stringValue(input["previous_output"])
+            ?? request.selectionSnapshot?.selectedText
         params.mailDeliveryMode = deliveryMode
         let command = stringValue(input["spoken_command"]) ?? request.command
         return try await executeByToolExecutor(
@@ -1270,6 +1368,7 @@ private final class MagicianSkillRuntimeV3 {
     ) async throws -> MagicianSkillInvokeResultV3 {
         let instruction = stringValue(input["instruction"]) ?? request.command
         let inputText = stringValue(input["input_text"])
+            ?? stringValue(input["previous_output"])
             ?? request.selectionSnapshot?.selectedText
             ?? request.command
         let action = MagicianAgentAction(
@@ -1298,6 +1397,73 @@ private final class MagicianSkillRuntimeV3 {
             execution: execution,
             skillID: "text.transform",
             evidence: result.observation?.evidenceSummary ?? result.userMessage
+        )
+    }
+
+    private func coreReasonSkill(
+        input: [String: Any],
+        request: MagicianAgentRequest,
+        context: MagicianKernelRuntimeContextV3
+    ) async throws -> MagicianSkillInvokeResultV3 {
+        let instruction = stringValue(input["instruction"])
+            ?? stringValue(input["objective"])
+            ?? request.command
+        let previousOutput = stringValue(input["previous_output"])
+            ?? context.stepRecords.compactMap(\.outputText).last
+        let user = """
+        instruction:
+        \(instruction)
+
+        command:
+        \(request.command)
+
+        previous_output:
+        \(previousOutput ?? "")
+
+        selected_text:
+        \(request.selectionSnapshot?.selectedText ?? "")
+
+        focus_app:
+        \(request.focusContext.appName)
+        """
+        let system = """
+        你是魔术先生的核心推理执行器。
+        任务：仅用文本完成当前步骤，不调用外部系统动作。
+        要求：
+        1) 保持与用户目标一致。
+        2) 输出直接可用的结果文本，不要解释流程。
+        """
+        let output = try await llmClient.generate(
+            systemPrompt: system,
+            userPrompt: user,
+            temperature: 0.1,
+            maxOutputTokens: 1_200
+        )
+        let normalized = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            throw MagicianError(
+                code: .toolExecutionFailed,
+                userMessage: "核心推理步骤没有返回有效文本。",
+                debugMessage: "core reason empty output",
+                recoverAction: "retry_command"
+            )
+        }
+        let observation = MagicianAgentObservation(
+            verificationStatus: .verified,
+            targetSummary: instruction,
+            evidenceSummary: "core.reason.respond chars=\(normalized.count)"
+        )
+        return MagicianSkillInvokeResultV3(
+            execution: MagicianExecutionResult(
+                intent: .textTransform,
+                userMessage: "核心推理已完成",
+                outputText: normalized,
+                historyDisplayText: "核心推理：\(summarizedHistoryText(normalized))",
+                fallbackUsed: false,
+                observation: observation
+            ),
+            skillID: "core.reason.respond",
+            evidence: observation.evidenceSummary ?? "core.reason.respond"
         )
     }
 
@@ -1577,6 +1743,8 @@ private struct MagicianPostStepDecisionV3 {
     let appendedStep: MagicianIntentPlanStepV3?
 }
 
+// MARK: - Agent Kernel Runtime
+
 @MainActor
 final class MagicianAgentRuntimeV3: MagicianAgentRunning {
     private let llmClient: MagicianKernelLLMClientV3
@@ -1602,7 +1770,8 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         self.skillRouter = MagicianSkillRouterV3(llmClient: llmClient)
         self.skillRuntime = MagicianSkillRuntimeV3(
             toolExecutor: toolExecutor,
-            textBackend: textBackend
+            textBackend: textBackend,
+            llmClient: llmClient
         )
         registerTools()
     }
@@ -1730,6 +1899,9 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                     candidateSkillIDs.append(skillID)
                 }
             }
+            if candidateSkillIDs.isEmpty, context.catalog.manifest(for: "core.reason.respond") != nil {
+                candidateSkillIDs.append("core.reason.respond")
+            }
 
             guard let selectedSkillID = candidateSkillIDs.first else {
                 throw MagicianError(
@@ -1750,7 +1922,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 .skillInvoke,
                 input: [
                     "skill_id": selectedSkillID,
-                    "input": currentStep.input
+                    "input": enrichedStepInput(currentStep.input, context: context, objective: currentStep.objective)
                 ],
                 context: context
             )
@@ -1887,8 +2059,10 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         约束：
         1) steps 必须按执行顺序排列。
         2) 每个 step 只做一件事。
-        3) 如需文本处理，请使用 skill_id: "text.transform"。
-        4) status 仅允许 pending / in_progress / completed。
+        3) 纯文本理解/解释/翻译/总结优先使用 skill_id: "core.reason.respond"。
+        4) 当步骤需要写入编辑器或剪贴板时，使用 skill_id: "text.transform"。
+        5) 只有外部动作才使用 apple.* 或 feishu_* skill。
+        6) status 仅允许 pending / in_progress / completed。
         """
         let user = """
         command:
@@ -1900,8 +2074,8 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         focus_app:
         \(context.request.focusContext.appName)
 
-        enabled_skills_domain_index:
-        \(context.catalog.domainIndexSummary())
+        enabled_skill_domain_index_level_1:
+        \(context.catalog.domainTier1Summary())
         """
         let raw = try await llmClient.generate(
             systemPrompt: system,
@@ -2095,6 +2269,28 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         }
     }
 
+    private func enrichedStepInput(
+        _ base: [String: Any],
+        context: MagicianKernelRuntimeContextV3,
+        objective: String
+    ) -> [String: Any] {
+        var input = base
+        if input["objective"] == nil {
+            input["objective"] = objective
+        }
+        if input["spoken_command"] == nil {
+            input["spoken_command"] = context.request.command
+        }
+        let previousOutput = context.stepRecords.compactMap(\.outputText).last
+            ?? context.lastSkillResult?.execution.outputText
+        if let previousOutput, !previousOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if input["previous_output"] == nil {
+                input["previous_output"] = previousOutput
+            }
+        }
+        return input
+    }
+
     private func parseSkillIDs(fromSearchOutput output: String?) -> [String] {
         guard let output, !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return []
@@ -2194,14 +2390,16 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             }
             let explicitSkillID = stringValue(input["skill_id"])
             let loadedSkillID = context.loadedCards.keys.first
+            let stepObjective = stringValue((input["input"] as? [String: Any])?["objective"]) ?? context.request.command
             let routedSkillID = await self.skillRouter.search(
-                query: context.request.command,
+                query: stepObjective,
                 catalog: context.catalog,
                 preferredCount: 1
             )
                 .first?
                 .skillID
-            let skillID = explicitSkillID ?? loadedSkillID ?? routedSkillID ?? ""
+            let coreSkillID = context.catalog.manifest(for: "core.reason.respond") != nil ? "core.reason.respond" : nil
+            let skillID = explicitSkillID ?? loadedSkillID ?? routedSkillID ?? coreSkillID ?? ""
             guard !skillID.isEmpty else {
                 throw MagicianError(
                     code: .intentParseFailed,
@@ -2214,7 +2412,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             let skillInput = (input["input"] as? [String: Any]) ?? [:]
             var finalError: Error?
             let fallbackCandidates = await self.skillRouter.search(
-                query: context.request.command,
+                query: stepObjective,
                 catalog: context.catalog,
                 preferredCount: 4
             )
@@ -2283,6 +2481,8 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         }
     }
 }
+
+// MARK: - Shared Parsing Helpers
 
 private func parseJSONObject(_ raw: String) -> [String: Any]? {
     let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
