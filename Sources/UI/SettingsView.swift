@@ -387,7 +387,7 @@ struct SettingsView: View {
             )
         }
 
-        VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 8) {
             Label("原生功能", systemImage: "apple.logo")
                 .font(.headline)
             HStack(alignment: .top, spacing: 12) {

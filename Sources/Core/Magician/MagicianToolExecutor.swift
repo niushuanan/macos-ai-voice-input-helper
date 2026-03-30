@@ -1177,9 +1177,15 @@ func magicianMusicEvidenceMatchesQuery(output: String, query: String) -> Bool {
         return false
     }
 
-    var candidateQueries = magicianMusicSearchQueries(from: query)
-    candidateQueries.append(query)
-    for candidate in candidateQueries {
+    let candidateQueries = magicianMusicSearchQueries(from: query)
+    let verificationCandidates: [String] = {
+        if candidateQueries.isEmpty {
+            return [query]
+        }
+        return Array(candidateQueries.prefix(2))
+    }()
+
+    for candidate in verificationCandidates {
         let normalizedCandidate = normalizedMusicMatchText(candidate)
         guard !normalizedCandidate.isEmpty else {
             continue
