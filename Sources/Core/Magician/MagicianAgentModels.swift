@@ -2135,6 +2135,9 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         if !llmClient.isReadyForKernel() {
             return try await fallbackRuntime.run(request: request, onEvent: onEvent)
         }
+        if shouldBypassSkillKernel(for: request) {
+            return try await fallbackRuntime.run(request: request, onEvent: onEvent)
+        }
         let catalog = MagicianSkillCatalogV3(enabledFeatures: request.enabledFeatures)
         let context = MagicianKernelRuntimeContextV3(request: request, catalog: catalog)
         let sessionID = UUID().uuidString
@@ -2171,12 +2174,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 break
             }
             guard decision.action == "tool_use", let tool = decision.tool else {
-                throw MagicianError(
-                    code: .intentParseFailed,
-                    userMessage: "Agent 规划结果无效，请重试。",
-                    debugMessage: "invalid decision action",
-                    recoverAction: "retry_command"
-                )
+                return try await fallbackRuntime.run(request: request, onEvent: onEvent)
             }
 
             onEvent?(
@@ -2190,11 +2188,16 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 )
             )
 
-            let outcome = try await toolRegistry.invoke(
-                tool,
-                input: decision.input,
-                context: context
-            )
+            let outcome: MagicianKernelToolOutcomeV3
+            do {
+                outcome = try await toolRegistry.invoke(
+                    tool,
+                    input: decision.input,
+                    context: context
+                )
+            } catch {
+                return try await fallbackRuntime.run(request: request, onEvent: onEvent)
+            }
             context.transcript.append(
                 """
                 tool=\(tool)
@@ -2234,12 +2237,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         }
 
         if context.stepRecords.isEmpty {
-            throw MagicianError(
-                code: .intentParseFailed,
-                userMessage: "没有执行到有效 skill，请换个说法重试。",
-                debugMessage: "no skill step executed",
-                recoverAction: "retry_command"
-            )
+            return try await fallbackRuntime.run(request: request, onEvent: onEvent)
         }
 
         let lastOutput = context.stepRecords.compactMap(\.outputText).last
@@ -2262,6 +2260,27 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             steps: context.stepRecords,
             evidenceSummary: evidence
         )
+    }
+
+    private func shouldBypassSkillKernel(for request: MagicianAgentRequest) -> Bool {
+        let command = request.command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasSelection = !(request.selectionSnapshot?.selectedText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ?? true)
+
+        if hasSelection, request.enabledFeatures.contains(.textTransform) {
+            return true
+        }
+
+        let textKeywords = ["翻译", "润色", "改写", "精简", "整理", "translate", "polish", "rewrite", "summarize"]
+        let toolKeywords = [
+            "日程", "会议", "calendar", "event", "备忘录", "note",
+            "邮件", "mail", "email", "音乐", "播放", "暂停", "下一首", "上一首",
+            "飞书", "lark", "feishu", "chat", "docs", "task"
+        ]
+        let hasTextKeyword = textKeywords.contains { command.contains($0) }
+        let hasToolKeyword = toolKeywords.contains { command.contains($0) }
+        return hasTextKeyword && !hasToolKeyword
     }
 
     private func registerTools() {
@@ -2339,12 +2358,21 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                     recoverAction: "retry_command"
                 )
             }
-            let skillID = stringValue(input["skill_id"]) ?? context.loadedCards.keys.first ?? ""
+            let explicitSkillID = stringValue(input["skill_id"])
+            let loadedSkillID = context.loadedCards.keys.first
+            let routedSkillID = await self.skillRouter.search(
+                query: context.request.command,
+                catalog: context.catalog,
+                preferredCount: 1
+            )
+                .first?
+                .skillID
+            let skillID = explicitSkillID ?? loadedSkillID ?? routedSkillID ?? ""
             guard !skillID.isEmpty else {
                 throw MagicianError(
                     code: .intentParseFailed,
-                    userMessage: "skill_id 为空，无法执行。",
-                    debugMessage: "skill_id missing",
+                    userMessage: "当前没有可执行动作，请换个说法。",
+                    debugMessage: "skill unresolved after fallback routing",
                     recoverAction: "retry_command"
                 )
             }
