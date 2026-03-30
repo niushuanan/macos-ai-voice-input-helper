@@ -866,11 +866,17 @@ private final class MagicianSkillRouterV3 {
     func search(
         query: String,
         catalog: MagicianSkillCatalogV3,
-        preferredCount: Int? = nil
+        preferredCount: Int? = nil,
+        allowModelSearch: Bool = true
     ) async -> [MagicianSkillSearchCandidateV3] {
         let rule = ruleSearch(query: query, catalog: catalog)
         let lexical = lexicalSearch(query: query, catalog: catalog)
-        let model = await modelSearch(query: query, catalog: catalog)
+        let model: [String]
+        if allowModelSearch, rule.isEmpty {
+            model = await modelSearch(query: query, catalog: catalog)
+        } else {
+            model = []
+        }
         var scoreMap: [String: Double] = [:]
         for candidate in rule {
             scoreMap[candidate.skillID] = max(scoreMap[candidate.skillID] ?? 0, candidate.score)
@@ -1096,7 +1102,7 @@ private final class MagicianSkillRouterV3 {
                 systemPrompt: system,
                 userPrompt: user,
                 temperature: 0,
-                maxOutputTokens: 600
+                maxOutputTokens: 260
             )
             guard
                 let jsonObject = parseJSONObject(raw),
@@ -1199,7 +1205,8 @@ private final class MagicianSkillRuntimeV3 {
                     params: params
                 ),
                 command: command,
-                selectionText: request.selectionSnapshot?.selectedText
+                selectionText: request.selectionSnapshot?.selectedText,
+                resolvedSkillID: skillID
             )
         }
 
@@ -1220,7 +1227,8 @@ private final class MagicianSkillRuntimeV3 {
                     params: params
                 ),
                 command: command,
-                selectionText: request.selectionSnapshot?.selectedText
+                selectionText: request.selectionSnapshot?.selectedText,
+                resolvedSkillID: "apple.calendar.create_event"
             )
         case "apple.notes.create_note":
             var params = MagicianIntentParams.empty
@@ -1234,33 +1242,60 @@ private final class MagicianSkillRuntimeV3 {
                     params: params
                 ),
                 command: command,
-                selectionText: request.selectionSnapshot?.selectedText
+                selectionText: request.selectionSnapshot?.selectedText,
+                resolvedSkillID: "apple.notes.create_note"
             )
         case "apple.mail.compose":
             return try await executeMailSkill(
                 input: input,
                 request: request,
+                skillID: "apple.mail.compose",
                 deliveryMode: .draftOnly
             )
         case "apple.mail.send":
             return try await executeMailSkill(
                 input: input,
                 request: request,
+                skillID: "apple.mail.send",
                 deliveryMode: .autoSendIfResolved
             )
         case "apple.music.play":
-            return try await executeMusicSkill(command: "播放", request: request)
+            return try await executeMusicSkill(
+                command: "播放",
+                request: request,
+                skillID: "apple.music.play"
+            )
         case "apple.music.pause":
-            return try await executeMusicSkill(command: "暂停", request: request)
+            return try await executeMusicSkill(
+                command: "暂停",
+                request: request,
+                skillID: "apple.music.pause"
+            )
         case "apple.music.resume":
-            return try await executeMusicSkill(command: "继续播放", request: request)
+            return try await executeMusicSkill(
+                command: "继续播放",
+                request: request,
+                skillID: "apple.music.resume"
+            )
         case "apple.music.next_track":
-            return try await executeMusicSkill(command: "下一首", request: request)
+            return try await executeMusicSkill(
+                command: "下一首",
+                request: request,
+                skillID: "apple.music.next_track"
+            )
         case "apple.music.previous_track":
-            return try await executeMusicSkill(command: "上一首", request: request)
+            return try await executeMusicSkill(
+                command: "上一首",
+                request: request,
+                skillID: "apple.music.previous_track"
+            )
         case "apple.music.play_query":
             let query = stringValue(input["query"]) ?? request.command
-            return try await executeMusicSkill(command: "播放 \(query)", request: request)
+            return try await executeMusicSkill(
+                command: "播放 \(query)",
+                request: request,
+                skillID: "apple.music.play_query"
+            )
         default:
             throw MagicianError(
                 code: .intentParseFailed,
@@ -1274,7 +1309,8 @@ private final class MagicianSkillRuntimeV3 {
     private func executeByToolExecutor(
         intent: MagicianIntent,
         command: String,
-        selectionText: String?
+        selectionText: String?,
+        resolvedSkillID: String? = nil
     ) async throws -> MagicianSkillInvokeResultV3 {
         let selection = selectionText.map {
             FocusedSelectionSnapshot(
@@ -1292,14 +1328,15 @@ private final class MagicianSkillRuntimeV3 {
         )
         return MagicianSkillInvokeResultV3(
             execution: result,
-            skillID: intent.intent == .feishuCLI ? intent.params.cliOperation ?? "feishu" : intent.intent.rawValue,
+            skillID: resolvedSkillID ?? (intent.intent == .feishuCLI ? intent.params.cliOperation ?? "feishu" : intent.intent.rawValue),
             evidence: result.observation?.evidenceSummary ?? result.userMessage
         )
     }
 
     private func executeMusicSkill(
         command: String,
-        request: MagicianAgentRequest
+        request: MagicianAgentRequest,
+        skillID: String
     ) async throws -> MagicianSkillInvokeResultV3 {
         try await executeByToolExecutor(
             intent: MagicianIntent(
@@ -1309,7 +1346,8 @@ private final class MagicianSkillRuntimeV3 {
                 params: .empty
             ),
             command: command,
-            selectionText: request.selectionSnapshot?.selectedText
+            selectionText: request.selectionSnapshot?.selectedText,
+            resolvedSkillID: skillID
         )
     }
 
@@ -1326,6 +1364,7 @@ private final class MagicianSkillRuntimeV3 {
     private func executeMailSkill(
         input: [String: Any],
         request: MagicianAgentRequest,
+        skillID: String,
         deliveryMode: MagicianMailDeliveryMode
     ) async throws -> MagicianSkillInvokeResultV3 {
         var params = MagicianIntentParams.empty
@@ -1344,7 +1383,8 @@ private final class MagicianSkillRuntimeV3 {
                 params: params
             ),
             command: command,
-            selectionText: request.selectionSnapshot?.selectedText
+            selectionText: request.selectionSnapshot?.selectedText,
+            resolvedSkillID: skillID
         )
     }
 
@@ -2008,7 +2048,8 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 let fallbackCandidates = await skillRouter.search(
                     query: currentStep.objective,
                     catalog: context.catalog,
-                    preferredCount: 3
+                    preferredCount: 3,
+                    allowModelSearch: false
                 )
                     .map(\.skillID)
                 for skillID in fallbackCandidates where !candidateSkillIDs.contains(skillID) {
@@ -2042,20 +2083,60 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 context: context
             )
 
-            let invokeOutcome = try await executeKernelTool(
-                .skillInvoke,
-                input: [
-                    "skill_id": selectedSkillID,
-                    "input": enrichedStepInput(currentStep.input, context: context, objective: currentStep.objective)
-                ],
-                context: context
-            )
-
-            let verifyOutcome = try await executeKernelTool(
-                .verifyResult,
-                input: ["target": currentStep.objective],
-                context: context
-            )
+            var invokeOutcome: MagicianKernelToolOutcomeV3?
+            var verifyOutcome: MagicianKernelToolOutcomeV3?
+            var stepError: Error?
+            let maxAttempts = 3
+            for attempt in 1...maxAttempts {
+                do {
+                    let stepInput = enrichedStepInput(
+                        currentStep.input,
+                        context: context,
+                        objective: currentStep.objective
+                    )
+                    invokeOutcome = try await executeKernelTool(
+                        .skillInvoke,
+                        input: [
+                            "skill_id": selectedSkillID,
+                            "input": stepInput
+                        ],
+                        context: context
+                    )
+                    verifyOutcome = try await executeKernelTool(
+                        .verifyResult,
+                        input: ["target": currentStep.objective],
+                        context: context
+                    )
+                    stepError = nil
+                    break
+                } catch {
+                    stepError = error
+                    if attempt < maxAttempts {
+                        onEvent?(
+                            MagicianAgentRuntimeEvent(
+                                name: .stateChanged,
+                                state: .retryingStep,
+                                message: "第\(stepCursor + 1)步重试中（\(attempt)/\(maxAttempts - 1)）。",
+                                progressHint: SessionHUDProgressHint.workflowStep(index: stepCursor + 1, totalSteps: totalStepsHint),
+                                stepIndex: stepCursor + 1,
+                                totalSteps: totalStepsHint
+                            )
+                        )
+                        continue
+                    }
+                }
+            }
+            if let stepError {
+                throw stepError
+            }
+            guard let invokeOutcome, let verifyOutcome else {
+                throw MagicianError(
+                    code: .toolExecutionFailed,
+                    userMessage: "步骤执行失败，请重试。",
+                    debugMessage: "step outcome missing",
+                    recoverAction: "retry_command"
+                )
+            }
 
             onEvent?(
                 MagicianAgentRuntimeEvent(
@@ -2153,7 +2234,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             systemPrompt: system,
             userPrompt: user,
             temperature: 0,
-            maxOutputTokens: 500
+            maxOutputTokens: 220
         )
         guard
             let object = parseJSONObject(raw),
@@ -2206,7 +2287,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             systemPrompt: system,
             userPrompt: user,
             temperature: 0.1,
-            maxOutputTokens: 1_500
+            maxOutputTokens: 820
         )
         guard let object = parseJSONObject(raw) else {
             throw MagicianError(
@@ -2262,7 +2343,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         currentStep: MagicianIntentPlanStepV3,
         currentIndex: Int
     ) async throws -> MagicianPostStepDecisionV3 {
-        let transcript = context.transcript.suffix(8).joined(separator: "\n")
+        let transcript = context.transcript.suffix(3).joined(separator: "\n")
         let system = """
         你是 Agent 意图模型，负责基于步骤证据判断是否继续执行。
         只输出 JSON：
@@ -2293,7 +2374,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             systemPrompt: system,
             userPrompt: user,
             temperature: 0,
-            maxOutputTokens: 700
+            maxOutputTokens: 200
         )
         guard let object = parseJSONObject(raw) else {
             throw MagicianError(
@@ -2484,7 +2565,8 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             let candidates = await self.skillRouter.search(
                 query: query,
                 catalog: context.catalog,
-                preferredCount: count
+                preferredCount: count,
+                allowModelSearch: false
             )
             let lines = candidates.map { "\($0.skillID) | score=\(String(format: "%.2f", $0.score))" }
             return MagicianKernelToolOutcomeV3(
@@ -2526,15 +2608,21 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             }
             let explicitSkillID = stringValue(input["skill_id"])
             let stepObjective = stringValue((input["input"] as? [String: Any])?["objective"]) ?? context.request.command
-            let routedSkillID = await self.skillRouter.search(
-                query: stepObjective,
-                catalog: context.catalog,
-                preferredCount: 1
-            )
-                .first?
-                .skillID
             let coreSkillID = context.catalog.manifest(for: "core.reason.respond") != nil ? "core.reason.respond" : nil
-            let skillID = explicitSkillID ?? routedSkillID ?? coreSkillID ?? ""
+            let skillID: String
+            if let explicitSkillID, !explicitSkillID.isEmpty {
+                skillID = explicitSkillID
+            } else {
+                let routedSkillID = await self.skillRouter.search(
+                    query: stepObjective,
+                    catalog: context.catalog,
+                    preferredCount: 1,
+                    allowModelSearch: false
+                )
+                    .first?
+                    .skillID
+                skillID = routedSkillID ?? coreSkillID ?? ""
+            }
             guard !skillID.isEmpty else {
                 throw MagicianError(
                     code: .intentParseFailed,
@@ -2546,15 +2634,20 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
 
             let skillInput = (input["input"] as? [String: Any]) ?? [:]
             var finalError: Error?
-            let fallbackCandidates = await self.skillRouter.search(
-                query: stepObjective,
-                catalog: context.catalog,
-                preferredCount: 4
-            )
-                .map(\.skillID)
-                .filter { $0 != skillID }
-
-            let trialIDs = [skillID] + fallbackCandidates.prefix(2)
+            let trialIDs: [String]
+            if explicitSkillID != nil {
+                trialIDs = [skillID]
+            } else {
+                let fallbackCandidates = await self.skillRouter.search(
+                    query: stepObjective,
+                    catalog: context.catalog,
+                    preferredCount: 3,
+                    allowModelSearch: false
+                )
+                    .map(\.skillID)
+                    .filter { $0 != skillID }
+                trialIDs = [skillID] + fallbackCandidates.prefix(2)
+            }
             for candidate in trialIDs {
                 do {
                     let invoked = try await self.skillRuntime.invoke(
@@ -2590,7 +2683,15 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             ))
         }
 
-        toolRegistry.register(.verifyResult) { input, context in
+        toolRegistry.register(.verifyResult) { [weak self] input, context in
+            guard let self else {
+                throw MagicianError(
+                    code: .toolExecutionFailed,
+                    userMessage: "内部状态异常，请重试。",
+                    debugMessage: "runtime released",
+                    recoverAction: "retry_command"
+                )
+            }
             guard let latest = context.lastSkillResult else {
                 throw MagicianError(
                     code: .toolExecutionFailed,
@@ -2599,23 +2700,80 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                     recoverAction: "retry_command"
                 )
             }
+            let latestObservation = latest.execution.observation ?? MagicianAgentObservation(
+                verificationStatus: .unverified,
+                targetSummary: latest.skillID,
+                evidenceSummary: latest.evidence
+            )
+            let strictVerificationRequired = self.requiresStrictVerification(for: latest)
+            if strictVerificationRequired, latestObservation.verificationStatus != .verified {
+                throw MagicianError(
+                    code: .toolExecutionFailed,
+                    userMessage: "执行结果缺少硬证据，校验失败。",
+                    debugMessage: "strict verify failed for \(latest.skillID), status=\(latestObservation.verificationStatus.rawValue), evidence=\(latest.evidence)",
+                    recoverAction: "retry_command"
+                )
+            }
+            if self.requiresMusicTrackEvidence(for: latest), !self.hasMusicTrackEvidence(for: latest) {
+                throw MagicianError(
+                    code: .toolExecutionFailed,
+                    userMessage: "音乐播放未拿到曲目证据，校验失败。",
+                    debugMessage: "music track evidence missing for \(latest.skillID), output=\(latest.execution.outputText ?? "nil"), evidence=\(latest.evidence)",
+                    recoverAction: "retry_command"
+                )
+            }
             let target = stringValue(input["target"]) ?? latest.skillID
             let payload = """
-            {"target":"\(target)","operation":"\(latest.skillID)","evidence":"\(latest.evidence)","status":"verified"}
+            {"target":"\(target)","operation":"\(latest.skillID)","evidence":"\(latest.evidence)","status":"\(latestObservation.verificationStatus.rawValue)"}
             """
             return MagicianKernelToolOutcomeV3(
-                message: "结果校验通过",
+                message: latestObservation.verificationStatus == .verified ? "结果校验通过" : "结果执行完成（弱校验）",
                 outputText: payload,
                 evidence: payload,
                 usedSkillID: latest.skillID,
                 featureID: latest.execution.intent,
                 observation: MagicianAgentObservation(
-                    verificationStatus: .verified,
+                    verificationStatus: latestObservation.verificationStatus,
                     targetSummary: target,
                     evidenceSummary: latest.evidence
                 )
             )
         }
+    }
+
+    private func requiresStrictVerification(for result: MagicianSkillInvokeResultV3) -> Bool {
+        if result.skillID == "apple.music.play_query" {
+            return true
+        }
+        if
+            result.skillID == MagicianFeatureID.controlMusic.rawValue,
+            result.execution.userMessage.hasPrefix("已开始播放：")
+        {
+            return true
+        }
+        if let operation = FeishuCanonicalOperation(rawValue: result.skillID) {
+            return FeishuOperationCatalog
+                .descriptor(for: operation)
+                .requiresStructuredVerification
+        }
+        return false
+    }
+
+    private func requiresMusicTrackEvidence(for result: MagicianSkillInvokeResultV3) -> Bool {
+        if result.skillID == "apple.music.play_query" {
+            return true
+        }
+        return result.skillID == MagicianFeatureID.controlMusic.rawValue
+            && result.execution.userMessage.hasPrefix("已开始播放：")
+    }
+
+    private func hasMusicTrackEvidence(for result: MagicianSkillInvokeResultV3) -> Bool {
+        let outputs = [
+            result.execution.outputText ?? "",
+            result.evidence,
+            result.execution.observation?.evidenceSummary ?? ""
+        ]
+        return outputs.contains { $0.lowercased().contains("track=") }
     }
 }
 

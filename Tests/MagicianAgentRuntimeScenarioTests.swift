@@ -155,6 +155,43 @@ final class MagicianAgentRuntimeScenarioTests: XCTestCase {
         )
     }
 
+    func testMusicPlayQueryFailsWhenTrackEvidenceMissing() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanUp() }
+
+        let runtime = MagicianAgentRuntimeV3(
+            providerSettingsStore: fixture.providerSettingsStore,
+            rewriteProviderRegistry: RewriteProviderRegistry(providers: []),
+            textOutputCoordinator: fixture.textOutputCoordinator,
+            skillRuleStore: fixture.skillRuleStore,
+            toolExecutor: MusicFallbackToolExecutor(),
+            llmProvider: ScenarioTextGenerationProvider()
+        )
+
+        let request = MagicianAgentRequest(
+            traceID: "scenario-music-evidence-missing",
+            command: "播放稻香",
+            selectionSnapshot: nil,
+            focusContext: FocusedAppContext(
+                appName: "TextEdit",
+                bundleID: "com.apple.TextEdit",
+                focusedRole: "AXTextArea",
+                hasEditableTarget: true,
+                strategyHint: "test"
+            ),
+            enabledFeatures: Set(MagicianFeatureID.allCases)
+        )
+
+        do {
+            _ = try await runtime.run(request: request, onEvent: nil)
+            XCTFail("expected missing music track evidence to fail verification")
+        } catch let error as MagicianError {
+            XCTAssertEqual(error.code, .toolExecutionFailed)
+            XCTAssertTrue(error.userMessage.contains("曲目证据"))
+            XCTAssertTrue((error.debugMessage ?? "").contains("apple.music.play_query"))
+        }
+    }
+
     private func makeFixture() throws -> ScenarioFixture {
         let suiteName = "MagicianAgentRuntimeScenarioTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -454,16 +491,17 @@ private final class ScenarioToolExecutor: MagicianToolExecuting {
                 song = "目标歌曲"
             }
             let message = "已执行播放：\(song)"
+            let trackEvidence = "track=\(song)|artist=周杰伦"
             return MagicianExecutionResult(
                 intent: .controlMusic,
                 userMessage: message,
-                outputText: message,
+                outputText: trackEvidence,
                 historyDisplayText: message,
                 fallbackUsed: false,
                 observation: MagicianAgentObservation(
                     verificationStatus: .verified,
                     targetSummary: song,
-                    evidenceSummary: "music.play_query"
+                    evidenceSummary: trackEvidence
                 )
             )
         case .composeEmailDraft:
@@ -532,5 +570,38 @@ private final class ScenarioToolExecutor: MagicianToolExecuting {
                 observation: MagicianAgentObservation(verificationStatus: .verified)
             )
         }
+    }
+}
+
+@MainActor
+private final class MusicFallbackToolExecutor: MagicianToolExecuting {
+    func execute(
+        intent: MagicianIntent,
+        context: MagicianExecutionContext
+    ) async throws -> MagicianExecutionResult {
+        _ = context
+        if intent.intent == .controlMusic {
+            return MagicianExecutionResult(
+                intent: .controlMusic,
+                userMessage: "已开始播放：稻香",
+                outputText: "state=play_fallback",
+                historyDisplayText: "已开始播放：稻香",
+                fallbackUsed: true,
+                observation: MagicianAgentObservation(
+                    verificationStatus: .verified,
+                    targetSummary: "稻香",
+                    evidenceSummary: "state=play_fallback"
+                )
+            )
+        }
+
+        return MagicianExecutionResult(
+            intent: intent.intent,
+            userMessage: "OK",
+            outputText: "OK",
+            historyDisplayText: "OK",
+            fallbackUsed: false,
+            observation: MagicianAgentObservation(verificationStatus: .verified)
+        )
     }
 }

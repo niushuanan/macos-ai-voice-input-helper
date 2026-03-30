@@ -197,6 +197,37 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             || (!hasPreferredTarget && request.focusContext.hasEditableTarget)
 
         guard shouldAttemptEditorWrite else {
+            if shouldAttemptBestEffortPasteWithoutEditableTarget(
+                request: request,
+                resolvedFocusContext: resolvedFocusContext
+            ) {
+                do {
+                    let fallbackStartedAt = Date()
+                    let targetProcessIdentifier = resolvedTargetProcessIdentifier(
+                        preferredTarget: request.preferredTarget,
+                        resolvedFocusContext: resolvedFocusContext,
+                        fallbackFocusContext: request.focusContext
+                    )
+                    try await performPasteFallback(
+                        text: request.text,
+                        targetProcessIdentifier: targetProcessIdentifier
+                    )
+                    let result = TextOutputResult(
+                        appName: resolvedFocusContext.appName,
+                        bundleID: resolvedFocusContext.bundleID,
+                        path: .pasteFallbackCommandV,
+                        usedFallback: true,
+                        didInsertIntoEditor: true,
+                        operation: request.operation
+                    )
+                    let fallbackMs = elapsedMilliseconds(since: fallbackStartedAt)
+                    let totalMs = elapsedMilliseconds(since: writeStartedAt)
+                    logger.log("[write] no-editable-target fallback-success path=\(result.path.rawValue) fallback_ms=\(fallbackMs) total_ms=\(totalMs)")
+                    return result
+                } catch {
+                    logger.log("[write] no-editable-target fallback-failed reason=\(error.localizedDescription)")
+                }
+            }
             if !didPersistToClipboard {
                 throw TextOutputError.pasteboardUnavailable
             }
@@ -260,6 +291,29 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
                 throw TextOutputError.fallbackFailed(primaryReason: primaryReason)
             }
         }
+    }
+
+    private func shouldAttemptBestEffortPasteWithoutEditableTarget(
+        request: TextOutputRequest,
+        resolvedFocusContext: FocusedAppContext
+    ) -> Bool {
+        if let preferredTarget = request.preferredTarget {
+            return resolveTargetApplication(preferredTarget) != nil
+        }
+
+        guard
+            request.focusContext.hasEditableTarget,
+            isExternalApplicationBundle(request.focusContext.bundleID)
+        else {
+            return false
+        }
+
+        if currentFrontmostApplication()?.bundleIdentifier == request.focusContext.bundleID {
+            return true
+        }
+
+        return !runningApplications(withBundleIdentifier: request.focusContext.bundleID).isEmpty
+            || resolvedFocusContext.bundleID == request.focusContext.bundleID
     }
 
     func performAccessibilityPath(

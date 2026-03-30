@@ -361,6 +361,48 @@ final class TextOutputCoordinatorTests: XCTestCase {
         XCTAssertEqual(result.appName, "TextEdit")
     }
 
+    func testStaleEditableFocusUsesBestEffortPasteFallback() async throws {
+        let requestFocusContext = FocusedAppContext(
+            appName: "Finder",
+            bundleID: "com.apple.finder",
+            focusedRole: "AXTextArea",
+            hasEditableTarget: true,
+            strategyHint: "test"
+        )
+        let coordinator = TestAccessibilityTextOutputCoordinator(
+            contextDetector: StaticContextDetector(
+                focusContext: FocusedAppContext(
+                    appName: "PulseType",
+                    bundleID: Bundle.main.bundleIdentifier ?? "tests.bundle",
+                    focusedRole: nil,
+                    hasEditableTarget: false,
+                    strategyHint: "test"
+                )
+            )
+        )
+        coordinator.availableTargetBundleIDs = ["com.apple.finder"]
+        coordinator.forcedExternalTargetReady = false
+        coordinator.forcedPreferredTargetReachable = false
+
+        let result = try await coordinator.write(
+            request: TextOutputRequest(
+                text: "hello",
+                operation: .insertText,
+                focusContext: requestFocusContext,
+                preferredTarget: WritebackTargetSnapshot(
+                    appName: "Finder",
+                    bundleID: "com.apple.finder",
+                    processIdentifier: nil
+                )
+            )
+        )
+
+        XCTAssertEqual(result.path, .pasteFallbackCommandV)
+        XCTAssertTrue(result.didInsertIntoEditor)
+        XCTAssertEqual(coordinator.accessibilityWriteCount, 0)
+        XCTAssertEqual(coordinator.pasteFallbackCount, 1)
+    }
+
     func testExternalTargetUsesPasteFallbackWhenAccessibilityPathFails() async throws {
         let focusContext = FocusedAppContext(
             appName: "Codex",
@@ -479,6 +521,7 @@ private final class TestAccessibilityTextOutputCoordinator: AccessibilityTextOut
     var availableTargetBundleIDs: [String] = []
     var accessibilityError: TextOutputError?
     var forcedExternalTargetReady: Bool?
+    var forcedPreferredTargetReachable: Bool?
     var clipboardWriteSucceeded: Bool = true
 
     init(contextDetector: ContextDetector) {
@@ -518,6 +561,13 @@ private final class TestAccessibilityTextOutputCoordinator: AccessibilityTextOut
             return []
         }
         return super.runningApplications(withBundleIdentifier: bundleID)
+    }
+
+    override func activatePreferredTargetIfNeeded(_ preferredTarget: WritebackTargetSnapshot?) async -> Bool {
+        if let forcedPreferredTargetReachable {
+            return forcedPreferredTargetReachable
+        }
+        return await super.activatePreferredTargetIfNeeded(preferredTarget)
     }
 
     override func shouldAttemptExternalTargetWrite(
