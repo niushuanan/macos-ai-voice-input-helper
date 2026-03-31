@@ -858,8 +858,8 @@ private struct MagicianMusicAdapter {
             if output == "track_not_found" {
                 throw MagicianError(
                     code: .musicControlFailed,
-                    userMessage: "未在 Music 曲库里找到这首歌，请确认歌名后再试。",
-                    debugMessage: "no matched track for query: \(query)",
+                    userMessage: "未在 Music 搜索里找到这首歌，请确认歌名后再试。",
+                    debugMessage: "no matched track for query: \(query) (via Music search UI)",
                     recoverAction: "open_music_app"
                 )
             }
@@ -1130,7 +1130,8 @@ private struct MagicianMusicAdapter {
         guard !a.isEmpty, !b.isEmpty else {
             return false
         }
-        return a == b
+        // Allow minor suffix differences (live/remastered/etc.) while keeping the rule simple.
+        return a == b || a.contains(b)
     }
 
     private func runPlayAction(query: String) async -> MagicianProcessResult {
@@ -1140,28 +1141,45 @@ private struct MagicianMusicAdapter {
                 lines: [
                     "on run argv",
                     "set keywordText to item 1 of argv",
+                    // Use Music's global search UI (not library-only search).
                     "tell application \"Music\"",
                 ] + magicianEnsureApplicationReadyAppleScriptLines() + [
-                    // The simplest flow: search -> play the first result -> read current track name.
-                    "set targetTrack to missing value",
-                    "repeat with idx from 1 to 20",
-                    "try",
-                    "set results to (search library playlist 1 for keywordText)",
-                    "if (count of results) > 0 then",
-                    "set targetTrack to item 1 of results",
-                    "exit repeat",
-                    "end if",
-                    "on error",
-                    "if idx is 20 then return \"lookup_error\"",
-                    "end try",
+                    "activate",
+                    "end tell",
                     "delay 0.12",
-                    "end repeat",
-                    "if targetTrack is missing value then",
-                    "return \"track_not_found\"",
-                    "end if",
-                    "play targetTrack",
+                    "tell application \"System Events\"",
+                    "tell process \"Music\"",
+                    "set frontmost to true",
+                    "try",
+                    // Focus search field.
+                    "keystroke \"f\" using {command down}",
+                    "delay 0.08",
+                    // Clear existing query.
+                    "keystroke \"a\" using {command down}",
+                    "delay 0.02",
+                    "key code 51",
+                    "delay 0.05",
+                    // Type query and confirm.
+                    "keystroke keywordText",
+                    "delay 0.08",
+                    "key code 36",
+                    // Give UI time to populate results.
+                    "delay 0.55",
+                    // Try to select/play the first result.
+                    "key code 125",
+                    "delay 0.06",
+                    "key code 36",
+                    "on error",
+                    // UI scripting requires Accessibility + Automation permissions.
+                    "return \"ui_script_failed\"",
+                    "end try",
+                    "end tell",
+                    "end tell",
+                    // Read evidence from Music scripting.
+                    "tell application \"Music\"",
+                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
                     "set nowTrack to missing value",
-                    "repeat with retryIdx from 1 to 20",
+                    "repeat with retryIdx from 1 to 24",
                     "try",
                     "set nowTrack to current track",
                     "exit repeat",
@@ -1181,6 +1199,13 @@ private struct MagicianMusicAdapter {
 
             if result.exitCode != 0 {
                 return result
+            }
+            if result.stdout == "ui_script_failed" {
+                return MagicianProcessResult(
+                    exitCode: 1,
+                    stdout: "",
+                    stderr: "ui_script_failed"
+                )
             }
             if result.stdout.hasPrefix("track=") {
                 return result
