@@ -789,6 +789,11 @@ private struct MagicianNoteAdapter {
 }
 
 private struct MagicianMusicAdapter {
+    private struct ParsedIntent {
+        let action: Action
+        let extractedQuery: String?
+    }
+
     private enum Action {
         case play(query: String?)
         case pause
@@ -891,34 +896,15 @@ private struct MagicianMusicAdapter {
         intent: MagicianIntent,
         context: MagicianExecutionContext
     ) -> Action {
-        let command = context.command.lowercased()
-        if containsAny(command, keywords: ["暂停", "pause", "停止播放", "停一下"]) {
-            return .pause
-        }
-        if containsAny(command, keywords: ["继续", "恢复", "resume", "继续播放"]) {
-            return .resume
-        }
-        if containsAny(command, keywords: ["下一首", "下一曲", "next", "切歌"]) {
-            return .next
-        }
-        if containsAny(command, keywords: ["上一首", "上一曲", "previous", "prev"]) {
-            return .previous
-        }
-
-        let query = normalizedPlayableQuery(
-            magicianSemanticPayload(
-            from: context.command,
-            actionTokens: ["播放", "放一首", "来一首", "听", "music", "歌曲", "音乐", "暂停", "继续", "下一首", "上一首"],
-            extraCommandTokens: ["请", "帮我"]
-            )
-        )
-        if let query, !query.isEmpty {
+        let parsed = parseMusicIntent(from: context.command)
+        if case let .play(query) = parsed.action, let query, !query.isEmpty {
             return .play(query: query)
         }
+
         if let source = normalizedPlayableQuery(intent.sourceText) {
             return .play(query: source)
         }
-        return .play(query: nil)
+        return parsed.action
     }
 
     private func runAction(_ action: Action) async -> MagicianProcessResult {
@@ -1011,6 +997,37 @@ private struct MagicianMusicAdapter {
 
     private func containsAny(_ value: String, keywords: [String]) -> Bool {
         keywords.contains { value.contains($0) }
+    }
+
+    private func parseMusicIntent(from command: String) -> ParsedIntent {
+        let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowered = normalized.lowercased()
+
+        if containsAny(lowered, keywords: ["暂停", "pause", "停止播放", "停一下"]) {
+            return ParsedIntent(action: .pause, extractedQuery: nil)
+        }
+        if containsAny(lowered, keywords: ["继续", "恢复", "resume", "继续播放"]) {
+            return ParsedIntent(action: .resume, extractedQuery: nil)
+        }
+        if containsAny(lowered, keywords: ["下一首", "下一曲", "next", "切歌", "下一首歌"]) {
+            return ParsedIntent(action: .next, extractedQuery: nil)
+        }
+        if containsAny(lowered, keywords: ["上一首", "上一曲", "previous", "prev", "上一首歌"]) {
+            return ParsedIntent(action: .previous, extractedQuery: nil)
+        }
+
+        let semanticQuery = normalizedPlayableQuery(
+            magicianSemanticPayload(
+                from: command,
+                actionTokens: ["播放", "放一首", "来一首", "听", "music", "歌曲", "音乐", "暂停", "继续", "下一首", "上一首"],
+                extraCommandTokens: ["请", "帮我"]
+            )
+        )
+        if let semanticQuery, !semanticQuery.isEmpty {
+            return ParsedIntent(action: .play(query: semanticQuery), extractedQuery: semanticQuery)
+        }
+        let fallbackQuery = normalizedPlayableQuery(command)
+        return ParsedIntent(action: .play(query: fallbackQuery), extractedQuery: fallbackQuery)
     }
 
     private func normalizedPlayableQuery(_ raw: String?) -> String? {
@@ -1178,13 +1195,18 @@ func magicianMusicSearchQueries(from rawQuery: String) -> [String] {
         candidates.append(cleaned)
     }
 
-    appendCandidate(value)
+    if let quoted = firstQuotedSongTitle(in: value) {
+        appendCandidate(quoted)
+    }
 
     if let range = value.range(of: "的"), !range.isEmpty {
         let left = String(value[..<range.lowerBound])
         let right = String(value[range.upperBound...])
         appendCandidate(right)
         appendCandidate(left)
+        appendCandidate(value)
+    } else {
+        appendCandidate(value)
     }
 
     value
@@ -1192,6 +1214,30 @@ func magicianMusicSearchQueries(from rawQuery: String) -> [String] {
         .forEach { appendCandidate($0) }
 
     return candidates
+}
+
+private func firstQuotedSongTitle(in value: String) -> String? {
+    let patterns = [
+        "《([^》]+)》",
+        "“([^”]+)”",
+        "\"([^\"]+)\""
+    ]
+    for pattern in patterns {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            continue
+        }
+        let nsValue = value as NSString
+        let range = NSRange(location: 0, length: nsValue.length)
+        guard let match = regex.firstMatch(in: value, options: [], range: range), match.numberOfRanges > 1 else {
+            continue
+        }
+        let title = nsValue.substring(with: match.range(at: 1))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty {
+            return title
+        }
+    }
+    return nil
 }
 
 func magicianMusicEvidenceMatchesQuery(output: String, query: String) -> Bool {
@@ -1202,6 +1248,13 @@ func magicianMusicEvidenceMatchesQuery(output: String, query: String) -> Bool {
     let normalizedPayload = normalizedMusicMatchText(payload)
     guard !normalizedPayload.isEmpty else {
         return false
+    }
+
+    if let primarySongQuery = magicianPrimarySongQuery(from: query) {
+        let normalizedPrimarySong = normalizedMusicMatchText(primarySongQuery)
+        if !normalizedPrimarySong.isEmpty, !normalizedPayload.contains(normalizedPrimarySong) {
+            return false
+        }
     }
 
     let candidateQueries = magicianMusicSearchQueries(from: query)
@@ -1226,6 +1279,24 @@ func magicianMusicEvidenceMatchesQuery(output: String, query: String) -> Bool {
         }
     }
     return false
+}
+
+private func magicianPrimarySongQuery(from query: String) -> String? {
+    if let quoted = firstQuotedSongTitle(in: query) {
+        return quoted
+    }
+    let punctuationToTrim = CharacterSet(charactersIn: " \t\r\n。．.!！?？,，、:：;；'\"‘’“”（）()《》〈〉[]【】")
+    let compact = query
+        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        .trimmingCharacters(in: punctuationToTrim)
+    guard !compact.isEmpty else {
+        return nil
+    }
+    if let range = compact.range(of: "的"), !range.isEmpty {
+        let right = String(compact[range.upperBound...]).trimmingCharacters(in: punctuationToTrim)
+        return right.isEmpty ? nil : right
+    }
+    return compact
 }
 
 private func normalizedMusicCandidateTerms(from value: String) -> [String] {

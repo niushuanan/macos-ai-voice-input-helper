@@ -2405,6 +2405,15 @@ final class InteractionCoordinator {
             return target
         }
 
+        // 当前就在 PulseType 页面时，如果焦点本身可编辑，也允许直接写回当前窗口。
+        if focusContext.hasEditableTarget {
+            let target = DictationWritebackTarget(
+                focusContext: focusContext,
+                processIdentifier: currentApp?.processIdentifier
+            )
+            return target
+        }
+
         if
             !focusContext.bundleID.isEmpty,
             focusContext.bundleID != Bundle.main.bundleIdentifier

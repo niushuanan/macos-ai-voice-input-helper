@@ -388,7 +388,7 @@ private final class DummyTextOutputCoordinator: TextOutputCoordinator {
     }
 
     func write(request: TextOutputRequest) async throws -> TextOutputResult {
-        TextOutputResult(
+        return TextOutputResult(
             appName: request.focusContext.appName,
             bundleID: request.focusContext.bundleID,
             path: .accessibilitySelectionReplacement,

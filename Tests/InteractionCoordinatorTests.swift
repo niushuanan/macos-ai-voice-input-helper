@@ -44,6 +44,24 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertTrue(fixture.audioCapture.isRecording)
     }
 
+    func testDictationOnPulseTypeEditableFocusStillBuildsWritebackTarget() async throws {
+        let textOutput = FakeTextOutputCoordinator()
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutput,
+            contextDetector: PulseTypeEditableContextDetector(),
+            transcriptionText: "测试一下"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .idle)
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.focusContext.bundleID, "com.niushuanan.PulseType")
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.preferredTarget?.bundleID, "com.niushuanan.PulseType")
+    }
+
     func testBrainstormIsBlockedDuringNormalDictationAndShowsSingleToastWithinCooldown() throws {
         let toastPresenter = ToastPresenter()
         let fixture = try makeFixture(toastPresenter: toastPresenter)
@@ -1291,6 +1309,7 @@ final class InteractionCoordinatorTests: XCTestCase {
 
     private func makeFixture(
         textOutputCoordinator: FakeTextOutputCoordinator? = nil,
+        contextDetector: ContextDetector = FixedContextDetector(),
         dictationPostProcessor: DictationPostProcessor = FakeDictationPostProcessor(result: .success("hello world")),
         brainstormContextComposer: BrainstormContextComposer = FakeBrainstormContextComposer(
             result: .success(
@@ -1387,7 +1406,7 @@ final class InteractionCoordinatorTests: XCTestCase {
             providerRegistry: SpeechProviderRegistry(providers: [transcriptionProvider]),
             rewriteProviderRegistry: RewriteProviderRegistry(providers: rewriteProviders),
             textOutputCoordinator: resolvedTextOutputCoordinator,
-            contextDetector: FixedContextDetector(),
+            contextDetector: contextDetector,
             appScenePolicyStore: appScenePolicyStore,
             localHistoryStore: localHistoryStore,
             brainstormDurationProfileStore: brainstormDurationProfileStore,
@@ -1602,6 +1621,26 @@ private struct FixedContextDetector: ContextDetector {
             appName: "TextEdit",
             bundleID: "com.apple.TextEdit",
             focusedRole: "AXTextArea",
+            hasEditableTarget: true,
+            strategyHint: "test"
+        )
+    }
+}
+
+private struct PulseTypeEditableContextDetector: ContextDetector {
+    func currentSnapshot() -> ContextSnapshot {
+        ContextSnapshot(
+            focusContext: focusedAppContext(),
+            rewriteAvailable: true,
+            styleHint: "test"
+        )
+    }
+
+    func focusedAppContext() -> FocusedAppContext {
+        FocusedAppContext(
+            appName: "PulseType",
+            bundleID: "com.niushuanan.PulseType",
+            focusedRole: "AXTextField",
             hasEditableTarget: true,
             strategyHint: "test"
         )

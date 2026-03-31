@@ -1246,9 +1246,14 @@ private struct MagicianAgentTextBackend {
 
         let selfBundleID = Bundle.main.bundleIdentifier
         guard
-            !request.focusContext.bundleID.isEmpty,
-            request.focusContext.bundleID != selfBundleID
+            !request.focusContext.bundleID.isEmpty
         else {
+            return nil
+        }
+        if
+            request.focusContext.bundleID == selfBundleID,
+            !request.focusContext.hasEditableTarget
+        {
             return nil
         }
         let pid = NSRunningApplication
@@ -3919,7 +3924,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             )
         }
 
-        try enforceHardEvidence(for: invoked)
+        try enforceHardEvidence(for: invoked, requestCommand: context.request.command)
         context.lastSkillResult = invoked
         context.stepRecords.append(
             MagicianAgentStepRecord(
@@ -4282,7 +4287,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                         context: context
                     )
                     context.loadedCards.removeAll(keepingCapacity: true)
-                    try self.enforceHardEvidence(for: invoked)
+                    try self.enforceHardEvidence(for: invoked, requestCommand: context.request.command)
                     context.lastSkillResult = invoked
                     return MagicianKernelToolOutcomeV3(
                         message: invoked.execution.userMessage,
@@ -4331,7 +4336,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 targetSummary: latest.skillID,
                 evidenceSummary: latest.evidence
             )
-            try self.enforceHardEvidence(for: latest)
+            try self.enforceHardEvidence(for: latest, requestCommand: context.request.command)
             let target = stringValue(input["target"]) ?? latest.skillID
             let payload = """
             {"target":"\(target)","operation":"\(latest.skillID)","evidence":"\(latest.evidence)","status":"\(latestObservation.verificationStatus.rawValue)"}
@@ -4383,7 +4388,10 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             && result.execution.userMessage.hasPrefix("已开始播放：")
     }
 
-    private func enforceHardEvidence(for result: MagicianSkillInvokeResultV3) throws {
+    private func enforceHardEvidence(
+        for result: MagicianSkillInvokeResultV3,
+        requestCommand: String
+    ) throws {
         let observation = result.execution.observation ?? MagicianAgentObservation(
             verificationStatus: .unverified,
             targetSummary: result.skillID,
@@ -4402,6 +4410,17 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
                 code: .toolExecutionFailed,
                 userMessage: "音乐播放未拿到曲目证据，校验失败。",
                 debugMessage: "music track evidence missing for \(result.skillID), output=\(result.execution.outputText ?? "nil"), evidence=\(result.evidence)",
+                recoverAction: "retry_command"
+            )
+        }
+        if
+            requiresMusicTrackEvidence(for: result),
+            !musicTrackMatchesRequestedIntent(for: result, requestCommand: requestCommand)
+        {
+            throw MagicianError(
+                code: .toolExecutionFailed,
+                userMessage: "当前播放曲目与请求不一致，已判定失败。",
+                debugMessage: "music mismatch for \(result.skillID), command=\(requestCommand), output=\(result.execution.outputText ?? "nil"), evidence=\(result.evidence)",
                 recoverAction: "retry_command"
             )
         }
@@ -4430,6 +4449,53 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             result.execution.observation?.evidenceSummary ?? ""
         ]
         return outputs.contains { $0.lowercased().contains("track=") }
+    }
+
+    private func musicTrackMatchesRequestedIntent(
+        for result: MagicianSkillInvokeResultV3,
+        requestCommand: String
+    ) -> Bool {
+        let expectedQuery = expectedMusicQuery(for: result, requestCommand: requestCommand)
+        guard let expectedQuery, !expectedQuery.isEmpty else {
+            return true
+        }
+
+        let outputs = [
+            result.execution.outputText ?? "",
+            result.evidence,
+            result.execution.observation?.evidenceSummary ?? ""
+        ]
+        let trackOutputs = outputs.filter { $0.lowercased().contains("track=") }
+        guard !trackOutputs.isEmpty else {
+            return false
+        }
+        return trackOutputs.contains { magicianMusicEvidenceMatchesQuery(output: $0, query: expectedQuery) }
+    }
+
+    private func expectedMusicQuery(
+        for result: MagicianSkillInvokeResultV3,
+        requestCommand: String
+    ) -> String? {
+        let message = result.execution.userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        if message.hasPrefix("已开始播放：") {
+            let start = message.index(message.startIndex, offsetBy: "已开始播放：".count)
+            let query = String(message[start...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !query.isEmpty {
+                return query
+            }
+        }
+
+        let semantic = (magicianSemanticPayload(
+            from: requestCommand,
+            actionTokens: ["播放", "放一首", "来一首", "听", "music", "歌曲", "音乐", "暂停", "继续", "下一首", "上一首"],
+            extraCommandTokens: ["请", "帮我"]
+        ) ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !semantic.isEmpty {
+            return semantic
+        }
+
+        return requestCommand.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func requiresNoteEvidence(for result: MagicianSkillInvokeResultV3) -> Bool {
