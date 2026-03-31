@@ -145,6 +145,7 @@ final class GlobalHotkeyService {
     private var currentSessionPhase: SessionPhase = .idle
     private var cancelShortcutRuntimeEnabled = true
     private var globalFlagsMonitor: Any?
+    private var localFlagsMonitor: Any?
     private var globalKeyDownMonitor: Any?
     private var localKeyDownMonitor: Any?
     private var workspaceNotificationObservers: [NSObjectProtocol] = []
@@ -234,6 +235,13 @@ final class GlobalHotkeyService {
             }
         }
 
+        localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            Task { @MainActor in
+                self?.handleFlagsChanged(event)
+            }
+            return event
+        }
+
         globalKeyDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             Task { @MainActor in
                 self?.handleKeyDown(event)
@@ -252,6 +260,10 @@ final class GlobalHotkeyService {
         if let globalFlagsMonitor {
             NSEvent.removeMonitor(globalFlagsMonitor)
             self.globalFlagsMonitor = nil
+        }
+        if let localFlagsMonitor {
+            NSEvent.removeMonitor(localFlagsMonitor)
+            self.localFlagsMonitor = nil
         }
         if let globalKeyDownMonitor {
             NSEvent.removeMonitor(globalKeyDownMonitor)

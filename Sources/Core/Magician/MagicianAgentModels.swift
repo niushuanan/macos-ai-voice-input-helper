@@ -4481,7 +4481,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             let start = message.index(message.startIndex, offsetBy: "已开始播放：".count)
             let query = String(message[start...]).trimmingCharacters(in: .whitespacesAndNewlines)
             if !query.isEmpty {
-                return query
+                return canonicalMusicQuery(query)
             }
         }
 
@@ -4492,10 +4492,18 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         ) ?? "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
         if !semantic.isEmpty {
-            return semantic
+            return canonicalMusicQuery(semantic)
         }
 
-        return requestCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        return canonicalMusicQuery(requestCommand.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private func canonicalMusicQuery(_ raw: String) -> String {
+        let candidates = magicianMusicSearchQueries(from: raw)
+        if let first = candidates.first, !first.isEmpty {
+            return first
+        }
+        return raw
     }
 
     private func requiresNoteEvidence(for result: MagicianSkillInvokeResultV3) -> Bool {

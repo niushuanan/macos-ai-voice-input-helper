@@ -855,6 +855,14 @@ private struct MagicianMusicAdapter {
 
         let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         if case let .play(query?) = action {
+            if output == "track_not_found" {
+                throw MagicianError(
+                    code: .musicControlFailed,
+                    userMessage: "未在 Music 曲库里找到这首歌，请确认歌名后再试。",
+                    debugMessage: "no matched track for query: \(query)",
+                    recoverAction: "open_music_app"
+                )
+            }
             guard output.hasPrefix("track=") else {
                 throw MagicianError(
                     code: .musicControlFailed,
@@ -1124,9 +1132,15 @@ private struct MagicianMusicAdapter {
             if result.stdout == "lookup_error" {
                 continue
             }
+            if result.stdout == "track_not_found" {
+                continue
+            }
         }
-
-        return await runFallbackPlayAction()
+        return MagicianProcessResult(
+            exitCode: 0,
+            stdout: "track_not_found",
+            stderr: ""
+        )
     }
 
     private func runFallbackPlayAction() async -> MagicianProcessResult {
@@ -1173,10 +1187,16 @@ func magicianMusicSearchQueries(from rawQuery: String) -> [String] {
 
     let leadingTokens = ["播放", "来一首", "放一首", "听", "music", "play"]
     var lowered = value.lowercased()
-    for token in leadingTokens {
-        if lowered.hasPrefix(token) {
-            value = String(value.dropFirst(token.count)).trimmingCharacters(in: punctuationToTrim)
-            lowered = value.lowercased()
+    var didTrimLeadingToken = true
+    while didTrimLeadingToken, !value.isEmpty {
+        didTrimLeadingToken = false
+        for token in leadingTokens {
+            if lowered.hasPrefix(token) {
+                value = String(value.dropFirst(token.count)).trimmingCharacters(in: punctuationToTrim)
+                lowered = value.lowercased()
+                didTrimLeadingToken = true
+                break
+            }
         }
     }
 
