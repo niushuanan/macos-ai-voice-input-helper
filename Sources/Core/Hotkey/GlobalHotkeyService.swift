@@ -317,7 +317,36 @@ final class GlobalHotkeyService {
         let trackedFlags: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
         let activeFlags = event.modifierFlags.intersection(trackedFlags)
         let isTargetKeyEvent = event.keyCode == modifier.keyCode
+        let isFamilyPressed = activeFlags.contains(modifier.modifierFlags)
         let hasOtherModifierFamilies = !activeFlags.subtracting(modifier.modifierFlags).isEmpty
+
+        // In some frontmost-app contexts (notably within PulseType itself), flagsChanged
+        // can report an unexpected keyCode (or 0). Fall back to family-level transitions
+        // so Right Shift still works as the wake modifier.
+        if !isTargetKeyEvent {
+            let isLikelyKeyCodeLoss = event.keyCode == 0
+            if isLikelyKeyCodeLoss {
+                let now = Date()
+                if isFamilyPressed, !wakePressStateMachine.isPressed {
+                    wakePressStateMachine.beginPress(
+                        at: now,
+                        hasForeignInput: hasOtherModifierFamilies
+                    )
+                    scheduleWakeHoldCheck()
+                    return
+                }
+                if !isFamilyPressed, wakePressStateMachine.isPressed {
+                    clearWakeHoldCheck()
+                    let action = wakePressStateMachine.endPress(
+                        at: now,
+                        hasOtherModifierFamilies: hasOtherModifierFamilies,
+                        sameFamilyStillPressed: isFamilyPressed
+                    )
+                    handleWakePressAction(action)
+                    return
+                }
+            }
+        }
 
         if isTargetKeyEvent {
             let now = Date()
@@ -482,7 +511,32 @@ final class GlobalHotkeyService {
         let trackedFlags: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
         let activeFlags = event.modifierFlags.intersection(trackedFlags)
         let isTargetKeyEvent = event.keyCode == modifier.keyCode
+        let isFamilyPressed = activeFlags.contains(modifier.modifierFlags)
         let hasOtherModifierFamilies = !activeFlags.subtracting(modifier.modifierFlags).isEmpty
+
+        // Same keyCode-loss fallback as wake modifier: keep tap triggers working
+        // when flagsChanged can't reliably attribute left/right modifier key codes.
+        if !isTargetKeyEvent, event.keyCode == 0 {
+            if isFamilyPressed, !state.isPressed {
+                state.isPressed = true
+                state.pressedAt = Date()
+                state.sawForeignInput = hasOtherModifierFamilies
+                return
+            }
+            if !isFamilyPressed, state.isPressed {
+                let duration = Date().timeIntervalSince(state.pressedAt ?? Date())
+                let sameFamilyStillPressed = isFamilyPressed
+                let shouldTrigger = duration <= 0.7
+                    && !state.sawForeignInput
+                    && !hasOtherModifierFamilies
+                    && !sameFamilyStillPressed
+                state.reset()
+                if shouldTrigger {
+                    trigger()
+                }
+                return
+            }
+        }
 
         if isTargetKeyEvent {
             if !state.isPressed {

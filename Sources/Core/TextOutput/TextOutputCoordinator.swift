@@ -451,21 +451,18 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             throw TextOutputError.pasteboardUnavailable
         }
 
-        let frontmostBundleID = currentFrontmostApplication()?.bundleIdentifier
-        let shouldUseGlobalShortcut = prefersGlobalShortcutInjection(bundleID: frontmostBundleID)
-
-        if
-            !shouldUseGlobalShortcut,
-            let targetProcessIdentifier,
-            targetProcessIdentifier > 0
-        {
+        // Prefer PID-targeted injection when we know which app should receive Cmd+V.
+        // Global injection is a fallback only; some apps (notably Electron/WebView surfaces)
+        // can miss global events more often than PID-targeted posting.
+        if let targetProcessIdentifier, targetProcessIdentifier > 0 {
             logger.log("[write] paste-fallback target-pid=\(targetProcessIdentifier)")
         } else {
+            let frontmostBundleID = currentFrontmostApplication()?.bundleIdentifier
             logger.log("[write] paste-fallback global bundle=\(frontmostBundleID ?? "unknown")")
         }
 
         try triggerCommandV(
-            targetProcessIdentifier: shouldUseGlobalShortcut ? nil : targetProcessIdentifier
+            targetProcessIdentifier: targetProcessIdentifier
         )
         try await Task.sleep(nanoseconds: 80_000_000)
     }
@@ -574,10 +571,9 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             restorePasteboard(snapshot, to: pasteboard)
         }
 
-        let frontmostBundleID = currentFrontmostApplication()?.bundleIdentifier
-        let copyTargetProcessIdentifier: pid_t? = prefersGlobalShortcutInjection(bundleID: frontmostBundleID)
-            ? nil
-            : currentFrontmostApplication()?.processIdentifier
+        // Prefer PID-targeted injection when possible. We still fall back to global posting
+        // internally if PID posting fails.
+        let copyTargetProcessIdentifier: pid_t? = currentFrontmostApplication()?.processIdentifier
 
         do {
             try triggerCommandC(targetProcessIdentifier: copyTargetProcessIdentifier)
