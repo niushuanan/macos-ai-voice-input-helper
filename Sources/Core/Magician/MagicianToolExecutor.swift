@@ -871,6 +871,17 @@ private struct MagicianMusicAdapter {
                     recoverAction: "retry_command"
                 )
             }
+            // Simple verification: compare the played track name with the requested song title.
+            if let played = parseMusicEvidence(output),
+               let expectedTitle = expectedSongTitle(from: query),
+               !playedTrackTitleMatchesExpected(played.track, expectedTitle: expectedTitle) {
+                throw MagicianError(
+                    code: .musicControlFailed,
+                    userMessage: "当前播放曲目与请求不一致，已判定失败。",
+                    debugMessage: "query=\(query) output=\(output)",
+                    recoverAction: "retry_command"
+                )
+            }
         }
         let evidence = output.isEmpty ? "Music action done" : output
         let verificationStatus: MagicianAgentVerificationStatus
@@ -1078,14 +1089,13 @@ private struct MagicianMusicAdapter {
     private struct PlayedTrackEvidence {
         let track: String
         let artist: String?
-        let persistentID: String?
     }
 
     private func parseMusicEvidence(_ output: String) -> PlayedTrackEvidence? {
         guard output.hasPrefix("track=") else {
             return nil
         }
-        // Example: track=xxx|artist=yyy|pid=ZZZ
+        // Example: track=xxx|artist=yyy
         let payload = output.replacingOccurrences(of: "track=", with: "")
         let parts = payload.split(separator: "|").map { String($0) }
         let track = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -1093,15 +1103,34 @@ private struct MagicianMusicAdapter {
             return nil
         }
         var artist: String?
-        var pid: String?
         for part in parts.dropFirst() {
             if part.hasPrefix("artist=") {
                 artist = String(part.dropFirst("artist=".count))
-            } else if part.hasPrefix("pid=") {
-                pid = String(part.dropFirst("pid=".count))
             }
         }
-        return PlayedTrackEvidence(track: track, artist: artist, persistentID: pid)
+        return PlayedTrackEvidence(track: track, artist: artist)
+    }
+
+    private func expectedSongTitle(from query: String) -> String? {
+        if let primary = magicianPrimarySongQuery(from: query) {
+            let trimmed = primary.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let quoted = firstQuotedSongTitle(in: query) {
+            let trimmed = quoted.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        let candidates = magicianMusicSearchQueries(from: query)
+        return candidates.first
+    }
+
+    private func playedTrackTitleMatchesExpected(_ played: String, expectedTitle: String) -> Bool {
+        let a = normalizedMusicMatchText(played)
+        let b = normalizedMusicMatchText(expectedTitle)
+        guard !a.isEmpty, !b.isEmpty else {
+            return false
+        }
+        return a == b
     }
 
     private func runPlayAction(query: String) async -> MagicianProcessResult {
@@ -1113,17 +1142,13 @@ private struct MagicianMusicAdapter {
                     "set keywordText to item 1 of argv",
                     "tell application \"Music\"",
                 ] + magicianEnsureApplicationReadyAppleScriptLines() + [
-                    // Use Music's built-in search so ordering is closer to what users see.
+                    // The simplest flow: search -> play the first result -> read current track name.
                     "set targetTrack to missing value",
-                    "set expectedPID to \"\"",
                     "repeat with idx from 1 to 20",
                     "try",
                     "set results to (search library playlist 1 for keywordText)",
                     "if (count of results) > 0 then",
                     "set targetTrack to item 1 of results",
-                    "try",
-                    "set expectedPID to (persistent ID of targetTrack) as string",
-                    "end try",
                     "exit repeat",
                     "end if",
                     "on error",
@@ -1135,29 +1160,17 @@ private struct MagicianMusicAdapter {
                     "return \"track_not_found\"",
                     "end if",
                     "play targetTrack",
-                    // Verify by comparing the persistent ID of the final current track.
                     "set nowTrack to missing value",
-                    "repeat with retryIdx from 1 to 30",
+                    "repeat with retryIdx from 1 to 20",
                     "try",
                     "set nowTrack to current track",
-                    "if nowTrack is not missing value then",
-                    "try",
-                    "if expectedPID is not \"\" and ((persistent ID of nowTrack) as string) is expectedPID then exit repeat",
-                    "on error",
                     "exit repeat",
-                    "end try",
-                    "end if",
                     "on error",
                     "delay 0.12",
                     "end try",
-                    "delay 0.06",
                     "end repeat",
                     "if nowTrack is not missing value then",
-                    "set pidText to \"\"",
-                    "try",
-                    "set pidText to \"|pid=\" & ((persistent ID of nowTrack) as string)",
-                    "end try",
-                    "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & pidText",
+                    "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack)",
                     "end if",
                     "return \"state=play\"",
                     "end tell",
