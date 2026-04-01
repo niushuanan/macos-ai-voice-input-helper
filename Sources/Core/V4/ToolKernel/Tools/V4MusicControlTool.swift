@@ -125,15 +125,30 @@ struct V4MusicControlTool: V4Tool {
         if containsAny(lowered, keywords: ["上一首", "上一曲", "previous", "prev"]) {
             return Command(action: .previous, query: nil)
         }
+        if containsAny(lowered, keywords: ["打开音乐", "打开 music", "启动音乐", "启动 music", "播放音乐", "打开播放器", "启动播放器"]) {
+            return Command(action: .play, query: nil)
+        }
         if let explicitQuery, !explicitQuery.isEmpty {
             return Command(action: .play, query: explicitQuery)
         }
         let inferredQuery = magicianMusicSearchQueries(from: command).first
+        if let inferredQuery, isGenericPlaybackQuery(inferredQuery) {
+            return Command(action: .play, query: nil)
+        }
         return Command(action: .play, query: inferredQuery)
     }
 
     private func containsAny(_ value: String, keywords: [String]) -> Bool {
         keywords.contains { value.contains($0) }
+    }
+
+    private func isGenericPlaybackQuery(_ value: String) -> Bool {
+        let normalized = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return [
+            "音乐", "music", "歌曲", "歌", "打开音乐", "播放音乐", "打开播放器", "启动音乐", "启动播放器"
+        ].contains(normalized)
     }
 
     private static func liveExecuteHandler() -> ExecuteHandler {

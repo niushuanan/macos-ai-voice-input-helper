@@ -265,12 +265,17 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
                 "title": .string(defaultNoteTitle(from: preferredText))
             ]
         case "apple.mail.compose":
-            return [
-                "command": .string(step.inputSummary.nilIfEmpty ?? request.inputText),
-                "subject": .string(defaultMailSubject(from: preferredText)),
-                "body": .string(preferredText),
-                "deliveryMode": .string(MagicianMailDeliveryMode.draftOnly.rawValue)
+            let command = step.inputSummary.nilIfEmpty ?? request.inputText
+            var arguments: V4ToolArguments = [
+                "command": .string(command),
+                "deliveryMode": .string(inferredMailDeliveryMode(from: command).rawValue)
             ]
+            if let mailBody = latestOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                ?? selectionText?.nilIfEmpty
+            {
+                arguments["body"] = .string(mailBody)
+            }
+            return arguments
         case "apple.music.control":
             return [
                 "command": .string(step.inputSummary.nilIfEmpty ?? request.inputText)
@@ -311,6 +316,21 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
             return "邮件草稿"
         }
         return String(trimmed.prefix(48))
+    }
+
+    private func inferredMailDeliveryMode(from command: String) -> MagicianMailDeliveryMode {
+        let lowered = command.lowercased()
+        if containsAny(lowered, tokens: ["草稿", "draft"]) {
+            return .draftOnly
+        }
+        if containsAny(lowered, tokens: ["发送", "发出", "send", "发给", "发邮件", "邮件发给"]) {
+            return .autoSendIfResolved
+        }
+        return .draftOnly
+    }
+
+    private func containsAny(_ value: String, tokens: [String]) -> Bool {
+        tokens.contains { value.contains($0) }
     }
 
     private func decodeArguments(from inputJSON: String) throws -> V4ToolArguments {

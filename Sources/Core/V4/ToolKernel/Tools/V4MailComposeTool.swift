@@ -108,9 +108,24 @@ struct V4MailComposeTool: V4Tool {
         guard let rawValue = arguments.string(for: "deliveryMode")?.trimmingCharacters(in: .whitespacesAndNewlines),
               let mode = MagicianMailDeliveryMode(rawValue: rawValue)
         else {
-            return .draftOnly
+            return inferredDeliveryMode(from: arguments.string(for: "command") ?? "")
         }
         return mode
+    }
+
+    private func inferredDeliveryMode(from command: String) -> MagicianMailDeliveryMode {
+        let lowered = command.lowercased()
+        if containsAny(lowered, tokens: ["草稿", "draft"]) {
+            return .draftOnly
+        }
+        if containsAny(lowered, tokens: ["发送", "发出", "send", "发给", "发邮件", "邮件发给"]) {
+            return .autoSendIfResolved
+        }
+        return .draftOnly
+    }
+
+    private func containsAny(_ value: String, tokens: [String]) -> Bool {
+        tokens.contains { value.contains($0) }
     }
 
     private func payload(

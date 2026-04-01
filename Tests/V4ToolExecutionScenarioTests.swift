@@ -153,6 +153,25 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         XCTAssertEqual(resumeState, "resume")
     }
 
+    func testMusicOpenAppIntentDoesNotBecomeSearchQuery() async {
+        let tool = V4MusicControlTool { command in
+            XCTAssertEqual(command.action, .play)
+            XCTAssertNil(command.query)
+            return V4MusicControlTool.ResultPayload(
+                action: .play,
+                state: "play",
+                track: nil,
+                artist: nil,
+                evidence: "state=play"
+            )
+        }
+
+        _ = try? await tool.execute(
+            arguments: ["command": .string("打开音乐")],
+            context: makeContext(toolName: "apple.music.control")
+        )
+    }
+
     func testCalendarCreateWithTimeParseFallback() async {
         let recorder = CalendarRequestRecorder()
         let tool = V4CalendarCreateTool { request in
@@ -188,6 +207,65 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         let request = await recorder.latest
         XCTAssertNotNil(request?.startAt)
         XCTAssertEqual(request?.title, "明天下午3点和产品评审")
+    }
+
+    func testMailCommandInfersAutoSendWithoutUsingRawCommandAsBody() async {
+        let tool = V4MailComposeTool { request in
+            XCTAssertEqual(request.deliveryMode, .autoSendIfResolved)
+            XCTAssertNil(request.body)
+            XCTAssertEqual(request.command, "给产品组发邮件说今晚评审延后半小时")
+            return V4MailComposeTool.Response(
+                userMessage: "邮件已发出",
+                outputText: nil,
+                historyDisplayText: "邮件已发出",
+                evidenceSummary: "mail_status=sent; message_id=msg_123; recipients=team@pulsetype.ai; subject=评审延后通知",
+                verificationStatus: .verified,
+                targetSummary: "team@pulsetype.ai",
+                autoRepairApplied: false,
+                rawFields: [
+                    "mail_status": "sent",
+                    "message_id": "msg_123",
+                    "recipients": "team@pulsetype.ai",
+                    "subject": "评审延后通知"
+                ]
+            )
+        }
+        let registry = V4ToolRegistry(
+            tools: [tool],
+            manifests: [
+                V4ToolManifest.derived(
+                    from: tool.spec,
+                    domain: "mail",
+                    retryPolicy: .transientSingleRetry,
+                    evidenceRequirement: .structured(requiredKeys: ["mailStatus"])
+                )
+            ]
+        )
+        let kernel = makeKernel(registry: registry)
+
+        let result = await kernel.execute(
+            step: V4StepRecord(
+                traceID: V4TraceID(rawValue: "trace"),
+                lane: .selectionRewrite,
+                goalSummary: "goal",
+                title: "整理邮件",
+                status: .queued,
+                toolName: "apple.mail.compose",
+                inputSummary: "给产品组发邮件说今晚评审延后半小时"
+            ),
+            request: V4RunRequest(
+                sessionID: V4SessionID(rawValue: "session"),
+                runID: V4RunID(rawValue: "run"),
+                traceID: V4TraceID(rawValue: "trace"),
+                lane: .selectionRewrite,
+                goalSummary: "goal",
+                inputText: "给产品组发邮件说今晚评审延后半小时"
+            ),
+            accumulatedStepRecords: [],
+            turnIndex: 1
+        )
+
+        XCTAssertEqual(result.status, .success)
     }
 
     func testRetryPolicyOnRetryableError() async {

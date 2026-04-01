@@ -251,6 +251,34 @@ final class InteractionCoordinatorV4RoutingTests: XCTestCase {
         XCTAssertEqual(history.magicianStepSummaries, ["text.transform:润色后的文本"])
     }
 
+    func testV4TextTransformWritesBackToEditor() async throws {
+        let outcome = makeCompletedOutcome(
+            goalSummary: "帮我润色一下",
+            finalStatusMessage: "V4 已完成润色",
+            finalOutputText: "润色后的文本",
+            evidenceSummary: "rewrite-evidence"
+        )
+        let fixture = try makeFixture(
+            v4Runtime: FakeV4MagicianRuntime(outcome: outcome),
+            transcriptionText: "帮我润色一下"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
+            focusContext: FixedRoutingContextDetector().focusedAppContext(),
+            selectedText: "原文"
+        )
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "润色后的文本")
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.operation, .replaceSelectedText)
+        XCTAssertEqual(fixture.sessionStore.statusMessage, "文字处理已完成，结果已写入当前输入位置。")
+    }
+
     private func makeFixture(
         defaults: UserDefaults? = nil,
         v4Runtime: (any V4MagicianRuntimeRunning)? = nil,
@@ -354,6 +382,7 @@ final class InteractionCoordinatorV4RoutingTests: XCTestCase {
             coordinator: coordinator,
             sessionStore: sessionStore,
             localHistoryStore: localHistoryStore,
+            textOutputCoordinator: textOutputCoordinator,
             magicianFeatureToggleStore: magicianFeatureToggleStore,
             cleanUp: {
                 try? FileManager.default.removeItem(at: historyDirectory)
@@ -480,6 +509,7 @@ private struct V4RoutingFixture {
     let coordinator: InteractionCoordinator
     let sessionStore: SessionStore
     let localHistoryStore: LocalHistoryStore
+    let textOutputCoordinator: FakeRoutingTextOutputCoordinator
     let magicianFeatureToggleStore: MagicianFeatureToggleStore
     let cleanUp: () -> Void
 }
@@ -605,6 +635,7 @@ private final class FakeRoutingTranscriptionProvider: SpeechTranscriptionProvide
 private final class FakeRoutingTextOutputCoordinator: TextOutputCoordinator {
     let insertionStrategy: String = "test"
     var selectionSnapshot: FocusedSelectionSnapshot?
+    private(set) var lastRequest: TextOutputRequest?
 
     func currentSelectionSnapshot() -> FocusedSelectionSnapshot? {
         selectionSnapshot
@@ -615,7 +646,8 @@ private final class FakeRoutingTextOutputCoordinator: TextOutputCoordinator {
     }
 
     func write(request: TextOutputRequest) async throws -> TextOutputResult {
-        TextOutputResult(
+        lastRequest = request
+        return TextOutputResult(
             appName: request.focusContext.appName,
             bundleID: request.focusContext.bundleID,
             path: .accessibilitySelectionReplacement,

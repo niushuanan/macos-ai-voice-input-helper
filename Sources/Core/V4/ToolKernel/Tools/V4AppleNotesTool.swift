@@ -21,7 +21,6 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
         supportsStreamingResults: false
     )
 
-    private let shortcutSupport = MagicianCreateNoteShortcutSupport()
     private let errorCatalog = V4ToolErrorCatalog()
 
     func validateSemanticInput(
@@ -53,55 +52,30 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
         let title = arguments.string(for: "title") ?? ""
         let body = arguments.string(for: "body") ?? ""
 
-        var usedFallback = false
-        var creation: MagicianProcessResult?
-
-        if MagicianNotesCapability.notesAppAvailable {
-            creation = await createNoteViaAppleScript(title: title, body: body)
-            if let creation, creation.exitCode == 0,
-               let evidence = await resolveNoteEvidence(title: title, body: body, primaryEvidence: creation.stdout)
-            {
-                return makeOutput(
-                    title: title,
-                    body: body,
-                    evidence: evidence,
-                    usedFallback: false
-                )
-            }
+        guard MagicianNotesCapability.notesAppAvailable else {
+            throw errorCatalog.bridgeNotReady(
+                toolID: spec.toolID,
+                userMessage: "Notes 不可用，请先打开备忘录后再试。",
+                debugMessage: "notes app unavailable",
+                recoverAction: "open_notes_app"
+            )
         }
 
-        if shortcutSupport.cliAvailable, shortcutSupport.hasShortcut(named: shortcutSupport.shortcutName) {
-            let shortcutResult = await runShortcut(
-                name: shortcutSupport.shortcutName,
-                inputText: body
+        let creation = await createNoteViaAppleScript(title: title, body: body)
+        if creation.exitCode == 0,
+           let evidence = await resolveNoteEvidence(title: title, body: body, primaryEvidence: creation.stdout)
+        {
+            return makeOutput(
+                title: title,
+                body: body,
+                evidence: evidence
             )
-            if shortcutResult.exitCode == 0,
-               let evidence = await resolveNoteEvidence(title: title, body: body, primaryEvidence: shortcutResult.stdout)
-            {
-                return makeOutput(
-                    title: title,
-                    body: body,
-                    evidence: evidence,
-                    usedFallback: true
-                )
-            }
-            if runShortcutViaURLScheme(name: shortcutSupport.shortcutName, inputText: body),
-               let evidence = await resolveNoteEvidence(title: title, body: body, primaryEvidence: nil)
-            {
-                return makeOutput(
-                    title: title,
-                    body: body,
-                    evidence: evidence,
-                    usedFallback: true
-                )
-            }
-            usedFallback = true
         }
 
         throw errorCatalog.executionFailure(
             toolID: spec.toolID,
             userMessage: "写入 Notes 失败，请检查自动化权限后再试。",
-            debugMessage: creation?.detail ?? "note create failed; fallback=\(usedFallback)",
+            debugMessage: creation.detail,
             recoverAction: "open_notes_automation_permission",
             isRetryable: false
         )
@@ -110,8 +84,7 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
     private func makeOutput(
         title: String,
         body: String,
-        evidence: String,
-        usedFallback: Bool
+        evidence: String
     ) -> V4ToolExecutionOutput {
         let summary = "已写入 Notes。"
         return V4ToolExecutionOutput(
@@ -122,8 +95,7 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
                     "title": .string(title),
                     "bodyPreview": .string(String(body.prefix(80))),
                     "noteID": .string(evidence),
-                    "summary": .string(summary),
-                    "usedFallback": .boolean(usedFallback)
+                    "summary": .string(summary)
                 ]
             )
         )
@@ -156,32 +128,6 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
             ],
             arguments: [title, body]
         )
-    }
-
-    private func runShortcut(
-        name: String,
-        inputText: String
-    ) async -> MagicianProcessResult {
-        let executable = MagicianCreateNoteShortcutSupport.shortcutsExecutablePath
-        let result = await runProcess(
-            executablePath: executable,
-            arguments: ["run", name, "--input-text", inputText]
-        )
-        return result
-    }
-
-    private func runShortcutViaURLScheme(
-        name: String,
-        inputText: String
-    ) -> Bool {
-        guard
-            let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-            let encodedInput = inputText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-            let url = URL(string: "shortcuts://run-shortcut?name=\(encodedName)&input=text&text=\(encodedInput)")
-        else {
-            return false
-        }
-        return NSWorkspace.shared.open(url)
     }
 
     private func resolveNoteEvidence(

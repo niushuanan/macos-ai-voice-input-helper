@@ -2031,6 +2031,13 @@ final class InteractionCoordinator {
                 audioDurationSeconds: audioDurationSeconds
             )
             v4SessionStoreBridge.applyRunOutcome(outcome, to: sessionStore)
+            if let writebackMessage = await v4TextWritebackMessage(
+                for: outcome,
+                selectionSnapshot: selectionSnapshot,
+                fallbackFocusContext: fallbackFocusContext
+            ) {
+                sessionStore.completeAction(statusMessage: writebackMessage)
+            }
             currentTraceID = nil
         } catch {
             if abortIfSessionCancelled() {
@@ -2072,6 +2079,76 @@ final class InteractionCoordinator {
             v4SessionStoreBridge.applyRunOutcome(outcome, to: sessionStore)
             currentTraceID = nil
         }
+    }
+
+    private func v4TextWritebackMessage(
+        for outcome: V4RunOutcome,
+        selectionSnapshot: FocusedSelectionSnapshot?,
+        fallbackFocusContext: FocusedAppContext
+    ) async -> String? {
+        guard outcome.status == .completed else {
+            return nil
+        }
+        guard outcome.stepRecords.last?.toolName == "text.transform" else {
+            return nil
+        }
+        guard let finalText = outcome.finalOutputText?.trimmingCharacters(in: .whitespacesAndNewlines), !finalText.isEmpty else {
+            return nil
+        }
+
+        let hasSelection = !(selectionSnapshot?.selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        let request = TextOutputRequest(
+            text: finalText,
+            operation: hasSelection ? .replaceSelectedText : .insertText,
+            focusContext: fallbackFocusContext,
+            preferredTarget: resolvedMagicianWritebackTarget(
+                selectionSnapshot: selectionSnapshot,
+                fallbackFocusContext: fallbackFocusContext
+            )
+        )
+
+        do {
+            let result = try await textOutputCoordinator.write(request: request)
+            if result.didInsertIntoEditor {
+                return "文字处理已完成，结果已写入当前输入位置。"
+            }
+            return "文字处理已完成，结果已放到剪贴板。"
+        } catch {
+            if persistTextToClipboard(finalText) {
+                return "文字处理已完成，结果已放到剪贴板。"
+            }
+            return nil
+        }
+    }
+
+    private func resolvedMagicianWritebackTarget(
+        selectionSnapshot: FocusedSelectionSnapshot?,
+        fallbackFocusContext: FocusedAppContext
+    ) -> WritebackTargetSnapshot? {
+        let selfBundleID = Bundle.main.bundleIdentifier
+        let targetContext = selectionSnapshot?.focusContext ?? fallbackFocusContext
+
+        guard !targetContext.bundleID.isEmpty else {
+            return nil
+        }
+        if targetContext.bundleID == selfBundleID, !targetContext.hasEditableTarget {
+            return nil
+        }
+
+        let targetApplication = NSRunningApplication
+            .runningApplications(withBundleIdentifier: targetContext.bundleID)
+            .first
+        return WritebackTargetSnapshot(
+            appName: targetContext.appName,
+            bundleID: targetContext.bundleID,
+            processIdentifier: targetApplication?.processIdentifier
+        )
+    }
+
+    private func persistTextToClipboard(_ text: String) -> Bool {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        return pasteboard.setString(text, forType: .string)
     }
 
     private func executeSelectionRewriteWithLegacyRuntime(
