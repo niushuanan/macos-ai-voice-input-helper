@@ -46,6 +46,7 @@ enum V4RunStatus: String, Codable, Equatable, Sendable {
     case queued
     case planning
     case executing
+    case retrying
     case waitingForTool = "waiting_for_tool"
     case waitingForUser = "waiting_for_user"
     case verifying
@@ -62,6 +63,7 @@ enum V4FailureCode: String, Codable, Equatable, Sendable {
     case toolValidationFailed = "tool_validation_failed"
     case toolExecutionFailed = "tool_execution_failed"
     case verificationFailed = "verification_failed"
+    case maxTurnsExceeded = "max_turns_exceeded"
     case bridgeNotReady = "bridge_not_ready"
     case historyWriteFailed = "history_write_failed"
     case userCancelled = "user_cancelled"

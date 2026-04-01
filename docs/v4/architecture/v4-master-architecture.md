@@ -115,6 +115,31 @@
 - 魔术先生：麦克风 -> ASR -> lane 分类 -> `V4AgentLoop` 多轮计划 -> `V4ToolKernel` -> 历史 / 时光机 / 状态回推
 - 一口气全念对：麦克风 -> ASR -> lane 分类 -> `V4AgentLoop` 上下文整理链 -> 输出摘要 / 对话稿 / 历史
 
+## 主循环状态机
+
+`V4AgentLoopEngine.run(...)` 当前按固定状态机推进，目标是先把 turn-based loop 跑通，再把 ToolKernel 和 Prompt/Model 细节逐窗接上。
+
+1. `queued`
+   接到 `V4RunRequest`，发 `request_accepted`。
+2. `planning`
+   调 `V4Planner.plan(...)`。若 planner 直接给出 fail / finish decision，则本轮直接结束。
+3. `executing`
+   执行当前 turn 的 step。每个 step 独立维护 retry 计数。
+4. `retrying`
+   step 返回 retryable error 且没超过 `maxRetryPerStep` 时进入；发 `step_retry_scheduled`。
+5. `verifying`
+   每个 step 完成后调 `V4Verifier.verify(...)`，生成 verification result 与 evidence summary。
+6. decision
+   `V4PostStepDecider.decide(...)` 返回四种动作：
+   - `continue`：若当前 turn 已无剩余 step，则进入下一 turn。
+   - `finish`：构造 `V4RunOutcome(status: .completed)`。
+   - `ask_user`：构造 `V4RunOutcome(status: .waitingForUser)`。
+   - `fail`：构造 `V4RunOutcome(status: .failed)`。
+7. `completed / waiting_for_user / failed`
+   发最终事件并返回 outcome。
+
+当前 turn 上限是 `maxTurns`，默认每个 step 最多重试 `2` 次；超限时统一落成 `max_turns_exceeded`。
+
 ## UI 不变但内核替换的边界规则
 
 1. 左侧分区继续固定在 `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/UI/ControlCenterState.swift` 里的 `home / memory / dictionary / skills / model / magician / agentBrainstorm / settings`。

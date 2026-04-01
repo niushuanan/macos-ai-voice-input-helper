@@ -6,9 +6,11 @@ enum V4RuntimeEventName: String, Codable, Equatable, Sendable {
     case planReady = "plan_ready"
     case stepStarted = "step_started"
     case stepFinished = "step_finished"
+    case stepRetryScheduled = "step_retry_scheduled"
     case toolRequested = "tool_requested"
     case toolFinished = "tool_finished"
     case verificationFinished = "verification_finished"
+    case runNeedsUserInput = "run_needs_user_input"
     case runCompleted = "run_completed"
     case runFailed = "run_failed"
 }
@@ -32,6 +34,8 @@ struct V4RunRequest: Codable, Equatable, Sendable {
     let bundleID: String?
     /// 当前选中文本快照，供 rewrite lane 与 tool lane 使用。
     let selectionText: String?
+    /// 当前请求允许的 feature 标识，供 planner 与 adapter 做边界判断。
+    let enabledFeatureIDs: Set<String>
     /// 当前 run 已累计的 step records，首轮默认空数组。
     let stepRecords: [V4StepRecord]
     /// 当前 run 的证据摘要，首轮可为空字符串。
@@ -49,6 +53,7 @@ struct V4RunRequest: Codable, Equatable, Sendable {
         appName: String? = nil,
         bundleID: String? = nil,
         selectionText: String? = nil,
+        enabledFeatureIDs: Set<String> = [],
         stepRecords: [V4StepRecord] = [],
         evidenceSummary: String = "",
         requestedAt: Date = Date()
@@ -62,6 +67,7 @@ struct V4RunRequest: Codable, Equatable, Sendable {
         self.appName = appName
         self.bundleID = bundleID
         self.selectionText = selectionText
+        self.enabledFeatureIDs = enabledFeatureIDs
         self.stepRecords = stepRecords
         self.evidenceSummary = evidenceSummary
         self.requestedAt = requestedAt
@@ -87,6 +93,14 @@ struct V4RuntimeEvent: Codable, Equatable, Sendable {
     let message: String
     /// 当前事件对应的 step 标识，没有 step 时为空。
     let stepID: V4StepID?
+    /// 当前事件所在回合，从 1 开始。
+    let turnIndex: Int?
+    /// 当前 run 的最大回合限制。
+    let maxTurns: Int?
+    /// 当前事件所在 step 序号，从 1 开始。
+    let stepIndex: Int?
+    /// 当前 turn 的总 step 数。
+    let totalSteps: Int?
     /// 当前 run 已累计的 step records 快照。
     let stepRecords: [V4StepRecord]
     /// 当前 run 的证据摘要快照。
@@ -124,6 +138,8 @@ struct V4StepRecord: Codable, Equatable, Sendable, Identifiable {
     let finishedAt: Date?
     /// step 失败码，没有失败时为空。
     let failureCode: V4FailureCode?
+    /// 当前 step 的尝试次数，首次执行为 1。
+    let attemptCount: Int
 
     init(
         id: V4StepID = V4StepID(),
@@ -138,7 +154,8 @@ struct V4StepRecord: Codable, Equatable, Sendable, Identifiable {
         evidenceSummary: String = "",
         startedAt: Date = Date(),
         finishedAt: Date? = nil,
-        failureCode: V4FailureCode? = nil
+        failureCode: V4FailureCode? = nil,
+        attemptCount: Int = 1
     ) {
         self.id = id
         self.traceID = traceID
@@ -153,6 +170,7 @@ struct V4StepRecord: Codable, Equatable, Sendable, Identifiable {
         self.startedAt = startedAt
         self.finishedAt = finishedAt
         self.failureCode = failureCode
+        self.attemptCount = attemptCount
     }
 }
 

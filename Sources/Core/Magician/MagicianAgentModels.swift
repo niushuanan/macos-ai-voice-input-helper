@@ -756,6 +756,7 @@ private final class MagicianAgentCheckpointStore {
 }
 
 @MainActor
+// legacy runtime, no new feature
 final class MagicianNativeRuntime: MagicianAgentRunning {
     private let planBuilder = MagicianNativePlanBuilder()
     private let textBackend: MagicianAgentTextBackend
@@ -2948,6 +2949,7 @@ private struct MagicianFastPlanMatchV3 {
 // MARK: - Agent Kernel Runtime
 
 @MainActor
+// legacy runtime, no new feature
 final class MagicianAgentRuntimeV3: MagicianAgentRunning {
     private let llmClient: MagicianKernelLLMClientV3
     private let skillRouter: MagicianSkillRouterV3

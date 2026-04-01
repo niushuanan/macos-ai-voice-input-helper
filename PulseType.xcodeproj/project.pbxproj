@@ -8,6 +8,18 @@
 
 /* Begin PBXBuildFile section */
 		02080CA78961B65946CBF53F /* MenuBarMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D48BFEC8EABFB9C0E92E685 /* MenuBarMenuView.swift */; };
+		A10000000000000000000011 /* V4Primitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000031 /* V4Primitives.swift */; };
+		A10000000000000000000012 /* V4RuntimeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000032 /* V4RuntimeModels.swift */; };
+		A10000000000000000000013 /* V4AgentContracts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000033 /* V4AgentContracts.swift */; };
+		A10000000000000000000014 /* V4AgentLoopEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000034 /* V4AgentLoopEngine.swift */; };
+		A10000000000000000000015 /* V4PlannerRuleBased.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000035 /* V4PlannerRuleBased.swift */; };
+		A10000000000000000000016 /* V4PostStepDeciderDefault.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000036 /* V4PostStepDeciderDefault.swift */; };
+		A10000000000000000000017 /* V4VerifierDefault.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000037 /* V4VerifierDefault.swift */; };
+		A10000000000000000000018 /* V4ToolContracts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000038 /* V4ToolContracts.swift */; };
+		A10000000000000000000019 /* V4ToHistoryBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000039 /* V4ToHistoryBridge.swift */; };
+		A1000000000000000000001A /* V4ToSessionStoreBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000003A /* V4ToSessionStoreBridge.swift */; };
+		A1000000000000000000001B /* V4MagicianRuntimeAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000003B /* V4MagicianRuntimeAdapter.swift */; };
+		A1000000000000000000001C /* V4AgentLoopEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000003C /* V4AgentLoopEngineTests.swift */; };
 		06123C002DCFE32A3B4F9826 /* AppRuntimePolicy.plist in Resources */ = {isa = PBXBuildFile; fileRef = DF7D63023398B1BA8B707A6E /* AppRuntimePolicy.plist */; };
 		06ED5EEBD9C709D7B20DFF2C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615736F7FBCACF8AF8B17CCF /* SettingsView.swift */; };
 		08AEBC14B14DCFC8330558BA /* OpenAITextGenerationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BFB5724578D68E1E94182AB /* OpenAITextGenerationProvider.swift */; };
@@ -201,6 +213,18 @@
 		8B6569B870E94B4DFC857CAB /* SceneAppDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneAppDiscoveryTests.swift; sourceTree = "<group>"; };
 		8BDF56555B291291E6B40723 /* SettingsViewComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewComponents.swift; sourceTree = "<group>"; };
 		8BFB5724578D68E1E94182AB /* OpenAITextGenerationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAITextGenerationProvider.swift; sourceTree = "<group>"; };
+		A10000000000000000000031 /* V4Primitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4Primitives.swift; sourceTree = "<group>"; };
+		A10000000000000000000032 /* V4RuntimeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4RuntimeModels.swift; sourceTree = "<group>"; };
+		A10000000000000000000033 /* V4AgentContracts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4AgentContracts.swift; sourceTree = "<group>"; };
+		A10000000000000000000034 /* V4AgentLoopEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4AgentLoopEngine.swift; sourceTree = "<group>"; };
+		A10000000000000000000035 /* V4PlannerRuleBased.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4PlannerRuleBased.swift; sourceTree = "<group>"; };
+		A10000000000000000000036 /* V4PostStepDeciderDefault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4PostStepDeciderDefault.swift; sourceTree = "<group>"; };
+		A10000000000000000000037 /* V4VerifierDefault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4VerifierDefault.swift; sourceTree = "<group>"; };
+		A10000000000000000000038 /* V4ToolContracts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToolContracts.swift; sourceTree = "<group>"; };
+		A10000000000000000000039 /* V4ToHistoryBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToHistoryBridge.swift; sourceTree = "<group>"; };
+		A1000000000000000000003A /* V4ToSessionStoreBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToSessionStoreBridge.swift; sourceTree = "<group>"; };
+		A1000000000000000000003B /* V4MagicianRuntimeAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4MagicianRuntimeAdapter.swift; sourceTree = "<group>"; };
+		A1000000000000000000003C /* V4AgentLoopEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4AgentLoopEngineTests.swift; sourceTree = "<group>"; };
 		8E4D00737C3345BDE9F747AC /* TextOutputCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextOutputCoordinator.swift; sourceTree = "<group>"; };
 		93A38F69E5582F6FA37EE498 /* ControlCenterStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlCenterStateTests.swift; sourceTree = "<group>"; };
 		93D66F476FED6BC033F5DA9A /* FeishuCLIProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeishuCLIProviderTests.swift; sourceTree = "<group>"; };
@@ -391,6 +415,56 @@
 			path = UI;
 			sourceTree = "<group>";
 		};
+		A10000000000000000000041 /* V4 */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000042 /* Shared */,
+				A10000000000000000000043 /* AgentLoop */,
+				A10000000000000000000044 /* ToolKernel */,
+				A10000000000000000000045 /* Adapters */,
+			);
+			path = V4;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000042 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000031 /* V4Primitives.swift */,
+				A10000000000000000000032 /* V4RuntimeModels.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000043 /* AgentLoop */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000033 /* V4AgentContracts.swift */,
+				A10000000000000000000034 /* V4AgentLoopEngine.swift */,
+				A10000000000000000000035 /* V4PlannerRuleBased.swift */,
+				A10000000000000000000036 /* V4PostStepDeciderDefault.swift */,
+				A10000000000000000000037 /* V4VerifierDefault.swift */,
+			);
+			path = AgentLoop;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000044 /* ToolKernel */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000038 /* V4ToolContracts.swift */,
+			);
+			path = ToolKernel;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000045 /* Adapters */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000039 /* V4ToHistoryBridge.swift */,
+				A1000000000000000000003A /* V4ToSessionStoreBridge.swift */,
+				A1000000000000000000003B /* V4MagicianRuntimeAdapter.swift */,
+			);
+			path = Adapters;
+			sourceTree = "<group>";
+		};
 		801BCF08C3270472DEDD0897 /* Permissions */ = {
 			isa = PBXGroup;
 			children = (
@@ -444,6 +518,7 @@
 				32806C4B6E2E19B8D408C4C5 /* Speech */,
 				548AD82FCA6BE7AEA44AE94D /* Storage */,
 				C3BF0F9574795D97A307845C /* TextOutput */,
+				A10000000000000000000041 /* V4 */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -527,6 +602,7 @@
 				8B6569B870E94B4DFC857CAB /* SceneAppDiscoveryTests.swift */,
 				71EDE485545C13E98B2E5B72 /* SessionStoreTests.swift */,
 				97763AFE40CEA07E31796308 /* SkillRuleStoreTests.swift */,
+				A1000000000000000000003C /* V4AgentLoopEngineTests.swift */,
 			);
 			path = Tests;
 			sourceTree = "<group>";
@@ -771,6 +847,17 @@
 				506D2F6F8BD28EFAA794A708 /* SpeechTranscriptionErrorPresentation.swift in Sources */,
 				1B54052D55540BDFF9C094A7 /* StatusPulseHUDController.swift in Sources */,
 				FED627529C528E95B85937EC /* TextOutputCoordinator.swift in Sources */,
+				A10000000000000000000011 /* V4Primitives.swift in Sources */,
+				A10000000000000000000012 /* V4RuntimeModels.swift in Sources */,
+				A10000000000000000000013 /* V4AgentContracts.swift in Sources */,
+				A10000000000000000000014 /* V4AgentLoopEngine.swift in Sources */,
+				A10000000000000000000015 /* V4PlannerRuleBased.swift in Sources */,
+				A10000000000000000000016 /* V4PostStepDeciderDefault.swift in Sources */,
+				A10000000000000000000017 /* V4VerifierDefault.swift in Sources */,
+				A10000000000000000000018 /* V4ToolContracts.swift in Sources */,
+				A10000000000000000000019 /* V4ToHistoryBridge.swift in Sources */,
+				A1000000000000000000001A /* V4ToSessionStoreBridge.swift in Sources */,
+				A1000000000000000000001B /* V4MagicianRuntimeAdapter.swift in Sources */,
 				362F2F56991A39E3C967B865 /* WorkflowTelemetry.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -816,6 +903,7 @@
 				5B734652CD78A13F92E86B8F /* SceneAppDiscoveryTests.swift in Sources */,
 				E1DBC788787F324D6B2178FD /* SessionStoreTests.swift in Sources */,
 				85B875C74007F983512A7F73 /* SkillRuleStoreTests.swift in Sources */,
+				A1000000000000000000001C /* V4AgentLoopEngineTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
