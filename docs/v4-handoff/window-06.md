@@ -152,7 +152,7 @@ cd "/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法"
 
 结果：
 
-- 待补
+- `fast suite passed`
 
 ### 自动发布
 
@@ -163,4 +163,7 @@ scripts/auto-ship.sh --message "core: add v4 memory retrieval layer" --files Pul
 
 结果：
 
-- 待补
+- 已完成 commit：`24d9fc3`
+- 已 push 到：`origin/codex/magician-agent-v2`
+- 已覆盖安装：`/Applications/PulseType.app`
+- 脚本默认跳过 test phase；本窗测试已在脚本前单独跑完并通过
