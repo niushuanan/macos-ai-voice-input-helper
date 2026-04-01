@@ -171,4 +171,8 @@ scripts/auto-ship.sh --message "core: add v4 time machine tools" --files PulseTy
 
 结果：
 
-- 待执行
+- 已完成 commit：`ada347c`
+- 分支：`codex/magician-agent-v2`
+- 已 push 到：`origin/codex/magician-agent-v2`
+- 已覆盖安装：`/Applications/PulseType.app`
+- 脚本内置测试阶段默认跳过；本窗测试已在发布前人工执行并通过
