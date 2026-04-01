@@ -72,6 +72,9 @@
 		A10000000000000000000095 /* V4AppleScriptTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A2 /* V4AppleScriptTool.swift */; };
 		A10000000000000000000096 /* V4ToolExecutionScenarioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A3 /* V4ToolExecutionScenarioTests.swift */; };
 		A10000000000000000000097 /* V4ToolManifestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A4 /* V4ToolManifestTests.swift */; };
+		A100000000000000000000A5 /* V4PlannerLLM.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A8 /* V4PlannerLLM.swift */; };
+		A100000000000000000000A6 /* V4PostStepDeciderPlannerDriven.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A9 /* V4PostStepDeciderPlannerDriven.swift */; };
+		A100000000000000000000A7 /* V4PlannerLLMTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000AA /* V4PlannerLLMTests.swift */; };
 		06123C002DCFE32A3B4F9826 /* AppRuntimePolicy.plist in Resources */ = {isa = PBXBuildFile; fileRef = DF7D63023398B1BA8B707A6E /* AppRuntimePolicy.plist */; };
 		06ED5EEBD9C709D7B20DFF2C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615736F7FBCACF8AF8B17CCF /* SettingsView.swift */; };
 		08AEBC14B14DCFC8330558BA /* OpenAITextGenerationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BFB5724578D68E1E94182AB /* OpenAITextGenerationProvider.swift */; };
@@ -329,6 +332,9 @@
 		A100000000000000000000A2 /* V4AppleScriptTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4AppleScriptTool.swift; sourceTree = "<group>"; };
 		A100000000000000000000A3 /* V4ToolExecutionScenarioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToolExecutionScenarioTests.swift; sourceTree = "<group>"; };
 		A100000000000000000000A4 /* V4ToolManifestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToolManifestTests.swift; sourceTree = "<group>"; };
+		A100000000000000000000A8 /* V4PlannerLLM.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4PlannerLLM.swift; sourceTree = "<group>"; };
+		A100000000000000000000A9 /* V4PostStepDeciderPlannerDriven.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4PostStepDeciderPlannerDriven.swift; sourceTree = "<group>"; };
+		A100000000000000000000AA /* V4PlannerLLMTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4PlannerLLMTests.swift; sourceTree = "<group>"; };
 		8E4D00737C3345BDE9F747AC /* TextOutputCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextOutputCoordinator.swift; sourceTree = "<group>"; };
 		93A38F69E5582F6FA37EE498 /* ControlCenterStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlCenterStateTests.swift; sourceTree = "<group>"; };
 		93D66F476FED6BC033F5DA9A /* FeishuCLIProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeishuCLIProviderTests.swift; sourceTree = "<group>"; };
@@ -550,7 +556,9 @@
 				A10000000000000000000033 /* V4AgentContracts.swift */,
 				A10000000000000000000034 /* V4AgentLoopEngine.swift */,
 				A10000000000000000000035 /* V4PlannerRuleBased.swift */,
+				A100000000000000000000A8 /* V4PlannerLLM.swift */,
 				A10000000000000000000036 /* V4PostStepDeciderDefault.swift */,
+				A100000000000000000000A9 /* V4PostStepDeciderPlannerDriven.swift */,
 				A10000000000000000000037 /* V4VerifierDefault.swift */,
 			);
 			path = AgentLoop;
@@ -791,6 +799,7 @@
 				71EDE485545C13E98B2E5B72 /* SessionStoreTests.swift */,
 				97763AFE40CEA07E31796308 /* SkillRuleStoreTests.swift */,
 				A1000000000000000000003C /* V4AgentLoopEngineTests.swift */,
+				A100000000000000000000AA /* V4PlannerLLMTests.swift */,
 				A10000000000000000000088 /* V4TimeParserTests.swift */,
 				A10000000000000000000089 /* V4ReminderSchedulerTests.swift */,
 				A1000000000000000000008A /* V4TimeMachineServiceTests.swift */,
@@ -1049,7 +1058,9 @@
 				A10000000000000000000013 /* V4AgentContracts.swift in Sources */,
 				A10000000000000000000014 /* V4AgentLoopEngine.swift in Sources */,
 				A10000000000000000000015 /* V4PlannerRuleBased.swift in Sources */,
+				A100000000000000000000A5 /* V4PlannerLLM.swift in Sources */,
 				A10000000000000000000016 /* V4PostStepDeciderDefault.swift in Sources */,
+				A100000000000000000000A6 /* V4PostStepDeciderPlannerDriven.swift in Sources */,
 				A10000000000000000000017 /* V4VerifierDefault.swift in Sources */,
 				A10000000000000000000057 /* V4PromptContracts.swift in Sources */,
 				A10000000000000000000058 /* V4PromptLayerProviders.swift in Sources */,
@@ -1143,6 +1154,7 @@
 				E1DBC788787F324D6B2178FD /* SessionStoreTests.swift in Sources */,
 				85B875C74007F983512A7F73 /* SkillRuleStoreTests.swift in Sources */,
 				A1000000000000000000001C /* V4AgentLoopEngineTests.swift in Sources */,
+				A100000000000000000000A7 /* V4PlannerLLMTests.swift in Sources */,
 				A10000000000000000000056 /* V4MemoryEngineTests.swift in Sources */,
 				A1000000000000000000007C /* V4TimeParserTests.swift in Sources */,
 				A1000000000000000000007D /* V4ReminderSchedulerTests.swift in Sources */,

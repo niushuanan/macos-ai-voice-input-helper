@@ -138,6 +138,27 @@ final class V4AgentLoopEngineTests: XCTestCase {
         )
     }
 
+    func testPlannerDrivenDeciderAllowsDynamicNextTurnPlanning() async throws {
+        let planner = SequencedPlanner()
+        let engine = V4AgentLoopEngine(
+            planner: planner,
+            postStepDecider: V4PostStepDeciderPlannerDriven(),
+            verifier: V4VerifierDefault(),
+            maxTurns: 6,
+            stepExecutor: { step, request, _, _ in
+                StaticSuccessExecutor().execute(step: step, request: request)
+            }
+        )
+
+        let outcome = try await engine.run(
+            request: makeRequest(command: "帮我整理一下然后发给产品组"),
+            onEvent: nil as (@Sendable (V4RuntimeEvent) -> Void)?
+        )
+
+        XCTAssertEqual(outcome.status, .completed)
+        XCTAssertEqual(outcome.stepRecords.map(\.toolName), ["text.transform", "apple.mail.compose"])
+    }
+
     private func makeRequest(command: String) -> V4RunRequest {
         V4RunRequest(
             lane: .selectionRewrite,
@@ -309,5 +330,53 @@ private final class EventNameCollector: @unchecked Sendable {
         let snapshot = values
         lock.unlock()
         return snapshot
+    }
+}
+
+private final class SequencedPlanner: V4Planner, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+
+    func plan(for request: V4RunRequest) async throws -> V4Plan {
+        lock.lock()
+        callCount += 1
+        let current = callCount
+        lock.unlock()
+
+        switch current {
+        case 1:
+            return V4Plan(
+                steps: [
+                    V4StepRecord(
+                        traceID: request.traceID,
+                        lane: request.lane,
+                        goalSummary: request.goalSummary,
+                        title: "文字处理",
+                        status: .queued,
+                        toolName: "text.transform",
+                        inputSummary: "把当前内容整理成可直接发送的邮件正文"
+                    )
+                ]
+            )
+        case 2:
+            return V4Plan(
+                steps: [
+                    V4StepRecord(
+                        traceID: request.traceID,
+                        lane: request.lane,
+                        goalSummary: request.goalSummary,
+                        title: "整理邮件",
+                        status: .queued,
+                        toolName: "apple.mail.compose",
+                        inputSummary: "给产品组发邮件"
+                    )
+                ]
+            )
+        default:
+            return V4Plan(
+                steps: [],
+                terminalDecision: V4LoopDecision(action: .finish, message: "已完成。")
+            )
+        }
     }
 }

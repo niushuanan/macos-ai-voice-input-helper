@@ -45,7 +45,13 @@ final class V4MagicianRuntimeAdapter: MagicianAgentRunning, V4MagicianRuntimeRun
             ),
             permissionGate: V4PermissionGate(featureToggleStore: featureToggleStore)
         )
+        let planner: any V4Planner = V4PlannerLLM(
+            modelSlotManager: providerSettingsBridge == nil ? nil : modelSlotManager
+        )
         self.loopEngine = V4AgentLoopEngine(
+            planner: planner,
+            postStepDecider: V4PostStepDeciderPlannerDriven(),
+            maxTurns: 6,
             promptStackResolver: providerSettingsStore == nil ? nil : promptStackResolver,
             modelSlotManager: providerSettingsBridge == nil ? nil : modelSlotManager,
             stepExecutor: { step, request, accumulatedStepRecords, turnIndex in
