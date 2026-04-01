@@ -6,35 +6,47 @@ final class V4ToSessionStoreBridge {
         request: V4RunRequest,
         to sessionStore: SessionStore
     ) {
-        // TODO(Window 05): 把 `V4RuntimeEvent.status/message/progressHint` 映到
-        // `SessionStore.phase/statusMessage/hudProgressHint/errorMessage`。
-        // TODO(Window 06): 把 native fast lane 的 `V4RunRequest.lane/selectionText/appName`
-        // 映到 `SessionStore.activeLane/latestFocusContext/latestOutputResult` 的桥接输入。
-        _ = request
-        _ = sessionStore
+        let label = request.goalSummary.trimmingCharacters(in: .whitespacesAndNewlines)
+        sessionStore.markRewriting(
+            actionLabel: label.isEmpty ? "准备执行" : label,
+            stage: .toolAction,
+            progressHint: SessionHUDProgressHint.workflowPreview
+        )
     }
 
     func applyRuntimeEvent(
         _ event: V4RuntimeEvent,
         to sessionStore: SessionStore
     ) {
-        // TODO(Window 05): 接 tool 权限、tool 执行、verification 事件到
-        // `phase/statusMessage/hudProgressHint/errorMessage`。
-        // TODO(Window 06): 接 native fast 写回阶段的事件到
-        // `latestOutputResult/activeLane`。
-        _ = event
-        _ = sessionStore
+        switch event.status {
+        case .queued, .planning, .executing, .retrying, .waitingForTool, .verifying:
+            sessionStore.markRewriting(
+                actionLabel: event.message,
+                stage: .toolAction,
+                progressHint: event.progressHint
+            )
+        case .waitingForUser, .failed, .cancelled:
+            sessionStore.fail(message: event.message)
+        case .completed:
+            break
+        }
     }
 
     func applyRunOutcome(
         _ outcome: V4RunOutcome,
         to sessionStore: SessionStore
     ) {
-        // TODO(Window 05): 用 `finalStatusMessage/displayText/evidenceSummary`
-        // 更新 `statusMessage` 与调试摘要展示。
-        // TODO(Window 06): 用 `finalOutputText/lane` 驱动 native fast 写回后的
-        // `latestOutputResult/activeLane` 同步。
-        _ = outcome
-        _ = sessionStore
+        switch outcome.status {
+        case .completed:
+            sessionStore.completeAction(statusMessage: outcome.finalStatusMessage)
+        case .waitingForUser, .failed, .cancelled:
+            sessionStore.fail(message: outcome.finalStatusMessage)
+        case .queued, .planning, .executing, .retrying, .waitingForTool, .verifying:
+            sessionStore.markRewriting(
+                actionLabel: outcome.finalStatusMessage,
+                stage: .toolAction,
+                progressHint: SessionHUDProgressHint.workflowPreview
+            )
+        }
     }
 }

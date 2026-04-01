@@ -170,6 +170,11 @@ final class AppModel: ObservableObject {
             diagnosticsDirectory: store.diagnosticsDirectory,
             speechPipelineLogger: speechPipelineLogger
         )
+        let v4RuntimeSwitchStore = V4RuntimeSwitchStore()
+        let v4MagicianRuntime = V4MagicianRuntimeAdapter(
+            providerSettingsStore: providerSettingsStore,
+            featureToggleStore: magicianFeatureToggleStore
+        )
         let controlCenterState = ControlCenterState(localHistoryStore: localHistoryStore)
         let hotkeyStateStore = HotkeyStateStore()
         let toastPresenter = ToastPresenter()
@@ -191,6 +196,8 @@ final class AppModel: ObservableObject {
             mailAddressBookStore: mailAddressBookStore,
             magicianFeatureToggleStore: magicianFeatureToggleStore,
             workflowTelemetryReporter: workflowTelemetryReporter,
+            v4MagicianRuntime: v4MagicianRuntime,
+            v4RuntimeSwitchStore: v4RuntimeSwitchStore,
             toastPresenter: toastPresenter
         )
         return AppModel(

@@ -20,7 +20,13 @@ final class InteractionCoordinator {
     private let asrDictionaryStore: ASRDictionaryStore
     private let magicianFeatureToggleStore: MagicianFeatureToggleStore
     private let workflowTelemetryReporter: any WorkflowTelemetryReporting
+    private let v4MagicianRuntime: any V4MagicianRuntimeRunning
+    private let v4RuntimeSwitchStore: V4RuntimeSwitchStore
+    private let v4SessionStoreBridge: V4ToSessionStoreBridge
+    private let v4HistoryBridge: V4ToHistoryBridge
+    // legacy fallback only
     private let magicianNativeRuntime: any MagicianAgentRunning
+    // legacy fallback only
     private let magicianAgentRuntime: any MagicianAgentRunning
     private let toastPresenter: ToastPresenter?
     private let dictationPostProcessor: DictationPostProcessor
@@ -58,6 +64,10 @@ final class InteractionCoordinator {
         magicianFeatureToggleStore: MagicianFeatureToggleStore? = nil,
         workflowTelemetryReporter: (any WorkflowTelemetryReporting)? = nil,
         magicianToolExecutor: (any MagicianToolExecuting)? = nil,
+        v4MagicianRuntime: (any V4MagicianRuntimeRunning)? = nil,
+        v4RuntimeSwitchStore: V4RuntimeSwitchStore? = nil,
+        v4SessionStoreBridge: V4ToSessionStoreBridge? = nil,
+        v4HistoryBridge: V4ToHistoryBridge = V4ToHistoryBridge(),
         magicianNativeRuntime: (any MagicianAgentRunning)? = nil,
         magicianAgentRuntime: (any MagicianAgentRunning)? = nil,
         toastPresenter: ToastPresenter? = nil,
@@ -86,6 +96,13 @@ final class InteractionCoordinator {
         let resolvedToolExecutor = magicianToolExecutor ?? MagicianToolExecutor(
             providerSettingsStore: providerSettingsStore,
             mailAddressBookStore: resolvedMailAddressBookStore
+        )
+        self.v4RuntimeSwitchStore = v4RuntimeSwitchStore ?? V4RuntimeSwitchStore()
+        self.v4SessionStoreBridge = v4SessionStoreBridge ?? V4ToSessionStoreBridge()
+        self.v4HistoryBridge = v4HistoryBridge
+        self.v4MagicianRuntime = v4MagicianRuntime ?? V4MagicianRuntimeAdapter(
+            providerSettingsStore: providerSettingsStore,
+            featureToggleStore: self.magicianFeatureToggleStore
         )
         self.magicianNativeRuntime = magicianNativeRuntime ?? MagicianNativeRuntime(
             providerSettingsStore: providerSettingsStore,
@@ -1749,7 +1766,8 @@ final class InteractionCoordinator {
         let commandAppliedSkills = commandPreprocessResult.appliedSkills
         let selectionText = selectionSnapshot?.selectedText ?? ""
         let enabledFeatures = magicianFeatureToggleStore.enabledFeatures
-        var runtimeEvents: [MagicianAgentRuntimeEvent] = []
+        let defaultRuntimeVersion = v4RuntimeSwitchStore.defaultRuntimeVersion
+        let runtimeEvents: [MagicianAgentRuntimeEvent] = []
 
         guard !spokenInstruction.isEmpty else {
             let message = "改写指令为空，请重试并说出明确命令。"
@@ -1774,7 +1792,7 @@ final class InteractionCoordinator {
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
-                    magicianRuntimeVersion: 3,
+                    magicianRuntimeVersion: defaultRuntimeVersion,
                     magicianExecutionTrace: failureTrace,
                     status: .failed,
                     errorMessage: message,
@@ -1812,7 +1830,7 @@ final class InteractionCoordinator {
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
-                    magicianRuntimeVersion: 3,
+                    magicianRuntimeVersion: defaultRuntimeVersion,
                     magicianExecutionTrace: failureTrace,
                     status: .failed,
                     errorMessage: message,
@@ -1852,7 +1870,7 @@ final class InteractionCoordinator {
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
-                    magicianRuntimeVersion: 3,
+                    magicianRuntimeVersion: defaultRuntimeVersion,
                     magicianExecutionTrace: failureTrace,
                     status: .failed,
                     errorMessage: magicianError.userMessage,
@@ -1894,7 +1912,7 @@ final class InteractionCoordinator {
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
-                    magicianRuntimeVersion: 3,
+                    magicianRuntimeVersion: defaultRuntimeVersion,
                     magicianExecutionTrace: failureTrace,
                     status: .failed,
                     errorMessage: message,
@@ -1907,6 +1925,169 @@ final class InteractionCoordinator {
             return
         }
 
+        let runtimeRoute = v4RuntimeSwitchStore.route(for: laneDecision)
+        switch runtimeRoute {
+        case .v4:
+            await executeSelectionRewriteWithV4(
+                traceID: traceID,
+                spokenInstruction: spokenInstruction,
+                selectionSnapshot: selectionSnapshot,
+                fallbackFocusContext: fallbackFocusContext,
+                selectionText: selectionText,
+                enabledFeatures: enabledFeatures,
+                transcription: transcription,
+                audioDurationSeconds: audioDurationSeconds,
+                appliedSkills: commandAppliedSkills
+            )
+        case .legacyNative, .legacyAgent:
+            let legacyRuntimeEvents = LockedMagicianRuntimeEventBuffer()
+            await executeSelectionRewriteWithLegacyRuntime(
+                traceID: traceID,
+                spokenInstruction: spokenInstruction,
+                selectionSnapshot: selectionSnapshot,
+                fallbackFocusContext: fallbackFocusContext,
+                selectionText: selectionText,
+                transcription: transcription,
+                audioDurationSeconds: audioDurationSeconds,
+                appliedSkills: commandAppliedSkills,
+                runtimeRoute: runtimeRoute,
+                runtimeEvents: legacyRuntimeEvents,
+                enabledFeatures: enabledFeatures
+            )
+        }
+    }
+
+    private func handleMagicianRuntimeEvent(_ event: MagicianAgentRuntimeEvent) {
+        switch event.state {
+        case .queued, .understanding, .probingCapabilities, .resolvingTargets, .planning, .executingStep, .observing, .verifying, .retryingStep, .replanning:
+            sessionStore.markRewriting(
+                actionLabel: event.message,
+                stage: .toolAction,
+                progressHint: event.progressHint
+            )
+        case .waitingForUser:
+            sessionStore.fail(message: event.message)
+        case .failed, .completed:
+            break
+        }
+    }
+
+    private func executeSelectionRewriteWithV4(
+        traceID: String,
+        spokenInstruction: String,
+        selectionSnapshot: FocusedSelectionSnapshot?,
+        fallbackFocusContext: FocusedAppContext,
+        selectionText: String,
+        enabledFeatures: Set<MagicianFeatureID>,
+        transcription: SpeechTranscriptionResult,
+        audioDurationSeconds: Double,
+        appliedSkills: [SkillRuleID]
+    ) async {
+        let request = V4RunRequest(
+            traceID: V4TraceID(rawValue: traceID),
+            lane: .selectionRewrite,
+            goalSummary: spokenInstruction.trimmingCharacters(in: .whitespacesAndNewlines),
+            inputText: spokenInstruction,
+            appName: fallbackFocusContext.appName,
+            bundleID: fallbackFocusContext.bundleID,
+            selectionText: selectionSnapshot?.selectedText,
+            enabledFeatureIDs: Set(enabledFeatures.map(\.rawValue))
+        )
+        let eventBuffer = LockedV4RuntimeEventBuffer()
+
+        v4SessionStoreBridge.applyRunStart(request: request, to: sessionStore)
+
+        do {
+            let outcome = try await v4MagicianRuntime.run(
+                request: request,
+                onEvent: { [weak self] event in
+                    eventBuffer.append(event)
+                    Task { @MainActor [weak self] in
+                        guard let self else {
+                            return
+                        }
+                        self.v4SessionStoreBridge.applyRuntimeEvent(event, to: self.sessionStore)
+                    }
+                }
+            )
+            if abortIfSessionCancelled() {
+                return
+            }
+
+            let historyStatus: SessionHistoryStatus = outcome.status == .completed ? .success : .failed
+            let runtimeEvents = eventBuffer.snapshot()
+            localHistoryStore.append(
+                v4HistoryBridge.makeHistoryEntry(
+                    from: request,
+                    outcome: outcome,
+                    status: historyStatus,
+                    focusContext: fallbackFocusContext,
+                    selectionText: selectionText,
+                    transcription: transcription,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: appliedSkills,
+                    runtimeEvents: runtimeEvents
+                )
+            )
+            recordV4Telemetry(
+                traceID: traceID,
+                outcome: outcome,
+                historyStatus: historyStatus,
+                audioDurationSeconds: audioDurationSeconds
+            )
+            v4SessionStoreBridge.applyRunOutcome(outcome, to: sessionStore)
+            currentTraceID = nil
+        } catch {
+            if abortIfSessionCancelled() {
+                return
+            }
+
+            if let magicianError = error as? MagicianError {
+                handleMagicianRecoverAction(magicianError.recoverAction)
+            }
+
+            let outcome = makeV4FailureOutcome(
+                request: request,
+                error: error,
+                runtimeEvents: eventBuffer.snapshot()
+            )
+            localHistoryStore.append(
+                v4HistoryBridge.makeHistoryEntry(
+                    from: request,
+                    outcome: outcome,
+                    status: .failed,
+                    focusContext: fallbackFocusContext,
+                    selectionText: selectionText,
+                    transcription: transcription,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: appliedSkills,
+                    runtimeEvents: eventBuffer.snapshot()
+                )
+            )
+            recordV4Telemetry(
+                traceID: traceID,
+                outcome: outcome,
+                historyStatus: .failed,
+                audioDurationSeconds: audioDurationSeconds
+            )
+            v4SessionStoreBridge.applyRunOutcome(outcome, to: sessionStore)
+            currentTraceID = nil
+        }
+    }
+
+    private func executeSelectionRewriteWithLegacyRuntime(
+        traceID: String,
+        spokenInstruction: String,
+        selectionSnapshot: FocusedSelectionSnapshot?,
+        fallbackFocusContext: FocusedAppContext,
+        selectionText: String,
+        transcription: SpeechTranscriptionResult,
+        audioDurationSeconds: Double,
+        appliedSkills: [SkillRuleID],
+        runtimeRoute: V4RuntimeRoute,
+        runtimeEvents: LockedMagicianRuntimeEventBuffer,
+        enabledFeatures: Set<MagicianFeatureID>
+    ) async {
         let runtimeRequest = MagicianAgentRequest(
             traceID: traceID,
             command: spokenInstruction,
@@ -1914,18 +2095,17 @@ final class InteractionCoordinator {
             focusContext: fallbackFocusContext,
             enabledFeatures: enabledFeatures
         )
+
         let selectedRuntime: any MagicianAgentRunning
-        let runtimeVersion: Int
-        switch laneDecision.lane {
-        case .nativeFast:
+        switch runtimeRoute {
+        case .legacyNative:
+            // legacy fallback only
             selectedRuntime = magicianNativeRuntime
-            runtimeVersion = 2
-        case .agent:
+        case .legacyAgent:
+            // legacy fallback only
             selectedRuntime = magicianAgentRuntime
-            runtimeVersion = 3
-        case .unsupportedMixedExternal:
-            selectedRuntime = magicianAgentRuntime
-            runtimeVersion = 3
+        case .v4:
+            return
         }
 
         do {
@@ -1942,7 +2122,7 @@ final class InteractionCoordinator {
             let executionTrace = magicianExecutionTraceText(
                 command: spokenInstruction,
                 outcome: outcome,
-                runtimeEvents: runtimeEvents
+                runtimeEvents: runtimeEvents.snapshot()
             )
             localHistoryStore.append(
                 SessionHistoryEntry(
@@ -1956,7 +2136,7 @@ final class InteractionCoordinator {
                     displayText: outcome.displayText,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
-                    magicianRuntimeVersion: runtimeVersion,
+                    magicianRuntimeVersion: runtimeRoute.runtimeVersion,
                     magicianSessionID: outcome.sessionID,
                     magicianRunID: outcome.runID,
                     magicianGoalSummary: outcome.goalSummary,
@@ -1965,7 +2145,7 @@ final class InteractionCoordinator {
                     magicianExecutionTrace: executionTrace,
                     status: .success,
                     audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: commandAppliedSkills
+                    appliedSkills: appliedSkills
                 )
             )
             workflowTelemetryReporter.record(
@@ -1996,7 +2176,7 @@ final class InteractionCoordinator {
                 debugMessage: magicianError.debugMessage,
                 recoverAction: magicianError.recoverAction,
                 focusContext: fallbackFocusContext,
-                runtimeEvents: runtimeEvents
+                runtimeEvents: runtimeEvents.snapshot()
             )
             localHistoryStore.append(
                 SessionHistoryEntry(
@@ -2008,12 +2188,12 @@ final class InteractionCoordinator {
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
-                    magicianRuntimeVersion: runtimeVersion,
+                    magicianRuntimeVersion: runtimeRoute.runtimeVersion,
                     magicianExecutionTrace: failureTrace,
                     status: .failed,
                     errorMessage: magicianError.userMessage,
                     audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: commandAppliedSkills
+                    appliedSkills: appliedSkills
                 )
             )
             workflowTelemetryReporter.record(
@@ -2045,7 +2225,7 @@ final class InteractionCoordinator {
                 debugMessage: error.localizedDescription,
                 recoverAction: nil,
                 focusContext: fallbackFocusContext,
-                runtimeEvents: runtimeEvents
+                runtimeEvents: runtimeEvents.snapshot()
             )
             localHistoryStore.append(
                 SessionHistoryEntry(
@@ -2057,12 +2237,12 @@ final class InteractionCoordinator {
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
                     transcriptionModel: transcription.modelName,
-                    magicianRuntimeVersion: runtimeVersion,
+                    magicianRuntimeVersion: runtimeRoute.runtimeVersion,
                     magicianExecutionTrace: failureTrace,
                     status: .failed,
                     errorMessage: message,
                     audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: commandAppliedSkills
+                    appliedSkills: appliedSkills
                 )
             )
             workflowTelemetryReporter.record(
@@ -2082,18 +2262,86 @@ final class InteractionCoordinator {
         }
     }
 
-    private func handleMagicianRuntimeEvent(_ event: MagicianAgentRuntimeEvent) {
-        switch event.state {
-        case .queued, .understanding, .probingCapabilities, .resolvingTargets, .planning, .executingStep, .observing, .verifying, .retryingStep, .replanning:
-            sessionStore.markRewriting(
-                actionLabel: event.message,
-                stage: .toolAction,
-                progressHint: event.progressHint
+    private func recordV4Telemetry(
+        traceID: String,
+        outcome: V4RunOutcome,
+        historyStatus: SessionHistoryStatus,
+        audioDurationSeconds: Double
+    ) {
+        switch historyStatus {
+        case .success:
+            workflowTelemetryReporter.record(
+                WorkflowTelemetryEvent(
+                    traceID: traceID,
+                    lane: .selectionRewrite,
+                    provider: nil,
+                    model: nil,
+                    event: .done,
+                    detail: outcome.goalSummary,
+                    audioDuration: audioDurationSeconds,
+                    transcriptLength: outcome.finalOutputText?.count,
+                    stepCount: outcome.stepRecords.count
+                )
             )
-        case .waitingForUser:
-            sessionStore.fail(message: event.message)
-        case .failed, .completed:
-            break
+        case .failed, .cancelled:
+            workflowTelemetryReporter.record(
+                WorkflowTelemetryEvent(
+                    traceID: traceID,
+                    lane: .selectionRewrite,
+                    provider: nil,
+                    model: nil,
+                    event: .failed,
+                    errorType: outcome.failureCode?.rawValue ?? MagicianErrorCode.toolExecutionFailed.rawValue,
+                    detail: outcome.finalStatusMessage,
+                    audioDuration: audioDurationSeconds
+                )
+            )
+        }
+    }
+
+    private func makeV4FailureOutcome(
+        request: V4RunRequest,
+        error: Error,
+        runtimeEvents: [V4RuntimeEvent]
+    ) -> V4RunOutcome {
+        let message: String
+        if let magicianError = error as? MagicianError {
+            message = magicianError.userMessage
+        } else {
+            message = "魔术先生执行失败：\(error.localizedDescription)"
+        }
+
+        return V4RunOutcome(
+            sessionID: request.sessionID,
+            runID: request.runID,
+            traceID: request.traceID,
+            lane: request.lane,
+            goalSummary: request.goalSummary,
+            status: .failed,
+            finalStatusMessage: message,
+            finalOutputText: nil,
+            displayText: "V4 Runtime Failure",
+            stepRecords: runtimeEvents.last?.stepRecords ?? request.stepRecords,
+            evidenceSummary: runtimeEvents.last?.evidenceSummary ?? request.evidenceSummary,
+            failureCode: v4FailureCode(for: error),
+            finishedAt: Date()
+        )
+    }
+
+    private func v4FailureCode(for error: Error) -> V4FailureCode {
+        guard let magicianError = error as? MagicianError else {
+            return .toolExecutionFailed
+        }
+
+        switch magicianError.code {
+        case .permissionDenied:
+            return .permissionDenied
+        case .intentParseFailed:
+            return .invalidRequest
+        case .toolExecutionFailed:
+            return .toolExecutionFailed
+        default:
+            return .toolExecutionFailed
         }
     }
 
@@ -2604,5 +2852,39 @@ final class InteractionCoordinator {
         case .brainstormDiscussion:
             return .brainstorm
         }
+    }
+}
+
+private final class LockedV4RuntimeEventBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var events: [V4RuntimeEvent] = []
+
+    func append(_ event: V4RuntimeEvent) {
+        lock.lock()
+        events.append(event)
+        lock.unlock()
+    }
+
+    func snapshot() -> [V4RuntimeEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return events
+    }
+}
+
+private final class LockedMagicianRuntimeEventBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var events: [MagicianAgentRuntimeEvent] = []
+
+    func append(_ event: MagicianAgentRuntimeEvent) {
+        lock.lock()
+        events.append(event)
+        lock.unlock()
+    }
+
+    func snapshot() -> [MagicianAgentRuntimeEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return events
     }
 }

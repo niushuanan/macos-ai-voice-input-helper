@@ -1318,6 +1318,8 @@ final class InteractionCoordinatorTests: XCTestCase {
             )
         ),
         magicianToolExecutor: (any MagicianToolExecuting)? = nil,
+        v4MagicianRuntime: (any V4MagicianRuntimeRunning)? = nil,
+        v4RuntimeSwitchStore: V4RuntimeSwitchStore? = nil,
         magicianNativeRuntime: (any MagicianAgentRunning)? = nil,
         magicianAgentRuntime: (any MagicianAgentRunning)? = nil,
         rewriteProviders: [any RewriteProvider] = [],
@@ -1385,6 +1387,9 @@ final class InteractionCoordinatorTests: XCTestCase {
             legacyStorageKey: "magician.features.interaction.tests"
         )
         magicianFeatureToggleStore.resetAll()
+        if v4MagicianRuntime == nil, magicianNativeRuntime != nil || magicianAgentRuntime != nil {
+            defaults.set(true, forKey: V4RuntimeSwitchStore.legacyRuntimeDefaultsKey)
+        }
         let transcriptionProvider: FakeTranscriptionProvider
         if let transcriptionResponses {
             transcriptionProvider = FakeTranscriptionProvider(scriptedResponses: transcriptionResponses)
@@ -1397,6 +1402,10 @@ final class InteractionCoordinatorTests: XCTestCase {
             storageKey: "asr.dictionary.interaction.tests"
         )
         let resolvedToastPresenter = toastPresenter
+        let resolvedRuntimeSwitchStore = v4RuntimeSwitchStore ?? V4RuntimeSwitchStore(
+            defaults: defaults,
+            environment: [:]
+        )
 
         let coordinator = InteractionCoordinator(
             sessionStore: sessionStore,
@@ -1416,6 +1425,8 @@ final class InteractionCoordinatorTests: XCTestCase {
             magicianFeatureToggleStore: magicianFeatureToggleStore,
             workflowTelemetryReporter: workflowTelemetryReporter,
             magicianToolExecutor: magicianToolExecutor ?? MagicianToolExecutor(),
+            v4MagicianRuntime: v4MagicianRuntime,
+            v4RuntimeSwitchStore: resolvedRuntimeSwitchStore,
             magicianNativeRuntime: magicianNativeRuntime,
             magicianAgentRuntime: magicianAgentRuntime,
             toastPresenter: resolvedToastPresenter,

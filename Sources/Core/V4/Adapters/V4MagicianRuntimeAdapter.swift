@@ -1,7 +1,14 @@
 import Foundation
 
+protocol V4MagicianRuntimeRunning: Sendable {
+    func run(
+        request: V4RunRequest,
+        onEvent: (@Sendable (V4RuntimeEvent) -> Void)?
+    ) async throws -> V4RunOutcome
+}
+
 @MainActor
-final class V4MagicianRuntimeAdapter: MagicianAgentRunning {
+final class V4MagicianRuntimeAdapter: MagicianAgentRunning, V4MagicianRuntimeRunning {
     private let loopEngine: any V4AgentLoopRunning
 
     init(
@@ -32,22 +39,18 @@ final class V4MagicianRuntimeAdapter: MagicianAgentRunning {
     }
 
     func run(
+        request: V4RunRequest,
+        onEvent: (@Sendable (V4RuntimeEvent) -> Void)?
+    ) async throws -> V4RunOutcome {
+        try await loopEngine.run(request: request, onEvent: onEvent)
+    }
+
+    func run(
         request: MagicianAgentRequest,
         onEvent: ((MagicianAgentRuntimeEvent) -> Void)?
     ) async throws -> MagicianAgentRunOutcome {
-        let v4Request = V4RunRequest(
-            traceID: V4TraceID(rawValue: request.traceID),
-            lane: .selectionRewrite,
-            goalSummary: request.command.trimmingCharacters(in: .whitespacesAndNewlines),
-            inputText: request.command,
-            appName: request.focusContext.appName,
-            bundleID: request.focusContext.bundleID,
-            selectionText: request.selectionSnapshot?.selectedText,
-            enabledFeatureIDs: Set(request.enabledFeatures.map(\.rawValue))
-        )
-
-        let outcome = try await loopEngine.run(
-            request: v4Request,
+        let outcome = try await run(
+            request: Self.makeV4Request(from: request),
             onEvent: { event in
                 guard let onEvent else {
                     return
@@ -84,6 +87,19 @@ final class V4MagicianRuntimeAdapter: MagicianAgentRunning {
                 recoverAction: "retry_command"
             )
         }
+    }
+
+    nonisolated private static func makeV4Request(from request: MagicianAgentRequest) -> V4RunRequest {
+        V4RunRequest(
+            traceID: V4TraceID(rawValue: request.traceID),
+            lane: .selectionRewrite,
+            goalSummary: request.command.trimmingCharacters(in: .whitespacesAndNewlines),
+            inputText: request.command,
+            appName: request.focusContext.appName,
+            bundleID: request.focusContext.bundleID,
+            selectionText: request.selectionSnapshot?.selectedText,
+            enabledFeatureIDs: Set(request.enabledFeatures.map(\.rawValue))
+        )
     }
 
     nonisolated private static func magicianOutcome(from outcome: V4RunOutcome) -> MagicianAgentRunOutcome {
