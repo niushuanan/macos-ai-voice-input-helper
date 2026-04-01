@@ -59,6 +59,19 @@
 		A1000000000000000000007C /* V4TimeParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000088 /* V4TimeParserTests.swift */; };
 		A1000000000000000000007D /* V4ReminderSchedulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000089 /* V4ReminderSchedulerTests.swift */; };
 		A1000000000000000000007E /* V4TimeMachineServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000008A /* V4TimeMachineServiceTests.swift */; };
+		A1000000000000000000008B /* MagicianToolSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000098 /* MagicianToolSupport.swift */; };
+		A1000000000000000000008C /* V4ToolManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000099 /* V4ToolManifest.swift */; };
+		A1000000000000000000008D /* V4ToolManifestIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000009A /* V4ToolManifestIndex.swift */; };
+		A1000000000000000000008E /* V4ToolRetryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000009B /* V4ToolRetryPolicy.swift */; };
+		A1000000000000000000008F /* V4ToolErrorCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000009C /* V4ToolErrorCatalog.swift */; };
+		A10000000000000000000090 /* V4ToolEvidencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000009D /* V4ToolEvidencePolicy.swift */; };
+		A10000000000000000000091 /* V4CalendarCreateTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000009E /* V4CalendarCreateTool.swift */; };
+		A10000000000000000000092 /* V4MailComposeTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000009F /* V4MailComposeTool.swift */; };
+		A10000000000000000000093 /* V4MusicControlTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A0 /* V4MusicControlTool.swift */; };
+		A10000000000000000000094 /* V4FeishuCLITool.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A1 /* V4FeishuCLITool.swift */; };
+		A10000000000000000000095 /* V4AppleScriptTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A2 /* V4AppleScriptTool.swift */; };
+		A10000000000000000000096 /* V4ToolExecutionScenarioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A3 /* V4ToolExecutionScenarioTests.swift */; };
+		A10000000000000000000097 /* V4ToolManifestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A4 /* V4ToolManifestTests.swift */; };
 		06123C002DCFE32A3B4F9826 /* AppRuntimePolicy.plist in Resources */ = {isa = PBXBuildFile; fileRef = DF7D63023398B1BA8B707A6E /* AppRuntimePolicy.plist */; };
 		06ED5EEBD9C709D7B20DFF2C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615736F7FBCACF8AF8B17CCF /* SettingsView.swift */; };
 		08AEBC14B14DCFC8330558BA /* OpenAITextGenerationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BFB5724578D68E1E94182AB /* OpenAITextGenerationProvider.swift */; };
@@ -303,6 +316,19 @@
 		A10000000000000000000088 /* V4TimeParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4TimeParserTests.swift; sourceTree = "<group>"; };
 		A10000000000000000000089 /* V4ReminderSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ReminderSchedulerTests.swift; sourceTree = "<group>"; };
 		A1000000000000000000008A /* V4TimeMachineServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4TimeMachineServiceTests.swift; sourceTree = "<group>"; };
+		A10000000000000000000098 /* MagicianToolSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicianToolSupport.swift; sourceTree = "<group>"; };
+		A10000000000000000000099 /* V4ToolManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToolManifest.swift; sourceTree = "<group>"; };
+		A1000000000000000000009A /* V4ToolManifestIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToolManifestIndex.swift; sourceTree = "<group>"; };
+		A1000000000000000000009B /* V4ToolRetryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToolRetryPolicy.swift; sourceTree = "<group>"; };
+		A1000000000000000000009C /* V4ToolErrorCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToolErrorCatalog.swift; sourceTree = "<group>"; };
+		A1000000000000000000009D /* V4ToolEvidencePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToolEvidencePolicy.swift; sourceTree = "<group>"; };
+		A1000000000000000000009E /* V4CalendarCreateTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4CalendarCreateTool.swift; sourceTree = "<group>"; };
+		A1000000000000000000009F /* V4MailComposeTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4MailComposeTool.swift; sourceTree = "<group>"; };
+		A100000000000000000000A0 /* V4MusicControlTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4MusicControlTool.swift; sourceTree = "<group>"; };
+		A100000000000000000000A1 /* V4FeishuCLITool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4FeishuCLITool.swift; sourceTree = "<group>"; };
+		A100000000000000000000A2 /* V4AppleScriptTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4AppleScriptTool.swift; sourceTree = "<group>"; };
+		A100000000000000000000A3 /* V4ToolExecutionScenarioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToolExecutionScenarioTests.swift; sourceTree = "<group>"; };
+		A100000000000000000000A4 /* V4ToolManifestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToolManifestTests.swift; sourceTree = "<group>"; };
 		8E4D00737C3345BDE9F747AC /* TextOutputCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextOutputCoordinator.swift; sourceTree = "<group>"; };
 		93A38F69E5582F6FA37EE498 /* ControlCenterStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlCenterStateTests.swift; sourceTree = "<group>"; };
 		93D66F476FED6BC033F5DA9A /* FeishuCLIProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeishuCLIProviderTests.swift; sourceTree = "<group>"; };
@@ -422,6 +448,7 @@
 				6FB98392E5B2986B631DAA4B /* MagicianPermissionPromptModel.swift */,
 				C14041E38ED1CA8963F59EBF /* MagicianPromptBuilders.swift */,
 				4F25FD5C5D1F35D869C646DF /* MagicianStatusResolver.swift */,
+				A10000000000000000000098 /* MagicianToolSupport.swift */,
 				1B283BB37CD5E3C986A6A6B9 /* MagicianToolExecutor.swift */,
 				F9F1130E5BA241DBFFB10055 /* CLI */,
 			);
@@ -533,6 +560,11 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000038 /* V4ToolContracts.swift */,
+				A10000000000000000000099 /* V4ToolManifest.swift */,
+				A1000000000000000000009A /* V4ToolManifestIndex.swift */,
+				A1000000000000000000009B /* V4ToolRetryPolicy.swift */,
+				A1000000000000000000009C /* V4ToolErrorCatalog.swift */,
+				A1000000000000000000009D /* V4ToolEvidencePolicy.swift */,
 				A1000000000000000000003D /* V4ToolRegistry.swift */,
 				A1000000000000000000003E /* V4ToolKernel.swift */,
 				A1000000000000000000003F /* V4ToolHookPipeline.swift */,
@@ -550,6 +582,11 @@
 				A10000000000000000000048 /* V4TextTransformTool.swift */,
 				A10000000000000000000049 /* V4ShellCommandTool.swift */,
 				A1000000000000000000004A /* V4AppleNotesTool.swift */,
+				A100000000000000000000A2 /* V4AppleScriptTool.swift */,
+				A1000000000000000000009E /* V4CalendarCreateTool.swift */,
+				A1000000000000000000009F /* V4MailComposeTool.swift */,
+				A100000000000000000000A0 /* V4MusicControlTool.swift */,
+				A100000000000000000000A1 /* V4FeishuCLITool.swift */,
 				A10000000000000000000085 /* V4TimeMachineCreateTool.swift */,
 				A10000000000000000000086 /* V4TimeMachineRemindTool.swift */,
 			);
@@ -760,6 +797,8 @@
 				A10000000000000000000072 /* V4PromptStackResolverTests.swift */,
 				A10000000000000000000073 /* V4ModelSlotManagerTests.swift */,
 				A1000000000000000000004B /* V4ToolKernelTests.swift */,
+				A100000000000000000000A3 /* V4ToolExecutionScenarioTests.swift */,
+				A100000000000000000000A4 /* V4ToolManifestTests.swift */,
 			);
 			path = Tests;
 			sourceTree = "<group>";
@@ -977,6 +1016,7 @@
 				45AAFCCA9AD49785CBC2AD76 /* MagicianPermissionPromptModel.swift in Sources */,
 				811F3DAFFD0E96016493D05A /* MagicianPromptBuilders.swift in Sources */,
 				B1074BBD40BE5E042B108398 /* MagicianStatusResolver.swift in Sources */,
+				A1000000000000000000008B /* MagicianToolSupport.swift in Sources */,
 				FB5429D0A5C122F189828B4B /* MagicianToolExecutor.swift in Sources */,
 				2822CE749EEA47E4B882F1F6 /* MailAddressBookViews.swift in Sources */,
 				797B8E5CC3ABF84C160753B0 /* MemoryEntryTextResolver.swift in Sources */,
@@ -1024,6 +1064,11 @@
 				A10000000000000000000078 /* V4TimeMachineService.swift in Sources */,
 				A10000000000000000000079 /* V4UserProfileDigest.swift in Sources */,
 				A10000000000000000000018 /* V4ToolContracts.swift in Sources */,
+				A1000000000000000000008C /* V4ToolManifest.swift in Sources */,
+				A1000000000000000000008D /* V4ToolManifestIndex.swift in Sources */,
+				A1000000000000000000008E /* V4ToolRetryPolicy.swift in Sources */,
+				A1000000000000000000008F /* V4ToolErrorCatalog.swift in Sources */,
+				A10000000000000000000090 /* V4ToolEvidencePolicy.swift in Sources */,
 				A1000000000000000000001D /* V4ToolRegistry.swift in Sources */,
 				A1000000000000000000001E /* V4ToolKernel.swift in Sources */,
 				A1000000000000000000001F /* V4ToolHookPipeline.swift in Sources */,
@@ -1033,6 +1078,11 @@
 				A10000000000000000000023 /* V4TextTransformTool.swift in Sources */,
 				A10000000000000000000024 /* V4ShellCommandTool.swift in Sources */,
 				A10000000000000000000025 /* V4AppleNotesTool.swift in Sources */,
+				A10000000000000000000095 /* V4AppleScriptTool.swift in Sources */,
+				A10000000000000000000091 /* V4CalendarCreateTool.swift in Sources */,
+				A10000000000000000000092 /* V4MailComposeTool.swift in Sources */,
+				A10000000000000000000093 /* V4MusicControlTool.swift in Sources */,
+				A10000000000000000000094 /* V4FeishuCLITool.swift in Sources */,
 				A1000000000000000000007A /* V4TimeMachineCreateTool.swift in Sources */,
 				A1000000000000000000007B /* V4TimeMachineRemindTool.swift in Sources */,
 				A10000000000000000000051 /* V4MemoryEntry.swift in Sources */,
@@ -1100,6 +1150,8 @@
 				A1000000000000000000005F /* V4PromptStackResolverTests.swift in Sources */,
 				A10000000000000000000060 /* V4ModelSlotManagerTests.swift in Sources */,
 				A10000000000000000000026 /* V4ToolKernelTests.swift in Sources */,
+				A10000000000000000000096 /* V4ToolExecutionScenarioTests.swift in Sources */,
+				A10000000000000000000097 /* V4ToolManifestTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1,6 +1,7 @@
+import AppKit
 import Foundation
 
-struct V4AppleNotesTool: V4Tool {
+final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
     let spec = V4ToolSpec(
         toolName: "apple.notes.create",
         displayName: "写入备忘录",
@@ -19,6 +20,9 @@ struct V4AppleNotesTool: V4Tool {
         mutatesUserData: true,
         supportsStreamingResults: false
     )
+
+    private let shortcutSupport = MagicianCreateNoteShortcutSupport()
+    private let errorCatalog = V4ToolErrorCatalog()
 
     func validateSemanticInput(
         arguments: V4ToolArguments,
@@ -49,7 +53,87 @@ struct V4AppleNotesTool: V4Tool {
         let title = arguments.string(for: "title") ?? ""
         let body = arguments.string(for: "body") ?? ""
 
-        let creation = await runOsaScript(
+        var usedFallback = false
+        var creation: MagicianProcessResult?
+
+        if MagicianNotesCapability.notesAppAvailable {
+            creation = await createNoteViaAppleScript(title: title, body: body)
+            if let creation, creation.exitCode == 0,
+               let evidence = await resolveNoteEvidence(title: title, body: body, primaryEvidence: creation.stdout)
+            {
+                return makeOutput(
+                    title: title,
+                    body: body,
+                    evidence: evidence,
+                    usedFallback: false
+                )
+            }
+        }
+
+        if shortcutSupport.cliAvailable, shortcutSupport.hasShortcut(named: shortcutSupport.shortcutName) {
+            let shortcutResult = await runShortcut(
+                name: shortcutSupport.shortcutName,
+                inputText: body
+            )
+            if shortcutResult.exitCode == 0,
+               let evidence = await resolveNoteEvidence(title: title, body: body, primaryEvidence: shortcutResult.stdout)
+            {
+                return makeOutput(
+                    title: title,
+                    body: body,
+                    evidence: evidence,
+                    usedFallback: true
+                )
+            }
+            if runShortcutViaURLScheme(name: shortcutSupport.shortcutName, inputText: body),
+               let evidence = await resolveNoteEvidence(title: title, body: body, primaryEvidence: nil)
+            {
+                return makeOutput(
+                    title: title,
+                    body: body,
+                    evidence: evidence,
+                    usedFallback: true
+                )
+            }
+            usedFallback = true
+        }
+
+        throw errorCatalog.executionFailure(
+            toolID: spec.toolID,
+            userMessage: "写入 Notes 失败，请检查自动化权限后再试。",
+            debugMessage: creation?.detail ?? "note create failed; fallback=\(usedFallback)",
+            recoverAction: "open_notes_automation_permission",
+            isRetryable: false
+        )
+    }
+
+    private func makeOutput(
+        title: String,
+        body: String,
+        evidence: String,
+        usedFallback: Bool
+    ) -> V4ToolExecutionOutput {
+        let summary = "已写入 Notes。"
+        return V4ToolExecutionOutput(
+            outputText: summary,
+            evidenceSummary: "apple.notes.create note_id=\(evidence)",
+            rawPayload: .object(
+                [
+                    "title": .string(title),
+                    "bodyPreview": .string(String(body.prefix(80))),
+                    "noteID": .string(evidence),
+                    "summary": .string(summary),
+                    "usedFallback": .boolean(usedFallback)
+                ]
+            )
+        )
+    }
+
+    private func createNoteViaAppleScript(
+        title: String,
+        body: String
+    ) async -> MagicianProcessResult {
+        await runOsaScript(
             lines: [
                 "on run argv",
                 "set noteTitle to item 1 of argv",
@@ -72,42 +156,32 @@ struct V4AppleNotesTool: V4Tool {
             ],
             arguments: [title, body]
         )
+    }
 
-        guard creation.exitCode == 0 else {
-            throw V4ToolError(
-                code: .toolExecutionFailed,
-                toolID: spec.toolID,
-                messageForUser: "写入 Notes 失败，请检查自动化权限后再试。",
-                messageForDebug: creation.detail,
-                recoverAction: "open_notes_automation_permission",
-                isRetryable: false
-            )
-        }
-
-        guard let evidence = await resolveNoteEvidence(title: title, body: body, primaryEvidence: creation.stdout) else {
-            throw V4ToolError(
-                code: .toolExecutionFailed,
-                toolID: spec.toolID,
-                messageForUser: "Notes 已响应，但没拿到可核验的结果，请再试一次。",
-                messageForDebug: "note evidence missing after create; stdout=\(creation.stdout)",
-                recoverAction: "retry_command",
-                isRetryable: false
-            )
-        }
-
-        let summary = "已在 Notes 创建笔记《\(title)》。"
-        return V4ToolExecutionOutput(
-            outputText: summary,
-            evidenceSummary: "apple.notes.create \(evidence)",
-            rawPayload: .object(
-                [
-                    "title": .string(title),
-                    "bodyPreview": .string(String(body.prefix(80))),
-                    "noteID": .string(evidence),
-                    "summary": .string(summary)
-                ]
-            )
+    private func runShortcut(
+        name: String,
+        inputText: String
+    ) async -> MagicianProcessResult {
+        let executable = MagicianCreateNoteShortcutSupport.shortcutsExecutablePath
+        let result = await runProcess(
+            executablePath: executable,
+            arguments: ["run", name, "--input-text", inputText]
         )
+        return result
+    }
+
+    private func runShortcutViaURLScheme(
+        name: String,
+        inputText: String
+    ) -> Bool {
+        guard
+            let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+            let encodedInput = inputText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+            let url = URL(string: "shortcuts://run-shortcut?name=\(encodedName)&input=text&text=\(encodedInput)")
+        else {
+            return false
+        }
+        return NSWorkspace.shared.open(url)
     }
 
     private func resolveNoteEvidence(

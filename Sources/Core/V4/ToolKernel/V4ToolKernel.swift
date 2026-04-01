@@ -5,17 +5,23 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
     private let permissionGate: any V4ToolPermissionChecking
     private let hookPipeline: any V4ToolHookRunning
     private let evidenceNormalizer: V4EvidenceNormalizer
+    private let errorCatalog: V4ToolErrorCatalog
+    private let evidencePolicy: V4ToolEvidencePolicy
 
     init(
         registry: V4ToolRegistry = .live(),
         permissionGate: any V4ToolPermissionChecking = V4PermissionGate(),
         hookPipeline: any V4ToolHookRunning = V4ToolHookPipeline(),
-        evidenceNormalizer: V4EvidenceNormalizer = V4EvidenceNormalizer()
+        evidenceNormalizer: V4EvidenceNormalizer = V4EvidenceNormalizer(),
+        errorCatalog: V4ToolErrorCatalog = V4ToolErrorCatalog(),
+        evidencePolicy: V4ToolEvidencePolicy = V4ToolEvidencePolicy()
     ) {
         self.registry = registry
         self.permissionGate = permissionGate
         self.hookPipeline = hookPipeline
         self.evidenceNormalizer = evidenceNormalizer
+        self.errorCatalog = errorCatalog
+        self.evidencePolicy = evidencePolicy
     }
 
     func execute(
@@ -46,14 +52,7 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
         let startedAt = Date()
 
         guard let tool = registry.tool(for: toolUse.toolName) else {
-            let error = V4ToolError(
-                code: .invalidRequest,
-                toolID: toolUse.toolID,
-                messageForUser: "当前还没有名为 `\(toolUse.toolID)` 的工具。",
-                messageForDebug: "tool spec missing in registry",
-                recoverAction: "check_tool_registry",
-                isRetryable: false
-            )
+            let error = errorCatalog.missingTool(toolID: toolUse.toolID)
             return evidenceNormalizer.normalize(
                 toolUse: toolUse,
                 status: .failed,
@@ -65,19 +64,13 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
                 error: error
             )
         }
+        let manifest = registry.manifest(for: tool.spec.toolID) ?? V4ToolManifest.derived(from: tool.spec)
 
         let parsedArguments: V4ToolArguments
         do {
             parsedArguments = try decodeArguments(from: toolUse.inputJSON)
         } catch {
-            let normalizedError = V4ToolError(
-                code: .toolValidationFailed,
-                toolID: toolUse.toolID,
-                messageForUser: "工具输入不是合法 JSON。",
-                messageForDebug: String(describing: error),
-                recoverAction: "fix_tool_input",
-                isRetryable: false
-            )
+            let normalizedError = errorCatalog.invalidJSON(toolID: toolUse.toolID, error: error)
             return evidenceNormalizer.normalize(
                 toolUse: toolUse,
                 status: .failed,
@@ -92,13 +85,10 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
 
         let schemaIssues = tool.spec.inputSchema.validate(arguments: parsedArguments)
         if !schemaIssues.isEmpty {
-            let normalizedError = V4ToolError(
-                code: .toolValidationFailed,
+            let normalizedError = errorCatalog.schemaValidationFailure(
                 toolID: toolUse.toolID,
-                messageForUser: schemaIssues.joined(separator: " "),
-                messageForDebug: "schema validation failed: \(schemaIssues.joined(separator: " | "))",
-                recoverAction: "fix_tool_input",
-                isRetryable: false
+                issues: schemaIssues,
+                payload: V4ToolValue.object(parsedArguments)
             )
             return evidenceNormalizer.normalize(
                 toolUse: toolUse,
@@ -113,13 +103,9 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
         }
 
         if let semanticFailure = await tool.validateSemanticInput(arguments: parsedArguments, context: context) {
-            let normalizedError = V4ToolError(
-                code: semanticFailure.code,
+            let normalizedError = errorCatalog.semanticValidationFailure(
                 toolID: toolUse.toolID,
-                messageForUser: semanticFailure.messageForUser,
-                messageForDebug: semanticFailure.messageForDebug,
-                recoverAction: semanticFailure.recoverAction,
-                isRetryable: false
+                failure: semanticFailure
             )
             return evidenceNormalizer.normalize(
                 toolUse: toolUse,
@@ -135,13 +121,9 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
 
         let permissionDecision = await permissionGate.evaluate(spec: tool.spec, request: context.request)
         if permissionDecision.behavior != .allow {
-            let normalizedError = V4ToolError(
-                code: .permissionDenied,
+            let normalizedError = errorCatalog.permissionDenied(
                 toolID: toolUse.toolID,
-                messageForUser: permissionDecision.userMessage ?? "当前没有权限执行该工具。",
-                messageForDebug: permissionDecision.reason,
-                recoverAction: "enable_feature_scope",
-                isRetryable: false
+                decision: permissionDecision
             )
             return evidenceNormalizer.normalize(
                 toolUse: toolUse,
@@ -172,6 +154,29 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
                 output: executionOutput,
                 context: context
             )
+            if let evidenceError = evidencePolicy.validate(
+                output: postHookResult.output,
+                manifest: manifest,
+                toolID: toolUse.toolID,
+                errorCatalog: errorCatalog
+            ) {
+                let normalizedError = errorCatalog.applyingRetryPolicy(
+                    to: evidenceError,
+                    manifest: manifest,
+                    attemptCount: context.step.attemptCount
+                )
+                await hookPipeline.runFailureHooks(toolUse: toolUse, error: normalizedError, context: context)
+                return evidenceNormalizer.normalize(
+                    toolUse: toolUse,
+                    status: .failed,
+                    outputText: nil,
+                    evidenceLines: [postHookResult.output.evidenceSummary],
+                    rawPayload: postHookResult.output.rawPayload,
+                    startedAt: startedAt,
+                    finishedAt: Date(),
+                    error: normalizedError
+                )
+            }
 
             return evidenceNormalizer.normalize(
                 toolUse: toolUse,
@@ -184,7 +189,12 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
                 error: nil
             )
         } catch {
-            let normalizedError = normalize(error: error, toolID: toolUse.toolID)
+            let normalizedError = normalize(
+                error: error,
+                toolID: toolUse.toolID,
+                manifest: manifest,
+                attemptCount: context.step.attemptCount
+            )
             await hookPipeline.runFailureHooks(toolUse: toolUse, error: normalizedError, context: context)
             return evidenceNormalizer.normalize(
                 toolUse: toolUse,
@@ -249,6 +259,27 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
                 "title": .string(defaultNoteTitle(from: preferredText)),
                 "body": .string(preferredText)
             ]
+        case "apple.calendar.create":
+            return [
+                "command": .string(step.inputSummary.nilIfEmpty ?? request.inputText),
+                "title": .string(defaultNoteTitle(from: preferredText))
+            ]
+        case "apple.mail.compose":
+            return [
+                "command": .string(step.inputSummary.nilIfEmpty ?? request.inputText),
+                "subject": .string(defaultMailSubject(from: preferredText)),
+                "body": .string(preferredText),
+                "deliveryMode": .string(MagicianMailDeliveryMode.draftOnly.rawValue)
+            ]
+        case "apple.music.control":
+            return [
+                "command": .string(step.inputSummary.nilIfEmpty ?? request.inputText)
+            ]
+        case "feishu.cli":
+            return [
+                "command": .string(step.inputSummary.nilIfEmpty ?? request.inputText),
+                "arguments": .array([])
+            ]
         case "shell.command.run":
             return [
                 "command": .string("/bin/echo"),
@@ -272,6 +303,14 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
             return "PulseType 速记"
         }
         return String(trimmed.prefix(40))
+    }
+
+    private func defaultMailSubject(from body: String) -> String {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "邮件草稿"
+        }
+        return String(trimmed.prefix(48))
     }
 
     private func decodeArguments(from inputJSON: String) throws -> V4ToolArguments {
@@ -303,38 +342,17 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
         return string
     }
 
-    private func normalize(error: Error, toolID: String) -> V4ToolError {
-        if let toolError = error as? V4ToolError {
-            return toolError
-        }
-
-        if let magicianError = error as? MagicianError {
-            let failureCode: V4FailureCode
-            switch magicianError.code {
-            case .permissionDenied:
-                failureCode = .permissionDenied
-            case .intentParseFailed:
-                failureCode = .toolValidationFailed
-            default:
-                failureCode = .toolExecutionFailed
-            }
-            return V4ToolError(
-                code: failureCode,
-                toolID: toolID,
-                messageForUser: magicianError.userMessage,
-                messageForDebug: magicianError.debugMessage ?? magicianError.code.rawValue,
-                recoverAction: magicianError.recoverAction,
-                isRetryable: false
-            )
-        }
-
-        return V4ToolError(
-            code: .toolExecutionFailed,
-            toolID: toolID,
-            messageForUser: "工具执行失败，请稍后再试。",
-            messageForDebug: String(describing: error),
-            recoverAction: "retry_command",
-            isRetryable: false
+    private func normalize(
+        error: Error,
+        toolID: String,
+        manifest: V4ToolManifest,
+        attemptCount: Int
+    ) -> V4ToolError {
+        let normalized = errorCatalog.normalize(error: error, toolID: toolID)
+        return errorCatalog.applyingRetryPolicy(
+            to: normalized,
+            manifest: manifest,
+            attemptCount: attemptCount
         )
     }
 }

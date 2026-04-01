@@ -1,0 +1,324 @@
+import Foundation
+
+struct V4MusicControlTool: V4Tool {
+    enum Action: String, Equatable, Sendable {
+        case play
+        case pause
+        case resume
+        case next
+        case previous
+    }
+
+    struct Command: Equatable, Sendable {
+        let action: Action
+        let query: String?
+    }
+
+    struct ResultPayload: Equatable, Sendable {
+        let action: Action
+        let state: String
+        let track: String?
+        let artist: String?
+        let evidence: String
+    }
+
+    typealias ExecuteHandler = @Sendable (Command) async throws -> ResultPayload
+
+    let spec = V4ToolSpec(
+        toolName: "apple.music.control",
+        displayName: "控制音乐",
+        summary: "控制本机 Music 播放、暂停、继续与切歌，并返回播放证据。",
+        supportedLanes: V4Lane.allCases,
+        inputSchemaVersion: "v1",
+        inputSchema: V4ToolInputSchema(
+            fields: [
+                V4ToolInputField(name: "command", kind: .string, summary: "原始命令"),
+                V4ToolInputField(name: "query", kind: .string, isRequired: false, summary: "播放目标")
+            ]
+        ),
+        requiresPermission: true,
+        permissionScope: .appleNativeApps,
+        isConcurrencySafe: false,
+        mutatesUserData: true,
+        supportsStreamingResults: false
+    )
+
+    private let executeHandler: ExecuteHandler
+    private let errorCatalog = V4ToolErrorCatalog()
+
+    init(executeHandler: ExecuteHandler? = nil) {
+        self.executeHandler = executeHandler ?? Self.liveExecuteHandler()
+    }
+
+    func validateSemanticInput(
+        arguments: V4ToolArguments,
+        context _: V4ToolExecutionContext
+    ) async -> V4ToolSemanticValidationFailure? {
+        let command = arguments.string(for: "command")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !command.isEmpty else {
+            return V4ToolSemanticValidationFailure(
+                messageForUser: "`command` 不能为空。",
+                messageForDebug: "music command empty"
+            )
+        }
+        return nil
+    }
+
+    func execute(
+        arguments: V4ToolArguments,
+        context _: V4ToolExecutionContext
+    ) async throws -> V4ToolExecutionOutput {
+        let resolved = resolveCommand(arguments: arguments)
+        let result = try await executeHandler(resolved)
+        let outputText: String
+        if let track = result.track {
+            if let artist = result.artist, !artist.isEmpty {
+                outputText = "已开始播放：\(artist) - \(track)"
+            } else {
+                outputText = "已开始播放：\(track)"
+            }
+        } else {
+            switch result.action {
+            case .pause:
+                outputText = "已暂停播放"
+            case .resume:
+                outputText = "已继续播放"
+            case .next:
+                outputText = "已切到下一首"
+            case .previous:
+                outputText = "已切到上一首"
+            case .play:
+                outputText = "已开始播放"
+            }
+        }
+
+        return V4ToolExecutionOutput(
+            outputText: outputText,
+            evidenceSummary: "apple.music.control action=\(result.action.rawValue) state=\(result.state)",
+            rawPayload: .object(
+                [
+                    "action": .string(result.action.rawValue),
+                    "state": .string(result.state),
+                    "track": result.track.map(V4ToolValue.string) ?? .null,
+                    "artist": result.artist.map(V4ToolValue.string) ?? .null,
+                    "evidence": .string(result.evidence),
+                    "summary": .string(outputText)
+                ]
+            )
+        )
+    }
+
+    private func resolveCommand(arguments: V4ToolArguments) -> Command {
+        let explicitQuery = arguments.string(for: "query")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let command = arguments.string(for: "command") ?? ""
+        let lowered = command.lowercased()
+
+        if containsAny(lowered, keywords: ["暂停", "pause", "停止播放", "停一下"]) {
+            return Command(action: .pause, query: nil)
+        }
+        if containsAny(lowered, keywords: ["继续", "恢复", "resume", "继续播放"]) {
+            return Command(action: .resume, query: nil)
+        }
+        if containsAny(lowered, keywords: ["下一首", "下一曲", "next", "切歌"]) {
+            return Command(action: .next, query: nil)
+        }
+        if containsAny(lowered, keywords: ["上一首", "上一曲", "previous", "prev"]) {
+            return Command(action: .previous, query: nil)
+        }
+        if let explicitQuery, !explicitQuery.isEmpty {
+            return Command(action: .play, query: explicitQuery)
+        }
+        let inferredQuery = magicianMusicSearchQueries(from: command).first
+        return Command(action: .play, query: inferredQuery)
+    }
+
+    private func containsAny(_ value: String, keywords: [String]) -> Bool {
+        keywords.contains { value.contains($0) }
+    }
+
+    private static func liveExecuteHandler() -> ExecuteHandler {
+        { command in
+            guard MagicianMusicCapability.musicAppAvailable else {
+                throw V4ToolErrorCatalog().bridgeNotReady(
+                    toolID: "apple.music.control",
+                    userMessage: "Music 不可用，请先打开音乐应用。",
+                    debugMessage: "music app unavailable",
+                    recoverAction: "open_music_app"
+                )
+            }
+
+            let warmup = await runOsaScript(
+                lines: [
+                    "tell application \"Music\"",
+                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false, timeoutSeconds: 12) + [
+                    "set ready to false",
+                    "repeat with idx from 1 to 12",
+                    "try",
+                    "set _count to (count of tracks of library playlist 1)",
+                    "set ready to true",
+                    "exit repeat",
+                    "on error",
+                    "delay 0.12",
+                    "end try",
+                    "end repeat",
+                    "if ready then return \"library_ready\"",
+                    "return \"library_pending\"",
+                    "end tell"
+                ],
+                arguments: []
+            )
+            guard warmup.exitCode == 0 else {
+                throw V4ToolErrorCatalog().executionFailure(
+                    toolID: "apple.music.control",
+                    userMessage: "Music 启动失败，请确认应用可正常打开后再试。",
+                    debugMessage: warmup.detail,
+                    recoverAction: "open_music_app"
+                )
+            }
+
+            let process = await runLiveCommand(command)
+            guard process.exitCode == 0 else {
+                throw V4ToolErrorCatalog().executionFailure(
+                    toolID: "apple.music.control",
+                    userMessage: "音乐控制失败，请确认 Music 已启动且曲库可访问后再试。",
+                    debugMessage: process.detail,
+                    recoverAction: "open_music_app"
+                )
+            }
+
+            let output = process.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            if command.action == .play, let query = command.query, !query.isEmpty {
+                if output == "track_not_found" {
+                    throw V4ToolErrorCatalog().executionFailure(
+                        toolID: "apple.music.control",
+                        userMessage: "未在 Music 搜索里找到这首歌，请确认歌名后再试。",
+                        debugMessage: "no matched track for query: \(query)",
+                        recoverAction: "open_music_app",
+                        isRetryable: false
+                    )
+                }
+                if !magicianMusicEvidenceMatchesQuery(output: output, query: query) {
+                    throw V4ToolErrorCatalog().missingEvidence(
+                        toolID: "apple.music.control",
+                        requirement: .summary,
+                        debugMessage: "music evidence mismatch; query=\(query); output=\(output)"
+                    )
+                }
+            }
+
+            let parsed = parseEvidence(output)
+            return ResultPayload(
+                action: command.action,
+                state: parsed.state ?? command.action.rawValue,
+                track: parsed.track,
+                artist: parsed.artist,
+                evidence: output.isEmpty ? "state=\(command.action.rawValue)" : output
+            )
+        }
+    }
+
+    private static func runLiveCommand(_ command: Command) async -> MagicianProcessResult {
+        switch command.action {
+        case .play:
+            if let query = command.query, !query.isEmpty {
+                for item in magicianMusicSearchQueries(from: query) {
+                    let result = await runOsaScript(
+                        lines: [
+                            "on run argv",
+                            "set keywordText to item 1 of argv",
+                            "tell application \"Music\"",
+                        ] + magicianEnsureApplicationReadyAppleScriptLines() + [
+                            "search for keywordText only songs",
+                            "play search results",
+                            "delay 0.8",
+                            "set nowTrack to current track",
+                            "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|state=play\"",
+                            "end tell",
+                            "end run"
+                        ],
+                        arguments: [item]
+                    )
+                    if result.exitCode == 0, result.stdout.hasPrefix("track=") {
+                        return result
+                    }
+                }
+                return MagicianProcessResult(exitCode: 0, stdout: "track_not_found", stderr: "")
+            }
+            return await runOsaScript(
+                lines: [
+                    "tell application \"Music\"",
+                ] + magicianEnsureApplicationReadyAppleScriptLines() + [
+                    "play",
+                    "return \"state=play\"",
+                    "end tell"
+                ],
+                arguments: []
+            )
+
+        case .pause:
+            return await runOsaScript(
+                lines: [
+                    "tell application \"Music\"",
+                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+                    "pause",
+                    "return \"state=pause\"",
+                    "end tell"
+                ],
+                arguments: []
+            )
+
+        case .resume:
+            return await runOsaScript(
+                lines: [
+                    "tell application \"Music\"",
+                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+                    "play",
+                    "return \"state=resume\"",
+                    "end tell"
+                ],
+                arguments: []
+            )
+
+        case .next:
+            return await runOsaScript(
+                lines: [
+                    "tell application \"Music\"",
+                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+                    "next track",
+                    "return \"state=next\"",
+                    "end tell"
+                ],
+                arguments: []
+            )
+
+        case .previous:
+            return await runOsaScript(
+                lines: [
+                    "tell application \"Music\"",
+                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+                    "previous track",
+                    "return \"state=previous\"",
+                    "end tell"
+                ],
+                arguments: []
+            )
+        }
+    }
+
+    private static func parseEvidence(_ output: String) -> (state: String?, track: String?, artist: String?) {
+        var state: String?
+        var track: String?
+        var artist: String?
+        let parts = output.split(separator: "|").map(String.init)
+        for part in parts {
+            if part.hasPrefix("state=") {
+                state = String(part.dropFirst("state=".count))
+            } else if part.hasPrefix("track=") {
+                track = String(part.dropFirst("track=".count))
+            } else if part.hasPrefix("artist=") {
+                artist = String(part.dropFirst("artist=".count))
+            }
+        }
+        return (state, track, artist)
+    }
+}

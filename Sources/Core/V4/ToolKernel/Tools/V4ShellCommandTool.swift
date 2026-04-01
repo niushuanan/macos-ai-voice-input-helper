@@ -22,6 +22,7 @@ struct V4ShellCommandTool: V4Tool {
 
     let spec: V4ToolSpec
     private let allowlist: Set<String>
+    private let errorCatalog = V4ToolErrorCatalog()
 
     init(allowlist: Set<String> = V4ShellCommandTool.defaultAllowlist) {
         self.allowlist = allowlist
@@ -82,6 +83,16 @@ struct V4ShellCommandTool: V4Tool {
         let args = arguments.stringArray(for: "arguments") ?? []
         let resolvedCommand = resolvedExecutablePath(for: command)
         let process = await runProcess(executablePath: resolvedCommand, arguments: args)
+
+        guard process.exitCode == 0 else {
+            throw errorCatalog.executionFailure(
+                toolID: spec.toolID,
+                userMessage: "命令执行失败，请检查参数后再试。",
+                debugMessage: process.detail,
+                recoverAction: "retry_command",
+                isRetryable: false
+            )
+        }
 
         let outputText = [
             "exit_code=\(process.exitCode)",

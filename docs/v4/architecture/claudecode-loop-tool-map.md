@@ -36,6 +36,27 @@
 7. 现有 Model slots 数据源：`/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/Speech/ProviderSettingsStore.swift`
 8. 现有 Memory seed：`/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/History/LocalHistoryStore.swift`
 
+## Window 09 ToolKernel 对位表
+
+| 旧能力 / 产品动作 | V4 toolID | 主实现文件 | manifest 约束 | legacy 状态 |
+| --- | --- | --- | --- | --- |
+| 建日程 | `apple.calendar.create` | `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/V4/ToolKernel/Tools/V4CalendarCreateTool.swift` | `domain=calendar`；`scope=appleNativeApps`；单次 retry；结构化 evidence 必须带 `eventID/startAt/endAt` | `MagicianToolExecutor` 只做桥接，不再直接碰 `EventKit` |
+| 写备忘录 | `apple.notes.create` | `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/V4/ToolKernel/Tools/V4AppleNotesTool.swift` | `domain=notes`；`scope=appleNativeApps`；单次 retry；结构化 evidence 必须带 `noteID` | 旧 Notes/Shortcuts 分支已搬离 executor 主体 |
+| 写邮件 / 发邮件 | `apple.mail.compose` | `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/V4/ToolKernel/Tools/V4MailComposeTool.swift` | `domain=mail`；`scope=mail`；单次 retry；结构化 evidence 必须带 `mailStatus` | 旧 runtime 仍经桥接入口进入 V4 |
+| 控制音乐 | `apple.music.control` | `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/V4/ToolKernel/Tools/V4MusicControlTool.swift` | `domain=music`；`scope=appleNativeApps`；单次 retry；必须回传 evidence summary | 旧 Music adapter 已退出主链 |
+| 飞书 CLI | `feishu.cli` | `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/V4/ToolKernel/Tools/V4FeishuCLITool.swift` | `domain=feishu`；`scope=cli`；双 retry；结构化 evidence 必须带 `operation/evidenceID` | 旧 executor 内嵌分支已移除 |
+| Shell 命令 | `shell.command.run` | `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/V4/ToolKernel/Tools/V4ShellCommandTool.swift` | `domain=shell`；`scope=cli`；不 retry；结构化 evidence 必须带 `command/exitCode` | 已由 ToolKernel 直跑 |
+| AppleScript | `applescript.run` | `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/V4/ToolKernel/Tools/V4AppleScriptTool.swift` | `domain=automation`；`scope=appleNativeApps`；单次 retry；结构化 evidence 必须带 `stdout/exitCode` | 已由 ToolKernel 直跑 |
+| 时光机记录 | `time_machine.create` | `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/V4/ToolKernel/Tools/V4TimeMachineCreateTool.swift` | `domain=time_machine`；不 retry；结构化 evidence 必须带 `itemID` | Window 08 已接进 V4 |
+| 时光机提醒 | `time_machine.remind` | `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/V4/ToolKernel/Tools/V4TimeMachineRemindTool.swift` | `domain=time_machine`；不 retry；结构化 evidence 必须带 `itemID` | Window 08 已接进 V4 |
+
+manifest / 检索入口：
+
+1. `V4ToolManifest` 定义 `toolID / displayName / domain / requiredScope / inputSchemaSummary / isConcurrencySafe / supportsRetry / evidenceRequirement`。
+2. `V4ToolManifestIndex` 提供 `search(keyword:)` 与 `list(by:)`。
+3. `V4ToolRegistry` 现在同时暴露 tool spec、tool 实体、manifest 查询与 live manifest 装配。
+4. `V4ToolKernel` 在执行期统一套用 `V4ToolRetryPolicy`、`V4ToolEvidencePolicy`、`V4ToolErrorCatalog`。
+
 ## 迁移动作总判断
 
 1. 保留：`SessionStore`、`ProviderSettingsStore`、`SkillRuleStore`、`ASRDictionaryStore`、`LocalHistoryStore` 先保留为桥接层。

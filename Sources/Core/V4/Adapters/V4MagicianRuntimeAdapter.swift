@@ -40,7 +40,8 @@ final class V4MagicianRuntimeAdapter: MagicianAgentRunning, V4MagicianRuntimeRun
         let resolvedKernel = toolKernel ?? V4ToolKernel(
             registry: .live(
                 modelSlotManager: providerSettingsBridge == nil ? nil : modelSlotManager,
-                timeMachineService: timeMachineService
+                timeMachineService: timeMachineService,
+                providerSettingsStore: providerSettingsStore
             ),
             permissionGate: V4PermissionGate(featureToggleStore: featureToggleStore)
         )

@@ -48,7 +48,7 @@ enum MagicianMusicCapability {
     }
 }
 
-struct MagicianCreateNoteShortcutSupport {
+struct MagicianCreateNoteShortcutSupport: @unchecked Sendable {
     static let shortcutsExecutablePath = "/usr/bin/shortcuts"
     static let shortcutNameDefaultsKey = "magician.shortcuts.create_note.name.v1"
     static let defaultShortcutName = "PulseType-写入备忘录"
