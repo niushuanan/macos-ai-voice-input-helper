@@ -51,6 +51,22 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
     ) async throws -> V4ToolExecutionOutput {
         let title = arguments.string(for: "title") ?? ""
         let body = arguments.string(for: "body") ?? ""
+        let command = arguments.string(for: "command") ?? ""
+
+        if magicianIsDryRunCommand(command) {
+            return V4ToolExecutionOutput(
+                outputText: "演练完成：将写入 Notes。",
+                evidenceSummary: "apple.notes.create dry_run=true",
+                rawPayload: .object(
+                    [
+                        "title": .string(title),
+                        "bodyPreview": .string(String(body.prefix(80))),
+                        "dryRun": .boolean(true),
+                        "summary": .string("演练完成：将写入 Notes。")
+                    ]
+                )
+            )
+        }
 
         guard MagicianNotesCapability.notesAppAvailable else {
             throw errorCatalog.bridgeNotReady(
@@ -61,22 +77,53 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
             )
         }
 
-        let creation = await createNoteViaAppleScript(title: title, body: body)
-        if creation.exitCode == 0,
-           let evidence = await resolveNoteEvidence(title: title, body: body, primaryEvidence: creation.stdout)
+        let shortcutName = MagicianCreateNoteShortcutSupport().shortcutName
+        let shortcutPayload = """
+        {"title":"\(title.replacingOccurrences(of: "\"", with: "\\\""))","body":"\(body.replacingOccurrences(of: "\"", with: "\\\""))"}
+        """
+        let chain = await runMagicianAutomationChain(
+            [
+                MagicianAutomationStep(
+                    layer: .shortcuts,
+                    run: {
+                        await runShortcut(
+                            name: shortcutName,
+                            inputText: shortcutPayload,
+                            timeoutSeconds: 9
+                        )
+                    },
+                    success: { $0.exitCode == 0 }
+                ),
+                MagicianAutomationStep(
+                    layer: .appleScript,
+                    run: { await self.createNoteViaAppleScript(title: title, body: body) },
+                    success: { $0.exitCode == 0 }
+                )
+            ]
+        )
+
+        if
+            let chain,
+            let evidence = await resolveNoteEvidence(title: title, body: body, primaryEvidence: chain.processResult.stdout)
         {
             return makeOutput(
                 title: title,
                 body: body,
-                evidence: evidence
+                evidence: evidence,
+                layer: chain.layer,
+                attempts: chain.attempts
             )
         }
 
+        let failureDebug = chain.map { magicianAutomationDebugSummary(from: $0.attempts) } ?? "notes chain empty"
+        let recoverAction = magicianLooksLikeAutomationPermissionDenied(failureDebug)
+            ? "open_notes_automation_permission"
+            : "open_notes_app"
         throw errorCatalog.executionFailure(
             toolID: spec.toolID,
             userMessage: "写入 Notes 失败，请检查自动化权限后再试。",
-            debugMessage: creation.detail,
-            recoverAction: "open_notes_automation_permission",
+            debugMessage: failureDebug,
+            recoverAction: recoverAction,
             isRetryable: false
         )
     }
@@ -84,7 +131,9 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
     private func makeOutput(
         title: String,
         body: String,
-        evidence: String
+        evidence: String,
+        layer: MagicianAutomationLayer,
+        attempts: [MagicianAutomationAttempt]
     ) -> V4ToolExecutionOutput {
         let summary = "已写入 Notes。"
         return V4ToolExecutionOutput(
@@ -95,6 +144,8 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
                     "title": .string(title),
                     "bodyPreview": .string(String(body.prefix(80))),
                     "noteID": .string(evidence),
+                    "layer": .string(layer.rawValue),
+                    "attempts": .string(magicianAutomationDebugSummary(from: attempts)),
                     "summary": .string(summary)
                 ]
             )

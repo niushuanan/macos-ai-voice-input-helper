@@ -15,6 +15,32 @@ struct MagicianProcessResult {
     }
 }
 
+enum MagicianAutomationLayer: String, Sendable {
+    case eventKit = "eventkit"
+    case shortcuts = "shortcuts"
+    case appleScript = "applescript"
+    case uiScripting = "ui_scripting"
+}
+
+struct MagicianAutomationAttempt: Sendable {
+    let layer: MagicianAutomationLayer
+    let exitCode: Int32
+    let durationMS: Int
+    let detail: String
+}
+
+struct MagicianAutomationChainResult: Sendable {
+    let processResult: MagicianProcessResult
+    let layer: MagicianAutomationLayer
+    let attempts: [MagicianAutomationAttempt]
+}
+
+struct MagicianAutomationStep: Sendable {
+    let layer: MagicianAutomationLayer
+    let run: @Sendable () async -> MagicianProcessResult
+    let success: @Sendable (MagicianProcessResult) -> Bool
+}
+
 func runProcess(
     executablePath: String,
     arguments: [String]
@@ -52,7 +78,9 @@ func runProcess(
 
 func runOsaScript(
     lines: [String],
-    arguments: [String]
+    arguments: [String],
+    timeoutSeconds: TimeInterval = 12,
+    maxOutputCharacters: Int = 4_000
 ) async -> MagicianProcessResult {
     var commandArguments: [String] = []
     for line in lines {
@@ -61,10 +89,102 @@ func runOsaScript(
     }
     commandArguments.append("--")
     commandArguments.append(contentsOf: arguments)
-    return await runProcess(
+    return await runProcessWithTimeout(
         executablePath: "/usr/bin/osascript",
-        arguments: commandArguments
+        arguments: commandArguments,
+        timeoutSeconds: timeoutSeconds,
+        maxOutputCharacters: maxOutputCharacters
     )
+}
+
+func runShortcut(
+    name: String,
+    inputText: String?,
+    timeoutSeconds: TimeInterval = 12,
+    maxOutputCharacters: Int = 4_000
+) async -> MagicianProcessResult {
+    guard FileManager.default.isExecutableFile(atPath: "/usr/bin/shortcuts") else {
+        return MagicianProcessResult(exitCode: -1, stdout: "", stderr: "shortcuts cli unavailable")
+    }
+
+    var arguments = ["run", name]
+    var tempInputFileURL: URL?
+    if let inputText, !inputText.isEmpty {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pulsetype-shortcut-\(UUID().uuidString).txt", isDirectory: false)
+        do {
+            try inputText.write(to: fileURL, atomically: true, encoding: .utf8)
+            arguments.append(contentsOf: ["--input-path", fileURL.path])
+            tempInputFileURL = fileURL
+        } catch {
+            return MagicianProcessResult(exitCode: -1, stdout: "", stderr: "shortcut input write failed: \(error.localizedDescription)")
+        }
+    }
+    arguments.append(contentsOf: ["--output-path", "-"])
+
+    let result = await runProcessWithTimeout(
+        executablePath: "/usr/bin/shortcuts",
+        arguments: arguments,
+        timeoutSeconds: timeoutSeconds,
+        maxOutputCharacters: maxOutputCharacters
+    )
+
+    if let tempInputFileURL {
+        try? FileManager.default.removeItem(at: tempInputFileURL)
+    }
+    return result
+}
+
+func runMagicianAutomationChain(
+    _ steps: [MagicianAutomationStep]
+) async -> MagicianAutomationChainResult? {
+    var attempts: [MagicianAutomationAttempt] = []
+    for step in steps {
+        let startedAt = Date()
+        let result = await step.run()
+        let durationMS = Int(Date().timeIntervalSince(startedAt) * 1_000)
+        attempts.append(
+            MagicianAutomationAttempt(
+                layer: step.layer,
+                exitCode: result.exitCode,
+                durationMS: durationMS,
+                detail: result.detail
+            )
+        )
+        if step.success(result) {
+            return MagicianAutomationChainResult(
+                processResult: result,
+                layer: step.layer,
+                attempts: attempts
+            )
+        }
+    }
+    return nil
+}
+
+func magicianAutomationDebugSummary(from attempts: [MagicianAutomationAttempt]) -> String {
+    attempts.map { attempt in
+        "\(attempt.layer.rawValue):exit=\(attempt.exitCode),\(attempt.durationMS)ms,\(attempt.detail)"
+    }.joined(separator: " | ")
+}
+
+func magicianIsDryRunCommand(_ command: String) -> Bool {
+    let lowered = command.lowercased()
+    return lowered.contains("--dry-run")
+        || lowered.contains(" dry-run")
+        || lowered.contains(" dry run")
+        || lowered.contains("仅演练")
+        || lowered.contains("只演练")
+}
+
+func magicianLooksLikeAutomationPermissionDenied(_ detail: String) -> Bool {
+    let lowered = detail.lowercased()
+    return lowered.contains("not authorized")
+        || lowered.contains("not permitted")
+        || lowered.contains("(-1743)")
+        || lowered.contains("osstatus error -1743")
+        || lowered.contains("automation permission")
+        || lowered.contains("权限")
 }
 
 func magicianEnsureApplicationReadyAppleScriptLines(

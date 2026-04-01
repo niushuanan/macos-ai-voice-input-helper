@@ -268,6 +268,41 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         )
     }
 
+    func testMusicDryRunSkipsExecutionHandler() async throws {
+        let tool = V4MusicControlTool { _ in
+            XCTFail("dry run 不应触发执行器")
+            return V4MusicControlTool.ResultPayload(
+                action: .play,
+                state: "play",
+                track: nil,
+                artist: nil,
+                evidence: "state=play"
+            )
+        }
+
+        let output = try await tool.execute(
+            arguments: ["command": .string("播放稻香 --dry-run")],
+            context: makeContext(toolName: "apple.music.control")
+        )
+        XCTAssertTrue((output.outputText ?? "").contains("演练完成"))
+        XCTAssertEqual(output.evidenceSummary, "apple.music.control dry_run=true")
+    }
+
+    func testAppleNotesDryRunSkipsAutomation() async throws {
+        let tool = V4AppleNotesTool()
+        let output = try await tool.execute(
+            arguments: [
+                "command": .string("写入备忘录 --dry-run"),
+                "title": .string("测试标题"),
+                "body": .string("测试正文")
+            ],
+            context: makeContext(toolName: "apple.notes.create")
+        )
+
+        XCTAssertTrue((output.outputText ?? "").contains("演练完成"))
+        XCTAssertEqual(output.evidenceSummary, "apple.notes.create dry_run=true")
+    }
+
     func testCalendarCreateWithTimeParseFallback() async {
         let recorder = CalendarRequestRecorder()
         let tool = V4CalendarCreateTool { request in

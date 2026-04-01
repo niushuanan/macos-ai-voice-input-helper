@@ -69,6 +69,21 @@ struct V4MusicControlTool: V4Tool {
         context _: V4ToolExecutionContext
     ) async throws -> V4ToolExecutionOutput {
         let resolved = resolveCommand(arguments: arguments)
+        let commandText = arguments.string(for: "command") ?? ""
+        if magicianIsDryRunCommand(commandText) {
+            return V4ToolExecutionOutput(
+                outputText: "演练完成：将执行音乐控制（\(resolved.action.rawValue)）。",
+                evidenceSummary: "apple.music.control dry_run=true",
+                rawPayload: .object(
+                    [
+                        "action": .string(resolved.action.rawValue),
+                        "query": resolved.query.map(V4ToolValue.string) ?? .null,
+                        "dryRun": .boolean(true),
+                        "summary": .string("演练完成：将执行音乐控制（\(resolved.action.rawValue)）。")
+                    ]
+                )
+            )
+        }
         let result = try await executeHandler(resolved)
         let outputText: String
         if let track = result.track {
@@ -167,37 +182,44 @@ struct V4MusicControlTool: V4Tool {
                     "tell application \"Music\"",
                 ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false, timeoutSeconds: 12) + [
                     "set ready to false",
-                    "repeat with idx from 1 to 12",
+                    "repeat with idx from 1 to 6",
                     "try",
                     "set _count to (count of tracks of library playlist 1)",
                     "set ready to true",
                     "exit repeat",
                     "on error",
-                    "delay 0.12",
+                    "delay 0.08",
                     "end try",
                     "end repeat",
                     "if ready then return \"library_ready\"",
                     "return \"library_pending\"",
                     "end tell"
                 ],
-                arguments: []
+                arguments: [],
+                timeoutSeconds: 7
             )
             guard warmup.exitCode == 0 else {
+                let recoverAction = magicianLooksLikeAutomationPermissionDenied(warmup.detail)
+                    ? "open_music_automation_permission"
+                    : "open_music_app"
                 throw V4ToolErrorCatalog().executionFailure(
                     toolID: "apple.music.control",
                     userMessage: "Music 启动失败，请确认应用可正常打开后再试。",
                     debugMessage: warmup.detail,
-                    recoverAction: "open_music_app"
+                    recoverAction: recoverAction
                 )
             }
 
             let process = await runLiveCommand(command)
             guard process.exitCode == 0 else {
+                let recoverAction = magicianLooksLikeAutomationPermissionDenied(process.detail)
+                    ? "open_music_automation_permission"
+                    : "open_music_app"
                 throw V4ToolErrorCatalog().executionFailure(
                     toolID: "apple.music.control",
                     userMessage: "音乐控制失败，请确认 Music 已启动且曲库可访问后再试。",
                     debugMessage: process.detail,
-                    recoverAction: "open_music_app"
+                    recoverAction: recoverAction
                 )
             }
 

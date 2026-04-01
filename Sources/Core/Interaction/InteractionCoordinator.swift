@@ -2465,6 +2465,21 @@ final class InteractionCoordinator {
                 NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Music.app"))
             }
 
+        case "open_notes_app":
+            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Notes") {
+                NSWorkspace.shared.openApplication(
+                    at: appURL,
+                    configuration: NSWorkspace.OpenConfiguration()
+                ) { _, _ in }
+            } else {
+                NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Notes.app"))
+            }
+
+        case "open_notes_automation_permission", "open_music_automation_permission":
+            if let settingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
+                NSWorkspace.shared.open(settingsURL)
+            }
+
         case "open_feishu_auth":
             guard let backend = currentFeishuCLIAvailability().backend else {
                 toastPresenter?.show("未检测到飞书 CLI，请先安装或在设置页填写可执行路径。")
