@@ -36,7 +36,7 @@ defaults write com.niushuanan.PulseType magician.debug.useLegacyRuntime -bool tr
 export PULSETYPE_MAGICIAN_USE_LEGACY_RUNTIME=1
 ```
 
-识别为真的 ENV 值包括：`1`、`true`、`yes`、`on`、`debug`、`legacy``。
+识别为真的 ENV 值包括：`1`、`true`、`yes`、`on`、`debug`、`legacy`。
 
 关闭开关后，legacy 分支在 `InteractionCoordinator` 里不可达，日常主链只跑 V4。
 
@@ -108,4 +108,14 @@ cd "/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法"
 
 ### 自动发布
 
-待补。
+```bash
+cd "/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法"
+scripts/auto-ship.sh --message "core: default magician runtime to v4" --files PulseType.xcodeproj/project.pbxproj Sources/App/AppModel.swift Sources/Core/Interaction/InteractionCoordinator.swift Sources/Core/V4/Adapters/V4MagicianRuntimeAdapter.swift Sources/Core/V4/Adapters/V4ToHistoryBridge.swift Sources/Core/V4/Adapters/V4ToSessionStoreBridge.swift Sources/Core/V4/Adapters/V4RuntimeSwitchStore.swift Tests/InteractionCoordinatorTests.swift Tests/InteractionCoordinatorV4RoutingTests.swift docs/v4/architecture/v4-master-architecture.md docs/v4-handoff/window-05.md
+```
+
+结果：
+
+- 已完成 commit：`86f1f6a`
+- 已 push 到：`origin/codex/magician-agent-v2`
+- 已覆盖安装：`/Applications/PulseType.app`
+- 脚本默认跳过 test phase；本窗测试已在脚本前单独跑完并通过
