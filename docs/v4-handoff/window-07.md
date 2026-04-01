@@ -217,7 +217,10 @@ scripts/auto-ship.sh --message "core: unify v4 prompt stack and model slots" --f
 
 结果：
 
-- 待脚本执行后补写 commit SHA / branch / install 状态
+- 已完成 commit：`304f9a0`
+- 已 push 到：`origin/codex/magician-agent-v2`
+- 已覆盖安装：`/Applications/PulseType.app`
+- 脚本默认跳过 test phase；本窗测试已在脚本前单独跑完并通过
 
 ## 下一窗第一条动作
 
