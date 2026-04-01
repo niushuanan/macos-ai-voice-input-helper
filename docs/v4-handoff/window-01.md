@@ -56,3 +56,5 @@
 ## 本窗命令与结果
 - 命令：`cd "/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法" && ./scripts/test-magician-fast.sh`
 - 结果：通过。`xcodebuild` 退出码为 0，脚本输出 `[test] fast suite passed`。
+- 命令：`cd "/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法" && scripts/auto-ship.sh --message "docs: add v4 window 01 architecture blueprint" --files docs/v4/architecture/product-module-map.md docs/v4/architecture/claudecode-loop-tool-map.md docs/v4/architecture/v4-master-architecture.md docs/v4/architecture/v4-delete-plan-windowed.md docs/v4/architecture/v4-risk-register.md docs/v4-handoff/window-01.md Sources/Core/V4/README.md --with-test`
+- 结果：通过。`commit=73aa53c`，`branch=codex/magician-agent-v2`，`push=origin/codex/magician-agent-v2`，`install=/Applications/PulseType.app`。
