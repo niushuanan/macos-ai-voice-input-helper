@@ -9,14 +9,6 @@ protocol MagicianToolExecuting {
 }
 
 @MainActor
-protocol MagicianMailExecuting {
-    func execute(
-        intent: MagicianIntent,
-        context: MagicianExecutionContext
-    ) async throws -> MagicianExecutionResult
-}
-
-@MainActor
 // legacy executor: 只保留旧 runtime -> V4 ToolKernel 的桥接入口。
 final class MagicianToolExecutor: MagicianToolExecuting {
     private let providerSettingsStore: ProviderSettingsStore?
@@ -28,7 +20,6 @@ final class MagicianToolExecutor: MagicianToolExecuting {
         providerSettingsStore: ProviderSettingsStore? = nil,
         mailAddressBookStore: MailAddressBookStore? = nil,
         generationProvider: any TextGenerationProvider = OpenAITextGenerationProvider(),
-        mailAdapter _: (any MagicianMailExecuting)? = nil,
         cliRegistry: MagicianCLIRegistry = MagicianCLIRegistry()
     ) {
         self.providerSettingsStore = providerSettingsStore

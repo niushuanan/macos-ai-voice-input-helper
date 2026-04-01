@@ -2,6 +2,11 @@
 
 目标：UI 不动，交互入口不动，功能边界不减；把当前 `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/Interaction/InteractionCoordinator.swift` 里那条旧主链，换成 claudecode 风格的统一内核。
 
+状态更新（Window 10）：
+
+- V4 已默认启用，并且是魔术先生唯一默认主链。
+- legacy runtime 只保留 debug 显式开关兜底，不再默认初始化，不再承担日常执行。
+
 ## V4 目标目录
 
 ```text
@@ -196,7 +201,7 @@ Window 07 之后，V4 runtime 内部不再直接从 `SkillRuleStore`、`AppScene
 
 ### Interaction 接线图（V4 默认）
 
-Window 05 之后，`selectionRewrite` 的默认执行链已经切到 V4。`InteractionCoordinator` 还保留 legacy runtime，但只给 debug 兜底，不再是日常主链。
+Window 10 之后，`selectionRewrite` 的默认执行链已经固定为 V4。`InteractionCoordinator` 还保留 legacy runtime，但只给 debug 显式开关兜底，默认启动时不会主动初始化 legacy stack。
 
 ```mermaid
 flowchart TD
@@ -222,6 +227,7 @@ flowchart TD
 
 - `AppModel.bootstrap()` 统一创建 `V4RuntimeSwitchStore` 和 `V4MagicianRuntimeAdapter`，再注入 `InteractionCoordinator`。
 - `selectionRewrite` 在 debug 开关关闭时，只能走 `V4RuntimeSwitchStore.route(for:) == .v4`。
+- legacy debug 开关打开后，也只有真正进入 legacy route 时才会懒初始化旧 runtime；预检失败仍按 V4 默认主链记历史。
 - `unsupportedMixedExternal` 继续在 lane 判定后直接拦截，不能因为切到 V4 把混合命令保护绕开。
 - V4 运行中的事件统一经 `V4ToSessionStoreBridge` 映射到 `SessionStore/HUD`，最终 outcome 经 `V4ToHistoryBridge` 写入历史与 trace。
 - legacy runtime 仍保留在 `InteractionCoordinator`，但代码注释已标成 `legacy fallback only`，后续只给 debug 排查用。

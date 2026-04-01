@@ -51,7 +51,8 @@ struct V4RuntimeSwitchStore {
     }
 
     var defaultRuntimeVersion: Int {
-        isLegacyRuntimeEnabled ? 3 : 4
+        // 预检失败尚未进入 legacy runtime，本窗统一按 V4 默认主链记为 4。
+        4
     }
 
     private func truthy(_ value: String?) -> Bool {

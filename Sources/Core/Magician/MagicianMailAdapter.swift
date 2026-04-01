@@ -137,7 +137,7 @@ struct DefaultMagicianMailDraftFallbackOpener: MagicianMailDraftFallbackOpening 
 }
 
 @MainActor
-struct MagicianMailAdapter: MagicianMailExecuting {
+struct MagicianMailAdapter {
     private struct MailDraftSummary {
         let title: String
         let body: String

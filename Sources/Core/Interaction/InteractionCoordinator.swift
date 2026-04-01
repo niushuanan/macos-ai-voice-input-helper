@@ -25,10 +25,14 @@ final class InteractionCoordinator {
     private let v4SessionStoreBridge: V4ToSessionStoreBridge
     private let v4HistoryBridge: V4ToHistoryBridge
     private let v4MemoryPlannerInputAdapter: any V4MemoryQueryPlannerInputAdapting
-    // legacy fallback only
-    private let magicianNativeRuntime: any MagicianAgentRunning
-    // legacy fallback only
-    private let magicianAgentRuntime: any MagicianAgentRunning
+    // legacy fallback only, lazy-init when debug switch is explicitly enabled
+    private let legacyMailAddressBookStore: MailAddressBookStore
+    // legacy fallback only, lazy-init when debug switch is explicitly enabled
+    private var legacyToolExecutor: (any MagicianToolExecuting)?
+    // legacy fallback only, lazy-init when debug switch is explicitly enabled
+    private var magicianNativeRuntime: (any MagicianAgentRunning)?
+    // legacy fallback only, lazy-init when debug switch is explicitly enabled
+    private var magicianAgentRuntime: (any MagicianAgentRunning)?
     private let toastPresenter: ToastPresenter?
     private let dictationPostProcessor: DictationPostProcessor
     private let brainstormContextComposer: BrainstormContextComposer
@@ -94,11 +98,8 @@ final class InteractionCoordinator {
         self.workflowTelemetryReporter = workflowTelemetryReporter ?? WorkflowTelemetryReporter(
             speechPipelineLogger: speechPipelineLogger
         )
-        let resolvedMailAddressBookStore = mailAddressBookStore ?? MailAddressBookStore()
-        let resolvedToolExecutor = magicianToolExecutor ?? MagicianToolExecutor(
-            providerSettingsStore: providerSettingsStore,
-            mailAddressBookStore: resolvedMailAddressBookStore
-        )
+        self.legacyMailAddressBookStore = mailAddressBookStore ?? MailAddressBookStore()
+        self.legacyToolExecutor = magicianToolExecutor
         self.v4RuntimeSwitchStore = v4RuntimeSwitchStore ?? V4RuntimeSwitchStore()
         self.v4SessionStoreBridge = v4SessionStoreBridge ?? V4ToSessionStoreBridge()
         self.v4HistoryBridge = v4HistoryBridge
@@ -109,20 +110,8 @@ final class InteractionCoordinator {
             appScenePolicyStore: appScenePolicyStore,
             featureToggleStore: self.magicianFeatureToggleStore
         )
-        self.magicianNativeRuntime = magicianNativeRuntime ?? MagicianNativeRuntime(
-            providerSettingsStore: providerSettingsStore,
-            rewriteProviderRegistry: rewriteProviderRegistry,
-            textOutputCoordinator: textOutputCoordinator,
-            skillRuleStore: skillRuleStore,
-            toolExecutor: resolvedToolExecutor
-        )
-        self.magicianAgentRuntime = magicianAgentRuntime ?? MagicianAgentRuntimeV3(
-            providerSettingsStore: providerSettingsStore,
-            rewriteProviderRegistry: rewriteProviderRegistry,
-            textOutputCoordinator: textOutputCoordinator,
-            skillRuleStore: skillRuleStore,
-            toolExecutor: resolvedToolExecutor
-        )
+        self.magicianNativeRuntime = magicianNativeRuntime
+        self.magicianAgentRuntime = magicianAgentRuntime
         self.toastPresenter = toastPresenter
         self.dictationPostProcessor = dictationPostProcessor
         self.brainstormContextComposer = brainstormContextComposer
@@ -1728,16 +1717,6 @@ final class InteractionCoordinator {
         defer {
             clearPendingMagicianSelectionState()
         }
-        await outputSelectionRewriteV2(
-            transcription,
-            audioDurationSeconds: audioDurationSeconds
-        )
-    }
-
-    private func outputSelectionRewriteV2(
-        _ transcription: SpeechTranscriptionResult,
-        audioDurationSeconds: TimeInterval
-    ) async {
         let traceID = ensureTraceID()
         let rawInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialFocusContext = contextDetector.focusedAppContext()
@@ -2115,15 +2094,7 @@ final class InteractionCoordinator {
             enabledFeatures: enabledFeatures
         )
 
-        let selectedRuntime: any MagicianAgentRunning
-        switch runtimeRoute {
-        case .legacyNative:
-            // legacy fallback only
-            selectedRuntime = magicianNativeRuntime
-        case .legacyAgent:
-            // legacy fallback only
-            selectedRuntime = magicianAgentRuntime
-        case .v4:
+        guard let selectedRuntime = resolveLegacyRuntime(for: runtimeRoute) else {
             return
         }
 
@@ -2279,6 +2250,51 @@ final class InteractionCoordinator {
             sessionStore.fail(message: message)
             currentTraceID = nil
         }
+    }
+
+    private func resolveLegacyRuntime(for runtimeRoute: V4RuntimeRoute) -> (any MagicianAgentRunning)? {
+        switch runtimeRoute {
+        case .legacyNative:
+            if let magicianNativeRuntime {
+                return magicianNativeRuntime
+            }
+            let runtime = MagicianNativeRuntime(
+                providerSettingsStore: providerSettingsStore,
+                rewriteProviderRegistry: rewriteProviderRegistry,
+                textOutputCoordinator: textOutputCoordinator,
+                skillRuleStore: skillRuleStore,
+                toolExecutor: resolveLegacyToolExecutor()
+            )
+            magicianNativeRuntime = runtime
+            return runtime
+        case .legacyAgent:
+            if let magicianAgentRuntime {
+                return magicianAgentRuntime
+            }
+            let runtime = MagicianAgentRuntimeV3(
+                providerSettingsStore: providerSettingsStore,
+                rewriteProviderRegistry: rewriteProviderRegistry,
+                textOutputCoordinator: textOutputCoordinator,
+                skillRuleStore: skillRuleStore,
+                toolExecutor: resolveLegacyToolExecutor()
+            )
+            magicianAgentRuntime = runtime
+            return runtime
+        case .v4:
+            return nil
+        }
+    }
+
+    private func resolveLegacyToolExecutor() -> any MagicianToolExecuting {
+        if let legacyToolExecutor {
+            return legacyToolExecutor
+        }
+        let executor = MagicianToolExecutor(
+            providerSettingsStore: providerSettingsStore,
+            mailAddressBookStore: legacyMailAddressBookStore
+        )
+        legacyToolExecutor = executor
+        return executor
     }
 
     private func recordV4Telemetry(

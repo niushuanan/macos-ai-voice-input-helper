@@ -96,6 +96,49 @@ final class InteractionCoordinatorV4RoutingTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianRuntimeVersion, 2)
     }
 
+    func testPreflightFailureStillRecordsV4WhenLegacyDebugEnabled() async throws {
+        let v4Runtime = FakeV4MagicianRuntime(
+            outcome: makeCompletedOutcome(
+                goalSummary: "不应执行",
+                finalStatusMessage: "V4 不应被调用",
+                finalOutputText: nil,
+                evidenceSummary: "unused"
+            )
+        )
+        let legacyRuntime = FakeLegacyMagicianRuntime(
+            result: .failure(
+                MagicianError(
+                    code: .toolExecutionFailed,
+                    userMessage: "legacy 不应被调用",
+                    debugMessage: nil,
+                    recoverAction: nil
+                )
+            )
+        )
+        let fixture = try makeFixture(
+            v4Runtime: v4Runtime,
+            legacyNativeRuntime: legacyRuntime,
+            legacyAgentRuntime: legacyRuntime,
+            runtimeSwitchStore: V4RuntimeSwitchStore(
+                environment: [V4RuntimeSwitchStore.legacyRuntimeEnvironmentKey: "1"]
+            ),
+            transcriptionText: "发邮件给产品组并同步到飞书"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .composeEmailDraft)
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .feishuCLI)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(v4Runtime.callCount, 0)
+        XCTAssertEqual(legacyRuntime.callCount, 0)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianRuntimeVersion, 4)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .failed)
+    }
+
     func testLegacyRuntimeDisabledByDefault() async throws {
         let v4Runtime = FakeV4MagicianRuntime(
             outcome: makeCompletedOutcome(
