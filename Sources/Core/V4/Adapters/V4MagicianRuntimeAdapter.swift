@@ -15,6 +15,8 @@ final class V4MagicianRuntimeAdapter: MagicianAgentRunning, V4MagicianRuntimeRun
         loopEngine: (any V4AgentLoopRunning)? = nil,
         toolKernel: (any V4ToolKernelRunning)? = nil,
         providerSettingsStore: ProviderSettingsStore? = nil,
+        skillRuleStore: SkillRuleStore? = nil,
+        appScenePolicyStore: AppScenePolicyStore? = nil,
         featureToggleStore: MagicianFeatureToggleStore? = nil
     ) {
         if let loopEngine {
@@ -22,11 +24,23 @@ final class V4MagicianRuntimeAdapter: MagicianAgentRunning, V4MagicianRuntimeRun
             return
         }
 
+        let providerSettingsBridge = providerSettingsStore.map {
+            V4ProviderSettingsBridge(providerSettingsStore: $0)
+        }
+        let modelSlotManager = V4ModelSlotManager(bridge: providerSettingsBridge)
+        let promptStackResolver = V4PromptStackResolver(
+            providers: V4PromptLayerProviders.live(
+                skillRuleBridge: skillRuleStore.map { V4SkillRuleBridge(skillRuleStore: $0) },
+                appScenePolicyStore: appScenePolicyStore
+            )
+        )
         let resolvedKernel = toolKernel ?? V4ToolKernel(
-            registry: .live(providerSettingsStore: providerSettingsStore),
+            registry: .live(modelSlotManager: providerSettingsBridge == nil ? nil : modelSlotManager),
             permissionGate: V4PermissionGate(featureToggleStore: featureToggleStore)
         )
         self.loopEngine = V4AgentLoopEngine(
+            promptStackResolver: providerSettingsStore == nil ? nil : promptStackResolver,
+            modelSlotManager: providerSettingsBridge == nil ? nil : modelSlotManager,
             stepExecutor: { step, request, accumulatedStepRecords, turnIndex in
                 await resolvedKernel.execute(
                     step: step,

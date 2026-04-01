@@ -16,6 +16,8 @@ struct V4AgentLoopEngine: V4AgentLoopRunning {
     let maxTurns: Int
     let maxRetryPerStep: Int
     let stepExecutor: StepExecutor
+    let promptStackResolver: V4PromptStackResolver?
+    let modelSlotManager: V4ModelSlotManager?
 
     init(
         planner: any V4Planner = V4PlannerRuleBased(),
@@ -23,6 +25,8 @@ struct V4AgentLoopEngine: V4AgentLoopRunning {
         verifier: any V4Verifier = V4VerifierDefault(),
         maxTurns: Int = 4,
         maxRetryPerStep: Int = 2,
+        promptStackResolver: V4PromptStackResolver? = nil,
+        modelSlotManager: V4ModelSlotManager? = nil,
         stepExecutor: @escaping StepExecutor = { step, request, accumulatedStepRecords, turnIndex in
             await V4AgentLoopEngine.defaultToolKernel.execute(
                 step: step,
@@ -37,6 +41,8 @@ struct V4AgentLoopEngine: V4AgentLoopRunning {
         self.verifier = verifier
         self.maxTurns = max(1, maxTurns)
         self.maxRetryPerStep = max(0, maxRetryPerStep)
+        self.promptStackResolver = promptStackResolver
+        self.modelSlotManager = modelSlotManager
         self.stepExecutor = stepExecutor
     }
 
@@ -61,11 +67,12 @@ struct V4AgentLoopEngine: V4AgentLoopRunning {
 
         while currentTurn < maxTurns {
             currentTurn += 1
-            let turnRequest = requestedState(
+            let baseTurnRequest = requestedState(
                 from: request,
                 stepRecords: accumulatedStepRecords,
                 evidenceSummary: currentEvidenceSummary
             )
+            let turnRequest = try await resolvedRequest(from: baseTurnRequest)
             emit(
                 name: .stateChanged,
                 status: .planning,
@@ -539,6 +546,44 @@ struct V4AgentLoopEngine: V4AgentLoopRunning {
             relatedRecentRuns: request.relatedRecentRuns,
             conflictWarnings: request.conflictWarnings,
             memoryDebugTrace: request.memoryDebugTrace,
+            promptStack: request.promptStack,
+            modelSlots: request.modelSlots,
+            requestedAt: request.requestedAt
+        )
+    }
+
+    private func resolvedRequest(from request: V4RunRequest) async throws -> V4RunRequest {
+        let promptStack = if let promptStackResolver {
+            await promptStackResolver.resolve(for: request)
+        } else {
+            request.promptStack
+        }
+
+        let modelSlots = if let modelSlotManager {
+            try await modelSlotManager.resolveAll()
+        } else {
+            request.modelSlots
+        }
+
+        return V4RunRequest(
+            sessionID: request.sessionID,
+            runID: request.runID,
+            traceID: request.traceID,
+            lane: request.lane,
+            goalSummary: request.goalSummary,
+            inputText: request.inputText,
+            appName: request.appName,
+            bundleID: request.bundleID,
+            selectionText: request.selectionText,
+            enabledFeatureIDs: request.enabledFeatureIDs,
+            stepRecords: request.stepRecords,
+            evidenceSummary: request.evidenceSummary,
+            memoryHints: request.memoryHints,
+            relatedRecentRuns: request.relatedRecentRuns,
+            conflictWarnings: request.conflictWarnings,
+            memoryDebugTrace: request.memoryDebugTrace,
+            promptStack: promptStack,
+            modelSlots: modelSlots,
             requestedAt: request.requestedAt
         )
     }

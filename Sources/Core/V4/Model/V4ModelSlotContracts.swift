@@ -18,6 +18,8 @@ struct V4ModelCredentialRef: RawRepresentable, Codable, Equatable, Hashable, Sen
 struct V4ModelEndpoint: Codable, Equatable, Sendable {
     /// 当前 endpoint 归属的模型槽位。
     let slot: V4ModelSlot
+    /// Provider 类型，后续可直接组装底层配置。
+    let providerType: ProviderType
     /// Provider 的稳定标识，通常来自配置源。
     let providerIdentifier: String
     /// Provider 展示名，供日志与调试 UI 使用。

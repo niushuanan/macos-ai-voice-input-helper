@@ -174,6 +174,8 @@ final class AppModel: ObservableObject {
         let v4MemoryPlannerInputAdapter = V4MemoryQueryPlannerInputAdapter()
         let v4MagicianRuntime = V4MagicianRuntimeAdapter(
             providerSettingsStore: providerSettingsStore,
+            skillRuleStore: skillRuleStore,
+            appScenePolicyStore: appScenePolicyStore,
             featureToggleStore: magicianFeatureToggleStore
         )
         let controlCenterState = ControlCenterState(localHistoryStore: localHistoryStore)

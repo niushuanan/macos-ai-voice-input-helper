@@ -20,16 +20,16 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
         supportsStreamingResults: false
     )
 
-    private let providerSettingsStore: ProviderSettingsStore?
+    private let modelSlotManager: V4ModelSlotManager?
     private let generationProvider: any TextGenerationProvider
     private let executeHandler: (@Sendable (String, String) async throws -> V4ToolExecutionOutput)?
 
     init(
-        providerSettingsStore: ProviderSettingsStore? = nil,
+        modelSlotManager: V4ModelSlotManager? = nil,
         generationProvider: any TextGenerationProvider,
         executeHandler: (@Sendable (String, String) async throws -> V4ToolExecutionOutput)? = nil
     ) {
-        self.providerSettingsStore = providerSettingsStore
+        self.modelSlotManager = modelSlotManager
         self.generationProvider = generationProvider
         self.executeHandler = executeHandler
     }
@@ -58,7 +58,7 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
 
     func execute(
         arguments: V4ToolArguments,
-        context _: V4ToolExecutionContext
+        context: V4ToolExecutionContext
     ) async throws -> V4ToolExecutionOutput {
         let text = arguments.string(for: "text") ?? ""
         let instruction = arguments.string(for: "instruction") ?? ""
@@ -67,7 +67,7 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
             return try await executeHandler(text, instruction)
         }
 
-        guard let providerSettingsStore else {
+        guard let modelSlotManager else {
             let payload = V4ToolValue.object(
                 [
                     "mode": .string("local_fallback"),
@@ -85,14 +85,23 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
         let configuration: TextGenerationProviderConfiguration
         let apiKey: String
         do {
-            let resolved = try await MainActor.run {
-                let configuration = providerSettingsStore.rewriteConfiguration
-                let apiKey = try providerSettingsStore.loadAPIKeyForRewriteProvider()?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                return (configuration, apiKey)
+            let endpoint = if let resolved = context.request.modelSlots?.endpoint(for: .text) {
+                resolved
+            } else {
+                try await modelSlotManager.resolve(.text)
             }
-            configuration = resolved.0
-            apiKey = resolved.1
+            configuration = try makeConfiguration(from: endpoint)
+            apiKey = try await modelSlotManager.loadAPIKey(for: .text)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        } catch let error as V4ModelSlotResolutionError {
+            throw V4ToolError(
+                code: .modelUnavailable,
+                toolID: spec.toolID,
+                messageForUser: "文本模型槽位不可用：\(error.message)",
+                messageForDebug: "\(error.code.rawValue) source=\(error.sourceConfigurationKey)",
+                recoverAction: "check_text_provider",
+                isRetryable: false
+            )
         } catch {
             throw V4ToolError(
                 code: .toolExecutionFailed,
@@ -104,9 +113,9 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
             )
         }
 
-        guard !apiKey.isEmpty else {
+        guard !configuration.providerType.requiresAPIKey || !apiKey.isEmpty else {
             throw V4ToolError(
-                code: .toolExecutionFailed,
+                code: .modelUnavailable,
                 toolID: spec.toolID,
                 messageForUser: "当前没有可用的文本模型 API key，请先在设置里配置。",
                 messageForDebug: "rewrite provider api key missing",
@@ -115,18 +124,28 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
             )
         }
 
+        let promptStack = context.request.promptStack
+        let fallbackSystemPrompt = "你是 PulseType 的文字处理工具。只输出处理后的文本，不要解释。"
+        let fallbackUserPrompt = """
+        指令：
+        \(instruction)
+
+        原文：
+        \(text)
+        """
+        let systemPrompt = [promptStack?.finalSystemPrompt, promptStack?.finalGuidancePrompt]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+        let resolvedUserPrompt = promptStack?.finalUserPrompt
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let userPrompt = resolvedUserPrompt?.nilIfEmpty
+            ?? fallbackUserPrompt
+
         let generation = try await generationProvider.generateText(
             request: TextGenerationRequest(
-                systemPrompt: """
-                你是 PulseType 的文字处理工具。只输出处理后的文本，不要解释。
-                """,
-                userPrompt: """
-                指令：
-                \(instruction)
-
-                原文：
-                \(text)
-                """,
+                systemPrompt: systemPrompt.isEmpty ? fallbackSystemPrompt : systemPrompt,
+                userPrompt: userPrompt,
                 temperature: 0.2,
                 maxOutputTokens: nil
             ),
@@ -145,5 +164,30 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
                 ]
             )
         )
+    }
+
+    private func makeConfiguration(from endpoint: V4ModelEndpoint) throws -> TextGenerationProviderConfiguration {
+        guard let baseURL = URL(string: endpoint.baseURLString) else {
+            throw V4ModelSlotResolutionError(
+                slot: endpoint.slot,
+                code: .invalidConfiguration,
+                message: "接口地址（Base URL）无效。",
+                sourceConfigurationKey: endpoint.sourceConfigurationKey,
+                providerIdentifier: endpoint.providerIdentifier
+            )
+        }
+        return TextGenerationProviderConfiguration(
+            profileID: endpoint.credentialRef?.rawValue ?? endpoint.sourceConfigurationKey,
+            providerType: endpoint.providerType,
+            providerName: endpoint.providerDisplayName,
+            modelName: endpoint.modelName,
+            baseURL: baseURL
+        )
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

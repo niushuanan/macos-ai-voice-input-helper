@@ -79,6 +79,81 @@
 - 但真正的槽位解析、lane 选模、tool step 选模、fallback，不再散在旧 runtime 内。
 - `asrConfig`、`textConfig`、`cliTextConfig` 变成 V4 的输入，不再直接决定业务分支。
 
+## PromptStack 与 ModelSlots
+
+Window 07 之后，V4 runtime 内部不再直接从 `SkillRuleStore`、`AppScenePolicyStore`、`ProviderSettingsStore` 到处拉字符串或模型配置，而是统一先过两层：
+
+1. `V4PromptStackResolver`
+2. `V4ModelSlotManager`
+
+### PromptStack 固定层级
+
+固定顺序如下：
+
+1. `Global`
+2. `NowYouSeeMe`
+3. `AppScene`
+4. `Lane`
+5. `Task`
+
+合并规则：
+
+- `systemPrompt`：按层级顺序拼接，并写入 `[LayerName]` 标记。
+- `guidance`：按 key 合并；同 key 后层覆盖前层。
+- `constraints`：按 key 合并；同 key 后层覆盖前层。
+- `userPrompt`：后层覆盖前层，当前默认由 `Task` 层给最终版本。
+
+输出结构固定为：
+
+- `finalSystemPrompt`
+- `finalGuidancePrompt`
+- `finalUserPrompt`
+- `appliedLayers`
+
+### Now you see me 映射
+
+`V4SkillRuleBridge` 负责把旧规则映射到 V4 prompt：
+
+- `spokenFilter`
+  - 变成输入清洗说明，落在 `NowYouSeeMe.guidance.inputCleaning`
+- `appPreferenceBoost`
+  - 控制 `AppScene` 层是否允许注入当前应用偏好
+- `systemPrompt`
+  - 直接进入 `NowYouSeeMe.systemPrompt`
+
+规则关闭时，不允许注入该段；参数为空时，也不允许制造空段。
+
+### ModelSlots 固定三槽位
+
+`V4ModelSlotManager` 统一维护：
+
+- `asr`
+- `text`
+- `agent`
+
+桥接层是 `V4ProviderSettingsBridge`，它只从旧 store 读取：
+
+- `asrConfig`
+- `textConfig`
+- `cliTextConfig`
+
+当前默认规则：
+
+- `agent -> cliTextConfig`
+- 将来如果要给 `agent` 单独 provider，只扩 `V4ProviderSettingsBridge`，不改 V4 tool / loop 接口
+
+### 当前接线点
+
+- `V4AgentLoopEngine`
+  - 每轮先解析 `promptStack` 和 `modelSlots`
+  - 再把解析结果写回 `V4RunRequest`
+- `V4TextTransformTool`
+  - 只读 `request.promptStack`
+  - 只读 `request.modelSlots`
+  - 不再直接摸 `ProviderSettingsStore.rewriteConfiguration`
+- `V4ToHistoryBridge`
+  - 会把 `prompt_stack / model_slots` 摘要写进 execution trace，方便后续做时光机回放
+
 ### `Sources/Core/V4/TimeMachine/*`
 
 - 第一版数据源来自两处：

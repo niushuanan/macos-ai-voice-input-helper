@@ -105,6 +105,8 @@ final class InteractionCoordinator {
         self.v4MemoryPlannerInputAdapter = v4MemoryPlannerInputAdapter ?? V4MemoryQueryPlannerInputAdapter()
         self.v4MagicianRuntime = v4MagicianRuntime ?? V4MagicianRuntimeAdapter(
             providerSettingsStore: providerSettingsStore,
+            skillRuleStore: skillRuleStore,
+            appScenePolicyStore: appScenePolicyStore,
             featureToggleStore: self.magicianFeatureToggleStore
         )
         self.magicianNativeRuntime = magicianNativeRuntime ?? MagicianNativeRuntime(
@@ -2023,6 +2025,10 @@ final class InteractionCoordinator {
 
             let historyStatus: SessionHistoryStatus = outcome.status == .completed ? .success : .failed
             let runtimeEvents = eventBuffer.snapshot()
+            let resolvedAppliedSkills = mergedSkills(
+                lhs: appliedSkills,
+                rhs: plannerRequest.promptStack?.appliedSkillRuleIDs ?? []
+            )
             localHistoryStore.append(
                 v4HistoryBridge.makeHistoryEntry(
                     from: plannerRequest,
@@ -2032,7 +2038,7 @@ final class InteractionCoordinator {
                     selectionText: selectionText,
                     transcription: transcription,
                     audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: appliedSkills,
+                    appliedSkills: resolvedAppliedSkills,
                     runtimeEvents: runtimeEvents
                 )
             )
@@ -2058,6 +2064,10 @@ final class InteractionCoordinator {
                 error: error,
                 runtimeEvents: eventBuffer.snapshot()
             )
+            let resolvedAppliedSkills = mergedSkills(
+                lhs: appliedSkills,
+                rhs: plannerRequest.promptStack?.appliedSkillRuleIDs ?? []
+            )
             localHistoryStore.append(
                 v4HistoryBridge.makeHistoryEntry(
                     from: plannerRequest,
@@ -2067,7 +2077,7 @@ final class InteractionCoordinator {
                     selectionText: selectionText,
                     transcription: transcription,
                     audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: appliedSkills,
+                    appliedSkills: resolvedAppliedSkills,
                     runtimeEvents: eventBuffer.snapshot()
                 )
             )
@@ -2314,6 +2324,8 @@ final class InteractionCoordinator {
         let message: String
         if let magicianError = error as? MagicianError {
             message = magicianError.userMessage
+        } else if let slotError = error as? V4ModelSlotResolutionError {
+            message = "模型槽位配置不可用：\(slotError.message)"
         } else {
             message = "魔术先生执行失败：\(error.localizedDescription)"
         }
@@ -2336,6 +2348,10 @@ final class InteractionCoordinator {
     }
 
     private func v4FailureCode(for error: Error) -> V4FailureCode {
+        if error is V4ModelSlotResolutionError {
+            return .modelUnavailable
+        }
+
         guard let magicianError = error as? MagicianError else {
             return .toolExecutionFailed
         }

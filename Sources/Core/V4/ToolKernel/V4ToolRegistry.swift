@@ -24,14 +24,14 @@ struct V4ToolRegistry: V4ToolKernelRegistry {
     }
 
     static func live(
-        providerSettingsStore: ProviderSettingsStore? = nil,
+        modelSlotManager: V4ModelSlotManager? = nil,
         generationProvider: (any TextGenerationProvider)? = nil,
         shellAllowlist: Set<String> = V4ShellCommandTool.defaultAllowlist
     ) -> V4ToolRegistry {
         V4ToolRegistry(
             tools: [
                 V4TextTransformTool(
-                    providerSettingsStore: providerSettingsStore,
+                    modelSlotManager: modelSlotManager,
                     generationProvider: generationProvider ?? OpenAITextGenerationProvider()
                 ),
                 V4ShellCommandTool(allowlist: shellAllowlist),

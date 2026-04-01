@@ -73,6 +73,8 @@ final class V4MemoryQueryPlannerInputAdapter: V4MemoryQueryPlannerInputAdapting 
             relatedRecentRuns: relatedRecentRuns,
             conflictWarnings: conflictWarnings,
             memoryDebugTrace: debugTrace,
+            promptStack: request.promptStack,
+            modelSlots: request.modelSlots,
             requestedAt: request.requestedAt
         )
     }

@@ -92,6 +92,7 @@ struct V4ToHistoryBridge {
         appendField(&lines, key: "failure_code", value: outcome.failureCode?.rawValue)
         lines.append("")
         appendMemoryInjection(&lines, request: request)
+        appendPromptAndModelState(&lines, request: request)
 
         appendEvents(&lines, runtimeEvents: runtimeEvents)
 
@@ -169,6 +170,33 @@ struct V4ToHistoryBridge {
             for note in request.memoryDebugTrace {
                 lines.append("  debug: \(note)")
             }
+        }
+        lines.append("")
+    }
+
+    private func appendPromptAndModelState(
+        _ lines: inout [String],
+        request: V4RunRequest
+    ) {
+        lines.append("prompt_stack:")
+        if let promptStack = request.promptStack {
+            lines.append("  layers: \(promptStack.appliedLayers.map { $0.name.rawValue }.joined(separator: " -> "))")
+            lines.append("  system_chars: \(promptStack.finalSystemPrompt.count)")
+            lines.append("  guidance_chars: \(promptStack.finalGuidancePrompt.count)")
+            lines.append("  user_chars: \(promptStack.finalUserPrompt.count)")
+        } else {
+            lines.append("  layers: (none)")
+        }
+
+        lines.append("model_slots:")
+        if let modelSlots = request.modelSlots {
+            for endpoint in modelSlots.all {
+                lines.append("  [\(endpoint.slot.rawValue)] provider=\(endpoint.providerDisplayName) model=\(endpoint.modelName)")
+                lines.append("    source: \(endpoint.sourceConfigurationKey)")
+                lines.append("    base_url: \(endpoint.baseURLString)")
+            }
+        } else {
+            lines.append("  (none)")
         }
         lines.append("")
     }

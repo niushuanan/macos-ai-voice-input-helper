@@ -48,6 +48,10 @@ struct V4RunRequest: Codable, Equatable, Sendable {
     let conflictWarnings: [V4ConflictWarning]
     /// 记忆注入阶段的调试痕迹，后续写入 history trace。
     let memoryDebugTrace: [String]
+    /// 当前 run 解析出的 prompt stack。
+    let promptStack: V4PromptStack?
+    /// 当前 run 解析出的模型槽位。
+    let modelSlots: V4ModelSlots?
     /// 请求创建时间，用于历史排序与时光机时间线。
     let requestedAt: Date
 
@@ -68,6 +72,8 @@ struct V4RunRequest: Codable, Equatable, Sendable {
         relatedRecentRuns: [V4RelatedRecentRun] = [],
         conflictWarnings: [V4ConflictWarning] = [],
         memoryDebugTrace: [String] = [],
+        promptStack: V4PromptStack? = nil,
+        modelSlots: V4ModelSlots? = nil,
         requestedAt: Date = Date()
     ) {
         self.sessionID = sessionID
@@ -86,6 +92,8 @@ struct V4RunRequest: Codable, Equatable, Sendable {
         self.relatedRecentRuns = relatedRecentRuns
         self.conflictWarnings = conflictWarnings
         self.memoryDebugTrace = memoryDebugTrace
+        self.promptStack = promptStack
+        self.modelSlots = modelSlots
         self.requestedAt = requestedAt
     }
 }
