@@ -149,6 +149,9 @@ protocol V4ToolHookRunning: Sendable {
 - 命令：`./scripts/test-magician-fast.sh`
   结果：通过。脚本输出 `[test] fast suite passed`。
 
+- 命令：`scripts/auto-ship.sh --message "core: implement v4 agent loop runtime" --files ...`
+  结果：通过。生成 `commit 68bb03c`，已 push 到 `origin/codex/magician-agent-v2`，并覆盖安装到 `/Applications/PulseType.app`。
+
 - 中途修正记录：
   - 第一次编译失败点在 `V4MagicianRuntimeAdapter`，原因是 `@MainActor` helper 被同步回调直接调用。
   - 另一次 `xcodebuild` 失败是并发跑两条测试命令时触发 `build.db` 锁，不是代码错误。
