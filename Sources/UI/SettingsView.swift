@@ -1533,10 +1533,10 @@ struct SettingsView: View {
         LinearGradient(
             colors: [
                 Color(nsColor: .windowBackgroundColor),
-                Color.white.opacity(0.72),
-                Color.accentColor.opacity(0.05)
+                Color.white.opacity(0.58),
+                Color(nsColor: .controlBackgroundColor).opacity(0.36)
             ],
-            startPoint: .topLeading,
+            startPoint: .top,
             endPoint: .bottomTrailing
         )
     }
@@ -1545,10 +1545,10 @@ struct SettingsView: View {
     private func pageHeader(title: String, subtitle: String = "") -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.title2.weight(.bold))
+                .font(.system(size: 30, weight: .semibold, design: .rounded))
             if !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(.subheadline)
+                    .font(.system(size: 14, weight: .regular, design: .rounded))
                     .foregroundStyle(.secondary)
             }
         }
@@ -1563,10 +1563,10 @@ struct SettingsView: View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
-                    .font(.title2.weight(.bold))
+                    .font(.system(size: 30, weight: .semibold, design: .rounded))
                 if !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.subheadline)
+                        .font(.system(size: 14, weight: .regular, design: .rounded))
                         .foregroundStyle(.secondary)
                 }
             }

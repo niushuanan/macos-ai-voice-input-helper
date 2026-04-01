@@ -251,21 +251,22 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
 
     func testMusicOpenAppIntentDoesNotBecomeSearchQuery() async {
         let tool = V4MusicControlTool { command in
-            XCTAssertEqual(command.action, .play)
+            XCTAssertEqual(command.action, .open)
             XCTAssertNil(command.query)
             return V4MusicControlTool.ResultPayload(
-                action: .play,
-                state: "play",
+                action: .open,
+                state: "open",
                 track: nil,
                 artist: nil,
-                evidence: "state=play"
+                evidence: "state=open"
             )
         }
 
-        _ = try? await tool.execute(
+        let output = try? await tool.execute(
             arguments: ["command": .string("打开音乐")],
             context: makeContext(toolName: "apple.music.control")
         )
+        XCTAssertTrue((output?.outputText ?? "").contains("已打开 Music"))
     }
 
     func testMusicDryRunSkipsExecutionHandler() async throws {
@@ -550,6 +551,9 @@ private actor FakeMusicMachine {
 
     func apply(_ command: V4MusicControlTool.Command) -> V4MusicControlTool.ResultPayload {
         switch command.action {
+        case .open:
+            state = "open"
+            return .init(action: .open, state: state, track: nil, artist: nil, evidence: "state=open")
         case .play:
             state = "play"
             return .init(action: .play, state: state, track: "稻香", artist: "周杰伦", evidence: "track=稻香|artist=周杰伦|state=play")

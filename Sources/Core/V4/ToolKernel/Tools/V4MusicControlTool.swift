@@ -2,6 +2,7 @@ import Foundation
 
 struct V4MusicControlTool: V4Tool {
     enum Action: String, Equatable, Sendable {
+        case open
         case play
         case pause
         case resume
@@ -86,7 +87,9 @@ struct V4MusicControlTool: V4Tool {
         }
         let result = try await executeHandler(resolved)
         let outputText: String
-        if let track = result.track {
+        if result.action == .open {
+            outputText = "已打开 Music，尚未执行播放。"
+        } else if let track = result.track {
             if let artist = result.artist, !artist.isEmpty {
                 outputText = "已开始播放：\(artist) - \(track)"
             } else {
@@ -94,6 +97,8 @@ struct V4MusicControlTool: V4Tool {
             }
         } else {
             switch result.action {
+            case .open:
+                outputText = "已打开 Music，尚未执行播放。"
             case .pause:
                 outputText = "已暂停播放"
             case .resume:
@@ -141,7 +146,7 @@ struct V4MusicControlTool: V4Tool {
             return Command(action: .previous, query: nil)
         }
         if containsAny(lowered, keywords: ["打开音乐", "打开 music", "启动音乐", "启动 music", "播放音乐", "打开播放器", "启动播放器"]) {
-            return Command(action: .play, query: nil)
+            return Command(action: .open, query: nil)
         }
         if let explicitQuery, !explicitQuery.isEmpty {
             return Command(action: .play, query: explicitQuery)
@@ -224,6 +229,15 @@ struct V4MusicControlTool: V4Tool {
             }
 
             let output = process.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            if command.action == .open {
+                return ResultPayload(
+                    action: .open,
+                    state: "open",
+                    track: nil,
+                    artist: nil,
+                    evidence: output.isEmpty ? "state=open" : output
+                )
+            }
             if command.action == .play, let query = command.query, !query.isEmpty {
                 if output == "track_not_found" {
                     throw V4ToolErrorCatalog().executionFailure(
@@ -256,6 +270,17 @@ struct V4MusicControlTool: V4Tool {
 
     private static func runLiveCommand(_ command: Command) async -> MagicianProcessResult {
         switch command.action {
+        case .open:
+            return await runOsaScript(
+                lines: [
+                    "tell application \"Music\"",
+                ] + magicianEnsureApplicationReadyAppleScriptLines() + [
+                    "return \"state=open\"",
+                    "end tell"
+                ],
+                arguments: []
+            )
+
         case .play:
             if let query = command.query, !query.isEmpty {
                 for item in magicianMusicSearchQueries(from: query) {

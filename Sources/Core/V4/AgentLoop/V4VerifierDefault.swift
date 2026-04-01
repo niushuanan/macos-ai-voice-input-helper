@@ -23,6 +23,10 @@ struct V4VerifierDefault: V4Verifier {
             )
         }
 
+        if let semantic = semanticVerification(for: latestToolResult, mergedEvidence: mergedEvidence) {
+            return semantic
+        }
+
         let message: String
         if let outputText = latestToolResult?.outputText?.trimmingCharacters(in: .whitespacesAndNewlines), !outputText.isEmpty {
             message = "已记录步骤输出并通过默认核验。"
@@ -76,5 +80,95 @@ struct V4VerifierDefault: V4Verifier {
         default:
             return false
         }
+    }
+
+    private func semanticVerification(
+        for latestToolResult: V4ToolResult?,
+        mergedEvidence: String
+    ) -> V4VerificationResult? {
+        guard let latestToolResult else {
+            return nil
+        }
+
+        switch latestToolResult.toolName {
+        case "apple.music.control":
+            let fields = parseEvidenceFields(from: latestToolResult.evidenceSummary)
+            let action = fields["action"]?.lowercased() ?? ""
+            if action == "open" {
+                return V4VerificationResult(
+                    status: .needsUserInput,
+                    message: "Music 仅已打开，尚未执行播放动作。",
+                    evidenceSummary: mergedEvidence
+                )
+            }
+            if action == "play" {
+                let hasTrackEvidence = latestToolResult.evidenceSummary.lowercased().contains("track=")
+                if !hasTrackEvidence {
+                    return V4VerificationResult(
+                        status: .failed,
+                        message: "音乐动作缺少曲目证据，已判定失败。",
+                        evidenceSummary: mergedEvidence
+                    )
+                }
+            }
+            return nil
+
+        case "apple.notes.create":
+            let lowered = latestToolResult.evidenceSummary.lowercased()
+            let hasNoteEvidence = lowered.contains("note_id=") || lowered.contains("x-coredata://")
+            if !hasNoteEvidence {
+                return V4VerificationResult(
+                    status: .failed,
+                    message: "备忘录动作缺少结构化证据，已判定失败。",
+                    evidenceSummary: mergedEvidence
+                )
+            }
+            return nil
+
+        case "apple.mail.compose":
+            let payload = parseRawPayloadObject(from: latestToolResult.rawPayload)
+            let verificationStatus = (payload["verificationStatus"] as? String)?.lowercased()
+            if verificationStatus == "assumed" || verificationStatus == "unverified" {
+                return V4VerificationResult(
+                    status: .needsUserInput,
+                    message: "邮件动作仅完成窗口级别，请确认邮件后再继续。",
+                    evidenceSummary: mergedEvidence
+                )
+            }
+            return nil
+
+        default:
+            return nil
+        }
+    }
+
+    private func parseEvidenceFields(from evidenceSummary: String) -> [String: String] {
+        evidenceSummary
+            .split(separator: ";")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .reduce(into: [String: String]()) { partialResult, item in
+                let keyValue = item.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                guard keyValue.count == 2 else {
+                    return
+                }
+                let key = String(keyValue[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let value = String(keyValue[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !key.isEmpty else {
+                    return
+                }
+                partialResult[key] = value
+            }
+    }
+
+    private func parseRawPayloadObject(from rawPayload: String?) -> [String: Any] {
+        guard
+            let rawPayload,
+            let data = rawPayload.data(using: .utf8),
+            let json = try? JSONSerialization.jsonObject(with: data),
+            let object = json as? [String: Any]
+        else {
+            return [:]
+        }
+        return object
     }
 }

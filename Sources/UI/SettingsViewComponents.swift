@@ -949,19 +949,19 @@ private struct PulseCardStyle: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
             .background(
-                shape.fill(Color.white.opacity(0.82))
+                shape.fill(Color.white.opacity(0.9))
                     .background(
-                        shape.fill(Color(nsColor: .windowBackgroundColor).opacity(0.88))
+                        shape.fill(Color(nsColor: .windowBackgroundColor).opacity(0.92))
                     )
                     .background(
-                        shape.fill(.ultraThinMaterial).opacity(0.55)
+                        shape.fill(.ultraThinMaterial).opacity(0.48)
                     )
             )
             .overlay(
-                shape.stroke(Color.white.opacity(0.86), lineWidth: 1)
+                shape.stroke(Color.white.opacity(0.78), lineWidth: 1)
                     .shadow(color: Color.black.opacity(0.045), radius: 0, x: 0, y: 0)
             )
-            .shadow(color: Color.black.opacity(0.055), radius: 14, x: 0, y: 4)
+            .shadow(color: Color.black.opacity(0.04), radius: 12, x: 0, y: 3)
     }
 }
 
