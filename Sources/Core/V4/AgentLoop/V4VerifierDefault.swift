@@ -18,7 +18,7 @@ struct V4VerifierDefault: V4Verifier {
                 : .failed
             return V4VerificationResult(
                 status: status,
-                message: error.userMessage,
+                message: error.messageForUser,
                 evidenceSummary: mergedEvidence
             )
         }
@@ -70,7 +70,7 @@ struct V4VerifierDefault: V4Verifier {
     }
 
     private func needsUserInput(for error: V4ToolError) -> Bool {
-        switch error.failureCode {
+        switch error.code {
         case .permissionDenied, .toolValidationFailed, .invalidRequest:
             return true
         default:

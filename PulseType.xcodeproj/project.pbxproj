@@ -20,6 +20,16 @@
 		A1000000000000000000001A /* V4ToSessionStoreBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000003A /* V4ToSessionStoreBridge.swift */; };
 		A1000000000000000000001B /* V4MagicianRuntimeAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000003B /* V4MagicianRuntimeAdapter.swift */; };
 		A1000000000000000000001C /* V4AgentLoopEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000003C /* V4AgentLoopEngineTests.swift */; };
+		A1000000000000000000001D /* V4ToolRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000003D /* V4ToolRegistry.swift */; };
+		A1000000000000000000001E /* V4ToolKernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000003E /* V4ToolKernel.swift */; };
+		A1000000000000000000001F /* V4ToolHookPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000003F /* V4ToolHookPipeline.swift */; };
+		A10000000000000000000020 /* V4ToolBatchOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000040 /* V4ToolBatchOrchestrator.swift */; };
+		A10000000000000000000021 /* V4PermissionGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000004C /* V4PermissionGate.swift */; };
+		A10000000000000000000022 /* V4EvidenceNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000047 /* V4EvidenceNormalizer.swift */; };
+		A10000000000000000000023 /* V4TextTransformTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000048 /* V4TextTransformTool.swift */; };
+		A10000000000000000000024 /* V4ShellCommandTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000049 /* V4ShellCommandTool.swift */; };
+		A10000000000000000000025 /* V4AppleNotesTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000004A /* V4AppleNotesTool.swift */; };
+		A10000000000000000000026 /* V4ToolKernelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000004B /* V4ToolKernelTests.swift */; };
 		06123C002DCFE32A3B4F9826 /* AppRuntimePolicy.plist in Resources */ = {isa = PBXBuildFile; fileRef = DF7D63023398B1BA8B707A6E /* AppRuntimePolicy.plist */; };
 		06ED5EEBD9C709D7B20DFF2C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615736F7FBCACF8AF8B17CCF /* SettingsView.swift */; };
 		08AEBC14B14DCFC8330558BA /* OpenAITextGenerationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BFB5724578D68E1E94182AB /* OpenAITextGenerationProvider.swift */; };
@@ -225,6 +235,16 @@
 		A1000000000000000000003A /* V4ToSessionStoreBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToSessionStoreBridge.swift; sourceTree = "<group>"; };
 		A1000000000000000000003B /* V4MagicianRuntimeAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4MagicianRuntimeAdapter.swift; sourceTree = "<group>"; };
 		A1000000000000000000003C /* V4AgentLoopEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4AgentLoopEngineTests.swift; sourceTree = "<group>"; };
+		A1000000000000000000003D /* V4ToolRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToolRegistry.swift; sourceTree = "<group>"; };
+		A1000000000000000000003E /* V4ToolKernel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToolKernel.swift; sourceTree = "<group>"; };
+		A1000000000000000000003F /* V4ToolHookPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToolHookPipeline.swift; sourceTree = "<group>"; };
+		A10000000000000000000040 /* V4ToolBatchOrchestrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToolBatchOrchestrator.swift; sourceTree = "<group>"; };
+		A10000000000000000000047 /* V4EvidenceNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4EvidenceNormalizer.swift; sourceTree = "<group>"; };
+		A10000000000000000000048 /* V4TextTransformTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4TextTransformTool.swift; sourceTree = "<group>"; };
+		A10000000000000000000049 /* V4ShellCommandTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ShellCommandTool.swift; sourceTree = "<group>"; };
+		A1000000000000000000004A /* V4AppleNotesTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4AppleNotesTool.swift; sourceTree = "<group>"; };
+		A1000000000000000000004B /* V4ToolKernelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToolKernelTests.swift; sourceTree = "<group>"; };
+		A1000000000000000000004C /* V4PermissionGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4PermissionGate.swift; sourceTree = "<group>"; };
 		8E4D00737C3345BDE9F747AC /* TextOutputCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextOutputCoordinator.swift; sourceTree = "<group>"; };
 		93A38F69E5582F6FA37EE498 /* ControlCenterStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlCenterStateTests.swift; sourceTree = "<group>"; };
 		93D66F476FED6BC033F5DA9A /* FeishuCLIProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeishuCLIProviderTests.swift; sourceTree = "<group>"; };
@@ -451,8 +471,25 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000038 /* V4ToolContracts.swift */,
+				A1000000000000000000003D /* V4ToolRegistry.swift */,
+				A1000000000000000000003E /* V4ToolKernel.swift */,
+				A1000000000000000000003F /* V4ToolHookPipeline.swift */,
+				A10000000000000000000040 /* V4ToolBatchOrchestrator.swift */,
+				A1000000000000000000004C /* V4PermissionGate.swift */,
+				A10000000000000000000047 /* V4EvidenceNormalizer.swift */,
+				A10000000000000000000046 /* Tools */,
 			);
 			path = ToolKernel;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000046 /* Tools */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000048 /* V4TextTransformTool.swift */,
+				A10000000000000000000049 /* V4ShellCommandTool.swift */,
+				A1000000000000000000004A /* V4AppleNotesTool.swift */,
+			);
+			path = Tools;
 			sourceTree = "<group>";
 		};
 		A10000000000000000000045 /* Adapters */ = {
@@ -603,6 +640,7 @@
 				71EDE485545C13E98B2E5B72 /* SessionStoreTests.swift */,
 				97763AFE40CEA07E31796308 /* SkillRuleStoreTests.swift */,
 				A1000000000000000000003C /* V4AgentLoopEngineTests.swift */,
+				A1000000000000000000004B /* V4ToolKernelTests.swift */,
 			);
 			path = Tests;
 			sourceTree = "<group>";
@@ -855,6 +893,15 @@
 				A10000000000000000000016 /* V4PostStepDeciderDefault.swift in Sources */,
 				A10000000000000000000017 /* V4VerifierDefault.swift in Sources */,
 				A10000000000000000000018 /* V4ToolContracts.swift in Sources */,
+				A1000000000000000000001D /* V4ToolRegistry.swift in Sources */,
+				A1000000000000000000001E /* V4ToolKernel.swift in Sources */,
+				A1000000000000000000001F /* V4ToolHookPipeline.swift in Sources */,
+				A10000000000000000000020 /* V4ToolBatchOrchestrator.swift in Sources */,
+				A10000000000000000000021 /* V4PermissionGate.swift in Sources */,
+				A10000000000000000000022 /* V4EvidenceNormalizer.swift in Sources */,
+				A10000000000000000000023 /* V4TextTransformTool.swift in Sources */,
+				A10000000000000000000024 /* V4ShellCommandTool.swift in Sources */,
+				A10000000000000000000025 /* V4AppleNotesTool.swift in Sources */,
 				A10000000000000000000019 /* V4ToHistoryBridge.swift in Sources */,
 				A1000000000000000000001A /* V4ToSessionStoreBridge.swift in Sources */,
 				A1000000000000000000001B /* V4MagicianRuntimeAdapter.swift in Sources */,
@@ -904,6 +951,7 @@
 				E1DBC788787F324D6B2178FD /* SessionStoreTests.swift in Sources */,
 				85B875C74007F983512A7F73 /* SkillRuleStoreTests.swift in Sources */,
 				A1000000000000000000001C /* V4AgentLoopEngineTests.swift in Sources */,
+				A10000000000000000000026 /* V4ToolKernelTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

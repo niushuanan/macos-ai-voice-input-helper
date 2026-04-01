@@ -1,6 +1,8 @@
 import Foundation
 
 struct V4AgentLoopEngine: V4AgentLoopRunning {
+    private static let defaultToolKernel = V4ToolKernel()
+
     typealias StepExecutor = @Sendable (
         _ step: V4StepRecord,
         _ request: V4RunRequest,
@@ -22,7 +24,7 @@ struct V4AgentLoopEngine: V4AgentLoopRunning {
         maxTurns: Int = 4,
         maxRetryPerStep: Int = 2,
         stepExecutor: @escaping StepExecutor = { step, request, accumulatedStepRecords, turnIndex in
-            try await V4AgentLoopEngine.defaultStepExecutor(
+            await V4AgentLoopEngine.defaultToolKernel.execute(
                 step: step,
                 request: request,
                 accumulatedStepRecords: accumulatedStepRecords,
@@ -170,11 +172,43 @@ struct V4AgentLoopEngine: V4AgentLoopRunning {
                         onEvent: onEvent
                     )
 
+                    emit(
+                        name: .toolRequested,
+                        status: .waitingForTool,
+                        request: turnRequest,
+                        message: "调用工具：\(startedStep.toolName ?? "unknown")",
+                        stepID: startedStep.id,
+                        stepRecords: accumulatedStepRecords,
+                        evidenceSummary: currentEvidenceSummary,
+                        turnIndex: currentTurn,
+                        maxTurns: maxTurns,
+                        stepIndex: stepIndex + 1,
+                        totalSteps: totalSteps,
+                        progressHint: SessionHUDProgressHint.workflowStep(index: stepIndex + 1, totalSteps: totalSteps),
+                        onEvent: onEvent
+                    )
+
                     let latestToolResult = await executeStep(
                         startedStep,
                         request: turnRequest,
                         accumulatedStepRecords: accumulatedStepRecords,
                         turnIndex: currentTurn
+                    )
+
+                    emit(
+                        name: .toolFinished,
+                        status: runStatus(for: latestToolResult),
+                        request: turnRequest,
+                        message: latestToolResult.error?.messageForUser ?? "工具执行结束。",
+                        stepID: startedStep.id,
+                        stepRecords: accumulatedStepRecords,
+                        evidenceSummary: currentEvidenceSummary,
+                        turnIndex: currentTurn,
+                        maxTurns: maxTurns,
+                        stepIndex: stepIndex + 1,
+                        totalSteps: totalSteps,
+                        progressHint: SessionHUDProgressHint.workflowStep(index: stepIndex + 1, totalSteps: totalSteps),
+                        onEvent: onEvent
                     )
 
                     if let error = latestToolResult.error, error.isRetryable, retryCount < maxRetryPerStep {
@@ -222,11 +256,11 @@ struct V4AgentLoopEngine: V4AgentLoopRunning {
                         status: finishedStatus,
                         toolName: startedStep.toolName,
                         inputSummary: startedStep.inputSummary,
-                        outputSummary: latestToolResult.error?.userMessage ?? latestToolResult.outputText,
+                        outputSummary: latestToolResult.error?.messageForUser ?? latestToolResult.outputText,
                         evidenceSummary: latestToolResult.evidenceSummary,
                         startedAt: startedStep.startedAt,
                         finishedAt: latestToolResult.finishedAt,
-                        failureCode: latestToolResult.error?.failureCode,
+                        failureCode: latestToolResult.error?.code,
                         attemptCount: attempt
                     )
                     accumulatedStepRecords.append(finishedStep)
@@ -242,7 +276,7 @@ struct V4AgentLoopEngine: V4AgentLoopRunning {
                         name: .stepFinished,
                         status: finishedStatus,
                         request: turnRequest,
-                        message: latestToolResult.error?.userMessage ?? "步骤执行完成。",
+                        message: latestToolResult.error?.messageForUser ?? "步骤执行完成。",
                         stepID: finishedStep.id,
                         stepRecords: accumulatedStepRecords,
                         evidenceSummary: currentEvidenceSummary,
@@ -375,15 +409,18 @@ struct V4AgentLoopEngine: V4AgentLoopRunning {
                 lane: request.lane,
                 goalSummary: request.goalSummary,
                 toolName: step.toolName ?? "unknown",
+                status: .failed,
                 outputText: nil,
-                outputJSON: nil,
                 evidenceSummary: "",
+                rawPayload: nil,
                 startedAt: step.startedAt,
                 finishedAt: Date(),
                 error: V4ToolError(
-                    failureCode: .toolExecutionFailed,
-                    userMessage: "步骤执行失败：\(error.localizedDescription)",
-                    debugMessage: String(describing: error),
+                    code: .toolExecutionFailed,
+                    toolID: step.toolName ?? "unknown",
+                    messageForUser: "步骤执行失败：\(error.localizedDescription)",
+                    messageForDebug: String(describing: error),
+                    recoverAction: "retry_command",
                     isRetryable: false
                 )
             )
@@ -555,75 +592,14 @@ struct V4AgentLoopEngine: V4AgentLoopRunning {
         return "V4: " + titles.joined(separator: " -> ")
     }
 
-    @Sendable
-    static func defaultStepExecutor(
-        step: V4StepRecord,
-        request: V4RunRequest,
-        accumulatedStepRecords _: [V4StepRecord],
-        turnIndex _: Int
-    ) async throws -> V4ToolResult {
-        let startedAt = Date()
-        let toolName = step.toolName ?? "text.transform"
-        let trimmedSelection = request.selectionText?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedSelection = (trimmedSelection?.isEmpty == false) ? trimmedSelection : nil
-        let textOutput = normalizedSelection ?? step.inputSummary
-
-        let outputText: String?
-        let evidenceSummary: String
-        switch toolName {
-        case "text.transform":
-            outputText = textOutput
-            evidenceSummary = "text.transform completed"
-        case "apple.calendar.create":
-            outputText = nil
-            evidenceSummary = "apple.calendar.create completed"
-        case "apple.notes.create":
-            outputText = nil
-            evidenceSummary = "apple.notes.create completed"
-        case "apple.mail.compose":
-            outputText = nil
-            evidenceSummary = "apple.mail.compose completed"
-        case "apple.music.control":
-            outputText = nil
-            evidenceSummary = "apple.music.control completed"
-        case "feishu.cli":
-            outputText = nil
-            evidenceSummary = "feishu.cli completed"
-        default:
-            return V4ToolResult(
-                runID: request.runID,
-                stepID: step.id,
-                traceID: request.traceID,
-                lane: request.lane,
-                goalSummary: request.goalSummary,
-                toolName: toolName,
-                outputText: nil,
-                outputJSON: nil,
-                evidenceSummary: "",
-                startedAt: startedAt,
-                finishedAt: Date(),
-                error: V4ToolError(
-                    failureCode: .toolValidationFailed,
-                    userMessage: "未知 step tool：\(toolName)",
-                    debugMessage: "unsupported tool name",
-                    isRetryable: false
-                )
-            )
+    private func runStatus(for result: V4ToolResult) -> V4RunStatus {
+        switch result.status {
+        case .success:
+            return .executing
+        case .denied:
+            return .waitingForUser
+        case .failed:
+            return .failed
         }
-
-        return V4ToolResult(
-            runID: request.runID,
-            stepID: step.id,
-            traceID: request.traceID,
-            lane: request.lane,
-            goalSummary: request.goalSummary,
-            toolName: toolName,
-            outputText: outputText,
-            outputJSON: nil,
-            evidenceSummary: evidenceSummary,
-            startedAt: startedAt,
-            finishedAt: Date(),
-            error: nil
-        )
     }
 }

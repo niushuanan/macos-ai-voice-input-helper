@@ -4,8 +4,31 @@ import Foundation
 final class V4MagicianRuntimeAdapter: MagicianAgentRunning {
     private let loopEngine: any V4AgentLoopRunning
 
-    init(loopEngine: (any V4AgentLoopRunning)? = nil) {
-        self.loopEngine = loopEngine ?? V4AgentLoopEngine()
+    init(
+        loopEngine: (any V4AgentLoopRunning)? = nil,
+        toolKernel: (any V4ToolKernelRunning)? = nil,
+        providerSettingsStore: ProviderSettingsStore? = nil,
+        featureToggleStore: MagicianFeatureToggleStore? = nil
+    ) {
+        if let loopEngine {
+            self.loopEngine = loopEngine
+            return
+        }
+
+        let resolvedKernel = toolKernel ?? V4ToolKernel(
+            registry: .live(providerSettingsStore: providerSettingsStore),
+            permissionGate: V4PermissionGate(featureToggleStore: featureToggleStore)
+        )
+        self.loopEngine = V4AgentLoopEngine(
+            stepExecutor: { step, request, accumulatedStepRecords, turnIndex in
+                await resolvedKernel.execute(
+                    step: step,
+                    request: request,
+                    accumulatedStepRecords: accumulatedStepRecords,
+                    turnIndex: turnIndex
+                )
+            }
+        )
     }
 
     func run(

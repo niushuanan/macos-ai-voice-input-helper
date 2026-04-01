@@ -3,7 +3,11 @@ import XCTest
 
 final class V4AgentLoopEngineTests: XCTestCase {
     func testSingleStepFinish() async throws {
-        let engine = V4AgentLoopEngine()
+        let engine = V4AgentLoopEngine(
+            stepExecutor: { step, request, _, _ in
+                StaticSuccessExecutor().execute(step: step, request: request)
+            }
+        )
         let request = makeRequest(command: "润色这段文字")
 
         let outcome = try await engine.run(
@@ -18,7 +22,11 @@ final class V4AgentLoopEngineTests: XCTestCase {
     }
 
     func testMultiStepContinueThenFinish() async throws {
-        let engine = V4AgentLoopEngine()
+        let engine = V4AgentLoopEngine(
+            stepExecutor: { step, request, _, _ in
+                StaticSuccessExecutor().execute(step: step, request: request)
+            }
+        )
         let request = makeRequest(command: "先润色这段文字，然后写进备忘录")
 
         let outcome = try await engine.run(
@@ -195,9 +203,11 @@ private final class RetryThenSuccessExecutor: @unchecked Sendable {
         let error: V4ToolError?
         if callCount == 1 {
             error = V4ToolError(
-                failureCode: .toolExecutionFailed,
-                userMessage: "临时失败",
-                debugMessage: "first attempt failed",
+                code: .toolExecutionFailed,
+                toolID: step.toolName ?? "text.transform",
+                messageForUser: "临时失败",
+                messageForDebug: "first attempt failed",
+                recoverAction: "retry_command",
                 isRetryable: true
             )
         } else {
@@ -210,9 +220,10 @@ private final class RetryThenSuccessExecutor: @unchecked Sendable {
             lane: request.lane,
             goalSummary: request.goalSummary,
             toolName: step.toolName ?? "text.transform",
+            status: error == nil ? .success : .failed,
             outputText: error == nil ? "成功输出" : nil,
-            outputJSON: nil,
             evidenceSummary: error == nil ? "retry success" : "",
+            rawPayload: nil,
             startedAt: Date(),
             finishedAt: Date(),
             error: error
@@ -237,17 +248,48 @@ private final class AlwaysRetryableFailureExecutor: @unchecked Sendable {
             lane: request.lane,
             goalSummary: request.goalSummary,
             toolName: step.toolName ?? "text.transform",
+            status: .failed,
             outputText: nil,
-            outputJSON: nil,
             evidenceSummary: "",
+            rawPayload: nil,
             startedAt: Date(),
             finishedAt: Date(),
             error: V4ToolError(
-                failureCode: .toolExecutionFailed,
-                userMessage: "一直失败",
-                debugMessage: "retryable failure",
+                code: .toolExecutionFailed,
+                toolID: step.toolName ?? "text.transform",
+                messageForUser: "一直失败",
+                messageForDebug: "retryable failure",
+                recoverAction: "retry_command",
                 isRetryable: true
             )
+        )
+    }
+}
+
+private struct StaticSuccessExecutor {
+    func execute(step: V4StepRecord, request: V4RunRequest) -> V4ToolResult {
+        let outputText: String?
+        switch step.toolName {
+        case "apple.notes.create":
+            outputText = "已写入备忘录"
+        default:
+            outputText = request.selectionText ?? request.inputText
+        }
+
+        return V4ToolResult(
+            runID: request.runID,
+            stepID: step.id,
+            traceID: request.traceID,
+            lane: request.lane,
+            goalSummary: request.goalSummary,
+            toolName: step.toolName ?? "text.transform",
+            status: .success,
+            outputText: outputText,
+            evidenceSummary: "\(step.toolName ?? "text.transform") completed",
+            rawPayload: nil,
+            startedAt: Date(),
+            finishedAt: Date(),
+            error: nil
         )
     }
 }

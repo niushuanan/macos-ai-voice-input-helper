@@ -13,14 +13,14 @@ struct V4PostStepDeciderDefault: V4PostStepDecider {
             return V4LoopDecision(
                 action: .askUser,
                 message: latestVerification.message,
-                failureCode: latestToolResult?.error?.failureCode
+                failureCode: latestToolResult?.error?.code
             )
 
         case .failed:
             return V4LoopDecision(
                 action: .fail,
                 message: latestVerification.message,
-                failureCode: latestToolResult?.error?.failureCode ?? latestStep.failureCode ?? .verificationFailed
+                failureCode: latestToolResult?.error?.code ?? latestStep.failureCode ?? .verificationFailed
             )
 
         case .passed:
