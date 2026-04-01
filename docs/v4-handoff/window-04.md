@@ -134,6 +134,20 @@ xcodebuild -project PulseType.xcodeproj -scheme PulseType -destination "platform
 - `./scripts/test-magician-fast.sh` 已通过
 - fast suite passed
 
+### 自动发布脚本
+
+```bash
+cd "/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法"
+scripts/auto-ship.sh --message "core: implement v4 tool kernel" --files PulseType.xcodeproj/project.pbxproj Sources/Core/Magician/MagicianToolExecutor.swift Sources/Core/V4/Adapters/V4MagicianRuntimeAdapter.swift Sources/Core/V4/AgentLoop/V4AgentLoopEngine.swift Sources/Core/V4/AgentLoop/V4PostStepDeciderDefault.swift Sources/Core/V4/AgentLoop/V4VerifierDefault.swift Sources/Core/V4/ToolKernel/V4ToolContracts.swift Sources/Core/V4/ToolKernel/V4ToolRegistry.swift Sources/Core/V4/ToolKernel/V4ToolKernel.swift Sources/Core/V4/ToolKernel/V4ToolHookPipeline.swift Sources/Core/V4/ToolKernel/V4ToolBatchOrchestrator.swift Sources/Core/V4/ToolKernel/V4PermissionGate.swift Sources/Core/V4/ToolKernel/V4EvidenceNormalizer.swift Sources/Core/V4/ToolKernel/Tools/V4TextTransformTool.swift Sources/Core/V4/ToolKernel/Tools/V4ShellCommandTool.swift Sources/Core/V4/ToolKernel/Tools/V4AppleNotesTool.swift Tests/V4AgentLoopEngineTests.swift Tests/V4ToolKernelTests.swift docs/v4-handoff/window-04.md
+```
+
+结果：
+
+- 已完成 commit：`0538daa`
+- 已 push 到：`origin/codex/magician-agent-v2`
+- 已覆盖安装：`/Applications/PulseType.app`
+- 脚本内部 test phase 默认跳过；本窗测试已在脚本前单独跑完并通过
+
 ## 本窗新增测试点
 
 - `testUnknownToolID`
