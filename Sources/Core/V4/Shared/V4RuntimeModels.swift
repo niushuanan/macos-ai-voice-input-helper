@@ -40,6 +40,14 @@ struct V4RunRequest: Codable, Equatable, Sendable {
     let stepRecords: [V4StepRecord]
     /// 当前 run 的证据摘要，首轮可为空字符串。
     let evidenceSummary: String
+    /// planner/decider 可直接消费的记忆提示。
+    let memoryHints: [V4MemoryHint]
+    /// 最近相关 run 的简表，便于 planner 做连续动作判断。
+    let relatedRecentRuns: [V4RelatedRecentRun]
+    /// 记忆层给出的冲突提醒，例如最近做过相反动作。
+    let conflictWarnings: [V4ConflictWarning]
+    /// 记忆注入阶段的调试痕迹，后续写入 history trace。
+    let memoryDebugTrace: [String]
     /// 请求创建时间，用于历史排序与时光机时间线。
     let requestedAt: Date
 
@@ -56,6 +64,10 @@ struct V4RunRequest: Codable, Equatable, Sendable {
         enabledFeatureIDs: Set<String> = [],
         stepRecords: [V4StepRecord] = [],
         evidenceSummary: String = "",
+        memoryHints: [V4MemoryHint] = [],
+        relatedRecentRuns: [V4RelatedRecentRun] = [],
+        conflictWarnings: [V4ConflictWarning] = [],
+        memoryDebugTrace: [String] = [],
         requestedAt: Date = Date()
     ) {
         self.sessionID = sessionID
@@ -70,8 +82,41 @@ struct V4RunRequest: Codable, Equatable, Sendable {
         self.enabledFeatureIDs = enabledFeatureIDs
         self.stepRecords = stepRecords
         self.evidenceSummary = evidenceSummary
+        self.memoryHints = memoryHints
+        self.relatedRecentRuns = relatedRecentRuns
+        self.conflictWarnings = conflictWarnings
+        self.memoryDebugTrace = memoryDebugTrace
         self.requestedAt = requestedAt
     }
+}
+
+struct V4MemoryHint: Codable, Equatable, Sendable, Identifiable {
+    let id: String
+    let score: Double
+    let summary: String
+    let reason: String
+    let sourceTimestamp: Date
+    let lane: V4Lane
+    let moduleTags: [String]
+}
+
+struct V4RelatedRecentRun: Codable, Equatable, Sendable, Identifiable {
+    let id: String
+    let timestamp: Date
+    let lane: V4Lane
+    let appName: String?
+    let bundleID: String?
+    let goalSummary: String
+    let summary: String
+    let score: Double
+    let reason: String
+}
+
+struct V4ConflictWarning: Codable, Equatable, Sendable, Identifiable {
+    let id: String
+    let message: String
+    let relatedEntryID: String?
+    let reason: String
 }
 
 struct V4RuntimeEvent: Codable, Equatable, Sendable {

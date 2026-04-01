@@ -20,3 +20,18 @@
 1. V4 最值得先动的不是 UI，而是 `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/Interaction/InteractionCoordinator.swift` 与 `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/Magician/MagicianAgentModels.swift` 之间那条旧主链。
 2. `SkillRuleStore`、`ASRDictionaryStore`、`ProviderSettingsStore` 都不该先删，它们适合先当 V4 的配置源与桥接层。
 3. `LocalHistoryStore` 与 `MagicianAgentCheckpointStore` 已经给了 V4 时光机一个最小起点，Window 02 可以直接沿这两处起新目录与 schema。
+
+## 记忆层：UI 数据源 vs 运行时检索层
+
+- UI 数据源继续保持原样：
+  - 记忆页仍然直接读取 `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/History/LocalHistoryStore.swift`
+  - 文本展示仍然走 `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/UI/MemoryEntryTextResolver.swift`
+- 运行时检索层是新增的 V4 memory：
+  - 入口在 `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/V4/Memory/`
+  - `V4MemoryBridge` 负责把 `SessionHistoryEntry` 转成可检索的 `V4MemoryEntry`
+  - `V4MemoryIndex` 负责按 `input / output / instruction / goal / steps / evidence / tags` 建倒排索引
+  - `V4MemoryEngine` 负责按关键词、字段权重、lane、app、时间衰减打分
+  - `V4MemoryQueryPlannerInputAdapter` 负责在 V4 planner 输入前注入 `memoryHints / relatedRecentRuns / conflictWarnings`
+- 这两层职责必须分开：
+  - UI 只负责展示历史
+  - runtime 只负责检索和提示，不反过来替换记忆页的数据源

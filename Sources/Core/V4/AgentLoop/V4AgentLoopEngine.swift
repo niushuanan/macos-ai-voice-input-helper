@@ -535,6 +535,10 @@ struct V4AgentLoopEngine: V4AgentLoopRunning {
             enabledFeatureIDs: request.enabledFeatureIDs,
             stepRecords: stepRecords,
             evidenceSummary: evidenceSummary,
+            memoryHints: request.memoryHints,
+            relatedRecentRuns: request.relatedRecentRuns,
+            conflictWarnings: request.conflictWarnings,
+            memoryDebugTrace: request.memoryDebugTrace,
             requestedAt: request.requestedAt
         )
     }

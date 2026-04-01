@@ -171,6 +171,7 @@ final class AppModel: ObservableObject {
             speechPipelineLogger: speechPipelineLogger
         )
         let v4RuntimeSwitchStore = V4RuntimeSwitchStore()
+        let v4MemoryPlannerInputAdapter = V4MemoryQueryPlannerInputAdapter()
         let v4MagicianRuntime = V4MagicianRuntimeAdapter(
             providerSettingsStore: providerSettingsStore,
             featureToggleStore: magicianFeatureToggleStore
@@ -198,6 +199,7 @@ final class AppModel: ObservableObject {
             workflowTelemetryReporter: workflowTelemetryReporter,
             v4MagicianRuntime: v4MagicianRuntime,
             v4RuntimeSwitchStore: v4RuntimeSwitchStore,
+            v4MemoryPlannerInputAdapter: v4MemoryPlannerInputAdapter,
             toastPresenter: toastPresenter
         )
         return AppModel(

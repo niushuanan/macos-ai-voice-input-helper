@@ -91,6 +91,7 @@ struct V4ToHistoryBridge {
         lines.append("status: \(status.rawValue)")
         appendField(&lines, key: "failure_code", value: outcome.failureCode?.rawValue)
         lines.append("")
+        appendMemoryInjection(&lines, request: request)
 
         appendEvents(&lines, runtimeEvents: runtimeEvents)
 
@@ -137,6 +138,36 @@ struct V4ToHistoryBridge {
             }
             if let progressHint = event.progressHint {
                 lines.append("  progress_hint: \(String(format: "%.3f", progressHint))")
+            }
+        }
+        lines.append("")
+    }
+
+    private func appendMemoryInjection(
+        _ lines: inout [String],
+        request: V4RunRequest
+    ) {
+        lines.append("memory_injection:")
+        lines.append("  hints: \(request.memoryHints.count)")
+        lines.append("  related_recent_runs: \(request.relatedRecentRuns.count)")
+        lines.append("  conflict_warnings: \(request.conflictWarnings.count)")
+
+        for hint in request.memoryHints.prefix(5) {
+            lines.append("  [hint] score=\(String(format: "%.3f", hint.score)) id=\(hint.id)")
+            appendField(&lines, key: "    summary", value: hint.summary)
+            appendField(&lines, key: "    reason", value: hint.reason)
+        }
+
+        for warning in request.conflictWarnings {
+            appendField(&lines, key: "  [conflict]", value: warning.message)
+            appendField(&lines, key: "    reason", value: warning.reason)
+        }
+
+        if request.memoryDebugTrace.isEmpty {
+            lines.append("  debug: (none)")
+        } else {
+            for note in request.memoryDebugTrace {
+                lines.append("  debug: \(note)")
             }
         }
         lines.append("")

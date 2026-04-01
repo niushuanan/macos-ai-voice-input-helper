@@ -24,6 +24,7 @@ final class InteractionCoordinator {
     private let v4RuntimeSwitchStore: V4RuntimeSwitchStore
     private let v4SessionStoreBridge: V4ToSessionStoreBridge
     private let v4HistoryBridge: V4ToHistoryBridge
+    private let v4MemoryPlannerInputAdapter: any V4MemoryQueryPlannerInputAdapting
     // legacy fallback only
     private let magicianNativeRuntime: any MagicianAgentRunning
     // legacy fallback only
@@ -68,6 +69,7 @@ final class InteractionCoordinator {
         v4RuntimeSwitchStore: V4RuntimeSwitchStore? = nil,
         v4SessionStoreBridge: V4ToSessionStoreBridge? = nil,
         v4HistoryBridge: V4ToHistoryBridge = V4ToHistoryBridge(),
+        v4MemoryPlannerInputAdapter: (any V4MemoryQueryPlannerInputAdapting)? = nil,
         magicianNativeRuntime: (any MagicianAgentRunning)? = nil,
         magicianAgentRuntime: (any MagicianAgentRunning)? = nil,
         toastPresenter: ToastPresenter? = nil,
@@ -100,6 +102,7 @@ final class InteractionCoordinator {
         self.v4RuntimeSwitchStore = v4RuntimeSwitchStore ?? V4RuntimeSwitchStore()
         self.v4SessionStoreBridge = v4SessionStoreBridge ?? V4ToSessionStoreBridge()
         self.v4HistoryBridge = v4HistoryBridge
+        self.v4MemoryPlannerInputAdapter = v4MemoryPlannerInputAdapter ?? V4MemoryQueryPlannerInputAdapter()
         self.v4MagicianRuntime = v4MagicianRuntime ?? V4MagicianRuntimeAdapter(
             providerSettingsStore: providerSettingsStore,
             featureToggleStore: self.magicianFeatureToggleStore
@@ -1993,13 +1996,17 @@ final class InteractionCoordinator {
             selectionText: selectionSnapshot?.selectedText,
             enabledFeatureIDs: Set(enabledFeatures.map(\.rawValue))
         )
+        let plannerRequest = v4MemoryPlannerInputAdapter.adapt(
+            request: request,
+            historyEntries: localHistoryStore.entries
+        )
         let eventBuffer = LockedV4RuntimeEventBuffer()
 
-        v4SessionStoreBridge.applyRunStart(request: request, to: sessionStore)
+        v4SessionStoreBridge.applyRunStart(request: plannerRequest, to: sessionStore)
 
         do {
             let outcome = try await v4MagicianRuntime.run(
-                request: request,
+                request: plannerRequest,
                 onEvent: { [weak self] event in
                     eventBuffer.append(event)
                     Task { @MainActor [weak self] in
@@ -2018,7 +2025,7 @@ final class InteractionCoordinator {
             let runtimeEvents = eventBuffer.snapshot()
             localHistoryStore.append(
                 v4HistoryBridge.makeHistoryEntry(
-                    from: request,
+                    from: plannerRequest,
                     outcome: outcome,
                     status: historyStatus,
                     focusContext: fallbackFocusContext,
@@ -2047,13 +2054,13 @@ final class InteractionCoordinator {
             }
 
             let outcome = makeV4FailureOutcome(
-                request: request,
+                request: plannerRequest,
                 error: error,
                 runtimeEvents: eventBuffer.snapshot()
             )
             localHistoryStore.append(
                 v4HistoryBridge.makeHistoryEntry(
-                    from: request,
+                    from: plannerRequest,
                     outcome: outcome,
                     status: .failed,
                     focusContext: fallbackFocusContext,

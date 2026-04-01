@@ -32,6 +32,12 @@
 		A10000000000000000000026 /* V4ToolKernelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000004B /* V4ToolKernelTests.swift */; };
 		A1000000000000000000004D /* V4RuntimeSwitchStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000004E /* V4RuntimeSwitchStore.swift */; };
 		A1000000000000000000004F /* InteractionCoordinatorV4RoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000050 /* InteractionCoordinatorV4RoutingTests.swift */; };
+		A10000000000000000000051 /* V4MemoryEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000061 /* V4MemoryEntry.swift */; };
+		A10000000000000000000052 /* V4MemoryIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000062 /* V4MemoryIndex.swift */; };
+		A10000000000000000000053 /* V4MemoryEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000063 /* V4MemoryEngine.swift */; };
+		A10000000000000000000054 /* V4MemoryBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000064 /* V4MemoryBridge.swift */; };
+		A10000000000000000000055 /* V4MemoryQueryPlannerInputAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000065 /* V4MemoryQueryPlannerInputAdapter.swift */; };
+		A10000000000000000000056 /* V4MemoryEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000066 /* V4MemoryEngineTests.swift */; };
 		06123C002DCFE32A3B4F9826 /* AppRuntimePolicy.plist in Resources */ = {isa = PBXBuildFile; fileRef = DF7D63023398B1BA8B707A6E /* AppRuntimePolicy.plist */; };
 		06ED5EEBD9C709D7B20DFF2C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615736F7FBCACF8AF8B17CCF /* SettingsView.swift */; };
 		08AEBC14B14DCFC8330558BA /* OpenAITextGenerationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BFB5724578D68E1E94182AB /* OpenAITextGenerationProvider.swift */; };
@@ -249,6 +255,12 @@
 		A1000000000000000000004C /* V4PermissionGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4PermissionGate.swift; sourceTree = "<group>"; };
 		A1000000000000000000004E /* V4RuntimeSwitchStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4RuntimeSwitchStore.swift; sourceTree = "<group>"; };
 		A10000000000000000000050 /* InteractionCoordinatorV4RoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractionCoordinatorV4RoutingTests.swift; sourceTree = "<group>"; };
+		A10000000000000000000061 /* V4MemoryEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4MemoryEntry.swift; sourceTree = "<group>"; };
+		A10000000000000000000062 /* V4MemoryIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4MemoryIndex.swift; sourceTree = "<group>"; };
+		A10000000000000000000063 /* V4MemoryEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4MemoryEngine.swift; sourceTree = "<group>"; };
+		A10000000000000000000064 /* V4MemoryBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4MemoryBridge.swift; sourceTree = "<group>"; };
+		A10000000000000000000065 /* V4MemoryQueryPlannerInputAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4MemoryQueryPlannerInputAdapter.swift; sourceTree = "<group>"; };
+		A10000000000000000000066 /* V4MemoryEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4MemoryEngineTests.swift; sourceTree = "<group>"; };
 		8E4D00737C3345BDE9F747AC /* TextOutputCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextOutputCoordinator.swift; sourceTree = "<group>"; };
 		93A38F69E5582F6FA37EE498 /* ControlCenterStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlCenterStateTests.swift; sourceTree = "<group>"; };
 		93D66F476FED6BC033F5DA9A /* FeishuCLIProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeishuCLIProviderTests.swift; sourceTree = "<group>"; };
@@ -445,6 +457,7 @@
 				A10000000000000000000042 /* Shared */,
 				A10000000000000000000043 /* AgentLoop */,
 				A10000000000000000000044 /* ToolKernel */,
+				A10000000000000000000067 /* Memory */,
 				A10000000000000000000045 /* Adapters */,
 			);
 			path = V4;
@@ -505,6 +518,18 @@
 				A1000000000000000000004E /* V4RuntimeSwitchStore.swift */,
 			);
 			path = Adapters;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000067 /* Memory */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000061 /* V4MemoryEntry.swift */,
+				A10000000000000000000062 /* V4MemoryIndex.swift */,
+				A10000000000000000000063 /* V4MemoryEngine.swift */,
+				A10000000000000000000064 /* V4MemoryBridge.swift */,
+				A10000000000000000000065 /* V4MemoryQueryPlannerInputAdapter.swift */,
+			);
+			path = Memory;
 			sourceTree = "<group>";
 		};
 		801BCF08C3270472DEDD0897 /* Permissions */ = {
@@ -636,6 +661,7 @@
 				C3C82F5D40EAA52586B00249 /* MagicianMusicQueryTests.swift */,
 				1DF80813CE9BAA9E7CE85D3F /* MagicianStatusResolverTests.swift */,
 				42D36DDA6DCE067931E4F676 /* MemoryEntryTextResolverTests.swift */,
+				A10000000000000000000066 /* V4MemoryEngineTests.swift */,
 				08A4DD0C302CC25FFC1B7985 /* ModifierCaptureStateMachineTests.swift */,
 				B14B5D28128E0B4304B0E398 /* OpenAIEndpointResolverTests.swift */,
 				AA9B804F228D15F5BB803E11 /* OpenAIProviderAdapterTests.swift */,
@@ -908,6 +934,11 @@
 				A10000000000000000000023 /* V4TextTransformTool.swift in Sources */,
 				A10000000000000000000024 /* V4ShellCommandTool.swift in Sources */,
 				A10000000000000000000025 /* V4AppleNotesTool.swift in Sources */,
+				A10000000000000000000051 /* V4MemoryEntry.swift in Sources */,
+				A10000000000000000000052 /* V4MemoryIndex.swift in Sources */,
+				A10000000000000000000053 /* V4MemoryEngine.swift in Sources */,
+				A10000000000000000000054 /* V4MemoryBridge.swift in Sources */,
+				A10000000000000000000055 /* V4MemoryQueryPlannerInputAdapter.swift in Sources */,
 				A10000000000000000000019 /* V4ToHistoryBridge.swift in Sources */,
 				A1000000000000000000001A /* V4ToSessionStoreBridge.swift in Sources */,
 				A1000000000000000000001B /* V4MagicianRuntimeAdapter.swift in Sources */,
@@ -959,6 +990,7 @@
 				E1DBC788787F324D6B2178FD /* SessionStoreTests.swift in Sources */,
 				85B875C74007F983512A7F73 /* SkillRuleStoreTests.swift in Sources */,
 				A1000000000000000000001C /* V4AgentLoopEngineTests.swift in Sources */,
+				A10000000000000000000056 /* V4MemoryEngineTests.swift in Sources */,
 				A10000000000000000000026 /* V4ToolKernelTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
