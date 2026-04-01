@@ -50,7 +50,7 @@ enum V4RulePlannerHeuristics {
         if containsAny(lowered, tokens: ["日程", "会议", "calendar", "event", "安排", "课程", "上课", "行程"]) {
             externalActions.insert(.calendar)
         }
-        if containsAny(lowered, tokens: ["音乐", "歌曲", "播放", "暂停", "继续播放", "下一首", "上一首", "music", "play", "pause"]) {
+        if containsAny(lowered, tokens: ["音乐", "歌曲", "播放", "暂停", "继续播放", "下一首", "上一首", "music", "play", "pause", "放首", "来首", "来一首", "播一下", "放一下", "听一下", "听首"]) {
             externalActions.insert(.music)
         }
 

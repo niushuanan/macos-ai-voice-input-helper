@@ -67,32 +67,35 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
             return try await executeHandler(text, instruction)
         }
 
-        guard let modelSlotManager else {
-            let payload = V4ToolValue.object(
-                [
-                    "mode": .string("local_fallback"),
-                    "instruction": .string(instruction),
-                    "text": .string(text)
-                ]
-            )
-            return V4ToolExecutionOutput(
-                outputText: text,
-                evidenceSummary: "text.transform fallback=no_provider_store",
-                rawPayload: payload
-            )
-        }
-
         let configuration: TextGenerationProviderConfiguration
         let apiKey: String
         do {
-            let endpoint = if let resolved = context.request.modelSlots?.endpoint(for: .text) {
-                resolved
+            let endpoint: V4ModelEndpoint
+            if let resolved = context.request.modelSlots?.endpoint(for: .text) {
+                endpoint = resolved
+            } else if let modelSlotManager {
+                endpoint = try await modelSlotManager.resolve(.text)
             } else {
-                try await modelSlotManager.resolve(.text)
+                let payload = V4ToolValue.object(
+                    [
+                        "mode": .string("local_fallback"),
+                        "instruction": .string(instruction),
+                        "text": .string(text)
+                    ]
+                )
+                return V4ToolExecutionOutput(
+                    outputText: text,
+                    evidenceSummary: "text.transform fallback=no_provider_store",
+                    rawPayload: payload
+                )
             }
             configuration = try makeConfiguration(from: endpoint)
-            apiKey = try await modelSlotManager.loadAPIKey(for: .text)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            apiKey = if let modelSlotManager {
+                try await modelSlotManager.loadAPIKey(for: .text)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            } else {
+                ""
+            }
         } catch let error as V4ModelSlotResolutionError {
             throw V4ToolError(
                 code: .modelUnavailable,
@@ -125,22 +128,19 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
         }
 
         let promptStack = context.request.promptStack
-        let fallbackSystemPrompt = "你是 PulseType 的文字处理工具。只输出处理后的文本，不要解释。"
-        let fallbackUserPrompt = """
-        指令：
-        \(instruction)
-
-        原文：
-        \(text)
+        let fallbackSystemPrompt = """
+        你是 PulseType 的文字处理工具。
+        你只负责根据给定指令处理输入文本。
+        只输出最终文本，不要解释，不要复述指令，不要输出思考过程，除非指令明确要求，否则不要添加标题、引号或额外前后缀。
         """
         let systemPrompt = [promptStack?.finalSystemPrompt, promptStack?.finalGuidancePrompt]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
-        let resolvedUserPrompt = promptStack?.finalUserPrompt
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let userPrompt = resolvedUserPrompt?.nilIfEmpty
-            ?? fallbackUserPrompt
+        let userPrompt = buildUserPrompt(
+            instruction: instruction,
+            text: text
+        )
 
         let generation = try await generationProvider.generateText(
             request: TextGenerationRequest(
@@ -154,7 +154,7 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
         )
 
         return V4ToolExecutionOutput(
-            outputText: generation.outputText,
+            outputText: normalizedOutputText(from: generation.outputText),
             evidenceSummary: "text.transform provider=\(generation.providerName) model=\(generation.modelName)",
             rawPayload: .object(
                 [
@@ -183,6 +183,52 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
             modelName: endpoint.modelName,
             baseURL: baseURL
         )
+    }
+
+    private func buildUserPrompt(
+        instruction: String,
+        text: String
+    ) -> String {
+        """
+        请严格根据下面的指令处理文本，并且只返回处理后的最终文本。
+
+        处理指令：
+        \(instruction)
+
+        待处理文本：
+        \(text)
+        """
+    }
+
+    private func normalizedOutputText(from rawOutput: String) -> String {
+        let trimmed = rawOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return rawOutput
+        }
+
+        if trimmed.hasPrefix("```"), let unfenced = unfencedText(from: trimmed) {
+            return unfenced
+        }
+
+        return trimmed
+    }
+
+    private func unfencedText(from value: String) -> String? {
+        let lines = value.components(separatedBy: .newlines)
+        guard lines.count >= 3 else {
+            return nil
+        }
+
+        var body = lines
+        if body.first?.hasPrefix("```") == true {
+            body.removeFirst()
+        }
+        if body.last?.hasPrefix("```") == true {
+            body.removeLast()
+        }
+
+        let candidate = body.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return candidate.isEmpty ? nil : candidate
     }
 }
 

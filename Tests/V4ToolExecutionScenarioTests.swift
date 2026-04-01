@@ -71,6 +71,102 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         XCTAssertTrue(mailResult.outputText?.contains("整理后的纪要") == true)
     }
 
+    func testTextTransformUsesToolLocalPromptInsteadOfTaskWrappedUserPrompt() async throws {
+        let provider = RecordingTextGenerationProvider(outputText: "```text\n润色后的文本\n```")
+        let endpoint = V4ModelEndpoint(
+            slot: .text,
+            providerType: .localSenseVoice,
+            providerIdentifier: "stub",
+            providerDisplayName: "Stub",
+            modelName: "stub-model",
+            baseURLString: "https://example.com",
+            credentialRef: V4ModelCredentialRef(rawValue: "cred"),
+            localModelPath: nil,
+            sourceConfigurationKey: "stub.text"
+        )
+        let request = V4RunRequest(
+            sessionID: V4SessionID(rawValue: "session"),
+            runID: V4RunID(rawValue: "run"),
+            traceID: V4TraceID(rawValue: "trace"),
+            lane: .selectionRewrite,
+            goalSummary: "把这段话润色一下",
+            inputText: "把这段话润色一下",
+            selectionText: "原始内容",
+            promptStack: V4PromptStack(
+                context: V4PromptContext(
+                    traceID: V4TraceID(rawValue: "trace"),
+                    lane: .selectionRewrite,
+                    goalSummary: "把这段话润色一下",
+                    inputText: "把这段话润色一下",
+                    sourceAppName: nil,
+                    sourceBundleID: nil,
+                    selectionText: "原始内容",
+                    stepRecords: [],
+                    evidenceSummary: "",
+                    requestedAt: Date()
+                ),
+                appliedLayers: [],
+                finalSystemPrompt: "system",
+                finalGuidancePrompt: "guidance",
+                finalUserPrompt: "任务目标：把这段话润色一下\n\n待处理文本：原始内容",
+                guidance: [:],
+                constraints: [:],
+                appliedSkillRuleIDs: [],
+                createdAt: Date()
+            ),
+            modelSlots: V4ModelSlots(asr: endpoint, text: endpoint, agent: endpoint)
+        )
+        let step = V4StepRecord(
+            id: V4StepID(rawValue: UUID().uuidString),
+            traceID: V4TraceID(rawValue: "trace"),
+            lane: .selectionRewrite,
+            goalSummary: "把这段话润色一下",
+            title: "文字处理",
+            status: .queued,
+            toolName: "text.transform",
+            inputSummary: "把这段话润色一下"
+        )
+        let toolUse = V4ToolUse(
+            runID: V4RunID(rawValue: "run"),
+            stepID: step.id,
+            traceID: V4TraceID(rawValue: "trace"),
+            lane: .selectionRewrite,
+            goalSummary: "把这段话润色一下",
+            toolName: "text.transform",
+            inputJSON: #"{"instruction":"润色得更自然","text":"原始内容"}"#,
+            inputSummary: "把这段话润色一下",
+            requestedAt: Date()
+        )
+        let context = V4ToolExecutionContext(
+            toolUse: toolUse,
+            request: request,
+            step: step,
+            accumulatedStepRecords: [],
+            turnIndex: 1
+        )
+        let tool = V4TextTransformTool(
+            generationProvider: provider
+        )
+
+        let result = try await tool.execute(
+            arguments: ["instruction": .string("润色得更自然"), "text": .string("原始内容")],
+            context: context
+        )
+
+        let recordedRequest = await provider.lastRequest
+        XCTAssertEqual(result.outputText, "润色后的文本")
+        XCTAssertEqual(recordedRequest?.userPrompt, """
+        请严格根据下面的指令处理文本，并且只返回处理后的最终文本。
+
+        处理指令：
+        润色得更自然
+
+        待处理文本：
+        原始内容
+        """)
+        XCTAssertFalse(recordedRequest?.userPrompt.contains("任务目标：") == true)
+    }
+
     func testFeishuCommandWithEvidenceValidation() async {
         let tool = V4FeishuCLITool { command, operation, arguments in
             XCTAssertEqual(command, "在飞书创建明天上午 10 点评审会")
@@ -493,6 +589,31 @@ private final class StubTextGenerationProvider: TextGenerationProvider {
             providerName: "stub",
             modelName: "stub-model",
             outputText: "stub"
+        )
+    }
+}
+
+private actor RecordingTextGenerationProvider: TextGenerationProvider {
+    let supportedProviderTypes: [ProviderType] = [.openAI, .openAICompatible, .localSenseVoice]
+
+    private(set) var lastRequest: TextGenerationRequest?
+    private let outputText: String
+
+    init(outputText: String) {
+        self.outputText = outputText
+    }
+
+    func generateText(
+        request: TextGenerationRequest,
+        configuration: TextGenerationProviderConfiguration,
+        apiKey _: String
+    ) async throws -> TextGenerationResult {
+        lastRequest = request
+        return TextGenerationResult(
+            providerType: configuration.providerType,
+            providerName: configuration.providerName,
+            modelName: configuration.modelName,
+            outputText: outputText
         )
     }
 }

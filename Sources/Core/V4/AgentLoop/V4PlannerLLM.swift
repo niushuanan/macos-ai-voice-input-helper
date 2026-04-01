@@ -50,6 +50,10 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
             return try await fallbackPlanner.plan(for: request)
         }
 
+        if let fastPathPlan = fastPathPlan(for: request, trimmedInput: trimmedInput) {
+            return fastPathPlan
+        }
+
         guard let modelContext = try await modelResolver(request) else {
             return try await fallbackPlanner.plan(for: request)
         }
@@ -117,6 +121,72 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
         return promptLayers.joined(separator: "\n\n")
     }
 
+    private func fastPathPlan(
+        for request: V4RunRequest,
+        trimmedInput: String
+    ) -> V4Plan? {
+        let segments = V4RulePlannerHeuristics.segments(from: trimmedInput)
+        if let message = V4RulePlannerHeuristics.mixedExternalFailureMessage(for: segments) {
+            return V4Plan(
+                steps: [],
+                terminalDecision: V4LoopDecision(
+                    action: .fail,
+                    message: message,
+                    failureCode: .invalidRequest
+                )
+            )
+        }
+
+        guard segments.count == 1 else {
+            return nil
+        }
+
+        let classification = V4RulePlannerHeuristics.classification(for: trimmedInput)
+        let hasTransformIntent = containsTransformIntent(in: trimmedInput)
+        let latestCompletedStep = request.stepRecords.last(where: { $0.status == .completed })
+
+        if latestCompletedStep == nil {
+            if classification.toolName == "text.transform" || classification.toolName == "apple.music.control" {
+                return makeSingleStepPlan(for: request, toolName: classification.toolName, title: classification.title, inputSummary: trimmedInput)
+            }
+
+            if !hasTransformIntent {
+                return makeSingleStepPlan(for: request, toolName: classification.toolName, title: classification.title, inputSummary: trimmedInput)
+            }
+
+            return nil
+        }
+
+        guard let latestCompletedStep else {
+            return nil
+        }
+
+        if latestCompletedStep.toolName == classification.toolName {
+            return V4Plan(
+                steps: [],
+                terminalDecision: V4LoopDecision(
+                    action: .finish,
+                    message: "已完成当前任务。"
+                )
+            )
+        }
+
+        if
+            latestCompletedStep.toolName == "text.transform",
+            hasTransformIntent,
+            classification.toolName != "text.transform"
+        {
+            return makeSingleStepPlan(
+                for: request,
+                toolName: classification.toolName,
+                title: classification.title,
+                inputSummary: trimmedInput
+            )
+        }
+
+        return nil
+    }
+
     private func plannerUserPrompt(for request: V4RunRequest) -> String {
         let completedSteps = request.stepRecords.enumerated().map { index, step in
             let status = step.status.rawValue
@@ -152,6 +222,35 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
 
         只输出 JSON。
         """
+    }
+
+    private func makeSingleStepPlan(
+        for request: V4RunRequest,
+        toolName: String,
+        title: String,
+        inputSummary: String
+    ) -> V4Plan {
+        V4Plan(
+            steps: [
+                V4StepRecord(
+                    traceID: request.traceID,
+                    lane: request.lane,
+                    goalSummary: request.goalSummary,
+                    title: title,
+                    status: .queued,
+                    toolName: toolName,
+                    inputSummary: summarized(inputSummary)
+                )
+            ]
+        )
+    }
+
+    private func containsTransformIntent(in value: String) -> Bool {
+        let normalized = value.lowercased()
+        return [
+            "整理", "润色", "改写", "重写", "优化", "总结", "摘要", "提炼",
+            "翻译", "压缩", "扩写", "美化", "改得", "改成", "改为", "重组"
+        ].contains { normalized.contains($0) }
     }
 
     private func decodedPlan(
