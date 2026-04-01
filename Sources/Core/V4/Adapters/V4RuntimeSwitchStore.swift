@@ -71,3 +71,87 @@ struct V4RuntimeSwitchStore {
         }
     }
 }
+
+@MainActor
+protocol LegacyMagicianRuntimeResolving {
+    func runtime(for route: V4RuntimeRoute) -> (any MagicianAgentRunning)?
+}
+
+@MainActor
+final class LegacyMagicianRuntimeResolver: LegacyMagicianRuntimeResolving {
+    private let providerSettingsStore: ProviderSettingsStore
+    private let rewriteProviderRegistry: RewriteProviderRegistry
+    private let textOutputCoordinator: TextOutputCoordinator
+    private let skillRuleStore: SkillRuleStore
+    private let mailAddressBookStore: MailAddressBookStore
+    private var legacyToolExecutor: (any MagicianToolExecuting)?
+    private var magicianNativeRuntime: (any MagicianAgentRunning)?
+    private var magicianAgentRuntime: (any MagicianAgentRunning)?
+
+    init(
+        providerSettingsStore: ProviderSettingsStore,
+        rewriteProviderRegistry: RewriteProviderRegistry,
+        textOutputCoordinator: TextOutputCoordinator,
+        skillRuleStore: SkillRuleStore,
+        mailAddressBookStore: MailAddressBookStore? = nil,
+        magicianToolExecutor: (any MagicianToolExecuting)? = nil,
+        magicianNativeRuntime: (any MagicianAgentRunning)? = nil,
+        magicianAgentRuntime: (any MagicianAgentRunning)? = nil
+    ) {
+        self.providerSettingsStore = providerSettingsStore
+        self.rewriteProviderRegistry = rewriteProviderRegistry
+        self.textOutputCoordinator = textOutputCoordinator
+        self.skillRuleStore = skillRuleStore
+        self.mailAddressBookStore = mailAddressBookStore ?? MailAddressBookStore()
+        self.legacyToolExecutor = magicianToolExecutor
+        self.magicianNativeRuntime = magicianNativeRuntime
+        self.magicianAgentRuntime = magicianAgentRuntime
+    }
+
+    func runtime(for route: V4RuntimeRoute) -> (any MagicianAgentRunning)? {
+        switch route {
+        case .legacyNative:
+            if let magicianNativeRuntime {
+                return magicianNativeRuntime
+            }
+            let runtime = MagicianNativeRuntime(
+                providerSettingsStore: providerSettingsStore,
+                rewriteProviderRegistry: rewriteProviderRegistry,
+                textOutputCoordinator: textOutputCoordinator,
+                skillRuleStore: skillRuleStore,
+                toolExecutor: resolveToolExecutor()
+            )
+            magicianNativeRuntime = runtime
+            return runtime
+
+        case .legacyAgent:
+            if let magicianAgentRuntime {
+                return magicianAgentRuntime
+            }
+            let runtime = MagicianAgentRuntimeV3(
+                providerSettingsStore: providerSettingsStore,
+                rewriteProviderRegistry: rewriteProviderRegistry,
+                textOutputCoordinator: textOutputCoordinator,
+                skillRuleStore: skillRuleStore,
+                toolExecutor: resolveToolExecutor()
+            )
+            magicianAgentRuntime = runtime
+            return runtime
+
+        case .v4:
+            return nil
+        }
+    }
+
+    private func resolveToolExecutor() -> any MagicianToolExecuting {
+        if let legacyToolExecutor {
+            return legacyToolExecutor
+        }
+        let executor = MagicianToolExecutor(
+            providerSettingsStore: providerSettingsStore,
+            mailAddressBookStore: mailAddressBookStore
+        )
+        legacyToolExecutor = executor
+        return executor
+    }
+}
