@@ -112,6 +112,7 @@ struct SettingsView: View {
     @State private var memoryToolbarAvailableWidth: CGFloat = 0
     @State private var memoryFilterBarWidth: CGFloat = 0
     @State private var clearMemoryButtonWidth: CGFloat = 0
+    @State private var timeMachineItems: [V4TimeItem] = []
 
     private let magicianStatusResolver = MagicianStatusResolver()
     private let magicianCapabilityProbe = MagicianCapabilityProbe()
@@ -165,6 +166,8 @@ struct SettingsView: View {
                         dictionaryPage
                     case .model:
                         modelPage
+                    case .timeMachine:
+                        timeMachinePage
                     case .settings:
                         settingsPage
                     }
@@ -193,6 +196,8 @@ struct SettingsView: View {
             } else if section == .agentBrainstorm {
                 hotkeyStateStore.refresh()
                 model.interactionCoordinator.ensureBrainstormDurationProfile()
+            } else if section == .timeMachine {
+                refreshTimeMachineItems()
             } else if section == .magician {
                 refreshMagicianCapabilityState()
                 permissionsCenter.refreshStatuses()
@@ -286,7 +291,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 pageHeader(
                     title: "记忆",
-                    subtitle: "这里会保存每次会话的本地记录，你可以筛选、复制或删除。"
+                    subtitle: "这里会保存会话与执行轨迹。现在支持只清空记录，或一键清洗全部旧使用数据。"
                 )
 
                 memoryToolbar
@@ -329,15 +334,20 @@ struct SettingsView: View {
             "确认清空记录？",
             isPresented: $showClearMemoryConfirmation,
             titleVisibility: .visible
-        ) {            
-            Button("清空全部记录") {
+        ) {
+            Button("仅清空记忆页记录") {
                 localHistoryStore.clearAll()
                 showToast("会话明细已清空，首页累计指标保持不变。")
             }
             .keyboardShortcut(.defaultAction)
+            Button("深度清洗全部旧使用数据", role: .destructive) {
+                model.purgeAllUsageData()
+                refreshTimeMachineItems()
+                showToast("旧会话、时光机、历史轨迹与诊断日志已清空。")
+            }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("该操作会删除记忆页全部本地记录，但不影响首页累计指标。")
+            Text("第一项只清空记忆页。第二项会同时清空时光机、历史轨迹和诊断日志。")
         }
     }
 
@@ -346,7 +356,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 pageHeader(
                     title: "魔术先生",
-                    subtitle: "能力区现在固定三块：原生功能、外部 Agent、本地 skill 文件。"
+                    subtitle: "默认走 V4 主链。这里展示当前能稳定执行的能力入口。"
                 )
 
                 magicianNativeFeatureBoard
@@ -456,15 +466,15 @@ struct SettingsView: View {
     }
 
     private var magicianSkillUploadCard: some View {
-        HStack {
-            Button("上传 skill 文件") {
-                showToast("功能待开发")
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.accentColor)
-            Spacer()
+        VStack(alignment: .leading, spacing: 8) {
+            Text("本地 skill 文件")
+                .font(.headline)
+            Text("当前版本不提供界面上传。请把 skill 放到应用约定目录，重启后会自动识别。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .pulseCard(cornerRadius: 12)
     }
 
     private var feishuSupportTierGroups: [(tier: FeishuOperationSupportTier, operations: [FeishuOperationDescriptor])] {
@@ -666,7 +676,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 pageHeader(
                     title: "模型",
-                    subtitle: ""
+                    subtitle: "三槽位：语音识别 / 文本处理 / CLI Agent。改动会实时生效。"
                 )
 
                 modelRoleSection(
@@ -993,7 +1003,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 pageHeader(
                     title: "设置",
-                    subtitle: "在这里管理快捷键、权限和基础信息。"
+                    subtitle: "管理快捷键、权限与基础环境。"
                 )
 
                 hotkeySettingsCard
@@ -1019,7 +1029,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 pageHeader(
                     title: "一口气全念对",
-                    subtitle: "用于短时讨论记录，自动整理为可直接给 AI 分析的上下文。"
+                    subtitle: "用于短时讨论记录，自动整理成可直接给 AI 使用的上下文。"
                 )
 
                 brainstormIntroCard
@@ -1856,11 +1866,11 @@ struct SettingsView: View {
     }
 
     private var clearMemoryButton: some View {
-        Button("清空记录", role: .destructive) {
+        Button("清理数据", role: .destructive) {
             showClearMemoryConfirmation = true
         }
         .buttonStyle(.bordered)
-        .disabled(localHistoryStore.entries.isEmpty)
+        .disabled(!hasAnyPurgeableUsageData)
         .reportMemoryToolbarWidth(.clearButton)
     }
 
@@ -1906,6 +1916,164 @@ struct SettingsView: View {
         }
         if let clearButtonWidth = widths[.clearButton], abs(clearMemoryButtonWidth - clearButtonWidth) > 0.5 {
             clearMemoryButtonWidth = clearButtonWidth
+        }
+    }
+
+    private var hasAnyPurgeableUsageData: Bool {
+        if !localHistoryStore.entries.isEmpty {
+            return true
+        }
+        if !timeMachineItems.isEmpty {
+            return true
+        }
+        let fileManager = FileManager.default
+        let timeMachineFile = V4TimeMachineStore.storageURL(historyDirectory: model.localStore.historyDirectory)
+        if fileManager.fileExists(atPath: timeMachineFile.path) {
+            return true
+        }
+        let legacyDirectories = [
+            model.localStore.rootDirectory.appendingPathComponent("MagicianNative", isDirectory: true),
+            model.localStore.rootDirectory.appendingPathComponent("MagicianV2", isDirectory: true)
+        ]
+        return legacyDirectories.contains(where: { fileManager.fileExists(atPath: $0.path) })
+    }
+
+    private var timeMachinePage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                pageHeader(
+                    title: "时光机",
+                    subtitle: "这里是本地提醒与时间相关记忆的总览。"
+                )
+
+                timeMachineOverviewCard
+
+                if timeMachineItems.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("当前还没有时光机记录。", systemImage: "clock.badge.questionmark")
+                            .font(.subheadline.weight(.semibold))
+                        Text("你可以对魔术先生说“30 分钟后提醒我…”或“记一下…”。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(14)
+                    .pulseCard(cornerRadius: 12)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(timeMachineItems.prefix(120)) { item in
+                            timeMachineRow(item)
+                                .padding(12)
+                                .pulseCard(cornerRadius: 12)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
+        }
+        .onAppear {
+            refreshTimeMachineItems()
+        }
+    }
+
+    private var timeMachineOverviewCard: some View {
+        let total = timeMachineItems.count
+        let scheduled = timeMachineItems.filter { $0.status == .scheduled }.count
+        let failed = timeMachineItems.filter { $0.status == .scheduleFailed }.count
+        let latest = timeMachineItems.first?.createdAt
+
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("概览")
+                .font(.headline)
+            HStack(spacing: 12) {
+                Label("总记录 \(total)", systemImage: "tray.full")
+                    .font(.caption)
+                Label("已定时 \(scheduled)", systemImage: "checkmark.circle")
+                    .font(.caption)
+                Label("失败 \(failed)", systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+            }
+            if let latest {
+                Text("最近写入：\(latest.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            HStack {
+                Button("刷新时光机") {
+                    refreshTimeMachineItems()
+                    showToast("时光机列表已刷新。")
+                }
+                .buttonStyle(.bordered)
+                Spacer()
+            }
+        }
+        .padding(14)
+        .pulseCard(cornerRadius: 12)
+    }
+
+    private func timeMachineRow(_ item: V4TimeItem) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center) {
+                Text(item.normalizedText.isEmpty ? item.rawCommand : item.normalizedText)
+                    .font(.headline)
+                Spacer()
+                Text(timeMachineStatusText(item.status))
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(timeMachineStatusColor(item.status).opacity(0.16))
+                    )
+                    .foregroundStyle(timeMachineStatusColor(item.status))
+            }
+
+            Text("创建时间：\(item.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if let scheduledAt = item.scheduledAt {
+                Text("提醒时间：\(scheduledAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !item.tags.isEmpty {
+                Text("标签：\(item.tags.joined(separator: " · "))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func refreshTimeMachineItems() {
+        timeMachineItems = V4TimeMachineStore.loadItems(historyDirectory: model.localStore.historyDirectory)
+    }
+
+    private func timeMachineStatusText(_ status: V4TimeItemStatus) -> String {
+        switch status {
+        case .captured:
+            return "已记录"
+        case .scheduled:
+            return "已定时"
+        case .scheduleFailed:
+            return "定时失败"
+        case .cancelled:
+            return "已取消"
+        }
+    }
+
+    private func timeMachineStatusColor(_ status: V4TimeItemStatus) -> Color {
+        switch status {
+        case .captured:
+            return .secondary
+        case .scheduled:
+            return .green
+        case .scheduleFailed:
+            return .orange
+        case .cancelled:
+            return .secondary
         }
     }
 

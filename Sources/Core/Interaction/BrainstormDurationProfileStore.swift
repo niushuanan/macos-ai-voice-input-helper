@@ -156,6 +156,13 @@ final class BrainstormDurationProfileStore: ObservableObject {
         persist()
     }
 
+    func clearAll() {
+        profiles = []
+        if fileManager.fileExists(atPath: fileURL.path) {
+            try? fileManager.removeItem(at: fileURL)
+        }
+    }
+
     private func load() {
         guard fileManager.fileExists(atPath: fileURL.path) else {
             profiles = []

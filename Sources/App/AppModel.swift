@@ -263,6 +263,22 @@ final class AppModel: ObservableObject {
         controlCenterWindowOpener = opener
     }
 
+    func purgeAllUsageData() {
+        localHistoryStore.clearAll()
+        brainstormDurationProfileStore.clearAll()
+        removeItemIfExists(
+            at: V4TimeMachineStore.storageURL(historyDirectory: localStore.historyDirectory)
+        )
+
+        purgeDirectoryContents(localStore.historyDirectory)
+        purgeDirectoryContents(localStore.diagnosticsDirectory)
+        purgeDirectoryContents(localStore.temporaryAudioDirectory)
+        removeItemIfExists(at: localStore.rootDirectory.appendingPathComponent("MagicianNative", isDirectory: true))
+        removeItemIfExists(at: localStore.rootDirectory.appendingPathComponent("MagicianV2", isDirectory: true))
+
+        interactionCoordinator.ensureBrainstormDurationProfile()
+    }
+
     private func bindStatusPulse() {
         sessionStore.$phase
             .combineLatest(
@@ -409,6 +425,27 @@ final class AppModel: ObservableObject {
             try? gcProcess.run()
             gcProcess.waitUntilExit()
         }
+    }
+
+    private func purgeDirectoryContents(_ directory: URL) {
+        guard let children = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ) else {
+            return
+        }
+
+        for child in children {
+            try? FileManager.default.removeItem(at: child)
+        }
+    }
+
+    private func removeItemIfExists(at url: URL) {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: url.path) else {
+            return
+        }
+        try? fileManager.removeItem(at: url)
     }
 }
 

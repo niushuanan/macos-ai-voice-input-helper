@@ -5,10 +5,11 @@ enum DesktopSection: String, CaseIterable, Identifiable {
     case home
     case memory
     case dictionary
-    case skills
     case model
+    case timeMachine
     case magician
     case agentBrainstorm
+    case skills
     case settings
 
     var id: String { rawValue }
@@ -21,14 +22,16 @@ enum DesktopSection: String, CaseIterable, Identifiable {
             return "记忆"
         case .dictionary:
             return "词典"
-        case .skills:
-            return "Now you see me"
         case .model:
             return "模型"
+        case .timeMachine:
+            return "时光机"
         case .magician:
             return "魔术先生"
         case .agentBrainstorm:
             return "一口气全念对"
+        case .skills:
+            return "Now you see me"
         case .settings:
             return "设置"
         }
@@ -42,14 +45,16 @@ enum DesktopSection: String, CaseIterable, Identifiable {
             return "clock.arrow.circlepath"
         case .dictionary:
             return "text.book.closed"
-        case .skills:
-            return "slider.horizontal.3"
         case .model:
             return "cpu"
+        case .timeMachine:
+            return "clock.badge.exclamationmark"
         case .magician:
             return "wand.and.stars"
         case .agentBrainstorm:
             return "person.2.wave.2"
+        case .skills:
+            return "slider.horizontal.3"
         case .settings:
             return "gearshape"
         }

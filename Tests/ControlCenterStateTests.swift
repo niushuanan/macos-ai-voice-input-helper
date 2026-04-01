@@ -14,7 +14,7 @@ final class ControlCenterStateTests: XCTestCase {
     func testDesktopSectionOrderMatchesSidebarDesign() {
         XCTAssertEqual(
             DesktopSection.allCases,
-            [.home, .memory, .dictionary, .skills, .model, .magician, .agentBrainstorm, .settings]
+            [.home, .memory, .dictionary, .model, .timeMachine, .magician, .agentBrainstorm, .skills, .settings]
         )
     }
 
