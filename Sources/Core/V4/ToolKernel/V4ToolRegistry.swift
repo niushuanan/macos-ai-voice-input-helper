@@ -26,17 +26,24 @@ struct V4ToolRegistry: V4ToolKernelRegistry {
     static func live(
         modelSlotManager: V4ModelSlotManager? = nil,
         generationProvider: (any TextGenerationProvider)? = nil,
-        shellAllowlist: Set<String> = V4ShellCommandTool.defaultAllowlist
+        shellAllowlist: Set<String> = V4ShellCommandTool.defaultAllowlist,
+        timeMachineService: V4TimeMachineService? = nil
     ) -> V4ToolRegistry {
-        V4ToolRegistry(
-            tools: [
-                V4TextTransformTool(
-                    modelSlotManager: modelSlotManager,
-                    generationProvider: generationProvider ?? OpenAITextGenerationProvider()
-                ),
-                V4ShellCommandTool(allowlist: shellAllowlist),
-                V4AppleNotesTool()
-            ]
+        var tools: [any V4Tool] = [
+            V4TextTransformTool(
+                modelSlotManager: modelSlotManager,
+                generationProvider: generationProvider ?? OpenAITextGenerationProvider()
+            ),
+            V4ShellCommandTool(allowlist: shellAllowlist),
+            V4AppleNotesTool()
+        ]
+        if let timeMachineService {
+            tools.append(V4TimeMachineCreateTool(service: timeMachineService))
+            tools.append(V4TimeMachineRemindTool(service: timeMachineService))
+        }
+
+        return V4ToolRegistry(
+            tools: tools
         )
     }
 }

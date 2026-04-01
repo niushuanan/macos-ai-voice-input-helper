@@ -13,12 +13,14 @@ struct V4PromptLayerProvider: @unchecked Sendable {
 enum V4PromptLayerProviders {
     static func live(
         skillRuleBridge: V4SkillRuleBridge? = nil,
-        appScenePolicyStore: AppScenePolicyStore? = nil
+        appScenePolicyStore: AppScenePolicyStore? = nil,
+        timeMachineHistoryDirectory: URL? = nil
     ) -> [V4PromptLayerProvider] {
         [
             global(),
             nowYouSeeMe(skillRuleBridge: skillRuleBridge),
             appScene(skillRuleBridge: skillRuleBridge, appScenePolicyStore: appScenePolicyStore),
+            timeMachine(historyDirectory: timeMachineHistoryDirectory),
             lane(),
             task()
         ]
@@ -134,8 +136,38 @@ enum V4PromptLayerProviders {
         }
     }
 
+    static func timeMachine(historyDirectory: URL?) -> V4PromptLayerProvider {
+        V4PromptLayerProvider(name: .timeMachine, priority: 3) { _ in
+            guard let historyDirectory else {
+                return nil
+            }
+
+            let items = V4TimeMachineStore.loadItems(historyDirectory: historyDirectory)
+            let digest = V4UserProfileDigestBuilder.make(from: items)
+            guard let summary = digest.briefSummary else {
+                return nil
+            }
+
+            return V4PromptLayer(
+                id: V4PromptLayerName.timeMachine.rawValue,
+                name: .timeMachine,
+                priority: 3,
+                systemPrompt: nil,
+                guidance: [
+                    "timeMachineProfile": "时光机画像参考：\(summary)"
+                ],
+                constraints: [
+                    "timeMachineGuard": "这些画像只作轻量参考，不能覆盖当前命令的明确目标。"
+                ],
+                userPrompt: nil,
+                sourceSummary: "time_machine.profile_digest",
+                isMutable: true
+            )
+        }
+    }
+
     static func lane() -> V4PromptLayerProvider {
-        V4PromptLayerProvider(name: .lane, priority: 3) { context in
+        V4PromptLayerProvider(name: .lane, priority: 4) { context in
             let guidance: String
             let constraints: String
 
@@ -166,7 +198,7 @@ enum V4PromptLayerProviders {
     }
 
     static func task() -> V4PromptLayerProvider {
-        V4PromptLayerProvider(name: .task, priority: 4) { context in
+        V4PromptLayerProvider(name: .task, priority: 5) { context in
             let sourceText = latestSourceText(from: context)
             let userPrompt: String
 
@@ -229,4 +261,3 @@ enum V4PromptLayerProviders {
         return normalizedInput.isEmpty ? context.goalSummary : normalizedInput
     }
 }
-

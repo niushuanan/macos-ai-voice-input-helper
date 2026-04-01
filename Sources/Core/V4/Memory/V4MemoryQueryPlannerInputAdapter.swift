@@ -7,13 +7,16 @@ protocol V4MemoryQueryPlannerInputAdapting {
 final class V4MemoryQueryPlannerInputAdapter: V4MemoryQueryPlannerInputAdapting {
     private let bridge: V4MemoryBridge
     private let engine: V4MemoryEngine
+    private let timeMachineHistoryDirectory: URL?
 
     init(
         bridge: V4MemoryBridge = V4MemoryBridge(),
-        engine: V4MemoryEngine = V4MemoryEngine()
+        engine: V4MemoryEngine = V4MemoryEngine(),
+        timeMachineHistoryDirectory: URL? = nil
     ) {
         self.bridge = bridge
         self.engine = engine
+        self.timeMachineHistoryDirectory = timeMachineHistoryDirectory
     }
 
     func adapt(request: V4RunRequest, historyEntries: [SessionHistoryEntry]) -> V4RunRequest {
@@ -30,7 +33,7 @@ final class V4MemoryQueryPlannerInputAdapter: V4MemoryQueryPlannerInputAdapting 
             )
         )
 
-        let memoryHints = hits.map { hit in
+        var memoryHints = hits.map { hit in
             V4MemoryHint(
                 id: hit.entry.id,
                 score: hit.score,
@@ -47,6 +50,29 @@ final class V4MemoryQueryPlannerInputAdapter: V4MemoryQueryPlannerInputAdapting 
         var debugTrace = request.memoryDebugTrace
         debugTrace.append("memory.index.entries=\(memoryEntries.count)")
         debugTrace.append("memory.hits.count=\(hits.count)")
+
+        if let timeMachineHistoryDirectory {
+            let digest = V4UserProfileDigestBuilder.make(
+                from: V4TimeMachineStore.loadItems(historyDirectory: timeMachineHistoryDirectory),
+                now: request.requestedAt
+            )
+            if let summary = digest.briefSummary {
+                memoryHints.insert(
+                    V4MemoryHint(
+                        id: "time-machine-profile-digest",
+                        score: 0.66,
+                        summary: summary,
+                        reason: "来自时光机画像摘要",
+                        sourceTimestamp: digest.generatedAt,
+                        lane: request.lane,
+                        moduleTags: ["time-machine", "profile"]
+                    ),
+                    at: 0
+                )
+                debugTrace.append("time_machine.digest=\(summary)")
+            }
+        }
+
         if !memoryHints.isEmpty {
             let topHints = memoryHints.map { "\($0.id):\(String(format: "%.2f", $0.score))" }.joined(separator: ",")
             debugTrace.append("memory.hints=\(topHints)")

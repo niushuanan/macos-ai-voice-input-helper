@@ -15,6 +15,8 @@ enum V4RulePlannerHeuristics {
         let externalActions: Set<ExternalAction>
     }
 
+    private static let timeParser = V4TimeParser()
+
     static func segments(from command: String) -> [String] {
         let patterns = [
             #"(?i)\s*(然后|再|接着|随后|之后|最后)\s*"#,
@@ -42,10 +44,10 @@ enum V4RulePlannerHeuristics {
         if containsAny(lowered, tokens: ["邮件", "mail", "email", "草稿", "邮箱", "发邮件", "写邮件"]) {
             externalActions.insert(.mail)
         }
-        if containsAny(lowered, tokens: ["备忘录", "note", "notes", "记下来", "记到", "写进备忘录", "写入备忘录"]) {
+        if containsAny(lowered, tokens: ["备忘录", "note", "notes", "写进备忘录", "写入备忘录", "记到备忘录", "记录到备忘录"]) {
             externalActions.insert(.note)
         }
-        if containsAny(lowered, tokens: ["日程", "会议", "calendar", "event", "安排", "提醒", "课程", "上课"]) {
+        if containsAny(lowered, tokens: ["日程", "会议", "calendar", "event", "安排", "课程", "上课", "行程"]) {
             externalActions.insert(.calendar)
         }
         if containsAny(lowered, tokens: ["音乐", "歌曲", "播放", "暂停", "继续播放", "下一首", "上一首", "music", "play", "pause"]) {
@@ -87,12 +89,30 @@ enum V4RulePlannerHeuristics {
                 externalActions: externalActions
             )
         }
+        if looksLikeTimeMachineRemind(segment) {
+            return Classification(
+                toolName: "time_machine.remind",
+                title: "记录并提醒",
+                externalActions: []
+            )
+        }
+        if looksLikeTimeMachineCreate(segment) {
+            return Classification(
+                toolName: "time_machine.create",
+                title: "记录到时光机",
+                externalActions: []
+            )
+        }
 
         return Classification(
             toolName: "text.transform",
             title: "文字处理",
             externalActions: []
         )
+    }
+
+    static func looksLikeTimeMachineIntent(_ value: String) -> Bool {
+        looksLikeTimeMachineRemind(value) || looksLikeTimeMachineCreate(value)
     }
 
     static func mixedExternalFailureMessage(for segments: [String]) -> String? {
@@ -115,6 +135,22 @@ enum V4RulePlannerHeuristics {
 
     private static func containsAny(_ value: String, tokens: [String]) -> Bool {
         tokens.contains { value.contains($0) }
+    }
+
+    private static func looksLikeTimeMachineRemind(_ value: String) -> Bool {
+        let normalized = value.lowercased()
+        if containsAny(normalized, tokens: ["提醒我", "提醒一下", "本地提醒", "叫我", "闹钟"]) {
+            return true
+        }
+        return timeParser.looksLikeTimeExpression(normalized)
+    }
+
+    private static func looksLikeTimeMachineCreate(_ value: String) -> Bool {
+        let normalized = value.lowercased()
+        return containsAny(
+            normalized,
+            tokens: ["记一下", "记一条", "记下来", "记住", "灵感", "想法", "待办", "todo"]
+        )
     }
 }
 

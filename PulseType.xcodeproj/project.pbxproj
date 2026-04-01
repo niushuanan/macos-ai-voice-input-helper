@@ -48,6 +48,17 @@
 		A1000000000000000000005E /* V4SkillRuleBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000071 /* V4SkillRuleBridge.swift */; };
 		A1000000000000000000005F /* V4PromptStackResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000072 /* V4PromptStackResolverTests.swift */; };
 		A10000000000000000000060 /* V4ModelSlotManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000073 /* V4ModelSlotManagerTests.swift */; };
+		A10000000000000000000074 /* V4TimeMachineContracts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000007F /* V4TimeMachineContracts.swift */; };
+		A10000000000000000000075 /* V4TimeMachineStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000080 /* V4TimeMachineStore.swift */; };
+		A10000000000000000000076 /* V4TimeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000081 /* V4TimeParser.swift */; };
+		A10000000000000000000077 /* V4ReminderScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000082 /* V4ReminderScheduler.swift */; };
+		A10000000000000000000078 /* V4TimeMachineService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000083 /* V4TimeMachineService.swift */; };
+		A10000000000000000000079 /* V4UserProfileDigest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000084 /* V4UserProfileDigest.swift */; };
+		A1000000000000000000007A /* V4TimeMachineCreateTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000085 /* V4TimeMachineCreateTool.swift */; };
+		A1000000000000000000007B /* V4TimeMachineRemindTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000086 /* V4TimeMachineRemindTool.swift */; };
+		A1000000000000000000007C /* V4TimeParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000088 /* V4TimeParserTests.swift */; };
+		A1000000000000000000007D /* V4ReminderSchedulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000089 /* V4ReminderSchedulerTests.swift */; };
+		A1000000000000000000007E /* V4TimeMachineServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000008A /* V4TimeMachineServiceTests.swift */; };
 		06123C002DCFE32A3B4F9826 /* AppRuntimePolicy.plist in Resources */ = {isa = PBXBuildFile; fileRef = DF7D63023398B1BA8B707A6E /* AppRuntimePolicy.plist */; };
 		06ED5EEBD9C709D7B20DFF2C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615736F7FBCACF8AF8B17CCF /* SettingsView.swift */; };
 		08AEBC14B14DCFC8330558BA /* OpenAITextGenerationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BFB5724578D68E1E94182AB /* OpenAITextGenerationProvider.swift */; };
@@ -281,6 +292,17 @@
 		A10000000000000000000071 /* V4SkillRuleBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4SkillRuleBridge.swift; sourceTree = "<group>"; };
 		A10000000000000000000072 /* V4PromptStackResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4PromptStackResolverTests.swift; sourceTree = "<group>"; };
 		A10000000000000000000073 /* V4ModelSlotManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ModelSlotManagerTests.swift; sourceTree = "<group>"; };
+		A1000000000000000000007F /* V4TimeMachineContracts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4TimeMachineContracts.swift; sourceTree = "<group>"; };
+		A10000000000000000000080 /* V4TimeMachineStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4TimeMachineStore.swift; sourceTree = "<group>"; };
+		A10000000000000000000081 /* V4TimeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4TimeParser.swift; sourceTree = "<group>"; };
+		A10000000000000000000082 /* V4ReminderScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ReminderScheduler.swift; sourceTree = "<group>"; };
+		A10000000000000000000083 /* V4TimeMachineService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4TimeMachineService.swift; sourceTree = "<group>"; };
+		A10000000000000000000084 /* V4UserProfileDigest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4UserProfileDigest.swift; sourceTree = "<group>"; };
+		A10000000000000000000085 /* V4TimeMachineCreateTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4TimeMachineCreateTool.swift; sourceTree = "<group>"; };
+		A10000000000000000000086 /* V4TimeMachineRemindTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4TimeMachineRemindTool.swift; sourceTree = "<group>"; };
+		A10000000000000000000088 /* V4TimeParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4TimeParserTests.swift; sourceTree = "<group>"; };
+		A10000000000000000000089 /* V4ReminderSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ReminderSchedulerTests.swift; sourceTree = "<group>"; };
+		A1000000000000000000008A /* V4TimeMachineServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4TimeMachineServiceTests.swift; sourceTree = "<group>"; };
 		8E4D00737C3345BDE9F747AC /* TextOutputCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextOutputCoordinator.swift; sourceTree = "<group>"; };
 		93A38F69E5582F6FA37EE498 /* ControlCenterStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlCenterStateTests.swift; sourceTree = "<group>"; };
 		93D66F476FED6BC033F5DA9A /* FeishuCLIProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeishuCLIProviderTests.swift; sourceTree = "<group>"; };
@@ -480,6 +502,7 @@
 				A10000000000000000000069 /* Model */,
 				A10000000000000000000044 /* ToolKernel */,
 				A10000000000000000000067 /* Memory */,
+				A10000000000000000000087 /* TimeMachine */,
 				A10000000000000000000045 /* Adapters */,
 			);
 			path = V4;
@@ -527,8 +550,23 @@
 				A10000000000000000000048 /* V4TextTransformTool.swift */,
 				A10000000000000000000049 /* V4ShellCommandTool.swift */,
 				A1000000000000000000004A /* V4AppleNotesTool.swift */,
+				A10000000000000000000085 /* V4TimeMachineCreateTool.swift */,
+				A10000000000000000000086 /* V4TimeMachineRemindTool.swift */,
 			);
 			path = Tools;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000087 /* TimeMachine */ = {
+			isa = PBXGroup;
+			children = (
+				A1000000000000000000007F /* V4TimeMachineContracts.swift */,
+				A10000000000000000000080 /* V4TimeMachineStore.swift */,
+				A10000000000000000000081 /* V4TimeParser.swift */,
+				A10000000000000000000082 /* V4ReminderScheduler.swift */,
+				A10000000000000000000083 /* V4TimeMachineService.swift */,
+				A10000000000000000000084 /* V4UserProfileDigest.swift */,
+			);
+			path = TimeMachine;
 			sourceTree = "<group>";
 		};
 		A10000000000000000000045 /* Adapters */ = {
@@ -716,6 +754,9 @@
 				71EDE485545C13E98B2E5B72 /* SessionStoreTests.swift */,
 				97763AFE40CEA07E31796308 /* SkillRuleStoreTests.swift */,
 				A1000000000000000000003C /* V4AgentLoopEngineTests.swift */,
+				A10000000000000000000088 /* V4TimeParserTests.swift */,
+				A10000000000000000000089 /* V4ReminderSchedulerTests.swift */,
+				A1000000000000000000008A /* V4TimeMachineServiceTests.swift */,
 				A10000000000000000000072 /* V4PromptStackResolverTests.swift */,
 				A10000000000000000000073 /* V4ModelSlotManagerTests.swift */,
 				A1000000000000000000004B /* V4ToolKernelTests.swift */,
@@ -976,6 +1017,12 @@
 				A1000000000000000000005A /* V4ModelSlotContracts.swift in Sources */,
 				A1000000000000000000005B /* V4ModelSlots.swift in Sources */,
 				A1000000000000000000005C /* V4ModelSlotManager.swift in Sources */,
+				A10000000000000000000074 /* V4TimeMachineContracts.swift in Sources */,
+				A10000000000000000000075 /* V4TimeMachineStore.swift in Sources */,
+				A10000000000000000000076 /* V4TimeParser.swift in Sources */,
+				A10000000000000000000077 /* V4ReminderScheduler.swift in Sources */,
+				A10000000000000000000078 /* V4TimeMachineService.swift in Sources */,
+				A10000000000000000000079 /* V4UserProfileDigest.swift in Sources */,
 				A10000000000000000000018 /* V4ToolContracts.swift in Sources */,
 				A1000000000000000000001D /* V4ToolRegistry.swift in Sources */,
 				A1000000000000000000001E /* V4ToolKernel.swift in Sources */,
@@ -986,6 +1033,8 @@
 				A10000000000000000000023 /* V4TextTransformTool.swift in Sources */,
 				A10000000000000000000024 /* V4ShellCommandTool.swift in Sources */,
 				A10000000000000000000025 /* V4AppleNotesTool.swift in Sources */,
+				A1000000000000000000007A /* V4TimeMachineCreateTool.swift in Sources */,
+				A1000000000000000000007B /* V4TimeMachineRemindTool.swift in Sources */,
 				A10000000000000000000051 /* V4MemoryEntry.swift in Sources */,
 				A10000000000000000000052 /* V4MemoryIndex.swift in Sources */,
 				A10000000000000000000053 /* V4MemoryEngine.swift in Sources */,
@@ -1045,6 +1094,9 @@
 				85B875C74007F983512A7F73 /* SkillRuleStoreTests.swift in Sources */,
 				A1000000000000000000001C /* V4AgentLoopEngineTests.swift in Sources */,
 				A10000000000000000000056 /* V4MemoryEngineTests.swift in Sources */,
+				A1000000000000000000007C /* V4TimeParserTests.swift in Sources */,
+				A1000000000000000000007D /* V4ReminderSchedulerTests.swift in Sources */,
+				A1000000000000000000007E /* V4TimeMachineServiceTests.swift in Sources */,
 				A1000000000000000000005F /* V4PromptStackResolverTests.swift in Sources */,
 				A10000000000000000000060 /* V4ModelSlotManagerTests.swift in Sources */,
 				A10000000000000000000026 /* V4ToolKernelTests.swift in Sources */,

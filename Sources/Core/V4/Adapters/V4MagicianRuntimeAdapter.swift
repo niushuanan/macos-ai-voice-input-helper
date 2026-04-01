@@ -14,6 +14,7 @@ final class V4MagicianRuntimeAdapter: MagicianAgentRunning, V4MagicianRuntimeRun
     init(
         loopEngine: (any V4AgentLoopRunning)? = nil,
         toolKernel: (any V4ToolKernelRunning)? = nil,
+        historyDirectory: URL? = nil,
         providerSettingsStore: ProviderSettingsStore? = nil,
         skillRuleStore: SkillRuleStore? = nil,
         appScenePolicyStore: AppScenePolicyStore? = nil,
@@ -31,11 +32,16 @@ final class V4MagicianRuntimeAdapter: MagicianAgentRunning, V4MagicianRuntimeRun
         let promptStackResolver = V4PromptStackResolver(
             providers: V4PromptLayerProviders.live(
                 skillRuleBridge: skillRuleStore.map { V4SkillRuleBridge(skillRuleStore: $0) },
-                appScenePolicyStore: appScenePolicyStore
+                appScenePolicyStore: appScenePolicyStore,
+                timeMachineHistoryDirectory: historyDirectory
             )
         )
+        let timeMachineService = historyDirectory.map { V4TimeMachineService(historyDirectory: $0) }
         let resolvedKernel = toolKernel ?? V4ToolKernel(
-            registry: .live(modelSlotManager: providerSettingsBridge == nil ? nil : modelSlotManager),
+            registry: .live(
+                modelSlotManager: providerSettingsBridge == nil ? nil : modelSlotManager,
+                timeMachineService: timeMachineService
+            ),
             permissionGate: V4PermissionGate(featureToggleStore: featureToggleStore)
         )
         self.loopEngine = V4AgentLoopEngine(

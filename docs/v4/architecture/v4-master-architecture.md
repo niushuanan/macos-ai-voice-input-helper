@@ -36,10 +36,12 @@
 │   ├── V4ModelRequest.swift
 │   └── V4ModelResponse.swift
 └── TimeMachine/
-    ├── V4Checkpoint.swift
+    ├── V4TimeMachineContracts.swift
+    ├── V4TimeMachineService.swift
+    ├── V4TimeParser.swift
+    ├── V4ReminderScheduler.swift
     ├── V4TimeMachineStore.swift
-    ├── V4TimelineQuery.swift
-    └── V4ReplaySummary.swift
+    └── V4UserProfileDigest.swift
 ```
 
 ## 模块职责
@@ -93,8 +95,9 @@ Window 07 之后，V4 runtime 内部不再直接从 `SkillRuleStore`、`AppScene
 1. `Global`
 2. `NowYouSeeMe`
 3. `AppScene`
-4. `Lane`
-5. `Task`
+4. `TimeMachine`
+5. `Lane`
+6. `Task`
 
 合并规则：
 
@@ -156,11 +159,18 @@ Window 07 之后，V4 runtime 内部不再直接从 `SkillRuleStore`、`AppScene
 
 ### `Sources/Core/V4/TimeMachine/*`
 
-- 第一版数据源来自两处：
-  - `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/History/LocalHistoryStore.swift`
-  - `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/Magician/MagicianAgentModels.swift` 里的 `MagicianAgentCheckpointStore`
-- 提供 timeline、checkpoint、回放摘要，不直接绑 UI 形态。
-- 当前窗口先立目录与命名，不急着做界面。
+- 第一版正式接入 V4 主循环，入口只走魔术先生命令路径，不改左侧导航。
+- `V4TimeMachineService`
+  - 统一处理“仅记录”和“记录并提醒”两类命令。
+- `V4TimeParser`
+  - 解析常见中文时间表达，失败时返回结构化 hint，不允许静默失败。
+- `V4ReminderScheduler`
+  - 只走本地通知，不依赖云端；负责申请通知权限、创建本地提醒、回填通知 ID。
+- `V4TimeMachineStore`
+  - 数据固定落到 `history/time-machine-items-v1.json`。
+- `V4UserProfileDigest`
+  - 从条目中提炼高频主题、常见提醒时段、常见 action 标签，反哺 prompt / memory 轻量个性化。
+- 当前不新增独立页面；如果以后需要露出 UI，只能挂到现有分区里的局部面板。
 
 ## 数据流
 
@@ -178,11 +188,11 @@ Window 07 之后，V4 runtime 内部不再直接从 `SkillRuleStore`、`AppScene
    - `brainstormDiscussion`
 5. `V4PromptComposer` 组装 prompt layers，`V4MemoryRetriever` 拉相关历史，`V4ModelSlotResolver` 选模型槽位。
 6. 模型返回 tool plan 或文本结果；若有工具调用，交给 `V4ToolKernel`。
-7. `V4ToolKernel` 产出结构化 `V4ToolResult`；`V4AgentLoop` 决定是否继续下一轮。
+7. `V4ToolKernel` 现在已支持 `time_machine.create / time_machine.remind`，tool result 会带回条目 ID、时间解析摘要、提醒调度结果；`V4AgentLoop` 决定是否继续下一轮。
 8. 最终结果写回：
    - 文本写回仍经 `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/TextOutput/TextOutputCoordinator.swift`
    - 历史仍先落到 `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/History/LocalHistoryStore.swift`
-   - Trace / checkpoint 同步进入 `TimeMachine`
+   - 时光机条目单独落到 `history/time-machine-items-v1.json`
 
 ### Interaction 接线图（V4 默认）
 
@@ -219,7 +229,7 @@ flowchart TD
 ### lane 视角
 
 - 普通听写：麦克风 -> ASR -> Prompt Layer（词典 + scene + spokenFilter）-> `V4AgentLoop` 快速文本链 -> 写回 / 历史
-- 魔术先生：麦克风 -> ASR -> lane 分类 -> `V4AgentLoop` 多轮计划 -> `V4ToolKernel` -> 历史 / 时光机 / 状态回推
+- 魔术先生：麦克风 -> ASR -> lane 分类 -> `V4AgentLoop` 多轮计划 -> `V4ToolKernel` -> 历史 / 时光机 / 本地提醒 / 状态回推
 - 一口气全念对：麦克风 -> ASR -> lane 分类 -> `V4AgentLoop` 上下文整理链 -> 输出摘要 / 对话稿 / 历史
 
 ## 主循环状态机
@@ -260,6 +270,60 @@ flowchart TD
 6. 禁止继续把新逻辑堆进 `/Users/zhuanghongkai/Desktop/颠覆性 AI 语音输入法/Sources/Core/Magician/MagicianAgentModels.swift` 的 `MagicianNativeRuntime` / `MagicianAgentRuntimeV3` 主链。
 7. `ProviderSettingsStore`、`SkillRuleStore`、`ASRDictionaryStore`、`LocalHistoryStore` 先留作桥接层；等 V4 跑稳后，再把执行逻辑从旧文件内移走。
 8. 时光机先做内核能力，再决定 UI 入口放在哪；当前窗口不改左侧菜单。
+
+## 时光机模块
+
+### 字段模型
+
+当前条目结构 `V4TimeItem` 固定包含：
+
+- `id`
+- `createdAt`
+- `rawCommand`
+- `normalizedText`
+- `scheduledAt`
+- `notificationID`
+- `tags`
+- `status`
+
+同时保留 `sessionID / runID / traceID / lane`，方便后续把条目和 V4 trace 对齐。
+
+### ToolKernel 接线
+
+当前已接入两个正式 tool：
+
+- `time_machine.create`
+  - 处理无时间的灵感、待办、备忘
+- `time_machine.remind`
+  - 处理带时间的提醒命令
+
+planner 的 rule-based 路由规则是：
+
+- 命中“提醒我 / 本地提醒 / 闹钟 / 时间表达”优先走 `time_machine.remind`
+- 命中“记一下 / 记下来 / 灵感 / 待办 / todo”走 `time_machine.create`
+
+### 时间解析与提醒边界
+
+当前 parser 已覆盖：
+
+- `今晚 8 点`
+- `明早 9 点`
+- `下周一上午`
+- `30 分钟后`
+
+当前不覆盖：
+
+- 多时间点拆分
+- 农历 / 节假日推导
+- 复杂时间区间，比如“这周工作日晚上 8 点以后”
+- 自动反查用户时区历史
+
+提醒调度边界：
+
+- 只使用本地通知
+- 只在解析到单个明确时间点时调度
+- 调度结果会把 `notificationID` 回填进条目
+- 权限没开或系统调度失败时，条目仍然保留，状态记为 `schedule_failed`
 
 ## 当前架构判断
 

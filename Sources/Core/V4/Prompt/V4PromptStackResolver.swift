@@ -62,7 +62,7 @@ final class V4PromptStackResolver: @unchecked Sendable {
                 }
             case .appScene:
                 appendUnique(.appPreferenceBoost, to: &appliedSkillRuleIDs)
-            case .global, .lane, .task:
+            case .global, .timeMachine, .lane, .task:
                 break
             }
         }
@@ -127,4 +127,3 @@ final class V4PromptStackResolver: @unchecked Sendable {
         return trimmed.isEmpty ? nil : trimmed
     }
 }
-

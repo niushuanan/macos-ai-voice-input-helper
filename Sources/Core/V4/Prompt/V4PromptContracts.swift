@@ -4,6 +4,7 @@ enum V4PromptLayerName: String, Codable, CaseIterable, Equatable, Sendable {
     case global = "Global"
     case nowYouSeeMe = "NowYouSeeMe"
     case appScene = "AppScene"
+    case timeMachine = "TimeMachine"
     case lane = "Lane"
     case task = "Task"
 }

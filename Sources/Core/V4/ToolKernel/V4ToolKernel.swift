@@ -254,6 +254,13 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
                 "command": .string("/bin/echo"),
                 "arguments": .array([.string(preferredText)])
             ]
+        case "time_machine.create", "time_machine.remind":
+            return [
+                "command": .string(
+                    step.inputSummary.nilIfEmpty
+                        ?? request.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            ]
         default:
             return [:]
         }

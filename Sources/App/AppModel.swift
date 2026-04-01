@@ -117,7 +117,9 @@ final class AppModel: ObservableObject {
 
         migrateLegacyLocalState()
         permissionsCenter.refreshStatuses()
-        permissionsCenter.autoRequestOnLaunchIfNeeded()
+        if !Self.isRunningUnderTests() {
+            permissionsCenter.autoRequestOnLaunchIfNeeded()
+        }
         bindStatusPulse()
         bindGlobalHotkeyRuntimeState()
         bindAppLifecycle()
@@ -171,8 +173,11 @@ final class AppModel: ObservableObject {
             speechPipelineLogger: speechPipelineLogger
         )
         let v4RuntimeSwitchStore = V4RuntimeSwitchStore()
-        let v4MemoryPlannerInputAdapter = V4MemoryQueryPlannerInputAdapter()
+        let v4MemoryPlannerInputAdapter = V4MemoryQueryPlannerInputAdapter(
+            timeMachineHistoryDirectory: store.historyDirectory
+        )
         let v4MagicianRuntime = V4MagicianRuntimeAdapter(
+            historyDirectory: store.historyDirectory,
             providerSettingsStore: providerSettingsStore,
             skillRuleStore: skillRuleStore,
             appScenePolicyStore: appScenePolicyStore,
@@ -233,6 +238,25 @@ final class AppModel: ObservableObject {
             statusPulseHUDController: StatusPulseHUDController(),
             toastPresenter: toastPresenter
         )
+    }
+
+    private static func isRunningUnderTests() -> Bool {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["XCTestConfigurationFilePath"] != nil {
+            return true
+        }
+        if environment["XCTestBundlePath"] != nil {
+            return true
+        }
+        if NSClassFromString("XCTestCase") != nil {
+            return true
+        }
+        if ProcessInfo.processInfo.arguments.contains(where: {
+            $0.localizedCaseInsensitiveContains("xctest")
+        }) {
+            return true
+        }
+        return false
     }
 
     func registerControlCenterWindowOpener(_ opener: @escaping () -> Void) {

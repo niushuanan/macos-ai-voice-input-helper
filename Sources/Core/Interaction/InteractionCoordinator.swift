@@ -1810,7 +1810,9 @@ final class InteractionCoordinator {
             return
         }
 
-        guard !enabledFeatures.isEmpty else {
+        let hasTimeMachineIntent = V4RulePlannerHeuristics.looksLikeTimeMachineIntent(spokenInstruction)
+
+        guard !enabledFeatures.isEmpty || hasTimeMachineIntent else {
             let message = selectionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? "无选中场景当前没有可用能力，请先在魔术先生页面打开权限开关。"
                 : "当前没有可用能力，请先在魔术先生页面打开权限开关。"
