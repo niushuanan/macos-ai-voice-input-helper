@@ -592,7 +592,7 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\n", with: " ")
         let titleNeedle = expectedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        for _ in 0..<5 {
+        for _ in 0..<10 {
             let verification = await executeAppleScript(
                 lines: [
                     "on run argv",
@@ -608,9 +608,13 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
                     "set currentID to (id of targetNote) as string",
                     "end try",
                     "if currentID is expectedID then",
+                    // noteID 命中就是硬证据；标题/正文仅作软检查，避免误杀真实成功
+                    "if expectedTitle is \"\" and expectedBodyNeedle is \"\" then return currentID",
                     "set currentTitle to (name of targetNote) as string",
                     "set noteContent to body of targetNote",
-                    "if (currentTitle is expectedTitle) and (noteContent contains expectedBodyNeedle) then",
+                    "if expectedTitle is \"\" or currentTitle is expectedTitle then",
+                    "if expectedBodyNeedle is \"\" or noteContent contains expectedBodyNeedle then return currentID",
+                    "end if",
                     "return currentID",
                     "end if",
                     "end repeat",
@@ -628,7 +632,7 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
             {
                 return normalized
             }
-            try? await Task.sleep(nanoseconds: 220_000_000)
+            try? await Task.sleep(nanoseconds: 300_000_000)
         }
         return nil
     }
