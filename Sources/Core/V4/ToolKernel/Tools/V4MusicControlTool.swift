@@ -239,6 +239,15 @@ struct V4MusicControlTool: V4Tool {
                 )
             }
             if command.action == .play, let query = command.query, !query.isEmpty {
+                if output.hasPrefix("search_opened|") {
+                    return ResultPayload(
+                        action: .open,
+                        state: "open_search",
+                        track: nil,
+                        artist: nil,
+                        evidence: output
+                    )
+                }
                 if output == "track_not_found" {
                     throw V4ToolErrorCatalog().executionFailure(
                         toolID: "apple.music.control",
@@ -284,27 +293,29 @@ struct V4MusicControlTool: V4Tool {
         case .play:
             if let query = command.query, !query.isEmpty {
                 for item in magicianMusicSearchQueries(from: query) {
-                    let result = await runOsaScript(
-                        lines: [
-                            "on run argv",
-                            "set keywordText to item 1 of argv",
-                            "tell application \"Music\"",
-                        ] + magicianEnsureApplicationReadyAppleScriptLines() + [
-                            "search for keywordText only songs",
-                            "play search results",
-                            "delay 0.8",
-                            "set nowTrack to current track",
-                            "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|state=play\"",
-                            "end tell",
-                            "end run"
-                        ],
-                        arguments: [item]
-                    )
+                    let result = await runLibrarySearchAndPlay(keyword: item)
                     if result.exitCode == 0, result.stdout.hasPrefix("track=") {
                         return result
                     }
                 }
-                return MagicianProcessResult(exitCode: 0, stdout: "track_not_found", stderr: "")
+
+                let uiAssist = await runUISearchAssist(query: query)
+                if uiAssist.exitCode == 0 {
+                    let trimmed = uiAssist.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmed.hasPrefix("track=") {
+                        return uiAssist
+                    }
+                    return MagicianProcessResult(
+                        exitCode: 0,
+                        stdout: "search_opened|query=\(query)|state=open_search",
+                        stderr: ""
+                    )
+                }
+                return MagicianProcessResult(
+                    exitCode: 0,
+                    stdout: "search_opened|query=\(query)|state=open_search",
+                    stderr: uiAssist.detail
+                )
             }
             return await runOsaScript(
                 lines: [
@@ -365,6 +376,72 @@ struct V4MusicControlTool: V4Tool {
                 arguments: []
             )
         }
+    }
+
+    private static func runLibrarySearchAndPlay(keyword: String) async -> MagicianProcessResult {
+        await runOsaScript(
+            lines: [
+                "on run argv",
+                "set keywordText to item 1 of argv",
+                "tell application \"Music\"",
+            ] + magicianEnsureApplicationReadyAppleScriptLines() + [
+                "set matchedTracks to (search library playlist 1 for keywordText only songs)",
+                "if (count of matchedTracks) is 0 then return \"track_not_found\"",
+                "set targetTrack to item 1 of matchedTracks",
+                "play targetTrack",
+                "delay 0.8",
+                "set nowTrack to current track",
+                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|state=play|strategy=library_search\"",
+                "end tell",
+                "end run"
+            ],
+            arguments: [keyword]
+        )
+    }
+
+    private static func runUISearchAssist(query: String) async -> MagicianProcessResult {
+        await runOsaScript(
+            lines: [
+                "on run argv",
+                "set keywordText to item 1 of argv",
+                "tell application \"Music\"",
+                "activate",
+                "end tell",
+                "delay 0.2",
+                "try",
+                "tell application \"System Events\"",
+                "if not (UI elements enabled) then error \"ui scripting disabled\"",
+                "tell process \"Music\"",
+                "set frontmost to true",
+                "keystroke \"f\" using {command down}",
+                "delay 0.15",
+                "keystroke keywordText",
+                "delay 0.15",
+                "key code 36",
+                "delay 0.7",
+                "key code 125",
+                "delay 0.1",
+                "key code 36",
+                "end tell",
+                "end tell",
+                "on error uiErr",
+                "return \"ui_search_failed=\" & uiErr",
+                "end try",
+                "tell application \"Music\"",
+                "delay 0.8",
+                "try",
+                "if player state is playing then",
+                "set nowTrack to current track",
+                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|state=play|strategy=ui_search\"",
+                "end if",
+                "end try",
+                "end tell",
+                "return \"ui_search_opened\"",
+                "end run"
+            ],
+            arguments: [query],
+            timeoutSeconds: 16
+        )
     }
 
     private static func parseEvidence(_ output: String) -> (state: String?, track: String?, artist: String?) {
