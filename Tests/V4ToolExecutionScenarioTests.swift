@@ -167,6 +167,78 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         XCTAssertFalse(recordedRequest?.userPrompt.contains("任务目标：") == true)
     }
 
+    func testTextTransformResearchPathInjectsSourcesIntoEvidence() async throws {
+        let provider = RecordingTextGenerationProvider(outputText: "这是调研结果文章")
+        let tool = V4TextTransformTool(
+            generationProvider: provider,
+            researchFetcher: { _, _ in
+                [
+                    V4TextTransformTool.ResearchSnippet(
+                        title: "国家统计局发布2025上半年经济数据",
+                        url: "https://example.com/nbs",
+                        snippet: "GDP同比增长..."
+                    )
+                ]
+            }
+        )
+        let endpoint = V4ModelEndpoint(
+            slot: .text,
+            providerType: .localSenseVoice,
+            providerIdentifier: "stub",
+            providerDisplayName: "Stub",
+            modelName: "stub-model",
+            baseURLString: "https://example.com",
+            credentialRef: V4ModelCredentialRef(rawValue: "cred"),
+            localModelPath: nil,
+            sourceConfigurationKey: "stub.text"
+        )
+        let request = V4RunRequest(
+            sessionID: V4SessionID(rawValue: "session"),
+            runID: V4RunID(rawValue: "run"),
+            traceID: V4TraceID(rawValue: "trace"),
+            lane: .selectionRewrite,
+            goalSummary: "调研",
+            inputText: "调研",
+            modelSlots: V4ModelSlots(asr: endpoint, text: endpoint, agent: endpoint)
+        )
+        let step = V4StepRecord(
+            traceID: V4TraceID(rawValue: "trace"),
+            lane: .selectionRewrite,
+            goalSummary: "调研",
+            title: "文字处理",
+            status: .queued,
+            toolName: "text.transform",
+            inputSummary: "调研"
+        )
+        let context = V4ToolExecutionContext(
+            toolUse: V4ToolUse(
+                runID: V4RunID(rawValue: "run"),
+                stepID: step.id,
+                traceID: V4TraceID(rawValue: "trace"),
+                lane: .selectionRewrite,
+                goalSummary: "调研",
+                toolName: "text.transform",
+                inputJSON: "{}",
+                inputSummary: "调研",
+                requestedAt: Date()
+            ),
+            request: request,
+            step: step,
+            accumulatedStepRecords: [],
+            turnIndex: 1
+        )
+        let output = try await tool.execute(
+            arguments: [
+                "instruction": .string("调研2025年中国上半年的经济情况，并写进备忘录"),
+                "text": .string("调研2025年中国上半年的经济情况，并写进备忘录")
+            ],
+            context: context
+        )
+
+        XCTAssertTrue(output.evidenceSummary.contains("research_sources=1"))
+        XCTAssertEqual(output.rawPayload?.objectValue?["researchQuery"]?.stringValue, "调研2025年中国上半年的经济情况，并写进备忘录")
+    }
+
     func testFeishuCommandWithEvidenceValidation() async {
         let tool = V4FeishuCLITool { command, operation, arguments in
             XCTAssertEqual(command, "在飞书创建明天上午 10 点评审会")
@@ -435,6 +507,34 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
 
         XCTAssertEqual(output.evidenceSummary, "apple.notes.create action=find; dry_run=true")
         XCTAssertEqual(output.rawPayload?.objectValue?["action"]?.stringValue, "find")
+    }
+
+    func testAppleNotesDryRunAcceptsCommandFieldViaKernelValidation() async {
+        let tool = V4AppleNotesTool()
+        let registry = V4ToolRegistry(
+            tools: [tool],
+            manifests: [
+                V4ToolManifest.derived(
+                    from: tool.spec,
+                    domain: "notes",
+                    retryPolicy: .transientSingleRetry,
+                    evidenceRequirement: .structured(requiredKeys: ["action"])
+                )
+            ]
+        )
+        let kernel = makeKernel(registry: registry)
+
+        let result = await kernel.execute(
+            toolUse: makeToolUse(
+                toolName: "apple.notes.create",
+                inputJSON: #"{"command":"写入备忘录 --dry-run","action":"create","title":"标题","body":"正文"}"#
+            ),
+            context: makeContext(toolName: "apple.notes.create")
+        )
+
+        XCTAssertEqual(result.status, .success)
+        XCTAssertEqual(result.error, nil)
+        XCTAssertEqual(result.evidenceSummary, "apple.notes.create action=create; dry_run=true")
     }
 
     func testCalendarCreateWithTimeParseFallback() async {

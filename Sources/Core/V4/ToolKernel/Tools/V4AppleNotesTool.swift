@@ -16,6 +16,7 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
         inputSchemaVersion: "v1",
         inputSchema: V4ToolInputSchema(
             fields: [
+                V4ToolInputField(name: "command", kind: .string, isRequired: false, summary: "原始命令"),
                 V4ToolInputField(name: "action", kind: .string, isRequired: false, summary: "create / append / find"),
                 V4ToolInputField(name: "title", kind: .string, isRequired: false, summary: "笔记标题（create 或 append）"),
                 V4ToolInputField(name: "targetTitle", kind: .string, isRequired: false, summary: "目标标题（append）"),
