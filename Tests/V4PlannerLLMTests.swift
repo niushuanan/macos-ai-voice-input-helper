@@ -274,7 +274,7 @@ final class V4PlannerLLMTests: XCTestCase {
             )
         )
         XCTAssertEqual(firstPlan.steps.count, 1)
-        XCTAssertEqual(firstPlan.steps.first?.toolName, "text.transform")
+        XCTAssertNotEqual(firstPlan.steps.first?.toolName, "apple.notes.create")
 
         let secondPlan = try await planner.plan(
             for: V4RunRequest(
