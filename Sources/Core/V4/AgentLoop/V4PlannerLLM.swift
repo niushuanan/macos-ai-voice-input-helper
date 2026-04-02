@@ -47,17 +47,37 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
     func plan(for request: V4RunRequest) async throws -> V4Plan {
         let trimmedInput = request.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedInput.isEmpty else {
-            return try await fallbackPlanner.plan(for: request)
+            return V4Plan(
+                steps: [],
+                terminalDecision: V4LoopDecision(
+                    action: .askUser,
+                    message: "请先说清楚要处理什么内容。"
+                )
+            )
         }
 
         guard let modelContext = try await modelResolver(request) else {
-            return try await fallbackPlanner.plan(for: request)
+            return V4Plan(
+                steps: [],
+                terminalDecision: V4LoopDecision(
+                    action: .fail,
+                    message: "当前 LLM 路由不可用，请先检查模型与 API Key 配置。",
+                    failureCode: .modelUnavailable
+                )
+            )
         }
 
         do {
             return try await semanticRoutePlan(for: request, modelContext: modelContext)
         } catch {
-            return try await fallbackPlanner.plan(for: request)
+            return V4Plan(
+                steps: [],
+                terminalDecision: V4LoopDecision(
+                    action: .fail,
+                    message: "LLM 规划失败，请重试。",
+                    failureCode: .modelUnavailable
+                )
+            )
         }
     }
 
@@ -87,6 +107,7 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
 
         channel 枚举：
         - text_transform
+        - notes
         - mail
         - calendar
         - music
@@ -106,7 +127,7 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
         - 第一步必须先做语义判定并映射 channel，再产出 step。
         - 只规划下一步，不要一次规划完整长链。
         - 已经完成的 step 不要重复做，除非上一步失败且明确需要重试。
-        - 如果用户想“整理后再发邮件 / 建日程”，优先先走 text.transform，再进入外部 tool。
+        - 如果用户想“整理后再写备忘录 / 发邮件 / 建日程”，优先先走 text.transform，再进入外部 tool。
         - 如果当前已有一段整理好的 latestOutput，就优先拿它进入 mail / notes / calendar，而不是再重复改写。
         - 如果时间、对象、目标明显不够，优先 ask_user，不要硬猜。
         - 如果一句话混了互相独立的多个外部动作，也优先 ask_user。
@@ -114,6 +135,7 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
 
         可用 tool：
         - text.transform: 把当前文本按指令改写、整理、提炼、翻译。
+        - apple.notes.create: 备忘录动作（create / append / find）。
         - apple.mail.compose: 写邮件、发邮件、生成草稿。
         - apple.calendar.create: 新建 Calendar 日程。
         - apple.music.control: 打开音乐、播放、暂停、切歌。
@@ -303,6 +325,8 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
         switch toolName {
         case "text.transform":
             return "文字处理"
+        case "apple.notes.create":
+            return "处理备忘录"
         case "apple.mail.compose":
             return "整理邮件"
         case "apple.calendar.create":
@@ -335,6 +359,7 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
 
     private static let allowedToolNames: Set<String> = [
         "text.transform",
+        "apple.notes.create",
         "apple.mail.compose",
         "apple.calendar.create",
         "apple.music.control",

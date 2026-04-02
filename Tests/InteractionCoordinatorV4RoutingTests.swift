@@ -276,7 +276,7 @@ final class InteractionCoordinatorV4RoutingTests: XCTestCase {
 
         XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "润色后的文本")
         XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.operation, .replaceSelectedText)
-        XCTAssertEqual(fixture.sessionStore.statusMessage, "文字处理已完成，结果已写入当前输入位置。")
+        XCTAssertEqual(fixture.sessionStore.statusMessage, "文字处理已完成，结果已写入目标位置，并同步到剪贴板。")
     }
 
     private func makeFixture(

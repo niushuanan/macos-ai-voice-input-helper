@@ -255,8 +255,9 @@ final class V4PlannerLLMTests: XCTestCase {
 
         let plan = try await planner.plan(for: request)
 
-        XCTAssertEqual(plan.steps.count, 1)
-        XCTAssertEqual(plan.steps.first?.toolName, "text.transform")
+        XCTAssertTrue(plan.steps.isEmpty)
+        XCTAssertEqual(plan.terminalDecision?.action, .fail)
+        XCTAssertEqual(plan.terminalDecision?.failureCode, .modelUnavailable)
     }
 
     func testPlannerFallsBackWhenModelUnavailableForResearchThenNotesFlow() async throws {
@@ -273,8 +274,9 @@ final class V4PlannerLLMTests: XCTestCase {
                 inputText: "请调研一下本周 AI 产品趋势，写一篇短文放到备忘录"
             )
         )
-        XCTAssertEqual(firstPlan.steps.count, 1)
-        XCTAssertNotEqual(firstPlan.steps.first?.toolName, "apple.notes.create")
+        XCTAssertTrue(firstPlan.steps.isEmpty)
+        XCTAssertEqual(firstPlan.terminalDecision?.action, .fail)
+        XCTAssertEqual(firstPlan.terminalDecision?.failureCode, .modelUnavailable)
 
         let secondPlan = try await planner.plan(
             for: V4RunRequest(
@@ -296,7 +298,8 @@ final class V4PlannerLLMTests: XCTestCase {
             )
         )
         XCTAssertTrue(secondPlan.steps.isEmpty)
-        XCTAssertEqual(secondPlan.terminalDecision?.action, .finish)
+        XCTAssertEqual(secondPlan.terminalDecision?.action, .fail)
+        XCTAssertEqual(secondPlan.terminalDecision?.failureCode, .modelUnavailable)
 
         let invocationCount = await provider.invocationCount
         XCTAssertEqual(invocationCount, 0)
@@ -317,8 +320,9 @@ final class V4PlannerLLMTests: XCTestCase {
                 inputText: command
             )
         )
-        XCTAssertEqual(firstPlan.steps.count, 1)
-        XCTAssertEqual(firstPlan.steps.first?.toolName, "text.transform")
+        XCTAssertTrue(firstPlan.steps.isEmpty)
+        XCTAssertEqual(firstPlan.terminalDecision?.action, .fail)
+        XCTAssertEqual(firstPlan.terminalDecision?.failureCode, .modelUnavailable)
 
         let secondPlan = try await planner.plan(
             for: V4RunRequest(
@@ -340,7 +344,8 @@ final class V4PlannerLLMTests: XCTestCase {
             )
         )
         XCTAssertTrue(secondPlan.steps.isEmpty)
-        XCTAssertEqual(secondPlan.terminalDecision?.action, .finish)
+        XCTAssertEqual(secondPlan.terminalDecision?.action, .fail)
+        XCTAssertEqual(secondPlan.terminalDecision?.failureCode, .modelUnavailable)
 
         let invocationCount = await provider.invocationCount
         XCTAssertEqual(invocationCount, 0)
@@ -362,8 +367,9 @@ final class V4PlannerLLMTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(plan.steps.count, 1)
-        XCTAssertEqual(plan.steps.first?.toolName, "text.transform")
+        XCTAssertTrue(plan.steps.isEmpty)
+        XCTAssertEqual(plan.terminalDecision?.action, .fail)
+        XCTAssertEqual(plan.terminalDecision?.failureCode, .modelUnavailable)
         let invocationCount = await provider.invocationCount
         XCTAssertEqual(invocationCount, 0)
     }
@@ -383,8 +389,9 @@ final class V4PlannerLLMTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(plan.steps.count, 1)
-        XCTAssertEqual(plan.steps.first?.toolName, "text.transform")
+        XCTAssertTrue(plan.steps.isEmpty)
+        XCTAssertEqual(plan.terminalDecision?.action, .fail)
+        XCTAssertEqual(plan.terminalDecision?.failureCode, .modelUnavailable)
         let invocationCount = await provider.invocationCount
         XCTAssertEqual(invocationCount, 0)
     }

@@ -15,6 +15,7 @@ final class V4ToolManifestTests: XCTestCase {
         let appleTools = registry.list(by: .appleNativeApps)
         let toolIDs = Set(appleTools.map(\.toolID))
         XCTAssertTrue(toolIDs.contains("apple.calendar.create"))
+        XCTAssertTrue(toolIDs.contains("apple.notes.create"))
         XCTAssertTrue(toolIDs.contains("apple.mail.compose"))
         XCTAssertTrue(toolIDs.contains("apple.music.control"))
     }

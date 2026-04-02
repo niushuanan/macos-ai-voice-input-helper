@@ -1939,11 +1939,20 @@ final class InteractionCoordinator {
         audioDurationSeconds: Double,
         appliedSkills: [SkillRuleID]
     ) async {
+        let selectionContext = selectionSnapshot?.selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let modelInputText = inputTextForV4Planner(
+            command: spokenInstruction,
+            selectionText: selectionContext
+        )
+        let goalSummary = goalSummaryForV4Planner(
+            command: spokenInstruction,
+            selectionText: selectionContext
+        )
         let request = V4RunRequest(
             traceID: V4TraceID(rawValue: traceID),
             lane: .selectionRewrite,
-            goalSummary: spokenInstruction.trimmingCharacters(in: .whitespacesAndNewlines),
-            inputText: spokenInstruction,
+            goalSummary: goalSummary,
+            inputText: modelInputText,
             appName: fallbackFocusContext.appName,
             bundleID: fallbackFocusContext.bundleID,
             selectionText: selectionSnapshot?.selectedText,
@@ -1974,7 +1983,7 @@ final class InteractionCoordinator {
                 return
             }
 
-            let historyStatus: SessionHistoryStatus = outcome.status == .completed ? .success : .failed
+            let historyStatus: SessionHistoryStatus = outcome.status == V4RunStatus.completed ? .success : .failed
             let runtimeEvents = eventBuffer.snapshot()
             let resolvedAppliedSkills = mergedSkills(
                 lhs: appliedSkills,
@@ -2000,12 +2009,12 @@ final class InteractionCoordinator {
                 audioDurationSeconds: audioDurationSeconds
             )
             v4SessionStoreBridge.applyRunOutcome(outcome, to: sessionStore)
-            if let writebackMessage = await v4TextWritebackMessage(
-                for: outcome,
+            if let statusMessage = await v4OutcomeDeliveryMessage(
+                outcome: outcome,
                 selectionSnapshot: selectionSnapshot,
                 fallbackFocusContext: fallbackFocusContext
             ) {
-                sessionStore.completeAction(statusMessage: writebackMessage)
+                sessionStore.completeAction(statusMessage: statusMessage)
             }
             currentTraceID = nil
         } catch {
@@ -2050,6 +2059,89 @@ final class InteractionCoordinator {
         }
     }
 
+    private func v4OutcomeDeliveryMessage(
+        outcome: V4RunOutcome,
+        selectionSnapshot: FocusedSelectionSnapshot?,
+        fallbackFocusContext: FocusedAppContext
+    ) async -> String? {
+        guard outcome.status == .completed else {
+            return nil
+        }
+        guard let lastTool = outcome.stepRecords.last?.toolName else {
+            return nil
+        }
+
+        if lastTool == "text.transform" {
+            return await v4TextWritebackMessage(
+                for: outcome,
+                selectionSnapshot: selectionSnapshot,
+                fallbackFocusContext: fallbackFocusContext
+            )
+        }
+
+        let transformedOutput = outcome.stepRecords.reversed()
+            .first(where: { $0.toolName == "text.transform" })?
+            .outputSummary?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedTransformedOutput: String? = {
+            guard let transformedOutput, !transformedOutput.isEmpty else {
+                return nil
+            }
+            return transformedOutput
+        }()
+        let finalOutput = outcome.finalOutputText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedFinalOutput: String? = {
+            guard let finalOutput, !finalOutput.isEmpty else {
+                return nil
+            }
+            return finalOutput
+        }()
+        let mirrorText = normalizedTransformedOutput ?? normalizedFinalOutput
+
+        if let mirrorText {
+            _ = persistTextToClipboard(mirrorText)
+        }
+
+        switch lastTool {
+        case "apple.notes.create":
+            return "备忘录操作已完成，结果文本已同步到剪贴板。"
+        case "apple.calendar.create":
+            return "日程操作已完成，结果文本已同步到剪贴板。"
+        case "apple.mail.compose":
+            return "邮件操作已完成，结果文本已同步到剪贴板。"
+        default:
+            return mirrorText == nil ? nil : "已完成当前任务，结果已同步到剪贴板。"
+        }
+    }
+
+    private func inputTextForV4Planner(
+        command: String,
+        selectionText: String?
+    ) -> String {
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let selectionText, !selectionText.isEmpty else {
+            return trimmedCommand
+        }
+        return """
+        \(trimmedCommand)
+
+        [SELECTED_TEXT]
+        \(selectionText)
+        [/SELECTED_TEXT]
+        """
+    }
+
+    private func goalSummaryForV4Planner(
+        command: String,
+        selectionText: String?
+    ) -> String {
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let selectionText, !selectionText.isEmpty else {
+            return trimmedCommand
+        }
+        return "\(trimmedCommand)（基于选中文本）"
+    }
+
     private func v4TextWritebackMessage(
         for outcome: V4RunOutcome,
         selectionSnapshot: FocusedSelectionSnapshot?,
@@ -2079,8 +2171,10 @@ final class InteractionCoordinator {
         do {
             let result = try await textOutputCoordinator.write(request: request)
             if result.didInsertIntoEditor {
-                return "文字处理已完成，结果已写入当前输入位置。"
+                _ = persistTextToClipboard(finalText)
+                return "文字处理已完成，结果已写入目标位置，并同步到剪贴板。"
             }
+            _ = persistTextToClipboard(finalText)
             return "文字处理已完成，结果已放到剪贴板。"
         } catch {
             if persistTextToClipboard(finalText) {

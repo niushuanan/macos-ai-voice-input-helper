@@ -247,6 +247,8 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
             ?? step.inputSummary.nilIfEmpty
             ?? request.inputText.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             ?? ""
+        let notesBodyText = latestOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            ?? selectionText?.nilIfEmpty
 
         switch toolName {
         case "text.transform":
@@ -254,6 +256,34 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
                 "text": .string(preferredText),
                 "instruction": .string(step.inputSummary.nilIfEmpty ?? request.goalSummary)
             ]
+        case "apple.notes.create":
+            let command = step.inputSummary.nilIfEmpty ?? request.inputText
+            let action = inferredNotesAction(from: step)
+            var arguments: V4ToolArguments = [
+                "command": .string(command),
+                "action": .string(action.rawValue),
+                "title": .string(defaultNoteTitle(from: notesBodyText ?? preferredText))
+            ]
+            switch action {
+            case .create:
+                if let notesBodyText {
+                    arguments["body"] = .string(notesBodyText)
+                }
+            case .append:
+                if let notesBodyText {
+                    arguments["body"] = .string(notesBodyText)
+                }
+                if let targetTitle = extractNoteTargetTitle(from: command) {
+                    arguments["targetTitle"] = .string(targetTitle)
+                }
+            case .find:
+                if let query = extractNoteQuery(from: command) {
+                    arguments["query"] = .string(query)
+                } else {
+                    arguments["query"] = .string(command)
+                }
+            }
+            return arguments
         case "apple.calendar.create":
             return [
                 "command": .string(step.inputSummary.nilIfEmpty ?? request.inputText),
@@ -295,6 +325,66 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
         default:
             return [:]
         }
+    }
+
+    private enum V4NotesAction: String {
+        case create
+        case append
+        case find
+    }
+
+    private func inferredNotesAction(from step: V4StepRecord) -> V4NotesAction {
+        let title = step.title.lowercased()
+        let command = step.inputSummary.lowercased()
+        if containsAny(title, tokens: ["检索", "查找", "find"]) || containsAny(command, tokens: ["检索", "查找", "查询", "搜索", "find", "search"]) {
+            return .find
+        }
+        if containsAny(title, tokens: ["追加", "append"]) || containsAny(command, tokens: ["追加", "补充", "append", "续写", "加到"]) {
+            return .append
+        }
+        return .create
+    }
+
+    private func extractNoteTargetTitle(from command: String) -> String? {
+        let patterns = [
+            #"(?:追加到|加到|补充到|写到)(?:标题为)?[《“\"]?([^》”\"\n]{1,48})[》”\"]?(?:这条|这个|该)?(?:备忘录|文档|note)"#,
+            #"(?:在|给)[《“\"]?([^》”\"\n]{1,48})[》”\"]?(?:这条|这个|该)?(?:备忘录|文档|note)(?:里|中|内)?(?:追加|补充|加上)"#
+        ]
+        for pattern in patterns {
+            if let match = firstRegexCapture(in: command, pattern: pattern) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private func extractNoteQuery(from command: String) -> String? {
+        let patterns = [
+            #"(?:查找|查询|搜索|find|search)(?:标题为)?[《“\"]?([^》”\"\n]{1,64})[》”\"]?(?:的)?(?:备忘录|文档|note)"#,
+            #"(?:(?:备忘录|文档|notes?)里|(?:备忘录|文档|notes?)中)[：: ]?([^，。；\n]{1,64})"#
+        ]
+        for pattern in patterns {
+            if let match = firstRegexCapture(in: command, pattern: pattern) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private func firstRegexCapture(in value: String, pattern: String) -> String? {
+        guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        guard
+            let match = expression.firstMatch(in: value, options: [], range: range),
+            match.numberOfRanges >= 2,
+            let captureRange = Range(match.range(at: 1), in: value)
+        else {
+            return nil
+        }
+        let captured = value[captureRange].trimmingCharacters(in: .whitespacesAndNewlines)
+        return captured.isEmpty ? nil : captured
     }
 
     private func defaultNoteTitle(from body: String) -> String {
