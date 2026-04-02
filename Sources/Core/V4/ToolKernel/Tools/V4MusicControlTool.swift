@@ -445,7 +445,7 @@ struct V4MusicControlTool: V4Tool {
             return await runOsaScript(
                 lines: [
                     "tell application \"Music\"",
-                ] + magicianEnsureApplicationReadyAppleScriptLines() + [
+                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
                     "play",
                     "return \"state=play\"",
                     "end tell"
@@ -545,7 +545,7 @@ struct V4MusicControlTool: V4Tool {
                 "on run argv",
                 "set keywordText to item 1 of argv",
                 "tell application \"Music\"",
-            ] + magicianEnsureApplicationReadyAppleScriptLines() + [
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
                 "set matchedTracks to (search library playlist 1 for keywordText only songs)",
                 "if (count of matchedTracks) is 0 then return \"track_not_found\"",
                 "set targetTrack to item 1 of matchedTracks",
@@ -566,14 +566,15 @@ struct V4MusicControlTool: V4Tool {
                 "on run argv",
                 "set keywordText to item 1 of argv",
                 "tell application \"Music\"",
-            ] + magicianEnsureApplicationReadyAppleScriptLines() + [
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
                 "set matchedTracks to (search library playlist 1 for keywordText only albums)",
                 "if (count of matchedTracks) is 0 then return \"album_not_found\"",
-                "set targetTrack to item 1 of matchedTracks",
+                "set randomIndex to (random number from 1 to (count of matchedTracks))",
+                "set targetTrack to item randomIndex of matchedTracks",
                 "play targetTrack",
                 "delay 0.8",
                 "set nowTrack to current track",
-                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play|strategy=library_album\"",
+                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play|strategy=library_album_random\"",
                 "end tell",
                 "end run"
             ],
