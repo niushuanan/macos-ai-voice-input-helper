@@ -50,53 +50,67 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
             return try await fallbackPlanner.plan(for: request)
         }
 
-        if let selectionFallback = selectionToNotesFallbackPlan(for: request, trimmedInput: trimmedInput) {
-            return selectionFallback
-        }
-
-        if let fastPathPlan = fastPathPlan(for: request, trimmedInput: trimmedInput) {
-            return fastPathPlan
-        }
-
         guard let modelContext = try await modelResolver(request) else {
+            if let selectionFallback = selectionToNotesFallbackPlan(for: request, trimmedInput: trimmedInput) {
+                return selectionFallback
+            }
             return try await fallbackPlanner.plan(for: request)
         }
 
-        let systemPrompt = plannerSystemPrompt(using: request.promptStack)
-        let userPrompt = plannerUserPrompt(for: request)
-
         do {
-            let generation = try await generationProvider.generateText(
-                request: TextGenerationRequest(
-                    systemPrompt: systemPrompt,
-                    userPrompt: userPrompt,
-                    temperature: 0.1,
-                    maxOutputTokens: 500
-                ),
-                configuration: modelContext.configuration,
-                apiKey: modelContext.apiKey
-            )
-            return try decodedPlan(
-                from: generation.outputText,
-                request: request
-            )
+            return try await semanticRoutePlan(for: request, modelContext: modelContext)
         } catch {
+            if let selectionFallback = selectionToNotesFallbackPlan(for: request, trimmedInput: trimmedInput) {
+                return selectionFallback
+            }
             return try await fallbackPlanner.plan(for: request)
         }
     }
 
+    private func semanticRoutePlan(
+        for request: V4RunRequest,
+        modelContext: ModelContext
+    ) async throws -> V4Plan {
+        let generation = try await generationProvider.generateText(
+            request: TextGenerationRequest(
+                systemPrompt: plannerSystemPrompt(using: request.promptStack),
+                userPrompt: plannerUserPrompt(for: request),
+                temperature: 0.0,
+                maxOutputTokens: 480
+            ),
+            configuration: modelContext.configuration,
+            apiKey: modelContext.apiKey
+        )
+        return try decodedPlan(
+            from: generation.outputText,
+            request: request
+        )
+    }
+
     private func plannerSystemPrompt(using promptStack: V4PromptStack?) -> String {
         let plannerRules = """
-        你是 PulseType V4 的 planner。你的任务不是直接输出结果，而是判断当前这一步最该做什么。
+        你是 PulseType V4 的语义路由总控 planner。你的任务不是直接输出结果，而是先判定当前要走哪个 channel，再决定下一步动作。
+
+        channel 枚举：
+        - text_transform
+        - notes
+        - mail
+        - calendar
+        - music
+        - feishu
+        - time_machine_create
+        - time_machine_remind
+        - terminal_decision
 
         只允许输出一个 JSON object，不要输出 Markdown，不要解释。
 
         你每一轮只能做三种事之一：
-        1. 产出下一步：{"action":"step","step":{"toolName":"...","title":"...","inputSummary":"..."}}
+        1. 产出下一步：{"action":"step","channel":"...","step":{"toolName":"...","title":"...","inputSummary":"..."}}
         2. 任务已完成：{"action":"finish","message":"..."}
         3. 信息不足或任务冲突：{"action":"ask_user","message":"..."} 或 {"action":"fail","message":"..."}
 
         规则：
+        - 第一步必须先做语义判定并映射 channel，再产出 step。
         - 只规划下一步，不要一次规划完整长链。
         - 已经完成的 step 不要重复做，除非上一步失败且明确需要重试。
         - 如果用户想“整理后再发邮件 / 记备忘录 / 建日程”，优先先走 text.transform，再进入外部 tool。
@@ -123,82 +137,6 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
         ].compactMap { $0 }
 
         return promptLayers.joined(separator: "\n\n")
-    }
-
-    private func fastPathPlan(
-        for request: V4RunRequest,
-        trimmedInput: String
-    ) -> V4Plan? {
-        let segments = V4RulePlannerHeuristics.segments(from: trimmedInput)
-        if let message = V4RulePlannerHeuristics.mixedExternalFailureMessage(for: segments) {
-            return V4Plan(
-                steps: [],
-                terminalDecision: V4LoopDecision(
-                    action: .fail,
-                    message: message,
-                    failureCode: .invalidRequest
-                )
-            )
-        }
-
-        guard segments.count == 1 else {
-            return nil
-        }
-
-        let classification = V4RulePlannerHeuristics.classification(for: trimmedInput)
-        let hasTransformIntent = containsTransformIntent(in: trimmedInput)
-        let noteNeedsTransformFirst = classification.toolName == "apple.notes.create" && hasTransformIntent
-        let latestCompletedStep = request.stepRecords.last(where: { $0.status == .completed })
-
-        if latestCompletedStep == nil {
-            if classification.toolName == "text.transform" || classification.toolName == "apple.music.control" {
-                return makeSingleStepPlan(for: request, toolName: classification.toolName, title: classification.title, inputSummary: trimmedInput)
-            }
-
-            if noteNeedsTransformFirst {
-                return makeSingleStepPlan(
-                    for: request,
-                    toolName: "text.transform",
-                    title: "文字处理",
-                    inputSummary: trimmedInput
-                )
-            }
-
-            if !hasTransformIntent {
-                return makeSingleStepPlan(for: request, toolName: classification.toolName, title: classification.title, inputSummary: trimmedInput)
-            }
-
-            return nil
-        }
-
-        guard let latestCompletedStep else {
-            return nil
-        }
-
-        if latestCompletedStep.toolName == classification.toolName {
-            return V4Plan(
-                steps: [],
-                terminalDecision: V4LoopDecision(
-                    action: .finish,
-                    message: "已完成当前任务。"
-                )
-            )
-        }
-
-        if
-            latestCompletedStep.toolName == "text.transform",
-            hasTransformIntent,
-            classification.toolName != "text.transform"
-        {
-            return makeSingleStepPlan(
-                for: request,
-                toolName: classification.toolName,
-                title: classification.title,
-                inputSummary: trimmedInput
-            )
-        }
-
-        return nil
     }
 
     private func plannerUserPrompt(for request: V4RunRequest) -> String {
@@ -283,17 +221,6 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
     private func isLowSignalSkillNoise(_ value: String) -> Bool {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return normalized == "skill" || normalized == "skills"
-    }
-
-    private func containsTransformIntent(in value: String) -> Bool {
-        let normalized = value.lowercased()
-        return [
-            "整理", "润色", "改写", "重写", "优化", "总结", "摘要", "提炼",
-            "翻译", "压缩", "扩写", "美化", "改得", "改成", "改为", "重组",
-            "调研", "研究", "思考", "分析", "原创", "写一篇", "文章", "草稿",
-            "经济", "趋势", "现状", "数据", "报告", "上半年", "下半年", "同比", "环比",
-            "gdp", "cpi", "pmi", "进出口"
-        ].contains { normalized.contains($0) }
     }
 
     private func decodedPlan(

@@ -2,8 +2,10 @@ import XCTest
 @testable import PulseType
 
 final class V4PlannerLLMTests: XCTestCase {
-    func testPlannerBypassesModelForSimpleMusicIntent() async throws {
-        let provider = TrackingPlannerGenerationProvider(output: #"{"action":"fail","message":"should not be used"}"#)
+    func testPlannerUsesModelForSimpleMusicIntent() async throws {
+        let provider = TrackingPlannerGenerationProvider(
+            output: #"{"action":"step","channel":"music","step":{"toolName":"apple.music.control","title":"控制音乐","inputSummary":"放首稻香"}}"#
+        )
         let planner = V4PlannerLLM(
             generationProvider: provider,
             modelResolver: { _ in
@@ -31,11 +33,13 @@ final class V4PlannerLLMTests: XCTestCase {
         XCTAssertEqual(plan.steps.count, 1)
         XCTAssertEqual(plan.steps.first?.toolName, "apple.music.control")
         let invocationCount = await provider.invocationCount
-        XCTAssertEqual(invocationCount, 0)
+        XCTAssertEqual(invocationCount, 1)
     }
 
-    func testPlannerBypassesModelForTransformThenMailHandoff() async throws {
-        let provider = TrackingPlannerGenerationProvider(output: #"{"action":"fail","message":"should not be used"}"#)
+    func testPlannerUsesModelForTransformThenMailHandoff() async throws {
+        let provider = TrackingPlannerGenerationProvider(
+            output: #"{"action":"step","channel":"mail","step":{"toolName":"apple.mail.compose","title":"整理邮件","inputSummary":"给产品组发邮件，正文使用上一轮整理结果"}}"#
+        )
         let planner = V4PlannerLLM(
             generationProvider: provider,
             modelResolver: { _ in
@@ -76,11 +80,13 @@ final class V4PlannerLLMTests: XCTestCase {
         XCTAssertEqual(plan.steps.count, 1)
         XCTAssertEqual(plan.steps.first?.toolName, "apple.mail.compose")
         let invocationCount = await provider.invocationCount
-        XCTAssertEqual(invocationCount, 0)
+        XCTAssertEqual(invocationCount, 1)
     }
 
-    func testPlannerFinishesSimpleTaskWithoutSecondModelTurn() async throws {
-        let provider = TrackingPlannerGenerationProvider(output: #"{"action":"fail","message":"should not be used"}"#)
+    func testPlannerUsesModelToFinishSimpleTask() async throws {
+        let provider = TrackingPlannerGenerationProvider(
+            output: #"{"action":"finish","message":"已完成当前任务。"}"#
+        )
         let planner = V4PlannerLLM(
             generationProvider: provider,
             modelResolver: { _ in
@@ -120,7 +126,7 @@ final class V4PlannerLLMTests: XCTestCase {
         XCTAssertTrue(plan.steps.isEmpty)
         XCTAssertEqual(plan.terminalDecision?.action, .finish)
         let invocationCount = await provider.invocationCount
-        XCTAssertEqual(invocationCount, 0)
+        XCTAssertEqual(invocationCount, 1)
     }
 
     func testPlannerUsesModelStepDecision() async throws {
@@ -253,22 +259,11 @@ final class V4PlannerLLMTests: XCTestCase {
         XCTAssertEqual(plan.steps.first?.toolName, "text.transform")
     }
 
-    func testPlannerBypassesModelForResearchThenNotesFlow() async throws {
-        let provider = TrackingPlannerGenerationProvider(output: #"{"action":"fail","message":"should not be used"}"#)
+    func testPlannerFallsBackWhenModelUnavailableForResearchThenNotesFlow() async throws {
+        let provider = TrackingPlannerGenerationProvider(output: #"{"action":"fail","message":"unused"}"#)
         let planner = V4PlannerLLM(
             generationProvider: provider,
-            modelResolver: { _ in
-                V4PlannerLLM.ModelContext(
-                    configuration: TextGenerationProviderConfiguration(
-                        profileID: "planner",
-                        providerType: .openAICompatible,
-                        providerName: "Stub",
-                        modelName: "stub-model",
-                        baseURL: URL(string: "https://example.com")!
-                    ),
-                    apiKey: "test-key"
-                )
-            }
+            modelResolver: { _ in nil }
         )
 
         let firstPlan = try await planner.plan(
@@ -307,22 +302,11 @@ final class V4PlannerLLMTests: XCTestCase {
         XCTAssertEqual(invocationCount, 0)
     }
 
-    func testPlannerTreatsWriteIntoDocumentAsNotesTwoStepFlow() async throws {
-        let provider = TrackingPlannerGenerationProvider(output: #"{"action":"fail","message":"should not be used"}"#)
+    func testPlannerFallsBackWhenModelUnavailableForWriteIntoDocumentFlow() async throws {
+        let provider = TrackingPlannerGenerationProvider(output: #"{"action":"fail","message":"unused"}"#)
         let planner = V4PlannerLLM(
             generationProvider: provider,
-            modelResolver: { _ in
-                V4PlannerLLM.ModelContext(
-                    configuration: TextGenerationProviderConfiguration(
-                        profileID: "planner",
-                        providerType: .openAICompatible,
-                        providerName: "Stub",
-                        modelName: "stub-model",
-                        baseURL: URL(string: "https://example.com")!
-                    ),
-                    apiKey: "test-key"
-                )
-            }
+            modelResolver: { _ in nil }
         )
 
         let command = "二零一五年中国上半年经济情况，并写进文档。"
@@ -363,21 +347,10 @@ final class V4PlannerLLMTests: XCTestCase {
     }
 
     func testPlannerMapsLowSignalSkillWithSelectionToNotesCreate() async throws {
-        let provider = TrackingPlannerGenerationProvider(output: #"{"action":"fail","message":"should not be used"}"#)
+        let provider = TrackingPlannerGenerationProvider(output: #"{"action":"fail","message":"unused"}"#)
         let planner = V4PlannerLLM(
             generationProvider: provider,
-            modelResolver: { _ in
-                V4PlannerLLM.ModelContext(
-                    configuration: TextGenerationProviderConfiguration(
-                        profileID: "planner",
-                        providerType: .openAICompatible,
-                        providerName: "Stub",
-                        modelName: "stub-model",
-                        baseURL: URL(string: "https://example.com")!
-                    ),
-                    apiKey: "test-key"
-                )
-            }
+            modelResolver: { _ in nil }
         )
 
         let plan = try await planner.plan(
