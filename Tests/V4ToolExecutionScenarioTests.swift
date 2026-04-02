@@ -537,6 +537,71 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         XCTAssertEqual(result.evidenceSummary, "apple.notes.create action=create; dry_run=true")
     }
 
+    func testAppleNotesCreateSucceedsOnlyAfterVerifiedNoteEvidence() async throws {
+        actor ScriptStub {
+            var count = 0
+
+            func run(lines _: [String], arguments _: [String]) -> MagicianProcessResult {
+                count += 1
+                if count == 1 {
+                    return MagicianProcessResult(exitCode: 0, stdout: "x-coredata://NOTE/1", stderr: "")
+                }
+                return MagicianProcessResult(exitCode: 0, stdout: "x-coredata://NOTE/1", stderr: "")
+            }
+        }
+
+        let stub = ScriptStub()
+        let tool = V4AppleNotesTool(
+            appleScriptRunner: { lines, arguments, _, _ in
+                await stub.run(lines: lines, arguments: arguments)
+            }
+        )
+
+        let output = try await tool.execute(
+            arguments: [
+                "action": .string("create"),
+                "title": .string("测试标题"),
+                "body": .string("测试正文")
+            ],
+            context: makeContext(toolName: "apple.notes.create")
+        )
+
+        XCTAssertEqual(output.evidenceSummary, "apple.notes.create action=create; note_id=x-coredata://NOTE/1")
+        XCTAssertEqual(output.rawPayload?.objectValue?["layer"]?.stringValue, "applescript")
+    }
+
+    func testAppleNotesCreateRejectsUnverifiedFakeSuccess() async {
+        actor ScriptStub {
+            func run(lines _: [String], arguments _: [String]) -> MagicianProcessResult {
+                MagicianProcessResult(exitCode: 0, stdout: "", stderr: "")
+            }
+        }
+
+        let stub = ScriptStub()
+        let tool = V4AppleNotesTool(
+            appleScriptRunner: { lines, arguments, _, _ in
+                await stub.run(lines: lines, arguments: arguments)
+            }
+        )
+
+        do {
+            _ = try await tool.execute(
+                arguments: [
+                    "action": .string("create"),
+                    "title": .string("测试标题"),
+                    "body": .string("测试正文")
+                ],
+                context: makeContext(toolName: "apple.notes.create")
+            )
+            XCTFail("expected execute to fail when note evidence is missing")
+        } catch let toolError as V4ToolError {
+            XCTAssertEqual(toolError.code, .toolExecutionFailed)
+            XCTAssertEqual(toolError.toolID, "apple.notes.create")
+        } catch {
+            XCTFail("unexpected error type: \(error)")
+        }
+    }
+
     func testCalendarCreateWithTimeParseFallback() async {
         let recorder = CalendarRequestRecorder()
         let tool = V4CalendarCreateTool { request in
