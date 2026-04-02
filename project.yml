@@ -19,6 +19,9 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - path: Sources
+        excludes:
+          - Core/V4/README.md
+          - Core/V4/Memory/V4MemoryContracts.swift
       - path: Config/AppRuntimePolicy.plist
         buildPhase: resources
     configFiles:

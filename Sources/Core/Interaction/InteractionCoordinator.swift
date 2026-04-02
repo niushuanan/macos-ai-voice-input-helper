@@ -20,6 +20,7 @@ final class InteractionCoordinator {
     private let asrDictionaryStore: ASRDictionaryStore
     private let magicianFeatureToggleStore: MagicianFeatureToggleStore
     private let workflowTelemetryReporter: any WorkflowTelemetryReporting
+    private let magicianLaneRouter: any MagicianLaneRouting
     private let v4MagicianRuntime: any V4MagicianRuntimeRunning
     private let v4RuntimeSwitchStore: V4RuntimeSwitchStore
     private let v4SessionStoreBridge: V4ToSessionStoreBridge
@@ -62,6 +63,7 @@ final class InteractionCoordinator {
         mailAddressBookStore: MailAddressBookStore? = nil,
         magicianFeatureToggleStore: MagicianFeatureToggleStore? = nil,
         workflowTelemetryReporter: (any WorkflowTelemetryReporting)? = nil,
+        magicianLaneRouter: (any MagicianLaneRouting)? = nil,
         magicianToolExecutor: (any MagicianToolExecuting)? = nil,
         v4MagicianRuntime: (any V4MagicianRuntimeRunning)? = nil,
         v4RuntimeSwitchStore: V4RuntimeSwitchStore? = nil,
@@ -93,6 +95,13 @@ final class InteractionCoordinator {
         self.workflowTelemetryReporter = workflowTelemetryReporter ?? WorkflowTelemetryReporter(
             speechPipelineLogger: speechPipelineLogger
         )
+        if let magicianLaneRouter {
+            self.magicianLaneRouter = magicianLaneRouter
+        } else {
+            let providerSettingsBridge = V4ProviderSettingsBridge(providerSettingsStore: providerSettingsStore)
+            let modelSlotManager = V4ModelSlotManager(bridge: providerSettingsBridge)
+            self.magicianLaneRouter = MagicianSemanticLaneRouter(modelSlotManager: modelSlotManager)
+        }
         self.v4RuntimeSwitchStore = v4RuntimeSwitchStore ?? V4RuntimeSwitchStore()
         self.v4SessionStoreBridge = v4SessionStoreBridge ?? V4ToSessionStoreBridge()
         self.v4HistoryBridge = v4HistoryBridge
@@ -1871,7 +1880,7 @@ final class InteractionCoordinator {
             return
         } catch {}
 
-        let laneDecision = MagicianLaneClassifier().decide(
+        let laneDecision = await magicianLaneRouter.decide(
             command: spokenInstruction,
             selectionSnapshot: selectionSnapshot,
             enabledFeatures: enabledFeatures
