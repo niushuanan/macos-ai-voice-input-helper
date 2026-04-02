@@ -656,9 +656,14 @@ struct V4MusicControlTool: V4Tool {
                     )
                 }
                 if output == "track_not_found" {
+                    let message = if command.playIntent == .album {
+                        "未在 Music 搜索里找到该专辑，请确认专辑名后再试。"
+                    } else {
+                        "未在 Music 搜索里找到这首歌，请确认歌名后再试。"
+                    }
                     throw V4ToolErrorCatalog().executionFailure(
                         toolID: "apple.music.control",
-                        userMessage: "未在 Music 搜索里找到这首歌，请确认歌名后再试。",
+                        userMessage: message,
                         debugMessage: "no matched track for query: \(query)",
                         recoverAction: "open_music_app",
                         isRetryable: false
@@ -777,7 +782,7 @@ struct V4MusicControlTool: V4Tool {
                     if trimmed.hasPrefix("track=") {
                         return uiAssist
                     }
-                    if isExplicitSongRequest(command.rawCommand) {
+                    if isExplicitSongRequest(command.rawCommand), command.playIntent != .album {
                         return MagicianProcessResult(exitCode: 0, stdout: "track_not_found", stderr: "")
                     }
                     return MagicianProcessResult(
@@ -786,7 +791,7 @@ struct V4MusicControlTool: V4Tool {
                         stderr: ""
                     )
                 }
-                if isExplicitSongRequest(command.rawCommand) {
+                if isExplicitSongRequest(command.rawCommand), command.playIntent != .album {
                     return MagicianProcessResult(exitCode: 0, stdout: "track_not_found", stderr: uiAssist.detail)
                 }
                 return MagicianProcessResult(
@@ -1035,37 +1040,33 @@ struct V4MusicControlTool: V4Tool {
             return nil
         }
 
-                let candidates = retrieveLibraryCandidates(
-                    query: query,
-                    rawCommand: rawCommand,
-                    playIntent: playIntent,
-                    tracks: tracks,
-                    limit: 24
-                )
-        let pick: LibraryTrackRecord?
-        if candidates.isEmpty, playIntent == .mood {
-            let broadCandidates = retrieveBroadMoodCandidates(tracks: tracks, limit: 60)
-            pick = await selectTrackWithRAG(
-                query: query,
-                rawCommand: rawCommand,
-                playIntent: playIntent,
-                candidates: broadCandidates,
-                modelSlotManager: modelSlotManager,
-                generationProvider: generationProvider
-            ) ?? broadCandidates.first?.track
-        } else {
-            guard !candidates.isEmpty else {
-                return nil
-            }
-            pick = await selectTrackWithRAG(
-                query: query,
-                rawCommand: rawCommand,
-                playIntent: playIntent,
-                candidates: candidates,
-                modelSlotManager: modelSlotManager,
-                generationProvider: generationProvider
-            ) ?? candidates.first?.track
+        var candidates = retrieveLibraryCandidates(
+            query: query,
+            rawCommand: rawCommand,
+            playIntent: playIntent,
+            tracks: tracks,
+            limit: tracks.count
+        )
+        if candidates.isEmpty {
+            candidates = tracks.map { LibraryTrackCandidate(track: $0, score: 1) }
         }
+        guard !candidates.isEmpty else {
+            return nil
+        }
+
+        let pick = await selectTrackWithRAG(
+            query: query,
+            rawCommand: rawCommand,
+            playIntent: playIntent,
+            candidates: candidates,
+            modelSlotManager: modelSlotManager,
+            generationProvider: generationProvider
+        ) ?? localFallbackTrack(
+            query: query,
+            playIntent: playIntent,
+            tracks: tracks,
+            candidates: candidates
+        )
         guard let pick else {
             return nil
         }
@@ -1170,19 +1171,63 @@ struct V4MusicControlTool: V4Tool {
         return Array(sorted.prefix(limit))
     }
 
-    private static func retrieveBroadMoodCandidates(
+    private static func localFallbackTrack(
+        query: String,
+        playIntent: PlayIntent,
         tracks: [LibraryTrackRecord],
-        limit: Int
-    ) -> [LibraryTrackCandidate] {
-        let sorted = tracks.sorted { lhs, rhs in
-            if lhs.artist != rhs.artist {
-                return lhs.artist < rhs.artist
+        candidates: [LibraryTrackCandidate]
+    ) -> LibraryTrackRecord? {
+        if playIntent == .album, let albumTrack = pickTrackFromAlbum(query: query, tracks: tracks) {
+            return albumTrack
+        }
+        return candidates.first?.track
+    }
+
+    private static func pickTrackFromAlbum(
+        query: String,
+        tracks: [LibraryTrackRecord],
+        exactFirst: Bool = true
+    ) -> LibraryTrackRecord? {
+        let queries = magicianMusicSearchQueries(from: query)
+            .map(normalizedMusicMatchText)
+            .filter { !$0.isEmpty }
+        guard !queries.isEmpty else {
+            return nil
+        }
+
+        var exact: [LibraryTrackRecord] = []
+        var fuzzy: [LibraryTrackRecord] = []
+        for track in tracks {
+            let normalizedAlbum = normalizedMusicMatchText(track.album)
+            guard !normalizedAlbum.isEmpty else {
+                continue
             }
-            return lhs.name < rhs.name
+            for q in queries {
+                if normalizedAlbum == q {
+                    exact.append(track)
+                    break
+                }
+                if normalizedAlbum.contains(q) || q.contains(normalizedAlbum) {
+                    fuzzy.append(track)
+                    break
+                }
+            }
         }
-        return Array(sorted.prefix(limit)).map {
-            LibraryTrackCandidate(track: $0, score: 1)
+        if exactFirst, let pick = randomTrack(from: exact) {
+            return pick
         }
+        if let pick = randomTrack(from: fuzzy) {
+            return pick
+        }
+        return nil
+    }
+
+    private static func randomTrack(from tracks: [LibraryTrackRecord]) -> LibraryTrackRecord? {
+        guard !tracks.isEmpty else {
+            return nil
+        }
+        let index = Int.random(in: 0 ..< tracks.count)
+        return tracks[index]
     }
 
     private static func selectTrackWithRAG(
