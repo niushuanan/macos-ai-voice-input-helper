@@ -141,6 +141,23 @@ enum V4RulePlannerHeuristics {
         return nil
     }
 
+    static func shouldUseTwoStepNoteFlow(command: String) -> Bool {
+        let normalized = command.lowercased()
+        let hasNotesIntent = containsAny(
+            normalized,
+            tokens: ["备忘录", "note", "notes", "写进备忘录", "写入备忘录", "记到备忘录", "记录到备忘录"]
+        )
+        let hasTransformIntent = containsAny(
+            normalized,
+            tokens: [
+                "整理", "润色", "改写", "重写", "优化", "总结", "摘要", "提炼",
+                "翻译", "压缩", "扩写", "美化", "改得", "改成", "改为", "重组",
+                "调研", "研究", "思考", "分析", "原创", "写一篇", "文章", "草稿"
+            ]
+        )
+        return hasNotesIntent && hasTransformIntent
+    }
+
     private static func containsAny(_ value: String, tokens: [String]) -> Bool {
         tokens.contains { value.contains($0) }
     }
@@ -184,6 +201,47 @@ struct V4PlannerRuleBased: V4Planner {
                     action: .fail,
                     message: message,
                     failureCode: .invalidRequest
+                )
+            )
+        }
+
+        if V4RulePlannerHeuristics.shouldUseTwoStepNoteFlow(command: trimmedCommand) {
+            let completedCount = request.stepRecords.count
+            if completedCount == 0 {
+                return V4Plan(
+                    steps: [
+                        V4StepRecord(
+                            traceID: request.traceID,
+                            lane: request.lane,
+                            goalSummary: request.goalSummary,
+                            title: "文字处理",
+                            status: .queued,
+                            toolName: "text.transform",
+                            inputSummary: summarized(trimmedCommand)
+                        )
+                    ]
+                )
+            }
+            if completedCount == 1 {
+                return V4Plan(
+                    steps: [
+                        V4StepRecord(
+                            traceID: request.traceID,
+                            lane: request.lane,
+                            goalSummary: request.goalSummary,
+                            title: "写入备忘录",
+                            status: .queued,
+                            toolName: "apple.notes.create",
+                            inputSummary: summarized(trimmedCommand)
+                        )
+                    ]
+                )
+            }
+            return V4Plan(
+                steps: [],
+                terminalDecision: V4LoopDecision(
+                    action: .finish,
+                    message: "已完成全部规划步骤。"
                 )
             )
         }

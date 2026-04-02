@@ -252,6 +252,60 @@ final class V4PlannerLLMTests: XCTestCase {
         XCTAssertEqual(plan.steps.count, 1)
         XCTAssertEqual(plan.steps.first?.toolName, "text.transform")
     }
+
+    func testPlannerBypassesModelForResearchThenNotesFlow() async throws {
+        let provider = TrackingPlannerGenerationProvider(output: #"{"action":"fail","message":"should not be used"}"#)
+        let planner = V4PlannerLLM(
+            generationProvider: provider,
+            modelResolver: { _ in
+                V4PlannerLLM.ModelContext(
+                    configuration: TextGenerationProviderConfiguration(
+                        profileID: "planner",
+                        providerType: .openAICompatible,
+                        providerName: "Stub",
+                        modelName: "stub-model",
+                        baseURL: URL(string: "https://example.com")!
+                    ),
+                    apiKey: "test-key"
+                )
+            }
+        )
+
+        let firstPlan = try await planner.plan(
+            for: V4RunRequest(
+                lane: .selectionRewrite,
+                goalSummary: "调研并写进备忘录",
+                inputText: "请调研一下本周 AI 产品趋势，写一篇短文放到备忘录"
+            )
+        )
+        XCTAssertEqual(firstPlan.steps.count, 1)
+        XCTAssertEqual(firstPlan.steps.first?.toolName, "text.transform")
+
+        let secondPlan = try await planner.plan(
+            for: V4RunRequest(
+                lane: .selectionRewrite,
+                goalSummary: "调研并写进备忘录",
+                inputText: "请调研一下本周 AI 产品趋势，写一篇短文放到备忘录",
+                stepRecords: [
+                    V4StepRecord(
+                        traceID: V4TraceID(rawValue: "trace"),
+                        lane: .selectionRewrite,
+                        goalSummary: "调研并写进备忘录",
+                        title: "文字处理",
+                        status: .completed,
+                        toolName: "text.transform",
+                        inputSummary: "调研并整理",
+                        outputSummary: "这是整理好的短文"
+                    )
+                ]
+            )
+        )
+        XCTAssertEqual(secondPlan.steps.count, 1)
+        XCTAssertEqual(secondPlan.steps.first?.toolName, "apple.notes.create")
+
+        let invocationCount = await provider.invocationCount
+        XCTAssertEqual(invocationCount, 0)
+    }
 }
 
 private struct StubGenerationProvider: TextGenerationProvider {

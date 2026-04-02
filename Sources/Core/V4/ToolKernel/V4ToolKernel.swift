@@ -390,14 +390,6 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
         return String(trimmed.prefix(40))
     }
 
-    private func defaultMailSubject(from body: String) -> String {
-        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return "邮件草稿"
-        }
-        return String(trimmed.prefix(48))
-    }
-
     private func inferredMailDeliveryMode(from command: String) -> MagicianMailDeliveryMode {
         let lowered = command.lowercased()
         if containsAny(lowered, tokens: ["草稿", "draft"]) {

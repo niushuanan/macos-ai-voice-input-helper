@@ -143,11 +143,21 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
 
         let classification = V4RulePlannerHeuristics.classification(for: trimmedInput)
         let hasTransformIntent = containsTransformIntent(in: trimmedInput)
+        let noteNeedsTransformFirst = classification.toolName == "apple.notes.create" && hasTransformIntent
         let latestCompletedStep = request.stepRecords.last(where: { $0.status == .completed })
 
         if latestCompletedStep == nil {
             if classification.toolName == "text.transform" || classification.toolName == "apple.music.control" {
                 return makeSingleStepPlan(for: request, toolName: classification.toolName, title: classification.title, inputSummary: trimmedInput)
+            }
+
+            if noteNeedsTransformFirst {
+                return makeSingleStepPlan(
+                    for: request,
+                    toolName: "text.transform",
+                    title: "文字处理",
+                    inputSummary: trimmedInput
+                )
             }
 
             if !hasTransformIntent {
@@ -249,7 +259,8 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
         let normalized = value.lowercased()
         return [
             "整理", "润色", "改写", "重写", "优化", "总结", "摘要", "提炼",
-            "翻译", "压缩", "扩写", "美化", "改得", "改成", "改为", "重组"
+            "翻译", "压缩", "扩写", "美化", "改得", "改成", "改为", "重组",
+            "调研", "研究", "思考", "分析", "原创", "写一篇", "文章", "草稿"
         ].contains { normalized.contains($0) }
     }
 
