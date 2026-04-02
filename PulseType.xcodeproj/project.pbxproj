@@ -93,7 +93,6 @@
 		700F719C2A1AFFB3A3C38A8D /* V4ToolHookPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A4D7FB7CF4D6FEA0823AEDE /* V4ToolHookPipeline.swift */; };
 		7067E3C6E0F903359DC53F01 /* BrainstormFallbackComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C7E51DDC9848BFCDDB9FCC /* BrainstormFallbackComposer.swift */; };
 		70F210810640704A47F86E9D /* InteractionCoordinatorTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96E9AA0C9517243F018FF28A /* InteractionCoordinatorTypes.swift */; };
-		7541BC3EFC1F62EE6A6535FE /* MagicianLaneClassifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A540331329F89607BBB553E1 /* MagicianLaneClassifierTests.swift */; };
 		797B8E5CC3ABF84C160753B0 /* MemoryEntryTextResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA6DAB79924A3383BC4385B5 /* MemoryEntryTextResolver.swift */; };
 		79FB17D471512BFA5C11586C /* MenuBarStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61E5EB79A499501B92D5C649 /* MenuBarStatusView.swift */; };
 		7B7194CA2BE31E39D011AA9F /* V4MagicianRuntimeAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B402BD2B4BBBCAB2161876 /* V4MagicianRuntimeAdapter.swift */; };
@@ -323,7 +322,6 @@
 		A335F7C9BBC893AD6521AD81 /* V4TextTransformTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4TextTransformTool.swift; sourceTree = "<group>"; };
 		A3897BB283629527CFD86628 /* MagicianSemanticLaneRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicianSemanticLaneRouterTests.swift; sourceTree = "<group>"; };
 		A3F67E336D8C99D5E5926465 /* V4TimeMachineStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4TimeMachineStore.swift; sourceTree = "<group>"; };
-		A540331329F89607BBB553E1 /* MagicianLaneClassifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicianLaneClassifierTests.swift; sourceTree = "<group>"; };
 		A7A630F0D30E08B82E92AB13 /* MagicianMailSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicianMailSupport.swift; sourceTree = "<group>"; };
 		A86924BC88368E3092DD3BBB /* V4ToolManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4ToolManifest.swift; sourceTree = "<group>"; };
 		AA9B804F228D15F5BB803E11 /* OpenAIProviderAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIProviderAdapterTests.swift; sourceTree = "<group>"; };
@@ -761,7 +759,6 @@
 				01B1502EAA5EB42896790E27 /* MagicianCommandSanitizerTests.swift */,
 				B416507B03688D66E3FB8DEC /* MagicianCommandSemanticsTests.swift */,
 				045D84679EE789BE00D2B376 /* MagicianFeatureToggleStoreTests.swift */,
-				A540331329F89607BBB553E1 /* MagicianLaneClassifierTests.swift */,
 				37C9D2A312A79818BB0D2E3C /* MagicianMailSupportTests.swift */,
 				C3C82F5D40EAA52586B00249 /* MagicianMusicQueryTests.swift */,
 				A3897BB283629527CFD86628 /* MagicianSemanticLaneRouterTests.swift */,
@@ -1146,7 +1143,6 @@
 				5DA08301FE9FEB6DE9F4F56C /* MagicianCommandSanitizerTests.swift in Sources */,
 				C18D05E2738164C2D4BF36A3 /* MagicianCommandSemanticsTests.swift in Sources */,
 				30A834C1E7880AD332755CCB /* MagicianFeatureToggleStoreTests.swift in Sources */,
-				7541BC3EFC1F62EE6A6535FE /* MagicianLaneClassifierTests.swift in Sources */,
 				25D1FEC402FC954934FD9AC3 /* MagicianMailSupportTests.swift in Sources */,
 				D3463CD08F7E4A02E2AA223A /* MagicianMusicQueryTests.swift in Sources */,
 				CC1AB42C78402B9750225247 /* MagicianSemanticLaneRouterTests.swift in Sources */,

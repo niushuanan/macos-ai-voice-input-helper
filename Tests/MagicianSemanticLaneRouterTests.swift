@@ -58,9 +58,31 @@ final class MagicianSemanticLaneRouterTests: XCTestCase {
             enabledFeatures: Set(MagicianFeatureID.allCases)
         )
 
-        XCTAssertEqual(decision.lane, .unsupportedMixedExternal)
+        XCTAssertEqual(decision.lane, .agent)
+        XCTAssertEqual(decision.reason, "semantic_router_error")
         let calls = await provider.invocationCount
         XCTAssertEqual(calls, 1)
+    }
+
+    func testSemanticRouterUsesAgentDefaultWhenModelUnavailable() async {
+        let provider = TrackingLaneGenerationProvider(
+            output: #"{"lane":"native_fast","reason":"unused"}"#
+        )
+        let router = MagicianSemanticLaneRouter(
+            generationProvider: provider,
+            modelResolver: { nil }
+        )
+
+        let decision = await router.decide(
+            command: "把这段话整理一下并写进备忘录",
+            selectionSnapshot: nil,
+            enabledFeatures: Set(MagicianFeatureID.allCases)
+        )
+
+        XCTAssertEqual(decision.lane, .agent)
+        XCTAssertEqual(decision.reason, "semantic_router_no_model")
+        let calls = await provider.invocationCount
+        XCTAssertEqual(calls, 0)
     }
 }
 

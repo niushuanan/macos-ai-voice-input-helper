@@ -93,7 +93,7 @@ final class InteractionCoordinatorV4RoutingTests: XCTestCase {
 
         XCTAssertEqual(v4Runtime.callCount, 0)
         XCTAssertEqual(legacyRuntime.callCount, 1)
-        XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianRuntimeVersion, 2)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianRuntimeVersion, 3)
     }
 
     func testPreflightFailureStillRecordsV4WhenLegacyDebugEnabled() async throws {
@@ -134,8 +134,8 @@ final class InteractionCoordinatorV4RoutingTests: XCTestCase {
         await waitForPipeline(using: fixture.sessionStore)
 
         XCTAssertEqual(v4Runtime.callCount, 0)
-        XCTAssertEqual(legacyRuntime.callCount, 0)
-        XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianRuntimeVersion, 4)
+        XCTAssertEqual(legacyRuntime.callCount, 1)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianRuntimeVersion, 3)
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .failed)
     }
 

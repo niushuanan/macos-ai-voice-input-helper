@@ -18,16 +18,13 @@ struct MagicianSemanticLaneRouter: MagicianLaneRouting, @unchecked Sendable {
 
     private let generationProvider: any TextGenerationProvider
     private let modelResolver: ModelResolver
-    private let fallbackClassifier: MagicianLaneClassifier
 
     init(
         modelSlotManager: V4ModelSlotManager? = nil,
         generationProvider: any TextGenerationProvider = OpenAITextGenerationProvider(),
-        fallbackClassifier: MagicianLaneClassifier = MagicianLaneClassifier(),
         modelResolver: ModelResolver? = nil
     ) {
         self.generationProvider = generationProvider
-        self.fallbackClassifier = fallbackClassifier
         if let modelResolver {
             self.modelResolver = modelResolver
         } else {
@@ -55,18 +52,20 @@ struct MagicianSemanticLaneRouter: MagicianLaneRouting, @unchecked Sendable {
         selectionSnapshot: FocusedSelectionSnapshot?,
         enabledFeatures: Set<MagicianFeatureID>
     ) async -> MagicianLaneDecision {
-        let fallback = fallbackClassifier.decide(
-            command: command,
-            selectionSnapshot: selectionSnapshot,
-            enabledFeatures: enabledFeatures
-        )
-
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else {
-            return fallback
+            return MagicianLaneDecision(
+                lane: .nativeFast,
+                reason: "semantic_empty_command",
+                userMessage: nil
+            )
         }
         guard let modelContext = try? await modelResolver() else {
-            return fallback
+            return MagicianLaneDecision(
+                lane: .agent,
+                reason: "semantic_router_no_model",
+                userMessage: nil
+            )
         }
 
         do {
@@ -85,11 +84,19 @@ struct MagicianSemanticLaneRouter: MagicianLaneRouting, @unchecked Sendable {
                 apiKey: modelContext.apiKey
             )
             guard let parsed = try parseLaneResponse(from: generation.outputText) else {
-                return fallback
+                return MagicianLaneDecision(
+                    lane: .agent,
+                    reason: "semantic_router_invalid_output",
+                    userMessage: nil
+                )
             }
-            return parsed.toDecision(fallbackMessage: fallback.userMessage)
+            return parsed.toDecision()
         } catch {
-            return fallback
+            return MagicianLaneDecision(
+                lane: .agent,
+                reason: "semantic_router_error",
+                userMessage: nil
+            )
         }
     }
 
@@ -102,17 +109,16 @@ struct MagicianSemanticLaneRouter: MagicianLaneRouting, @unchecked Sendable {
         可选 lane：
         - native_fast
         - agent
-        - unsupported_mixed_external
 
         输出格式：
-        {"lane":"native_fast|agent|unsupported_mixed_external","reason":"...","user_message":"..."}
+        {"lane":"native_fast|agent","reason":"...","user_message":"..."}
 
         规则：
         - 语义优先，不要依赖关键词硬匹配。
-        - 如果一句话同时要求多个互相独立的外部动作，输出 unsupported_mixed_external。
-        - 如果是飞书、多步骤自动化、调研后执行外部动作，优先 agent。
+        - 如果一句话包含多个外部动作或复杂多步骤自动化，统一输出 agent。
+        - 如果是飞书、多步骤自动化、调研后执行外部动作，输出 agent。
         - 纯文本改写、单一原生动作可走 native_fast。
-        - user_message 仅在 unsupported_mixed_external 时必填，其他情况可留空。
+        - user_message 可留空。
         """
     }
 
@@ -218,7 +224,7 @@ private struct LaneResponse: Decodable {
         case userMessage = "user_message"
     }
 
-    func toDecision(fallbackMessage: String?) -> MagicianLaneDecision {
+    func toDecision() -> MagicianLaneDecision {
         switch lane {
         case .nativeFast:
             return MagicianLaneDecision(
@@ -234,11 +240,9 @@ private struct LaneResponse: Decodable {
             )
         case .unsupportedMixedExternal:
             return MagicianLaneDecision(
-                lane: .unsupportedMixedExternal,
+                lane: .agent,
                 reason: reason?.trimmedNilIfEmpty ?? "semantic_unsupported_mixed_external",
-                userMessage: userMessage?.trimmedNilIfEmpty
-                    ?? fallbackMessage
-                    ?? "这条命令当前不支持混搭执行，请拆开说。"
+                userMessage: nil
             )
         }
     }

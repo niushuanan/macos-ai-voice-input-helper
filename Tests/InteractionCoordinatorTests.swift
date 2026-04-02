@@ -449,7 +449,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianEvidenceSummary, "note-id=test-runtime-1")
     }
 
-    func testSelectionRewriteRoutesPureTextToNativeRuntime() async throws {
+    func testSelectionRewriteRoutesPureTextToAgentRuntimeWhenRouterModelUnavailable() async throws {
         let nativeRuntime = FakeMagicianAgentRuntime(
             result: .success(
                 MagicianAgentRunOutcome(
@@ -497,9 +497,9 @@ final class InteractionCoordinatorTests: XCTestCase {
         fixture.coordinator.handleStopInput()
         await waitForPipeline(using: fixture.sessionStore)
 
-        XCTAssertEqual(nativeRuntime.callCount, 1)
-        XCTAssertEqual(agentRuntime.callCount, 0)
-        XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianRuntimeVersion, 2)
+        XCTAssertEqual(nativeRuntime.callCount, 0)
+        XCTAssertEqual(agentRuntime.callCount, 1)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianRuntimeVersion, 3)
     }
 
     func testSelectionRewriteRoutesFeishuCommandToAgentRuntime() async throws {
@@ -558,7 +558,7 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.magicianRuntimeVersion, 3)
     }
 
-    func testSelectionRewriteRejectsMixedMailAndFeishuBeforeRuntime() async throws {
+    func testSelectionRewriteRoutesMixedMailAndFeishuToAgentRuntime() async throws {
         let nativeRuntime = FakeMagicianAgentRuntime(
             result: .failure(
                 MagicianError(
@@ -570,12 +570,25 @@ final class InteractionCoordinatorTests: XCTestCase {
             )
         )
         let agentRuntime = FakeMagicianAgentRuntime(
-            result: .failure(
-                MagicianError(
-                    code: .toolExecutionFailed,
-                    userMessage: "agent 不应被调用",
-                    debugMessage: nil,
-                    recoverAction: nil
+            result: .success(
+                MagicianAgentRunOutcome(
+                    sessionID: "session-agent-mixed",
+                    runID: "run-agent-mixed",
+                    goalSummary: "发邮件给产品组并同步到飞书",
+                    finalStatusMessage: "Agent 已完成",
+                    finalOutputText: nil,
+                    displayText: "Agent: mixed",
+                    steps: [
+                        MagicianAgentStepRecord(
+                            id: "step-1",
+                            featureID: .feishuCLI,
+                            instruction: "发邮件给产品组并同步到飞书",
+                            userMessage: "Agent 已完成",
+                            outputText: nil,
+                            observation: MagicianAgentObservation(verificationStatus: .verified)
+                        )
+                    ],
+                    evidenceSummary: "agent-mixed"
                 )
             )
         )
@@ -595,10 +608,10 @@ final class InteractionCoordinatorTests: XCTestCase {
         await waitForPipeline(using: fixture.sessionStore)
 
         XCTAssertEqual(nativeRuntime.callCount, 0)
-        XCTAssertEqual(agentRuntime.callCount, 0)
-        XCTAssertEqual(fixture.sessionStore.phase, .error)
-        XCTAssertTrue(fixture.sessionStore.errorMessage?.contains("拆开说") == true)
-        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .failed)
+        XCTAssertEqual(agentRuntime.callCount, 1)
+        XCTAssertEqual(fixture.sessionStore.phase, .idle)
+        XCTAssertEqual(fixture.sessionStore.statusMessage, "Agent 已完成")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
     }
 
     func testCancelDuringMagicianThinkingKeepsCancelledState() async throws {

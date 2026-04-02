@@ -45,7 +45,7 @@ struct V4RuntimeSwitchStore {
         switch laneDecision.lane {
         case .nativeFast:
             return .legacyNative
-        case .agent, .unsupportedMixedExternal:
+        case .agent:
             return .legacyAgent
         }
     }

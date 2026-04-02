@@ -1839,87 +1839,11 @@ final class InteractionCoordinator {
             return
         }
 
-        do {
-            try magicianValidateToolCommandGuards(
-                command: spokenInstruction,
-                enabledFeatures: enabledFeatures
-            )
-        } catch let magicianError as MagicianError {
-            let failureTrace = magicianFailureExecutionTraceText(
-                traceID: traceID,
-                command: spokenInstruction,
-                stage: "lane_guard",
-                errorCode: magicianError.code.rawValue,
-                errorMessage: magicianError.userMessage,
-                debugMessage: magicianError.debugMessage,
-                recoverAction: magicianError.recoverAction,
-                focusContext: fallbackFocusContext,
-                runtimeEvents: runtimeEvents
-            )
-            localHistoryStore.append(
-                SessionHistoryEntry(
-                    mode: .selectionRewrite,
-                    appName: fallbackFocusContext.appName,
-                    bundleID: fallbackFocusContext.bundleID,
-                    inputText: selectionText,
-                    outputText: nil,
-                    instructionText: spokenInstruction,
-                    transcriptionProvider: transcription.providerName,
-                    transcriptionModel: transcription.modelName,
-                    magicianRuntimeVersion: defaultRuntimeVersion,
-                    magicianExecutionTrace: failureTrace,
-                    status: .failed,
-                    errorMessage: magicianError.userMessage,
-                    audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: commandAppliedSkills
-                )
-            )
-            handleMagicianRecoverAction(magicianError.recoverAction)
-            sessionStore.fail(message: magicianError.userMessage)
-            currentTraceID = nil
-            return
-        } catch {}
-
         let laneDecision = await magicianLaneRouter.decide(
             command: spokenInstruction,
             selectionSnapshot: selectionSnapshot,
             enabledFeatures: enabledFeatures
         )
-        if laneDecision.lane == .unsupportedMixedExternal {
-            let message = laneDecision.userMessage ?? "这条命令当前不支持混搭执行，请拆开说。"
-            let failureTrace = magicianFailureExecutionTraceText(
-                traceID: traceID,
-                command: spokenInstruction,
-                stage: "lane_classifier",
-                errorCode: MagicianErrorCode.intentParseFailed.rawValue,
-                errorMessage: message,
-                debugMessage: laneDecision.reason,
-                recoverAction: "retry_command",
-                focusContext: fallbackFocusContext,
-                runtimeEvents: runtimeEvents
-            )
-            localHistoryStore.append(
-                SessionHistoryEntry(
-                    mode: .selectionRewrite,
-                    appName: fallbackFocusContext.appName,
-                    bundleID: fallbackFocusContext.bundleID,
-                    inputText: selectionText,
-                    outputText: nil,
-                    instructionText: spokenInstruction,
-                    transcriptionProvider: transcription.providerName,
-                    transcriptionModel: transcription.modelName,
-                    magicianRuntimeVersion: defaultRuntimeVersion,
-                    magicianExecutionTrace: failureTrace,
-                    status: .failed,
-                    errorMessage: message,
-                    audioDurationSeconds: audioDurationSeconds,
-                    appliedSkills: commandAppliedSkills
-                )
-            )
-            sessionStore.fail(message: message)
-            currentTraceID = nil
-            return
-        }
 
         let runtimeRoute = v4RuntimeSwitchStore.route(for: laneDecision)
         switch runtimeRoute {
