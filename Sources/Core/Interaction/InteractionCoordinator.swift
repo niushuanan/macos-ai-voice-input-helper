@@ -419,6 +419,13 @@ final class InteractionCoordinator {
         pendingMagicianSelectionCaptureTask?.cancel()
         pendingMagicianSelectionCaptureTask = Task { [weak self, textOutputCoordinator] in
             let preferredTarget = self?.lastExternalDictationTarget?.snapshot
+            if let snapshot = await textOutputCoordinator.captureSelectionSnapshot() {
+                let trimmedSelection = snapshot.selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedSelection.isEmpty {
+                    return snapshot
+                }
+            }
+
             if
                 let self,
                 let warmableCoordinator = textOutputCoordinator as? AccessibilityTextOutputCoordinator,
@@ -428,7 +435,9 @@ final class InteractionCoordinator {
                     preferredTarget: externalTarget.snapshot,
                     fallbackFocusContext: externalTarget.focusContext
                 )
+                return await textOutputCoordinator.captureSelectionSnapshot(preferredTarget: preferredTarget)
             }
+
             return await textOutputCoordinator.captureSelectionSnapshot(preferredTarget: preferredTarget)
         }
     }
@@ -447,6 +456,24 @@ final class InteractionCoordinator {
             return pendingMagicianSelectionSnapshot
         }
 
+        if let capturedSnapshot = await pendingMagicianSelectionCaptureTask?.value {
+            pendingMagicianSelectionSnapshot = capturedSnapshot
+            pendingMagicianSelectionCaptureTask = nil
+            let trimmedSelection = capturedSnapshot.selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedSelection.isEmpty {
+                return capturedSnapshot
+            }
+        }
+
+        if let recapturedSnapshot = await textOutputCoordinator.captureSelectionSnapshot() {
+            pendingMagicianSelectionSnapshot = recapturedSnapshot
+            pendingMagicianSelectionCaptureTask = nil
+            let trimmedSelection = recapturedSnapshot.selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedSelection.isEmpty {
+                return recapturedSnapshot
+            }
+        }
+
         if
             let warmableCoordinator = textOutputCoordinator as? AccessibilityTextOutputCoordinator,
             let externalTarget = lastExternalDictationTarget
@@ -457,17 +484,14 @@ final class InteractionCoordinator {
             )
         }
 
-        if let capturedSnapshot = await pendingMagicianSelectionCaptureTask?.value {
-            pendingMagicianSelectionSnapshot = capturedSnapshot
-            pendingMagicianSelectionCaptureTask = nil
-            return capturedSnapshot
-        }
-
         let preferredTarget = lastExternalDictationTarget?.snapshot
         if let recapturedSnapshot = await textOutputCoordinator.captureSelectionSnapshot(preferredTarget: preferredTarget) {
             pendingMagicianSelectionSnapshot = recapturedSnapshot
             pendingMagicianSelectionCaptureTask = nil
-            return recapturedSnapshot
+            let trimmedSelection = recapturedSnapshot.selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedSelection.isEmpty {
+                return recapturedSnapshot
+            }
         }
 
         let fallbackSnapshot = textOutputCoordinator.currentSelectionSnapshot()
