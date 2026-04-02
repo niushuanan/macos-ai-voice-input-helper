@@ -736,6 +736,112 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         }
     }
 
+    func testAppleNotesCreateFallsBackToShortcutsWhenAppleScriptFails() async throws {
+        actor ScriptStub {
+            private(set) var callCount = 0
+
+            func run(lines _: [String], arguments _: [String]) -> MagicianProcessResult {
+                callCount += 1
+                return MagicianProcessResult(
+                    exitCode: 1,
+                    stdout: "",
+                    stderr: "Not authorized to send Apple events to Notes. (-1743)"
+                )
+            }
+        }
+
+        actor ShortcutStub {
+            private(set) var callCount = 0
+
+            func run(name _: String, inputText _: String?) -> MagicianProcessResult {
+                callCount += 1
+                return MagicianProcessResult(
+                    exitCode: 0,
+                    stdout: "x-coredata://NOTE/SHORTCUT-1",
+                    stderr: ""
+                )
+            }
+        }
+
+        let scriptStub = ScriptStub()
+        let shortcutStub = ShortcutStub()
+        let tool = V4AppleNotesTool(
+            appleScriptRunner: { lines, arguments, _, _ in
+                await scriptStub.run(lines: lines, arguments: arguments)
+            },
+            shortcutRunner: { name, inputText, _, _ in
+                await shortcutStub.run(name: name, inputText: inputText)
+            },
+            shortcutAvailability: { true }
+        )
+
+        let output = try await tool.execute(
+            arguments: [
+                "action": .string("create"),
+                "title": .string("测试标题"),
+                "body": .string("测试正文")
+            ],
+            context: makeContext(toolName: "apple.notes.create")
+        )
+
+        XCTAssertEqual(output.rawPayload?.objectValue?["layer"]?.stringValue, "shortcuts")
+        XCTAssertEqual(output.evidenceSummary, "apple.notes.create action=create; note_id=x-coredata://NOTE/SHORTCUT-1")
+        let scriptCalls = await scriptStub.callCount
+        let shortcutCalls = await shortcutStub.callCount
+        XCTAssertEqual(scriptCalls, 1)
+        XCTAssertEqual(shortcutCalls, 1)
+    }
+
+    func testAppleNotesCreateFailureContainsLayerDetails() async {
+        actor ScriptStub {
+            func run(lines _: [String], arguments _: [String]) -> MagicianProcessResult {
+                MagicianProcessResult(
+                    exitCode: 1,
+                    stdout: "",
+                    stderr: "Not authorized to send Apple events to Notes. (-1743)"
+                )
+            }
+        }
+
+        actor ShortcutStub {
+            func run(name _: String, inputText _: String?) -> MagicianProcessResult {
+                MagicianProcessResult(exitCode: -1, stdout: "", stderr: "shortcut not found")
+            }
+        }
+
+        let scriptStub = ScriptStub()
+        let shortcutStub = ShortcutStub()
+        let tool = V4AppleNotesTool(
+            appleScriptRunner: { lines, arguments, _, _ in
+                await scriptStub.run(lines: lines, arguments: arguments)
+            },
+            shortcutRunner: { name, inputText, _, _ in
+                await shortcutStub.run(name: name, inputText: inputText)
+            },
+            shortcutAvailability: { true }
+        )
+
+        do {
+            _ = try await tool.execute(
+                arguments: [
+                    "action": .string("create"),
+                    "title": .string("测试标题"),
+                    "body": .string("测试正文")
+                ],
+                context: makeContext(toolName: "apple.notes.create")
+            )
+            XCTFail("expected create to fail")
+        } catch let toolError as V4ToolError {
+            XCTAssertEqual(toolError.code, .toolExecutionFailed)
+            XCTAssertEqual(toolError.recoverAction, "open_notes_automation_permission")
+            XCTAssertTrue(toolError.userMessage.contains("Notes 操作失败"))
+            XCTAssertTrue((toolError.debugMessage ?? "").contains("applescript:exit=1"))
+            XCTAssertTrue((toolError.debugMessage ?? "").contains("shortcuts:exit=-1"))
+        } catch {
+            XCTFail("unexpected error type: \(error)")
+        }
+    }
+
     func testCalendarCreateWithTimeParseFallback() async {
         let recorder = CalendarRequestRecorder()
         let tool = V4CalendarCreateTool { request in

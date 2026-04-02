@@ -8,6 +8,12 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
         _ timeoutSeconds: TimeInterval,
         _ maxOutputCharacters: Int
     ) async -> MagicianProcessResult
+    typealias ShortcutRunner = @Sendable (
+        _ name: String,
+        _ inputText: String?,
+        _ timeoutSeconds: TimeInterval,
+        _ maxOutputCharacters: Int
+    ) async -> MagicianProcessResult
 
     private enum Action: String {
         case create
@@ -41,9 +47,15 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
 
     private let errorCatalog = V4ToolErrorCatalog()
     private let appleScriptRunner: AppleScriptRunner
+    private let shortcutRunner: ShortcutRunner
+    private let shortcutSupport: MagicianCreateNoteShortcutSupport
+    private let shortcutAvailability: () -> Bool
 
     init(
-        appleScriptRunner: AppleScriptRunner? = nil
+        appleScriptRunner: AppleScriptRunner? = nil,
+        shortcutRunner: ShortcutRunner? = nil,
+        shortcutSupport: MagicianCreateNoteShortcutSupport = MagicianCreateNoteShortcutSupport(),
+        shortcutAvailability: (() -> Bool)? = nil
     ) {
         self.appleScriptRunner = appleScriptRunner ?? { lines, arguments, timeoutSeconds, maxOutputCharacters in
             await runOsaScript(
@@ -52,6 +64,18 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
                 timeoutSeconds: timeoutSeconds,
                 maxOutputCharacters: maxOutputCharacters
             )
+        }
+        self.shortcutRunner = shortcutRunner ?? { name, inputText, timeoutSeconds, maxOutputCharacters in
+            await runShortcut(
+                name: name,
+                inputText: inputText,
+                timeoutSeconds: timeoutSeconds,
+                maxOutputCharacters: maxOutputCharacters
+            )
+        }
+        self.shortcutSupport = shortcutSupport
+        self.shortcutAvailability = shortcutAvailability ?? {
+            shortcutSupport.cliAvailable && shortcutSupport.hasShortcut()
         }
     }
 
@@ -161,33 +185,39 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
 
         switch action {
         case .create:
-            let process = await createNoteViaAppleScript(title: title, body: body)
-            guard process.exitCode == 0 else {
-                throw makeFailureError(detail: process.detail)
-            }
-            guard let evidence = await verifyMutatingResult(noteID: process.stdout, expectedTitle: title, expectedBody: body) else {
-                throw makeFailureError(detail: "note verification failed after create; raw=\(process.detail)")
+            let createResult = await runCreateChain(title: title, body: body)
+            guard let evidence = createResult.evidence else {
+                let detail = magicianAutomationDebugSummary(from: createResult.attempts)
+                throw makeFailureError(
+                    detail: "note verification failed after create; \(detail)",
+                    attempts: createResult.attempts
+                )
             }
             return makeMutatingOutput(
                 action: .create,
                 title: title,
                 body: body,
-                evidence: evidence
+                evidence: evidence,
+                layer: createResult.layer
             )
 
         case .append:
             let process = await appendNoteViaAppleScript(title: targetTitle, body: body)
             guard process.exitCode == 0 else {
-                throw makeFailureError(detail: process.detail)
+                throw makeFailureError(detail: process.detail, attempts: [])
             }
             guard let evidence = await verifyMutatingResult(noteID: process.stdout, expectedTitle: targetTitle, expectedBody: body) else {
-                throw makeFailureError(detail: "note verification failed after append; raw=\(process.detail)")
+                throw makeFailureError(
+                    detail: "note verification failed after append; raw=\(process.detail)",
+                    attempts: []
+                )
             }
             return makeMutatingOutput(
                 action: .append,
                 title: targetTitle,
                 body: body,
-                evidence: evidence
+                evidence: evidence,
+                layer: .appleScript
             )
 
         case .find:
@@ -265,14 +295,24 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
         return ""
     }
 
-    private func makeFailureError(detail: String) -> V4ToolError {
-        let recoverAction = magicianLooksLikeAutomationPermissionDenied(detail)
-            ? "open_notes_automation_permission"
-            : "open_notes_app"
+    private func makeFailureError(detail: String, attempts: [MagicianAutomationAttempt]) -> V4ToolError {
+        let allDetails = ([detail] + attempts.map(\.detail)).joined(separator: " | ")
+        let recoverAction: String
+        if magicianLooksLikeAutomationPermissionDenied(allDetails) {
+            recoverAction = "open_notes_automation_permission"
+        } else if allDetails.lowercased().contains("shortcut not found") {
+            recoverAction = "create_note_shortcut"
+        } else if allDetails.lowercased().contains("shortcuts cli unavailable") {
+            recoverAction = "open_shortcuts"
+        } else {
+            recoverAction = "open_notes_app"
+        }
         return errorCatalog.executionFailure(
             toolID: spec.toolID,
-            userMessage: "Notes 操作失败，请检查自动化权限后再试。",
-            debugMessage: detail,
+            userMessage: "Notes 操作失败：\(detail)",
+            debugMessage: attempts.isEmpty
+                ? detail
+                : "\(detail) | attempts=\(magicianAutomationDebugSummary(from: attempts))",
             recoverAction: recoverAction,
             isRetryable: false
         )
@@ -282,9 +322,12 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
         action: Action,
         title: String,
         body: String,
-        evidence: String
+        evidence: String,
+        layer: MagicianAutomationLayer
     ) -> V4ToolExecutionOutput {
-        let summary = action == .append ? "已追加 Notes。" : "已写入 Notes。"
+        let summary = action == .append
+            ? "已追加 Notes（\(layer.rawValue)）。"
+            : "已写入 Notes（\(layer.rawValue)）。"
         return V4ToolExecutionOutput(
             outputText: summary,
             evidenceSummary: "apple.notes.create action=\(action.rawValue); note_id=\(evidence)",
@@ -294,11 +337,152 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
                     "title": .string(title),
                     "bodyPreview": .string(String(body.prefix(80))),
                     "noteID": .string(evidence),
-                    "layer": .string(MagicianAutomationLayer.appleScript.rawValue),
+                    "layer": .string(layer.rawValue),
                     "summary": .string(summary)
                 ]
             )
         )
+    }
+
+    private struct CreateChainResult {
+        let layer: MagicianAutomationLayer
+        let evidence: String?
+        let attempts: [MagicianAutomationAttempt]
+    }
+
+    private func runCreateChain(title: String, body: String) async -> CreateChainResult {
+        let steps = createAutomationSteps(title: title, body: body)
+        var attempts: [MagicianAutomationAttempt] = []
+        var succeededLayer: MagicianAutomationLayer?
+        var succeededResult: MagicianProcessResult?
+
+        for step in steps {
+            let startedAt = Date()
+            let result = await step.run()
+            let durationMS = Int(Date().timeIntervalSince(startedAt) * 1_000)
+            attempts.append(
+                MagicianAutomationAttempt(
+                    layer: step.layer,
+                    exitCode: result.exitCode,
+                    durationMS: durationMS,
+                    detail: result.detail
+                )
+            )
+            if step.success(result) {
+                succeededLayer = step.layer
+                succeededResult = result
+                break
+            }
+        }
+
+        guard let layer = succeededLayer, let processResult = succeededResult else {
+            return CreateChainResult(
+                layer: attempts.last?.layer ?? .appleScript,
+                evidence: nil,
+                attempts: attempts
+            )
+        }
+
+        switch layer {
+        case .appleScript:
+            let evidence = await verifyMutatingResult(
+                noteID: processResult.stdout,
+                expectedTitle: title,
+                expectedBody: body
+            )
+            return CreateChainResult(layer: .appleScript, evidence: evidence, attempts: attempts)
+        case .shortcuts:
+            if let noteID = extractNoteID(from: processResult.stdout) {
+                return CreateChainResult(layer: .shortcuts, evidence: noteID, attempts: attempts)
+            }
+            if let noteID = await findNoteIDByTitleAndBody(title: title, body: body) {
+                return CreateChainResult(layer: .shortcuts, evidence: noteID, attempts: attempts)
+            }
+            return CreateChainResult(layer: .shortcuts, evidence: nil, attempts: attempts)
+        default:
+            return CreateChainResult(layer: layer, evidence: nil, attempts: attempts)
+        }
+    }
+
+    private func createAutomationSteps(title: String, body: String) -> [MagicianAutomationStep] {
+        var steps: [MagicianAutomationStep] = [
+            MagicianAutomationStep(
+                layer: .appleScript,
+                run: { await self.createNoteViaAppleScript(title: title, body: body) },
+                success: { result in
+                    result.exitCode == 0 && self.extractNoteID(from: result.stdout) != nil
+                }
+            )
+        ]
+        if shortcutAvailability() {
+            steps.append(
+                MagicianAutomationStep(
+                    layer: .shortcuts,
+                    run: { await self.createNoteViaShortcut(title: title, body: body) },
+                    success: { result in result.exitCode == 0 }
+                )
+            )
+        }
+        return steps
+    }
+
+    private func createNoteViaShortcut(title: String, body: String) async -> MagicianProcessResult {
+        let content = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let input = content.isEmpty ? title : "\(title)\n\n\(content)"
+        return await shortcutRunner(shortcutSupport.shortcutName, input, 12, 4_000)
+    }
+
+    private func extractNoteID(from raw: String) -> String? {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            return nil
+        }
+        if let match = text.range(of: #"x-coredata://[^\s]+"#, options: .regularExpression) {
+            return String(text[match])
+        }
+        if text.lowercased().contains("note_id=") || text.lowercased().contains("note-id=") {
+            return text
+        }
+        return normalizedNoteEvidence(text)
+    }
+
+    private func findNoteIDByTitleAndBody(title: String, body: String) async -> String? {
+        let titleNeedle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bodyNeedle = body
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+        guard !titleNeedle.isEmpty else {
+            return nil
+        }
+        let process = await executeAppleScript(
+            lines: [
+                "on run argv",
+                "set expectedTitle to item 1 of argv",
+                "set expectedBodyNeedle to item 2 of argv",
+                "tell application \"Notes\"",
+                "repeat with targetAccount in accounts",
+                "repeat with targetFolder in folders of targetAccount",
+                "repeat with targetNote in notes of targetFolder",
+                "set currentTitle to (name of targetNote) as string",
+                "if currentTitle is expectedTitle then",
+                "set noteBody to body of targetNote",
+                "if expectedBodyNeedle is \"\" or noteBody contains expectedBodyNeedle then",
+                "return (id of targetNote) as string",
+                "end if",
+                "end if",
+                "end repeat",
+                "end repeat",
+                "end repeat",
+                "end tell",
+                "return \"\"",
+                "end run"
+            ],
+            arguments: [titleNeedle, String(bodyNeedle.prefix(80))]
+        )
+        guard process.exitCode == 0 else {
+            return nil
+        }
+        return extractNoteID(from: process.stdout)
     }
 
     private func createNoteViaAppleScript(
@@ -313,8 +497,19 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
                 "tell application \"Notes\""
             ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
                 "if (count of accounts) is 0 then error \"no notes account\"",
+                "set targetAccount to missing value",
+                "repeat with candidateAccount in accounts",
+                "if (count of folders of candidateAccount) > 0 then",
+                "set targetAccount to candidateAccount",
+                "exit repeat",
+                "end if",
+                "end repeat",
+                "if targetAccount is missing value then",
                 "set targetAccount to first account",
-                "if (count of folders of targetAccount) is 0 then error \"no notes folder\"",
+                "end if",
+                "if (count of folders of targetAccount) is 0 then",
+                "make new folder at targetAccount with properties {name:\"Notes\"}",
+                "end if",
                 "set targetFolder to first folder of targetAccount",
                 "set createdNote to make new note at targetFolder with properties {name:noteTitle, body:noteBody}",
                 "return (id of createdNote) as string",
