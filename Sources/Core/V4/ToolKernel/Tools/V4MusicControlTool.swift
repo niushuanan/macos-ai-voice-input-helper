@@ -26,8 +26,22 @@ struct V4MusicControlTool: V4Tool {
         let score: Int
     }
 
+    private struct LibraryAlbumCandidate: Equatable, Sendable {
+        let key: String
+        let album: String
+        let artist: String
+        let trackIDs: [String]
+        let score: Int
+    }
+
     private struct RagTrackPickPayload: Decodable {
         let persistentID: String?
+        let confidence: Double?
+        let reason: String?
+    }
+
+    private struct RagAlbumPickPayload: Decodable {
+        let albumKey: String?
         let confidence: Double?
         let reason: String?
     }
@@ -669,7 +683,16 @@ struct V4MusicControlTool: V4Tool {
                         isRetryable: false
                     )
                 }
-                if !Self.isMoodDiscoveryQuery(query), !magicianMusicEvidenceMatchesQuery(output: output, query: query) {
+                let matchesEvidence: Bool = {
+                    if command.playIntent == .album {
+                        return albumEvidenceMatchesQuery(output: output, query: query)
+                    }
+                    if Self.isMoodDiscoveryQuery(query) {
+                        return true
+                    }
+                    return magicianMusicEvidenceMatchesQuery(output: output, query: query)
+                }()
+                if !matchesEvidence {
                     throw V4ToolErrorCatalog().missingEvidence(
                         toolID: "apple.music.control",
                         requirement: .summary,
@@ -1040,33 +1063,51 @@ struct V4MusicControlTool: V4Tool {
             return nil
         }
 
-        var candidates = retrieveLibraryCandidates(
-            query: query,
-            rawCommand: rawCommand,
-            playIntent: playIntent,
-            tracks: tracks,
-            limit: tracks.count
-        )
-        if candidates.isEmpty {
-            candidates = tracks.map { LibraryTrackCandidate(track: $0, score: 1) }
+        let pick: LibraryTrackRecord?
+        if playIntent == .album {
+            var albumCandidates = retrieveAlbumCandidates(query: query, tracks: tracks, limit: tracks.count)
+            if albumCandidates.isEmpty {
+                albumCandidates = retrieveAllAlbumCandidates(tracks: tracks)
+            }
+            guard !albumCandidates.isEmpty else {
+                return nil
+            }
+            let pickedAlbum = await selectAlbumWithRAG(
+                query: query,
+                rawCommand: rawCommand,
+                candidates: albumCandidates,
+                modelSlotManager: modelSlotManager,
+                generationProvider: generationProvider
+            ) ?? albumCandidates.first
+            pick = pickedAlbum.flatMap { randomTrackInAlbum($0, tracks: tracks) }
+        } else {
+            var candidates = retrieveLibraryCandidates(
+                query: query,
+                rawCommand: rawCommand,
+                playIntent: playIntent,
+                tracks: tracks,
+                limit: tracks.count
+            )
+            if candidates.isEmpty {
+                candidates = tracks.map { LibraryTrackCandidate(track: $0, score: 1) }
+            }
+            guard !candidates.isEmpty else {
+                return nil
+            }
+            pick = await selectTrackWithRAG(
+                query: query,
+                rawCommand: rawCommand,
+                playIntent: playIntent,
+                candidates: candidates,
+                modelSlotManager: modelSlotManager,
+                generationProvider: generationProvider
+            ) ?? localFallbackTrack(
+                query: query,
+                playIntent: playIntent,
+                tracks: tracks,
+                candidates: candidates
+            )
         }
-        guard !candidates.isEmpty else {
-            return nil
-        }
-
-        let pick = await selectTrackWithRAG(
-            query: query,
-            rawCommand: rawCommand,
-            playIntent: playIntent,
-            candidates: candidates,
-            modelSlotManager: modelSlotManager,
-            generationProvider: generationProvider
-        ) ?? localFallbackTrack(
-            query: query,
-            playIntent: playIntent,
-            tracks: tracks,
-            candidates: candidates
-        )
         guard let pick else {
             return nil
         }
@@ -1169,6 +1210,169 @@ struct V4MusicControlTool: V4Tool {
             return lhs.track.name < rhs.track.name
         }
         return Array(sorted.prefix(limit))
+    }
+
+    private static func retrieveAlbumCandidates(
+        query: String,
+        tracks: [LibraryTrackRecord],
+        limit: Int
+    ) -> [LibraryAlbumCandidate] {
+        let groups = groupAlbums(tracks: tracks)
+        let normalizedQueries = magicianMusicSearchQueries(from: query)
+            .map(normalizedMusicMatchText)
+            .filter { !$0.isEmpty }
+        guard !normalizedQueries.isEmpty else {
+            return retrieveAllAlbumCandidates(tracks: tracks)
+        }
+
+        var results: [LibraryAlbumCandidate] = []
+        for album in groups {
+            let normalizedAlbum = normalizedMusicMatchText(album.album)
+            let normalizedArtist = normalizedMusicMatchText(album.artist)
+            var best = 0
+            for q in normalizedQueries {
+                var score = 0
+                if normalizedAlbum == q {
+                    score += 160
+                } else if normalizedAlbum.contains(q) || q.contains(normalizedAlbum) {
+                    score += 120
+                }
+                if normalizedArtist.contains(q) {
+                    score += 40
+                }
+                let parts = queryParts(from: q)
+                if !parts.isEmpty, parts.allSatisfy({ normalizedAlbum.contains($0) || normalizedArtist.contains($0) }) {
+                    score += 30
+                }
+                best = max(best, score)
+            }
+            if best > 0 {
+                results.append(
+                    LibraryAlbumCandidate(
+                        key: album.key,
+                        album: album.album,
+                        artist: album.artist,
+                        trackIDs: album.trackIDs,
+                        score: best
+                    )
+                )
+            }
+        }
+        let sorted = results.sorted { lhs, rhs in
+            if lhs.score != rhs.score {
+                return lhs.score > rhs.score
+            }
+            if lhs.artist != rhs.artist {
+                return lhs.artist < rhs.artist
+            }
+            return lhs.album < rhs.album
+        }
+        return Array(sorted.prefix(limit))
+    }
+
+    private static func retrieveAllAlbumCandidates(tracks: [LibraryTrackRecord]) -> [LibraryAlbumCandidate] {
+        groupAlbums(tracks: tracks)
+            .map {
+                LibraryAlbumCandidate(
+                    key: $0.key,
+                    album: $0.album,
+                    artist: $0.artist,
+                    trackIDs: $0.trackIDs,
+                    score: 1
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.artist != rhs.artist {
+                    return lhs.artist < rhs.artist
+                }
+                return lhs.album < rhs.album
+            }
+    }
+
+    private static func groupAlbums(tracks: [LibraryTrackRecord]) -> [(key: String, album: String, artist: String, trackIDs: [String])] {
+        var map: [String: (album: String, artist: String, trackIDs: [String])] = [:]
+        for track in tracks {
+            let key = "\(normalizedMusicMatchText(track.artist))::\(normalizedMusicMatchText(track.album))"
+            guard !key.hasSuffix("::"), !key.isEmpty else {
+                continue
+            }
+            if var value = map[key] {
+                value.trackIDs.append(track.persistentID)
+                map[key] = value
+            } else {
+                map[key] = (album: track.album, artist: track.artist, trackIDs: [track.persistentID])
+            }
+        }
+        return map.map { (key: $0.key, album: $0.value.album, artist: $0.value.artist, trackIDs: Array(Set($0.value.trackIDs))) }
+    }
+
+    private static func selectAlbumWithRAG(
+        query: String,
+        rawCommand: String,
+        candidates: [LibraryAlbumCandidate],
+        modelSlotManager: V4ModelSlotManager?,
+        generationProvider: any TextGenerationProvider
+    ) async -> LibraryAlbumCandidate? {
+        guard
+            let configuration = await semanticModelConfiguration(modelSlotManager: modelSlotManager),
+            let apiKey = await semanticModelAPIKey(modelSlotManager: modelSlotManager),
+            !apiKey.isEmpty || !configuration.providerType.requiresAPIKey
+        else {
+            return nil
+        }
+
+        let candidateList = candidates.enumerated().map { idx, item in
+            "\(idx + 1). entity=album | albumKey=\(item.key) | album=\(item.album) | artist=\(item.artist) | tracks=\(item.trackIDs.count) | score=\(item.score)"
+        }.joined(separator: "\n")
+
+        let systemPrompt = """
+        你是 PulseType 的专辑选择器。你会收到用户请求和一组去重后的本地专辑候选。
+        只能从候选里选 1 个专辑。
+        只输出 JSON，不要解释。
+        JSON:
+        {"albumKey":"候选中的albumKey","confidence":0~1,"reason":"一句话"}
+        无法判断时：
+        {"albumKey":"","confidence":0,"reason":"no-fit"}
+        """
+        let userPrompt = """
+        用户命令：\(rawCommand)
+        专辑查询词：\(query)
+        候选专辑：
+        \(candidateList)
+        """
+
+        do {
+            let generation = try await generationProvider.generateText(
+                request: TextGenerationRequest(
+                    systemPrompt: systemPrompt,
+                    userPrompt: userPrompt,
+                    temperature: 0.1,
+                    maxOutputTokens: 180
+                ),
+                configuration: configuration,
+                apiKey: apiKey
+            )
+            guard
+                let payload: RagAlbumPickPayload = decodeLLMJSONPayload(from: generation.outputText),
+                let albumKey = payload.albumKey?.trimmingCharacters(in: .whitespacesAndNewlines),
+                !albumKey.isEmpty,
+                (payload.confidence ?? 0.5) >= 0.35
+            else {
+                return nil
+            }
+            return candidates.first(where: { $0.key == albumKey })
+        } catch {
+            return nil
+        }
+    }
+
+    private static func randomTrackInAlbum(
+        _ album: LibraryAlbumCandidate,
+        tracks: [LibraryTrackRecord]
+    ) -> LibraryTrackRecord? {
+        let trackSet = Set(album.trackIDs)
+        let albumTracks = tracks.filter { trackSet.contains($0.persistentID) }
+        return randomTrack(from: albumTracks)
     }
 
     private static func localFallbackTrack(
@@ -1409,5 +1613,28 @@ struct V4MusicControlTool: V4Tool {
             }
         }
         return (state, track, artist)
+    }
+
+    private static func albumEvidenceMatchesQuery(output: String, query: String) -> Bool {
+        let parts = output.split(separator: "|").map(String.init)
+        let albumValue = parts.first(where: { $0.hasPrefix("album=") })
+            .map { String($0.dropFirst("album=".count)) } ?? ""
+        let normalizedAlbum = normalizedMusicMatchText(albumValue)
+        guard !normalizedAlbum.isEmpty else {
+            return false
+        }
+        let queries = magicianMusicSearchQueries(from: query)
+            .map(normalizedMusicMatchText)
+            .filter { !$0.isEmpty }
+        for q in queries {
+            if normalizedAlbum == q || normalizedAlbum.contains(q) || q.contains(normalizedAlbum) {
+                return true
+            }
+            let parts = queryParts(from: q)
+            if !parts.isEmpty, parts.allSatisfy({ normalizedAlbum.contains($0) }) {
+                return true
+            }
+        }
+        return false
     }
 }
