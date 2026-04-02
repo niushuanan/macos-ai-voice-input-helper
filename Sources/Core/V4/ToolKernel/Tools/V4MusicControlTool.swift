@@ -1,6 +1,12 @@
 import Foundation
 
 struct V4MusicControlTool: V4Tool {
+    private struct LibraryTrackRecord: Equatable, Sendable {
+        let persistentID: String
+        let name: String
+        let artist: String
+        let album: String
+    }
     struct SemanticPlayDecision: Equatable, Sendable {
         let query: String
         let intent: PlayIntent
@@ -667,17 +673,27 @@ struct V4MusicControlTool: V4Tool {
                     }
                 }
 
+                if let normalizedMatch = await runLibraryNormalizedMatchAndPlay(query: query) {
+                    return normalizedMatch
+                }
+
                 let uiAssist = await runUISearchAssist(query: query)
                 if uiAssist.exitCode == 0 {
                     let trimmed = uiAssist.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
                     if trimmed.hasPrefix("track=") {
                         return uiAssist
                     }
+                    if isExplicitSongRequest(command.rawCommand) {
+                        return MagicianProcessResult(exitCode: 0, stdout: "track_not_found", stderr: "")
+                    }
                     return MagicianProcessResult(
                         exitCode: 0,
                         stdout: "search_opened|query=\(query)|state=open_search",
                         stderr: ""
                     )
+                }
+                if isExplicitSongRequest(command.rawCommand) {
+                    return MagicianProcessResult(exitCode: 0, stdout: "track_not_found", stderr: uiAssist.detail)
                 }
                 return MagicianProcessResult(
                     exitCode: 0,
@@ -903,6 +919,160 @@ struct V4MusicControlTool: V4Tool {
     private enum SearchKind {
         case song
         case album
+    }
+
+    private static func isExplicitSongRequest(_ rawCommand: String) -> Bool {
+        let lowered = rawCommand.lowercased()
+        if lowered.contains("《"), lowered.contains("》") {
+            return true
+        }
+        return lowered.contains("歌曲") || lowered.contains("这首") || lowered.contains("song")
+    }
+
+    private static func runLibraryNormalizedMatchAndPlay(query: String) async -> MagicianProcessResult? {
+        let catalogResult = await fetchLibraryCatalog()
+        guard catalogResult.exitCode == 0 else {
+            return nil
+        }
+        let tracks = parseLibraryCatalog(catalogResult.stdout)
+        guard !tracks.isEmpty else {
+            return nil
+        }
+        guard let best = bestTrackMatch(for: query, tracks: tracks) else {
+            return nil
+        }
+        let playResult = await playTrackByPersistentID(best.persistentID)
+        guard playResult.exitCode == 0, playResult.stdout.hasPrefix("track=") else {
+            return nil
+        }
+        let evidence = playResult.stdout + "|strategy=library_normalized_match"
+        return MagicianProcessResult(exitCode: 0, stdout: evidence, stderr: playResult.stderr)
+    }
+
+    private static func fetchLibraryCatalog() async -> MagicianProcessResult {
+        await runOsaScript(
+            lines: [
+                "tell application \"Music\"",
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+                "set outputText to \"\"",
+                "set allTracks to tracks of library playlist 1",
+                "repeat with t in allTracks",
+                "try",
+                "set pid to (persistent ID of t) as string",
+                "set n to (name of t) as string",
+                "set a to (artist of t) as string",
+                "set al to (album of t) as string",
+                "set outputText to outputText & pid & \"\\t\" & n & \"\\t\" & a & \"\\t\" & al & linefeed",
+                "end try",
+                "end repeat",
+                "return outputText",
+                "end tell"
+            ],
+            arguments: [],
+            timeoutSeconds: 20
+        )
+    }
+
+    private static func parseLibraryCatalog(_ text: String) -> [LibraryTrackRecord] {
+        text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .compactMap { line in
+                let parts = line.components(separatedBy: "\t")
+                guard parts.count >= 4 else {
+                    return nil
+                }
+                return LibraryTrackRecord(
+                    persistentID: parts[0],
+                    name: parts[1],
+                    artist: parts[2],
+                    album: parts[3]
+                )
+            }
+    }
+
+    private static func bestTrackMatch(for query: String, tracks: [LibraryTrackRecord]) -> LibraryTrackRecord? {
+        let candidates = magicianMusicSearchQueries(from: query)
+        let normalizedCandidates = candidates
+            .map(normalizedMusicMatchText)
+            .filter { !$0.isEmpty }
+        guard !normalizedCandidates.isEmpty else {
+            return nil
+        }
+
+        var best: (track: LibraryTrackRecord, score: Int)?
+        for track in tracks {
+            let normalizedName = normalizedMusicMatchText(track.name)
+            guard !normalizedName.isEmpty else {
+                continue
+            }
+            for candidate in normalizedCandidates {
+                let score = matchScore(candidate: candidate, normalizedName: normalizedName)
+                guard score > 0 else {
+                    continue
+                }
+                if let currentBest = best {
+                    if score > currentBest.score {
+                        best = (track, score)
+                    }
+                } else {
+                    best = (track, score)
+                }
+            }
+        }
+        guard let best, best.score >= 65 else {
+            return nil
+        }
+        return best.track
+    }
+
+    private static func matchScore(candidate: String, normalizedName: String) -> Int {
+        if normalizedName == candidate {
+            return 100
+        }
+        if normalizedName.contains(candidate) {
+            return 85
+        }
+        let terms = candidateTerms(from: candidate)
+        if !terms.isEmpty, terms.allSatisfy({ normalizedName.contains($0) }) {
+            return 70
+        }
+        return 0
+    }
+
+    private static func candidateTerms(from value: String) -> [String] {
+        value
+            .split(separator: "的")
+            .map(String.init)
+            .filter { $0.count >= 2 }
+    }
+
+    private static func playTrackByPersistentID(_ persistentID: String) async -> MagicianProcessResult {
+        await runOsaScript(
+            lines: [
+                "on run argv",
+                "set targetPID to item 1 of argv",
+                "tell application \"Music\"",
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+                "set allTracks to tracks of library playlist 1",
+                "repeat with t in allTracks",
+                "try",
+                "if ((persistent ID of t) as string) is targetPID then",
+                "play t",
+                "delay 0.6",
+                "set nowTrack to current track",
+                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play\"",
+                "end if",
+                "end try",
+                "end repeat",
+                "return \"track_not_found\"",
+                "end tell",
+                "end run"
+            ],
+            arguments: [persistentID],
+            timeoutSeconds: 16
+        )
     }
 
     private static func parseEvidence(_ output: String) -> (state: String?, track: String?, artist: String?) {
