@@ -299,8 +299,8 @@ final class TextOutputCoordinatorTests: XCTestCase {
 
     func testNoEditableTargetThrowsNoEditableTargetError() async {
         let focusContext = FocusedAppContext(
-            appName: "Finder",
-            bundleID: "com.apple.finder",
+            appName: "NoEditorApp",
+            bundleID: "com.pulsetype.tests.no-editor-app",
             focusedRole: nil,
             hasEditableTarget: false,
             strategyHint: "test"

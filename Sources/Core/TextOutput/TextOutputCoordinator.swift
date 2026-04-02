@@ -90,7 +90,14 @@ protocol TextOutputCoordinator {
     var insertionStrategy: String { get }
     func currentSelectionSnapshot() -> FocusedSelectionSnapshot?
     func captureSelectionSnapshot() async -> FocusedSelectionSnapshot?
+    func captureSelectionSnapshot(preferredTarget: WritebackTargetSnapshot?) async -> FocusedSelectionSnapshot?
     func write(request: TextOutputRequest) async throws -> TextOutputResult
+}
+
+extension TextOutputCoordinator {
+    func captureSelectionSnapshot(preferredTarget _: WritebackTargetSnapshot?) async -> FocusedSelectionSnapshot? {
+        await captureSelectionSnapshot()
+    }
 }
 
 @MainActor
@@ -155,6 +162,26 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             return snapshot
         }
         return await captureSelectionSnapshotViaCopyFallback()
+    }
+
+    func captureSelectionSnapshot(preferredTarget: WritebackTargetSnapshot?) async -> FocusedSelectionSnapshot? {
+        guard let preferredTarget else {
+            return await captureSelectionSnapshot()
+        }
+
+        _ = await activatePreferredTargetIfNeeded(preferredTarget)
+
+        if
+            let snapshot = currentSelectionSnapshot(),
+            snapshot.focusContext.bundleID == preferredTarget.bundleID,
+            !snapshot.selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            return snapshot
+        }
+
+        let targetProcessIdentifier = resolveTargetApplication(preferredTarget)?.processIdentifier
+            ?? preferredTarget.processIdentifier
+        return await captureSelectionSnapshotViaCopyFallback(targetProcessIdentifier: targetProcessIdentifier)
     }
 
     func write(request: TextOutputRequest) async throws -> TextOutputResult {
@@ -557,7 +584,9 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         }
     }
 
-    private func captureSelectionSnapshotViaCopyFallback() async -> FocusedSelectionSnapshot? {
+    private func captureSelectionSnapshotViaCopyFallback(
+        targetProcessIdentifier: pid_t? = nil
+    ) async -> FocusedSelectionSnapshot? {
         guard AXIsProcessTrusted() else {
             return nil
         }
@@ -573,7 +602,8 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
 
         // Prefer PID-targeted injection when possible. We still fall back to global posting
         // internally if PID posting fails.
-        let copyTargetProcessIdentifier: pid_t? = currentFrontmostApplication()?.processIdentifier
+        let copyTargetProcessIdentifier: pid_t? = targetProcessIdentifier
+            ?? currentFrontmostApplication()?.processIdentifier
 
         do {
             try triggerCommandC(targetProcessIdentifier: copyTargetProcessIdentifier)

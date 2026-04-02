@@ -418,6 +418,7 @@ final class InteractionCoordinator {
         pendingMagicianSelectionSnapshot = textOutputCoordinator.currentSelectionSnapshot()
         pendingMagicianSelectionCaptureTask?.cancel()
         pendingMagicianSelectionCaptureTask = Task { [weak self, textOutputCoordinator] in
+            let preferredTarget = self?.lastExternalDictationTarget?.snapshot
             if
                 let self,
                 let warmableCoordinator = textOutputCoordinator as? AccessibilityTextOutputCoordinator,
@@ -428,7 +429,7 @@ final class InteractionCoordinator {
                     fallbackFocusContext: externalTarget.focusContext
                 )
             }
-            return await textOutputCoordinator.captureSelectionSnapshot()
+            return await textOutputCoordinator.captureSelectionSnapshot(preferredTarget: preferredTarget)
         }
     }
 
@@ -462,7 +463,8 @@ final class InteractionCoordinator {
             return capturedSnapshot
         }
 
-        if let recapturedSnapshot = await textOutputCoordinator.captureSelectionSnapshot() {
+        let preferredTarget = lastExternalDictationTarget?.snapshot
+        if let recapturedSnapshot = await textOutputCoordinator.captureSelectionSnapshot(preferredTarget: preferredTarget) {
             pendingMagicianSelectionSnapshot = recapturedSnapshot
             pendingMagicianSelectionCaptureTask = nil
             return recapturedSnapshot
