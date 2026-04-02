@@ -263,7 +263,109 @@ final class V4ToolKernelTests: XCTestCase {
                 traceID: V4TraceID(rawValue: "trace"),
                 lane: .selectionRewrite,
                 goalSummary: "goal",
-                inputText: "补充这段内容到项目周报备忘录"
+                inputText: "补充这段内容到项目周报备忘录",
+                selectionText: "补充这段内容到项目周报备忘录"
+            ),
+            accumulatedStepRecords: [],
+            turnIndex: 1
+        )
+
+        XCTAssertEqual(result.status, .success)
+    }
+
+    func testNotesCreateUsesSelectionAsBodyInsteadOfCommand() async {
+        let tool = KernelTestTool(
+            toolName: "apple.notes.create",
+            schema: V4ToolInputSchema(
+                fields: [
+                    V4ToolInputField(name: "action", kind: .string, summary: "action"),
+                    V4ToolInputField(name: "body", kind: .string, isRequired: false, summary: "body"),
+                    V4ToolInputField(name: "command", kind: .string, isRequired: false, summary: "command"),
+                    V4ToolInputField(name: "title", kind: .string, isRequired: false, summary: "title")
+                ]
+            ),
+            isConcurrencySafe: false
+        ) { arguments, _ in
+            XCTAssertEqual(arguments["action"]?.stringValue, "create")
+            XCTAssertEqual(arguments["command"]?.stringValue, "写进备忘录")
+            XCTAssertEqual(arguments["body"]?.stringValue, "这是选中的文本")
+            return V4ToolExecutionOutput(outputText: "ok", evidenceSummary: "ok")
+        }
+        let kernel = V4ToolKernel(
+            registry: V4ToolRegistry(tools: [tool]),
+            permissionGate: TestPermissionGate(),
+            hookPipeline: V4ToolHookPipeline()
+        )
+        let step = V4StepRecord(
+            traceID: V4TraceID(rawValue: "trace"),
+            lane: .selectionRewrite,
+            goalSummary: "goal",
+            title: "备忘录记录",
+            status: .queued,
+            toolName: "apple.notes.create",
+            inputSummary: "写进备忘录"
+        )
+
+        let result = await kernel.execute(
+            step: step,
+            request: V4RunRequest(
+                sessionID: V4SessionID(rawValue: "session"),
+                runID: V4RunID(rawValue: "run"),
+                traceID: V4TraceID(rawValue: "trace"),
+                lane: .selectionRewrite,
+                goalSummary: "goal",
+                inputText: "写进备忘录",
+                selectionText: "这是选中的文本"
+            ),
+            accumulatedStepRecords: [],
+            turnIndex: 1
+        )
+
+        XCTAssertEqual(result.status, .success)
+    }
+
+    func testNotesCreateWithoutSelectionOrOutputDoesNotInjectCommandAsBody() async {
+        let tool = KernelTestTool(
+            toolName: "apple.notes.create",
+            schema: V4ToolInputSchema(
+                fields: [
+                    V4ToolInputField(name: "action", kind: .string, summary: "action"),
+                    V4ToolInputField(name: "body", kind: .string, isRequired: false, summary: "body"),
+                    V4ToolInputField(name: "command", kind: .string, isRequired: false, summary: "command"),
+                    V4ToolInputField(name: "title", kind: .string, isRequired: false, summary: "title")
+                ]
+            ),
+            isConcurrencySafe: false
+        ) { arguments, _ in
+            XCTAssertEqual(arguments["action"]?.stringValue, "create")
+            XCTAssertEqual(arguments["command"]?.stringValue, "写进备忘录")
+            XCTAssertNil(arguments["body"])
+            return V4ToolExecutionOutput(outputText: "ok", evidenceSummary: "ok")
+        }
+        let kernel = V4ToolKernel(
+            registry: V4ToolRegistry(tools: [tool]),
+            permissionGate: TestPermissionGate(),
+            hookPipeline: V4ToolHookPipeline()
+        )
+        let step = V4StepRecord(
+            traceID: V4TraceID(rawValue: "trace"),
+            lane: .selectionRewrite,
+            goalSummary: "goal",
+            title: "备忘录记录",
+            status: .queued,
+            toolName: "apple.notes.create",
+            inputSummary: "写进备忘录"
+        )
+
+        let result = await kernel.execute(
+            step: step,
+            request: V4RunRequest(
+                sessionID: V4SessionID(rawValue: "session"),
+                runID: V4RunID(rawValue: "run"),
+                traceID: V4TraceID(rawValue: "trace"),
+                lane: .selectionRewrite,
+                goalSummary: "goal",
+                inputText: "写进备忘录"
             ),
             accumulatedStepRecords: [],
             turnIndex: 1

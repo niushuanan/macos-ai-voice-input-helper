@@ -247,6 +247,8 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
             ?? step.inputSummary.nilIfEmpty
             ?? request.inputText.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             ?? ""
+        let notesBodyText = latestOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            ?? selectionText?.nilIfEmpty
 
         switch toolName {
         case "text.transform":
@@ -259,16 +261,20 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
             let action = inferredNotesAction(from: command)
             var arguments: V4ToolArguments = [
                 "action": .string(action.rawValue),
-                "title": .string(defaultNoteTitle(from: preferredText))
+                "title": .string(defaultNoteTitle(from: notesBodyText ?? preferredText))
             ]
             switch action {
             case .create:
-                arguments["body"] = .string(preferredText)
+                if let notesBodyText {
+                    arguments["body"] = .string(notesBodyText)
+                }
             case .append:
                 if let targetTitle = extractNoteTargetTitle(from: command) {
                     arguments["targetTitle"] = .string(targetTitle)
                 }
-                arguments["body"] = .string(preferredText)
+                if let notesBodyText {
+                    arguments["body"] = .string(notesBodyText)
+                }
             case .find:
                 if let query = extractNoteQuery(from: command) {
                     arguments["query"] = .string(query)
