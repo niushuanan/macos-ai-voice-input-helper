@@ -279,6 +279,38 @@ final class InteractionCoordinatorV4RoutingTests: XCTestCase {
         XCTAssertEqual(fixture.sessionStore.statusMessage, "文字处理已完成，结果已写入当前输入位置。")
     }
 
+    func testV4PlannerRequestInjectsSelectedTextIntoGoalAndCommand() async throws {
+        let outcome = makeCompletedOutcome(
+            goalSummary: "翻译成中文，并写入备忘录。",
+            finalStatusMessage: "已完成",
+            finalOutputText: "这是中文译文",
+            evidenceSummary: "ok"
+        )
+        let v4Runtime = FakeV4MagicianRuntime(outcome: outcome)
+        let fixture = try makeFixture(
+            v4Runtime: v4Runtime,
+            transcriptionText: "翻译成中文，并写入备忘录。"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
+            focusContext: FixedRoutingContextDetector().focusedAppContext(),
+            selectedText: "This is selected text for translation."
+        )
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createNote)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        let request = try XCTUnwrap(v4Runtime.lastRequest)
+        XCTAssertTrue(request.goalSummary.contains("[SELECTED_TEXT]"))
+        XCTAssertTrue(request.goalSummary.contains("This is selected text for translation."))
+        XCTAssertTrue(request.inputText.contains("[SELECTED_TEXT]"))
+        XCTAssertTrue(request.inputText.contains("This is selected text for translation."))
+    }
+
     private func makeFixture(
         defaults: UserDefaults? = nil,
         v4Runtime: (any V4MagicianRuntimeRunning)? = nil,

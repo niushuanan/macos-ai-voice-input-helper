@@ -588,52 +588,136 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
         guard let normalizedID = normalizedNoteEvidence(noteID) else {
             return nil
         }
-        let bodyNeedle = expectedBody
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "\n", with: " ")
-        let titleNeedle = expectedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        for _ in 0..<10 {
-            let verification = await executeAppleScript(
-                lines: [
-                    "on run argv",
-                    "set expectedID to item 1 of argv",
-                    "set expectedTitle to item 2 of argv",
-                    "set expectedBodyNeedle to item 3 of argv",
-                    "tell application \"Notes\"",
-                    "repeat with targetAccount in accounts",
-                    "repeat with targetFolder in folders of targetAccount",
-                    "repeat with targetNote in notes of targetFolder",
-                    "set currentID to \"\"",
-                    "try",
-                    "set currentID to (id of targetNote) as string",
-                    "end try",
-                "if currentID is expectedID then",
-                    // create/append 必须命中正文（或本次没有正文要求）才算成功，避免空白假成功
-                    "if expectedTitle is \"\" and expectedBodyNeedle is \"\" then return currentID",
-                    "set currentTitle to (name of targetNote) as string",
-                    "set noteContent to body of targetNote",
-                    "if expectedTitle is \"\" or currentTitle is expectedTitle then",
-                    "if expectedBodyNeedle is \"\" or noteContent contains expectedBodyNeedle then return currentID",
-                    "end if",
-                    "end if",
-                    "end repeat",
-                    "end repeat",
-                    "end repeat",
-                    "end tell",
-                    "return \"\"",
-                    "end run"
-                ],
-                arguments: [normalizedID, titleNeedle, String(bodyNeedle.prefix(80))]
-            )
-            if
-                verification.exitCode == 0,
-                let normalized = normalizedNoteEvidence(verification.stdout)
-            {
-                return normalized
+        let expectedTitleNormalized = normalizeVerificationText(expectedTitle)
+        let expectedBodyNormalized = normalizeVerificationText(expectedBody)
+
+        for _ in 0..<15 {
+            if let noteSnapshot = await fetchNoteSnapshot(noteID: normalizedID) {
+                if matchesExpectedNote(
+                    snapshot: noteSnapshot,
+                    expectedTitle: expectedTitleNormalized,
+                    expectedBody: expectedBodyNormalized
+                ) {
+                    return normalizedID
+                }
             }
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            try? await Task.sleep(nanoseconds: 250_000_000)
         }
         return nil
+    }
+
+    private struct NoteSnapshot {
+        let noteID: String
+        let title: String
+        let body: String
+    }
+
+    private func fetchNoteSnapshot(noteID: String) async -> NoteSnapshot? {
+        let verification = await executeAppleScript(
+            lines: [
+                "on run argv",
+                "set expectedID to item 1 of argv",
+                "tell application \"Notes\"",
+                "repeat with targetAccount in accounts",
+                "repeat with targetFolder in folders of targetAccount",
+                "repeat with targetNote in notes of targetFolder",
+                "set currentID to \"\"",
+                "try",
+                "set currentID to (id of targetNote) as string",
+                "end try",
+                "if currentID is expectedID then",
+                "set currentTitle to \"\"",
+                "set noteContent to \"\"",
+                "try",
+                "set currentTitle to (name of targetNote) as string",
+                "end try",
+                "try",
+                "set noteContent to (body of targetNote) as string",
+                "end try",
+                "return currentID & (ASCII character 31) & currentTitle & (ASCII character 30) & noteContent",
+                "end if",
+                "end repeat",
+                "end repeat",
+                "end repeat",
+                "end tell",
+                "return \"\"",
+                "end run"
+            ],
+            arguments: [noteID]
+        )
+        guard verification.exitCode == 0 else {
+            return nil
+        }
+        let raw = verification.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else {
+            return nil
+        }
+        let parts = raw.split(separator: "\u{1F}", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else {
+            return nil
+        }
+        let normalizedID = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let titleAndBody = String(parts[1])
+        let titleBodyParts = titleAndBody.split(separator: "\u{1E}", maxSplits: 1, omittingEmptySubsequences: false)
+        let title = titleBodyParts.isEmpty ? "" : String(titleBodyParts[0])
+        let body = titleBodyParts.count > 1 ? String(titleBodyParts[1]) : ""
+        guard !normalizedID.isEmpty else {
+            return nil
+        }
+        return NoteSnapshot(noteID: normalizedID, title: title, body: body)
+    }
+
+    private func matchesExpectedNote(
+        snapshot: NoteSnapshot,
+        expectedTitle: String,
+        expectedBody: String
+    ) -> Bool {
+        guard !snapshot.noteID.isEmpty else {
+            return false
+        }
+
+        if !expectedTitle.isEmpty {
+            let currentTitle = normalizeVerificationText(snapshot.title)
+            if currentTitle != expectedTitle {
+                return false
+            }
+        }
+
+        guard !expectedBody.isEmpty else {
+            return true
+        }
+
+        let currentBody = normalizeVerificationText(snapshot.body)
+        guard !currentBody.isEmpty else {
+            return false
+        }
+        if currentBody.contains(expectedBody) {
+            return true
+        }
+        let expectedPrefix = String(expectedBody.prefix(120))
+        if !expectedPrefix.isEmpty, currentBody.contains(expectedPrefix) {
+            return true
+        }
+        return false
+    }
+
+    private func normalizeVerificationText(_ raw: String) -> String {
+        var value = raw.replacingOccurrences(of: "\r\n", with: "\n")
+        value = value.replacingOccurrences(of: "\r", with: "\n")
+        value = value.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+        let entityMap: [String: String] = [
+            "&nbsp;": " ",
+            "&amp;": "&",
+            "&lt;": "<",
+            "&gt;": ">",
+            "&quot;": "\"",
+            "&#39;": "'"
+        ]
+        for (entity, replacement) in entityMap {
+            value = value.replacingOccurrences(of: entity, with: replacement)
+        }
+        value = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func executeAppleScript(

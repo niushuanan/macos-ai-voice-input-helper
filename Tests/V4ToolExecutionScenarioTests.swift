@@ -675,12 +675,16 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         actor ScriptStub {
             var count = 0
 
-            func run(lines _: [String], arguments _: [String]) -> MagicianProcessResult {
+            func run(lines _: [String], arguments: [String]) -> MagicianProcessResult {
                 count += 1
-                if count == 1 {
+                if arguments.count == 2 {
                     return MagicianProcessResult(exitCode: 0, stdout: "x-coredata://NOTE/1", stderr: "")
                 }
-                return MagicianProcessResult(exitCode: 0, stdout: "x-coredata://NOTE/1", stderr: "")
+                return MagicianProcessResult(
+                    exitCode: 0,
+                    stdout: "x-coredata://NOTE/1\u{1F}测试标题\u{1E}<div>测试正文</div>",
+                    stderr: ""
+                )
             }
         }
 
