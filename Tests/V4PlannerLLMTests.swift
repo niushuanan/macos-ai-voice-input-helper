@@ -361,6 +361,40 @@ final class V4PlannerLLMTests: XCTestCase {
         let invocationCount = await provider.invocationCount
         XCTAssertEqual(invocationCount, 0)
     }
+
+    func testPlannerMapsLowSignalSkillWithSelectionToNotesCreate() async throws {
+        let provider = TrackingPlannerGenerationProvider(output: #"{"action":"fail","message":"should not be used"}"#)
+        let planner = V4PlannerLLM(
+            generationProvider: provider,
+            modelResolver: { _ in
+                V4PlannerLLM.ModelContext(
+                    configuration: TextGenerationProviderConfiguration(
+                        profileID: "planner",
+                        providerType: .openAICompatible,
+                        providerName: "Stub",
+                        modelName: "stub-model",
+                        baseURL: URL(string: "https://example.com")!
+                    ),
+                    apiKey: "test-key"
+                )
+            }
+        )
+
+        let plan = try await planner.plan(
+            for: V4RunRequest(
+                lane: .selectionRewrite,
+                goalSummary: "写进备忘录",
+                inputText: "skill",
+                selectionText: "这是用户选中的一段文本"
+            )
+        )
+
+        XCTAssertEqual(plan.steps.count, 1)
+        XCTAssertEqual(plan.steps.first?.toolName, "apple.notes.create")
+        XCTAssertEqual(plan.steps.first?.title, "写入备忘录")
+        let invocationCount = await provider.invocationCount
+        XCTAssertEqual(invocationCount, 0)
+    }
 }
 
 private struct StubGenerationProvider: TextGenerationProvider {

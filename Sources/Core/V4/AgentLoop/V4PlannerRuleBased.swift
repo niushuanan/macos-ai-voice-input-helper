@@ -200,6 +200,10 @@ struct V4PlannerRuleBased: V4Planner {
             )
         }
 
+        if let selectionFallback = selectionToNotesFallbackPlan(for: request, trimmedCommand: trimmedCommand) {
+            return selectionFallback
+        }
+
         let segments = V4RulePlannerHeuristics.segments(from: trimmedCommand)
         if let message = V4RulePlannerHeuristics.mixedExternalFailureMessage(for: segments) {
             return V4Plan(
@@ -276,6 +280,35 @@ struct V4PlannerRuleBased: V4Planner {
             inputSummary: summarized(nextSegment)
         )
         return V4Plan(steps: [step])
+    }
+
+    private func selectionToNotesFallbackPlan(
+        for request: V4RunRequest,
+        trimmedCommand: String
+    ) -> V4Plan? {
+        guard request.lane == .selectionRewrite else {
+            return nil
+        }
+        guard request.selectionText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return nil
+        }
+        let normalized = trimmedCommand.lowercased()
+        guard normalized == "skill" || normalized == "skills" else {
+            return nil
+        }
+        return V4Plan(
+            steps: [
+                V4StepRecord(
+                    traceID: request.traceID,
+                    lane: request.lane,
+                    goalSummary: request.goalSummary,
+                    title: "写入备忘录",
+                    status: .queued,
+                    toolName: "apple.notes.create",
+                    inputSummary: summarized(trimmedCommand)
+                )
+            ]
+        )
     }
 
     private func summarized(_ value: String) -> String {

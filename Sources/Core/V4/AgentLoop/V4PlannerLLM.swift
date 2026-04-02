@@ -50,6 +50,10 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
             return try await fallbackPlanner.plan(for: request)
         }
 
+        if let selectionFallback = selectionToNotesFallbackPlan(for: request, trimmedInput: trimmedInput) {
+            return selectionFallback
+        }
+
         if let fastPathPlan = fastPathPlan(for: request, trimmedInput: trimmedInput) {
             return fastPathPlan
         }
@@ -253,6 +257,32 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
                 )
             ]
         )
+    }
+
+    private func selectionToNotesFallbackPlan(
+        for request: V4RunRequest,
+        trimmedInput: String
+    ) -> V4Plan? {
+        guard request.lane == .selectionRewrite else {
+            return nil
+        }
+        guard request.selectionText?.trimmedNilIfEmpty != nil else {
+            return nil
+        }
+        guard isLowSignalSkillNoise(trimmedInput) else {
+            return nil
+        }
+        return makeSingleStepPlan(
+            for: request,
+            toolName: "apple.notes.create",
+            title: "写入备忘录",
+            inputSummary: trimmedInput
+        )
+    }
+
+    private func isLowSignalSkillNoise(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "skill" || normalized == "skills"
     }
 
     private func containsTransformIntent(in value: String) -> Bool {

@@ -77,6 +77,24 @@ final class V4AgentLoopEngineTests: XCTestCase {
         XCTAssertEqual(outcome.stepRecords.map(\.toolName), ["text.transform", "apple.notes.create"])
     }
 
+    func testLowSignalSkillWithSelectionUsesNotesCreateWithoutModel() async throws {
+        let engine = V4AgentLoopEngine(
+            planner: V4PlannerRuleBased(),
+            stepExecutor: { step, request, _, _ in
+                StaticSuccessExecutor().execute(step: step, request: request)
+            }
+        )
+        let request = makeRequest(command: "skill")
+
+        let outcome = try await engine.run(
+            request: request,
+            onEvent: nil as (@Sendable (V4RuntimeEvent) -> Void)?
+        )
+
+        XCTAssertEqual(outcome.status, .completed)
+        XCTAssertEqual(outcome.stepRecords.map(\.toolName), ["apple.notes.create"])
+    }
+
     func testRetryThenSuccess() async throws {
         let planner = TestPlanner(toolName: "text.transform", title: "文字处理")
         let executor = RetryThenSuccessExecutor()
