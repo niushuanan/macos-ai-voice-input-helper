@@ -239,6 +239,86 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         XCTAssertEqual(output.rawPayload?.objectValue?["researchQuery"]?.stringValue, "调研2025年中国上半年的经济情况，并写进备忘录")
     }
 
+    func testTextTransformResearchRepairsMissingYearAnchor() async throws {
+        let provider = SequencedRecordingTextGenerationProvider(
+            outputs: [
+                "这是2015年上半年中国经济简报",
+                "这是2025年上半年中国经济简报"
+            ]
+        )
+        let tool = V4TextTransformTool(
+            generationProvider: provider,
+            researchFetcher: { _, _ in
+                [
+                    V4TextTransformTool.ResearchSnippet(
+                        title: "统计公报",
+                        url: "https://example.com/report",
+                        snippet: "包含2025年上半年关键数据"
+                    )
+                ]
+            }
+        )
+        let endpoint = V4ModelEndpoint(
+            slot: .text,
+            providerType: .localSenseVoice,
+            providerIdentifier: "stub",
+            providerDisplayName: "Stub",
+            modelName: "stub-model",
+            baseURLString: "https://example.com",
+            credentialRef: V4ModelCredentialRef(rawValue: "cred"),
+            localModelPath: nil,
+            sourceConfigurationKey: "stub.text"
+        )
+        let request = V4RunRequest(
+            sessionID: V4SessionID(rawValue: "session"),
+            runID: V4RunID(rawValue: "run"),
+            traceID: V4TraceID(rawValue: "trace"),
+            lane: .selectionRewrite,
+            goalSummary: "调研",
+            inputText: "调研",
+            modelSlots: V4ModelSlots(asr: endpoint, text: endpoint, agent: endpoint)
+        )
+        let step = V4StepRecord(
+            traceID: V4TraceID(rawValue: "trace"),
+            lane: .selectionRewrite,
+            goalSummary: "调研",
+            title: "文字处理",
+            status: .queued,
+            toolName: "text.transform",
+            inputSummary: "调研"
+        )
+        let context = V4ToolExecutionContext(
+            toolUse: V4ToolUse(
+                runID: V4RunID(rawValue: "run"),
+                stepID: step.id,
+                traceID: V4TraceID(rawValue: "trace"),
+                lane: .selectionRewrite,
+                goalSummary: "调研",
+                toolName: "text.transform",
+                inputJSON: "{}",
+                inputSummary: "调研",
+                requestedAt: Date()
+            ),
+            request: request,
+            step: step,
+            accumulatedStepRecords: [],
+            turnIndex: 1
+        )
+
+        let output = try await tool.execute(
+            arguments: [
+                "instruction": .string("调研2025年中国上半年的经济情况，并写进备忘录"),
+                "text": .string("调研2025年中国上半年的经济情况，并写进备忘录")
+            ],
+            context: context
+        )
+
+        let callCount = await provider.callCount
+        XCTAssertEqual(callCount, 2)
+        XCTAssertEqual(output.outputText, "这是2025年上半年中国经济简报")
+        XCTAssertEqual(output.rawPayload?.objectValue?["anchorRepairApplied"]?.boolValue, true)
+    }
+
     func testFeishuCommandWithEvidenceValidation() async {
         let tool = V4FeishuCLITool { command, operation, arguments in
             XCTAssertEqual(command, "在飞书创建明天上午 10 点评审会")
@@ -535,6 +615,60 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         XCTAssertEqual(result.status, .success)
         XCTAssertEqual(result.error, nil)
         XCTAssertEqual(result.evidenceSummary, "apple.notes.create action=create; dry_run=true")
+    }
+
+    func testAppleNotesDryRunIgnoresUnknownFields() async {
+        let tool = V4AppleNotesTool()
+        let registry = V4ToolRegistry(
+            tools: [tool],
+            manifests: [
+                V4ToolManifest.derived(
+                    from: tool.spec,
+                    domain: "notes",
+                    retryPolicy: .transientSingleRetry,
+                    evidenceRequirement: .structured(requiredKeys: ["action"])
+                )
+            ]
+        )
+        let kernel = makeKernel(registry: registry)
+
+        let result = await kernel.execute(
+            toolUse: makeToolUse(
+                toolName: "apple.notes.create",
+                inputJSON: #"{"command":"写入备忘录 --dry-run","action":"create","title":"标题","body":"正文","unknown":"x"}"#
+            ),
+            context: makeContext(toolName: "apple.notes.create")
+        )
+
+        XCTAssertEqual(result.status, .success)
+        XCTAssertNil(result.error)
+    }
+
+    func testAppleNotesInvalidActionFailsSemanticValidation() async {
+        let tool = V4AppleNotesTool()
+        let registry = V4ToolRegistry(
+            tools: [tool],
+            manifests: [
+                V4ToolManifest.derived(
+                    from: tool.spec,
+                    domain: "notes",
+                    retryPolicy: .transientSingleRetry,
+                    evidenceRequirement: .structured(requiredKeys: ["action"])
+                )
+            ]
+        )
+        let kernel = makeKernel(registry: registry)
+
+        let result = await kernel.execute(
+            toolUse: makeToolUse(
+                toolName: "apple.notes.create",
+                inputJSON: #"{"action":"draft","title":"标题","body":"正文"}"#
+            ),
+            context: makeContext(toolName: "apple.notes.create")
+        )
+
+        XCTAssertEqual(result.status, .failed)
+        XCTAssertEqual(result.error?.code, .toolValidationFailed)
     }
 
     func testAppleNotesCreateSucceedsOnlyAfterVerifiedNoteEvidence() async throws {
@@ -951,6 +1085,31 @@ private actor RecordingTextGenerationProvider: TextGenerationProvider {
             providerName: configuration.providerName,
             modelName: configuration.modelName,
             outputText: outputText
+        )
+    }
+}
+
+private actor SequencedRecordingTextGenerationProvider: TextGenerationProvider {
+    let supportedProviderTypes: [ProviderType] = [.openAI, .openAICompatible, .localSenseVoice]
+    private var outputs: [String]
+    private(set) var callCount: Int = 0
+
+    init(outputs: [String]) {
+        self.outputs = outputs
+    }
+
+    func generateText(
+        request _: TextGenerationRequest,
+        configuration: TextGenerationProviderConfiguration,
+        apiKey _: String
+    ) async throws -> TextGenerationResult {
+        callCount += 1
+        let output = outputs.isEmpty ? "" : outputs.removeFirst()
+        return TextGenerationResult(
+            providerType: configuration.providerType,
+            providerName: configuration.providerName,
+            modelName: configuration.modelName,
+            outputText: output
         )
     }
 }

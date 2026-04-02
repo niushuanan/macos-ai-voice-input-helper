@@ -58,7 +58,7 @@
     "featureID": "create_note",
     "domain": "apple.notes",
     "intentScope": "创建备忘录",
-    "inputSchema": "{\"title\":string?,\"body\":string}",
+    "inputSchema": "{\"command\":string?,\"action\":string?,\"title\":string?,\"targetTitle\":string?,\"body\":string,\"query\":string?}",
     "riskNote": "会写入系统备忘录",
     "verifyPolicy": "note_created"
   },

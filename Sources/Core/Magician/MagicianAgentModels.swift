@@ -4212,7 +4212,9 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         ]
         return outputs.contains { value in
             let lowered = value.lowercased()
-            return lowered.contains("x-coredata://") || lowered.contains("note-id=")
+            return lowered.contains("x-coredata://")
+                || lowered.contains("note-id=")
+                || lowered.contains("note_id=")
         }
     }
 

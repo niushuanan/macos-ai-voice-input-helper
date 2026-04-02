@@ -176,6 +176,30 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
             configuration: configuration,
             apiKey: apiKey
         )
+        let anchorTokens = requiredAnchorTokens(
+            instruction: instruction,
+            text: text
+        )
+        var finalOutput = normalizedOutputText(from: generation.outputText)
+        var anchorRepairApplied = false
+        if !anchorTokens.isEmpty, !containsAllAnchorTokens(finalOutput, tokens: anchorTokens) {
+            let repaired = try await generationProvider.generateText(
+                request: TextGenerationRequest(
+                    systemPrompt: systemPrompt.isEmpty ? fallbackSystemPrompt : systemPrompt,
+                    userPrompt: buildAnchorRepairPrompt(
+                        instruction: instruction,
+                        draft: finalOutput,
+                        requiredTokens: anchorTokens
+                    ),
+                    temperature: 0.1,
+                    maxOutputTokens: nil
+                ),
+                configuration: configuration,
+                apiKey: apiKey
+            )
+            finalOutput = normalizedOutputText(from: repaired.outputText)
+            anchorRepairApplied = true
+        }
 
         let baseEvidence = "text.transform provider=\(generation.providerName) model=\(generation.modelName)"
         let evidence = if researchSnippets.isEmpty {
@@ -187,7 +211,7 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
         var rawFields: [String: V4ToolValue] = [
             "provider": .string(generation.providerName),
             "model": .string(generation.modelName),
-            "outputText": .string(generation.outputText)
+            "outputText": .string(finalOutput)
         ]
         if !researchSnippets.isEmpty {
             rawFields["researchQuery"] = .string(instruction)
@@ -203,9 +227,13 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
                 }
             )
         }
+        if !anchorTokens.isEmpty {
+            rawFields["requiredAnchors"] = .array(anchorTokens.map(V4ToolValue.string))
+            rawFields["anchorRepairApplied"] = .boolean(anchorRepairApplied)
+        }
 
         return V4ToolExecutionOutput(
-            outputText: normalizedOutputText(from: generation.outputText),
+            outputText: finalOutput,
             evidenceSummary: evidence,
             rawPayload: .object(rawFields)
         )
@@ -293,6 +321,64 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
             return true
         }
         return cleanedText == instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func requiredAnchorTokens(
+        instruction: String,
+        text: String
+    ) -> [String] {
+        let scope = [instruction, text].joined(separator: "\n")
+        var tokens = Set<String>()
+
+        if let yearRegex = try? NSRegularExpression(pattern: #"(?<!\d)(?:19|20)\d{2}(?!\d)"#) {
+            let range = NSRange(scope.startIndex..<scope.endIndex, in: scope)
+            for match in yearRegex.matches(in: scope, options: [], range: range) {
+                if let tokenRange = Range(match.range, in: scope) {
+                    tokens.insert(String(scope[tokenRange]))
+                }
+            }
+        }
+
+        let semanticAnchors = [
+            "上半年", "下半年", "第一季度", "第二季度", "第三季度", "第四季度",
+            "中国", "中国经济", "GDP", "进出口", "消费", "投资"
+        ]
+        for token in semanticAnchors where scope.contains(token) {
+            tokens.insert(token)
+        }
+
+        return tokens.sorted()
+    }
+
+    private func containsAllAnchorTokens(_ output: String, tokens: [String]) -> Bool {
+        let normalized = output.lowercased()
+        for token in tokens {
+            if !normalized.contains(token.lowercased()) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private func buildAnchorRepairPrompt(
+        instruction: String,
+        draft: String,
+        requiredTokens: [String]
+    ) -> String {
+        let tokenList = requiredTokens.joined(separator: "、")
+        return """
+        你需要修正下面这份草稿，使其严格满足指令约束。
+        只输出修正后的最终正文，不要解释。
+
+        指令：
+        \(instruction)
+
+        必须原样保留并包含这些关键锚点：
+        \(tokenList)
+
+        待修正草稿：
+        \(draft)
+        """
     }
 
     private static func liveResearchFetcher(

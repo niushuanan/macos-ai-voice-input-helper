@@ -138,6 +138,8 @@ final class MagicianToolExecutor: MagicianToolExecuting {
         case .createNote:
             let body = resolvedNoteBody(intent: intent, context: context)
             return [
+                "command": .string(context.command),
+                "action": .string("create"),
                 "title": .string(String(body.prefix(40)).ifEmpty("PulseType 速记")),
                 "body": .string(body)
             ]

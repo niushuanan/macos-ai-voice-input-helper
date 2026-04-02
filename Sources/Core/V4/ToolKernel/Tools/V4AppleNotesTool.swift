@@ -29,7 +29,8 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
                 V4ToolInputField(name: "targetTitle", kind: .string, isRequired: false, summary: "目标标题（append）"),
                 V4ToolInputField(name: "body", kind: .string, isRequired: false, summary: "笔记正文（create / append）"),
                 V4ToolInputField(name: "query", kind: .string, isRequired: false, summary: "检索关键词（find）")
-            ]
+            ],
+            allowsAdditionalFields: true
         ),
         requiresPermission: true,
         permissionScope: .appleNativeApps,
@@ -58,7 +59,14 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
         arguments: V4ToolArguments,
         context _: V4ToolExecutionContext
     ) async -> V4ToolSemanticValidationFailure? {
-        switch resolvedAction(from: arguments) {
+        guard let action = resolvedAction(from: arguments) else {
+            return V4ToolSemanticValidationFailure(
+                messageForUser: "`action` 仅支持 create / append / find。",
+                messageForDebug: "notes action invalid"
+            )
+        }
+
+        switch action {
         case .create:
             let body = arguments.string(for: "body")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if body.isEmpty {
@@ -100,7 +108,15 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
         arguments: V4ToolArguments,
         context _: V4ToolExecutionContext
     ) async throws -> V4ToolExecutionOutput {
-        let action = resolvedAction(from: arguments)
+        guard let action = resolvedAction(from: arguments) else {
+            throw errorCatalog.semanticValidationFailure(
+                toolID: spec.toolID,
+                failure: V4ToolSemanticValidationFailure(
+                    messageForUser: "`action` 仅支持 create / append / find。",
+                    messageForDebug: "notes action invalid"
+                )
+            )
+        }
         let body = arguments.string(for: "body")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let title = resolveCreateTitle(from: arguments, body: body)
         let targetTitle = resolveTargetTitle(from: arguments)
@@ -210,9 +226,12 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
         }
     }
 
-    private func resolvedAction(from arguments: V4ToolArguments) -> Action {
+    private func resolvedAction(from arguments: V4ToolArguments) -> Action? {
         let raw = arguments.string(for: "action")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-        return Action(rawValue: raw) ?? .create
+        if raw.isEmpty {
+            return .create
+        }
+        return Action(rawValue: raw)
     }
 
     private func resolveCreateTitle(from arguments: V4ToolArguments, body: String) -> String {
