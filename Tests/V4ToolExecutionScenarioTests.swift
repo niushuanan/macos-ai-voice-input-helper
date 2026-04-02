@@ -289,6 +289,44 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         XCTAssertEqual(output.evidenceSummary, "apple.music.control dry_run=true")
     }
 
+    func testMusicAlbumIntentMarksPlayIntentAsAlbum() async {
+        let tool = V4MusicControlTool { command in
+            XCTAssertEqual(command.action, .play)
+            XCTAssertEqual(command.playIntent, .album)
+            XCTAssertEqual(command.query, "范特西专辑")
+            return V4MusicControlTool.ResultPayload(
+                action: .play,
+                state: "play",
+                track: "简单爱",
+                artist: "周杰伦",
+                evidence: "track=简单爱|artist=周杰伦|album=范特西|state=play|strategy=library_album"
+            )
+        }
+        _ = try? await tool.execute(
+            arguments: ["command": .string("播放范特西专辑")],
+            context: makeContext(toolName: "apple.music.control")
+        )
+    }
+
+    func testMusicMoodIntentExtractsMoodKeyword() async {
+        let tool = V4MusicControlTool { command in
+            XCTAssertEqual(command.action, .play)
+            XCTAssertEqual(command.playIntent, .mood)
+            XCTAssertEqual(command.query, "开心")
+            return V4MusicControlTool.ResultPayload(
+                action: .play,
+                state: "play",
+                track: "告白气球",
+                artist: "周杰伦",
+                evidence: "track=告白气球|artist=周杰伦|album=周杰伦的床边故事|state=play|strategy=library_song"
+            )
+        }
+        _ = try? await tool.execute(
+            arguments: ["command": .string("我很悲伤，要播放一首开心的歌")],
+            context: makeContext(toolName: "apple.music.control")
+        )
+    }
+
     func testAppleNotesDryRunSkipsAutomation() async throws {
         let tool = V4AppleNotesTool()
         let output = try await tool.execute(

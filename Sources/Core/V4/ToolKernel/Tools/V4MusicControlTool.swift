@@ -1,6 +1,13 @@
 import Foundation
 
 struct V4MusicControlTool: V4Tool {
+    enum PlayIntent: String, Equatable, Sendable {
+        case auto
+        case song
+        case album
+        case mood
+    }
+
     enum Action: String, Equatable, Sendable {
         case open
         case play
@@ -13,6 +20,8 @@ struct V4MusicControlTool: V4Tool {
     struct Command: Equatable, Sendable {
         let action: Action
         let query: String?
+        let playIntent: PlayIntent
+        let rawCommand: String
     }
 
     struct ResultPayload: Equatable, Sendable {
@@ -78,6 +87,7 @@ struct V4MusicControlTool: V4Tool {
                 rawPayload: .object(
                     [
                         "action": .string(resolved.action.rawValue),
+                        "playIntent": .string(resolved.playIntent.rawValue),
                         "query": resolved.query.map(V4ToolValue.string) ?? .null,
                         "dryRun": .boolean(true),
                         "summary": .string("演练完成：将执行音乐控制（\(resolved.action.rawValue)）。")
@@ -87,7 +97,9 @@ struct V4MusicControlTool: V4Tool {
         }
         let result = try await executeHandler(resolved)
         let outputText: String
-        if result.action == .open {
+        if result.action == .open, result.state == "open_search" {
+            outputText = "已打开 Music 搜索结果，请确认播放对象。"
+        } else if result.action == .open {
             outputText = "已打开 Music，尚未执行播放。"
         } else if let track = result.track {
             if let artist = result.artist, !artist.isEmpty {
@@ -119,6 +131,7 @@ struct V4MusicControlTool: V4Tool {
                 [
                     "action": .string(result.action.rawValue),
                     "state": .string(result.state),
+                    "playIntent": .string(resolved.playIntent.rawValue),
                     "track": result.track.map(V4ToolValue.string) ?? .null,
                     "artist": result.artist.map(V4ToolValue.string) ?? .null,
                     "evidence": .string(result.evidence),
@@ -134,28 +147,32 @@ struct V4MusicControlTool: V4Tool {
         let lowered = command.lowercased()
 
         if containsAny(lowered, keywords: ["暂停", "pause", "停止播放", "停一下"]) {
-            return Command(action: .pause, query: nil)
+            return Command(action: .pause, query: nil, playIntent: .auto, rawCommand: command)
         }
         if containsAny(lowered, keywords: ["继续", "恢复", "resume", "继续播放"]) {
-            return Command(action: .resume, query: nil)
+            return Command(action: .resume, query: nil, playIntent: .auto, rawCommand: command)
         }
         if containsAny(lowered, keywords: ["下一首", "下一曲", "next", "切歌"]) {
-            return Command(action: .next, query: nil)
+            return Command(action: .next, query: nil, playIntent: .auto, rawCommand: command)
         }
         if containsAny(lowered, keywords: ["上一首", "上一曲", "previous", "prev"]) {
-            return Command(action: .previous, query: nil)
+            return Command(action: .previous, query: nil, playIntent: .auto, rawCommand: command)
         }
         if containsAny(lowered, keywords: ["打开音乐", "打开 music", "启动音乐", "启动 music", "播放音乐", "打开播放器", "启动播放器"]) {
-            return Command(action: .open, query: nil)
+            return Command(action: .open, query: nil, playIntent: .auto, rawCommand: command)
         }
+        if let moodQuery = inferredMoodQuery(from: lowered) {
+            return Command(action: .play, query: moodQuery, playIntent: .mood, rawCommand: command)
+        }
+        let playIntent = inferredPlayIntent(from: lowered)
         if let explicitQuery, !explicitQuery.isEmpty {
-            return Command(action: .play, query: explicitQuery)
+            return Command(action: .play, query: explicitQuery, playIntent: playIntent, rawCommand: command)
         }
         let inferredQuery = magicianMusicSearchQueries(from: command).first
         if let inferredQuery, isGenericPlaybackQuery(inferredQuery) {
-            return Command(action: .play, query: nil)
+            return Command(action: .play, query: nil, playIntent: .auto, rawCommand: command)
         }
-        return Command(action: .play, query: inferredQuery)
+        return Command(action: .play, query: inferredQuery, playIntent: playIntent, rawCommand: command)
     }
 
     private func containsAny(_ value: String, keywords: [String]) -> Bool {
@@ -169,6 +186,67 @@ struct V4MusicControlTool: V4Tool {
         return [
             "音乐", "music", "歌曲", "歌", "打开音乐", "播放音乐", "打开播放器", "启动音乐", "启动播放器"
         ].contains(normalized)
+    }
+
+    private func inferredPlayIntent(from loweredCommand: String) -> PlayIntent {
+        if containsAny(loweredCommand, keywords: ["专辑", "整张", "整专", "album"]) {
+            return .album
+        }
+        if containsAny(loweredCommand, keywords: ["一首", "这首", "歌曲", "song"]) {
+            return .song
+        }
+        return .auto
+    }
+
+    private func inferredMoodQuery(from loweredCommand: String) -> String? {
+        guard containsAny(loweredCommand, keywords: ["的歌", "歌曲", "music", "song"]) else {
+            return nil
+        }
+        let tokens = [
+            "开心", "快乐", "治愈", "放松", "轻松", "安静", "燃", "热血", "伤感",
+            "sad", "happy", "calm", "relax"
+        ]
+        return tokens.first(where: { loweredCommand.contains($0) })
+    }
+
+    private static func isMoodDiscoveryQuery(_ query: String) -> Bool {
+        let normalized = query.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        return [
+            "开心", "快乐", "治愈", "放松", "轻松", "安静", "燃", "热血", "伤感",
+            "sad", "happy", "calm", "relax"
+        ].contains(normalized)
+    }
+
+    private static func moodExpansionQueries(for query: String) -> [String] {
+        let normalized = query.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        switch normalized {
+        case "开心", "快乐", "happy":
+            return [query, "快乐", "开心", "欢快", "upbeat"]
+        case "治愈":
+            return [query, "治愈", "温柔", "舒缓", "calm"]
+        case "放松", "轻松", "calm", "relax":
+            return [query, "放松", "轻松", "舒缓", "calm"]
+        case "燃", "热血":
+            return [query, "热血", "燃", "激情", "rock"]
+        case "伤感", "sad":
+            return [query, "伤感", "sad", "抒情", "慢歌"]
+        default:
+            return [query]
+        }
+    }
+
+    private static func ambiguityProbeFlags(from output: String) -> (songExact: Bool, albumExact: Bool) {
+        let parts = output.split(separator: "|").map(String.init)
+        var songExact = false
+        var albumExact = false
+        for part in parts {
+            if part == "song_exact=true" {
+                songExact = true
+            } else if part == "album_exact=true" {
+                albumExact = true
+            }
+        }
+        return (songExact, albumExact)
     }
 
     private static func liveExecuteHandler() -> ExecuteHandler {
@@ -257,7 +335,7 @@ struct V4MusicControlTool: V4Tool {
                         isRetryable: false
                     )
                 }
-                if !magicianMusicEvidenceMatchesQuery(output: output, query: query) {
+                if !Self.isMoodDiscoveryQuery(query), !magicianMusicEvidenceMatchesQuery(output: output, query: query) {
                     throw V4ToolErrorCatalog().missingEvidence(
                         toolID: "apple.music.control",
                         requirement: .summary,
@@ -292,10 +370,57 @@ struct V4MusicControlTool: V4Tool {
 
         case .play:
             if let query = command.query, !query.isEmpty {
-                for item in magicianMusicSearchQueries(from: query) {
-                    let result = await runLibrarySearchAndPlay(keyword: item)
-                    if result.exitCode == 0, result.stdout.hasPrefix("track=") {
-                        return result
+                let probe = await runSongAlbumAmbiguityProbe(query: query)
+                let probeFlags: (songExact: Bool, albumExact: Bool) = {
+                    guard probe.exitCode == 0 else {
+                        return (false, false)
+                    }
+                    return Self.ambiguityProbeFlags(from: probe.stdout)
+                }()
+
+                if command.playIntent == .auto, probeFlags.songExact, probeFlags.albumExact {
+                    for item in magicianMusicSearchQueries(from: query) {
+                        let songFirst = await runLibrarySearchAndPlay(keyword: item)
+                        if songFirst.exitCode == 0, songFirst.stdout.hasPrefix("track=") {
+                            let evidence = songFirst.stdout + "|disambiguation=ambiguous_default_song"
+                            return MagicianProcessResult(exitCode: 0, stdout: evidence, stderr: songFirst.stderr)
+                        }
+                    }
+                }
+
+                let searchOrder: [SearchKind]
+                switch command.playIntent {
+                case .album:
+                    searchOrder = [.album, .song]
+                case .song, .mood:
+                    searchOrder = [.song, .album]
+                case .auto:
+                    if probeFlags.albumExact, !probeFlags.songExact {
+                        searchOrder = [.album, .song]
+                    } else {
+                        searchOrder = [.song, .album]
+                    }
+                }
+
+                let searchQueries: [String] = {
+                    if command.playIntent == .mood {
+                        return Self.moodExpansionQueries(for: query)
+                    }
+                    return magicianMusicSearchQueries(from: query)
+                }()
+
+                for item in searchQueries {
+                    for kind in searchOrder {
+                        let result: MagicianProcessResult
+                        switch kind {
+                        case .song:
+                            result = await runLibrarySearchAndPlay(keyword: item)
+                        case .album:
+                            result = await runLibraryAlbumSearchAndPlay(keyword: item)
+                        }
+                        if result.exitCode == 0, result.stdout.hasPrefix("track=") {
+                            return result
+                        }
                     }
                 }
 
@@ -427,11 +552,62 @@ struct V4MusicControlTool: V4Tool {
                 "play targetTrack",
                 "delay 0.8",
                 "set nowTrack to current track",
-                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|state=play|strategy=library_search\"",
+                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play|strategy=library_song\"",
                 "end tell",
                 "end run"
             ],
             arguments: [keyword]
+        )
+    }
+
+    private static func runLibraryAlbumSearchAndPlay(keyword: String) async -> MagicianProcessResult {
+        await runOsaScript(
+            lines: [
+                "on run argv",
+                "set keywordText to item 1 of argv",
+                "tell application \"Music\"",
+            ] + magicianEnsureApplicationReadyAppleScriptLines() + [
+                "set matchedTracks to (search library playlist 1 for keywordText only albums)",
+                "if (count of matchedTracks) is 0 then return \"album_not_found\"",
+                "set targetTrack to item 1 of matchedTracks",
+                "play targetTrack",
+                "delay 0.8",
+                "set nowTrack to current track",
+                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play|strategy=library_album\"",
+                "end tell",
+                "end run"
+            ],
+            arguments: [keyword]
+        )
+    }
+
+    private static func runSongAlbumAmbiguityProbe(query: String) async -> MagicianProcessResult {
+        await runOsaScript(
+            lines: [
+                "on run argv",
+                "set keywordText to item 1 of argv",
+                "set hasSong to false",
+                "set hasAlbum to false",
+                "tell application \"Music\"",
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+                "set songHits to (search library playlist 1 for keywordText only songs)",
+                "repeat with t in songHits",
+                "if (name of t) is keywordText then",
+                "set hasSong to true",
+                "exit repeat",
+                "end if",
+                "end repeat",
+                "set albumHits to (search library playlist 1 for keywordText only albums)",
+                "repeat with t in albumHits",
+                "if (album of t) is keywordText then",
+                "set hasAlbum to true",
+                "exit repeat",
+                "end if",
+                "end repeat",
+                "end tell",
+                "return \"song_exact=\" & (hasSong as string) & \"|album_exact=\" & (hasAlbum as string)"
+            ],
+            arguments: [query]
         )
     }
 
@@ -478,6 +654,11 @@ struct V4MusicControlTool: V4Tool {
             arguments: [query],
             timeoutSeconds: 16
         )
+    }
+
+    private enum SearchKind {
+        case song
+        case album
     }
 
     private static func parseEvidence(_ output: String) -> (state: String?, track: String?, artist: String?) {
