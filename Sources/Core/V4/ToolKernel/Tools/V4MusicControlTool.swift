@@ -219,7 +219,8 @@ struct V4MusicControlTool: V4Tool {
             return Command(action: .play, query: explicitQuery, playIntent: playIntent, rawCommand: command)
         }
 
-        if shouldUseSemanticMoodResolver(loweredCommand: lowered) {
+        let inferredQuery = magicianMusicSearchQueries(from: command).first
+        if shouldUseSemanticIntentResolver(loweredCommand: lowered, inferredQuery: inferredQuery) {
             if let semanticDecision = await semanticResolver(command, context) {
                 return Command(
                     action: .play,
@@ -230,7 +231,6 @@ struct V4MusicControlTool: V4Tool {
             }
         }
 
-        let inferredQuery = magicianMusicSearchQueries(from: command).first
         if let inferredQuery, isGenericPlaybackQuery(inferredQuery) {
             return Command(action: .play, query: nil, playIntent: .auto, rawCommand: command)
         }
@@ -250,18 +250,33 @@ struct V4MusicControlTool: V4Tool {
         ].contains(normalized)
     }
 
-    private func shouldUseSemanticMoodResolver(loweredCommand: String) -> Bool {
-        if containsAny(loweredCommand, keywords: ["《", "“", "\"", "专辑", "album"]) {
+    private func shouldUseSemanticIntentResolver(loweredCommand: String, inferredQuery: String?) -> Bool {
+        if containsAny(loweredCommand, keywords: ["《", "》", "“", "”", "\"", "专辑", "album"]) {
             return false
         }
-        return containsAny(
+        if containsAny(
             loweredCommand,
             keywords: [
                 "我很", "我现在", "心情", "悲伤", "难过", "失恋", "压力", "焦虑", "孤独", "低落",
-                "开心", "快乐", "放松", "治愈", "燃", "热血", "来首歌", "放首歌", "推荐",
-                "sad", "happy", "mood", "vibe"
+                "开心", "快乐", "放松", "治愈", "燃", "热血",
+                "来首歌", "放首歌", "来点歌", "放点歌", "推荐", "随便", "随机",
+                "适合", "场景", "通勤", "学习", "工作", "夜晚", "睡前", "开车", "跑步",
+                "sad", "happy", "mood", "vibe", "focus", "study", "chill"
             ]
-        )
+        ) {
+            return true
+        }
+
+        guard let inferredQuery else {
+            return true
+        }
+        let normalized = inferredQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.isEmpty || isGenericPlaybackQuery(normalized) {
+            return true
+        }
+        let termCount = normalized.split(whereSeparator: \.isWhitespace).count
+        let looksLikeDirectTitle = normalized.count <= 10 && termCount <= 2
+        return !looksLikeDirectTitle
     }
 
     private func inferredPlayIntent(from loweredCommand: String) -> PlayIntent {
@@ -350,13 +365,13 @@ struct V4MusicControlTool: V4Tool {
         let systemPrompt = """
         你是 PulseType 的音乐语义解析器。请把自然语言音乐请求解析成 JSON。
         只输出 JSON，不要解释。JSON 字段：
-        intent: song | album | mood | none
+        intent: song | album | mood | scene | vibe | artist | none
         query: 可用于 Music 资料库搜索的短查询词
         confidence: 0~1
         reason: 简短原因
         规则：
         1) 明确歌名用 song；明确专辑名用 album。
-        2) 情绪/场景请求（如“我很悲伤，放首歌”）用 mood，query 输出 1~3 个描述风格或情绪的短词。
+        2) 情绪/场景/模糊意图请求（如“我很悲伤，放首歌”“通勤路上来点歌”）用 mood/scene/vibe/artist，query 输出 1~3 个可检索短词。
         3) 无法判断时 intent=none，query 为空字符串。
         """
         let userPrompt = "用户请求：\(command)"
@@ -375,7 +390,7 @@ struct V4MusicControlTool: V4Tool {
             guard
                 let payload: SemanticPlayPayload = decodeLLMJSONPayload(from: generation.outputText),
                 let rawIntent = payload.intent?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-                let intent = PlayIntent(rawValue: rawIntent),
+                let intent = normalizedSemanticIntent(rawIntent),
                 intent != .auto,
                 let query = payload.query?.trimmingCharacters(in: .whitespacesAndNewlines),
                 !query.isEmpty
@@ -393,6 +408,19 @@ struct V4MusicControlTool: V4Tool {
                 reason: payload.reason
             )
         } catch {
+            return nil
+        }
+    }
+
+    private static func normalizedSemanticIntent(_ rawIntent: String) -> PlayIntent? {
+        switch rawIntent {
+        case "song":
+            return .song
+        case "album":
+            return .album
+        case "mood", "scene", "vibe", "artist":
+            return .mood
+        default:
             return nil
         }
     }
