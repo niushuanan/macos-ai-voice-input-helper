@@ -27,10 +27,7 @@ struct V4PostStepDeciderDefault: V4PostStepDecider {
             break
         }
 
-        let segmentCount = V4RulePlannerHeuristics.segments(from: request.inputText).count
-        let requiredStepCount = V4RulePlannerHeuristics.shouldUseTwoStepNoteFlow(command: request.inputText)
-            ? 2
-            : segmentCount
+        let requiredStepCount = V4RulePlannerHeuristics.segments(from: request.inputText).count
         if accumulatedStepRecords.count < requiredStepCount {
             return V4LoopDecision(
                 action: .continue,

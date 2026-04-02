@@ -3,7 +3,6 @@ import Foundation
 enum V4RulePlannerHeuristics {
     enum ExternalAction: String, CaseIterable {
         case calendar
-        case note
         case mail
         case music
         case feishu
@@ -44,9 +43,6 @@ enum V4RulePlannerHeuristics {
         if containsAny(lowered, tokens: ["邮件", "mail", "email", "草稿", "邮箱", "发邮件", "写邮件"]) {
             externalActions.insert(.mail)
         }
-        if containsAny(lowered, tokens: noteIntentTokens) {
-            externalActions.insert(.note)
-        }
         if containsAny(lowered, tokens: ["日程", "会议", "calendar", "event", "安排", "课程", "上课", "行程"]) {
             externalActions.insert(.calendar)
         }
@@ -65,21 +61,6 @@ enum V4RulePlannerHeuristics {
             return Classification(
                 toolName: "apple.mail.compose",
                 title: "整理邮件",
-                externalActions: externalActions
-            )
-        }
-        if externalActions.contains(.note) {
-            let noteTitle: String
-            if containsAny(lowered, tokens: ["查找", "查询", "搜索", "find", "search"]) {
-                noteTitle = "检索备忘录"
-            } else if containsAny(lowered, tokens: ["追加", "补充", "append", "续写", "加到"]) {
-                noteTitle = "追加备忘录"
-            } else {
-                noteTitle = "写入备忘录"
-            }
-            return Classification(
-                toolName: "apple.notes.create",
-                title: noteTitle,
                 externalActions: externalActions
             )
         }
@@ -141,17 +122,6 @@ enum V4RulePlannerHeuristics {
         return nil
     }
 
-    static func shouldUseTwoStepNoteFlow(command: String) -> Bool {
-        let normalized = command.lowercased()
-        let hasNotesIntent = containsAny(normalized, tokens: noteIntentTokens)
-        let hasTransformIntent = containsAny(normalized, tokens: transformIntentTokens)
-        return hasNotesIntent && hasTransformIntent
-    }
-
-    static func hasNotesIntent(_ command: String) -> Bool {
-        containsAny(command.lowercased(), tokens: noteIntentTokens)
-    }
-
     static func hasTransformIntent(_ command: String) -> Bool {
         containsAny(command.lowercased(), tokens: transformIntentTokens)
     }
@@ -159,16 +129,6 @@ enum V4RulePlannerHeuristics {
     static func hasSelectionDependentTransformIntent(_ command: String) -> Bool {
         containsAny(command.lowercased(), tokens: selectionDependentTransformTokens)
     }
-
-    static func hasNoteFindIntent(_ command: String) -> Bool {
-        containsAny(command.lowercased(), tokens: noteFindIntentTokens)
-    }
-
-    private static let noteIntentTokens: [String] = [
-        "备忘录", "note", "notes",
-        "写进备忘录", "写入备忘录", "记到备忘录", "记录到备忘录",
-        "写进文档", "写入文档", "记到文档", "记录到文档", "写到文档", "放到文档", "放进文档"
-    ]
 
     private static let transformIntentTokens: [String] = [
         "整理", "润色", "改写", "重写", "优化", "总结", "摘要", "提炼",
@@ -180,10 +140,6 @@ enum V4RulePlannerHeuristics {
 
     private static let selectionDependentTransformTokens: [String] = [
         "翻译", "润色", "改写", "重写", "总结", "摘要", "提炼", "压缩", "扩写", "美化", "改成", "改为"
-    ]
-
-    private static let noteFindIntentTokens: [String] = [
-        "查找", "查询", "搜索", "find", "search", "lookup"
     ]
 
     private static func containsAny(_ value: String, tokens: [String]) -> Bool {
@@ -221,10 +177,6 @@ struct V4PlannerRuleBased: V4Planner {
             )
         }
 
-        if let selectionFallback = selectionToNotesFallbackPlan(for: request, trimmedCommand: trimmedCommand) {
-            return selectionFallback
-        }
-
         let segments = V4RulePlannerHeuristics.segments(from: trimmedCommand)
         if let message = V4RulePlannerHeuristics.mixedExternalFailureMessage(for: segments) {
             return V4Plan(
@@ -233,47 +185,6 @@ struct V4PlannerRuleBased: V4Planner {
                     action: .fail,
                     message: message,
                     failureCode: .invalidRequest
-                )
-            )
-        }
-
-        if V4RulePlannerHeuristics.shouldUseTwoStepNoteFlow(command: trimmedCommand) {
-            let completedCount = request.stepRecords.count
-            if completedCount == 0 {
-                return V4Plan(
-                    steps: [
-                        V4StepRecord(
-                            traceID: request.traceID,
-                            lane: request.lane,
-                            goalSummary: request.goalSummary,
-                            title: "文字处理",
-                            status: .queued,
-                            toolName: "text.transform",
-                            inputSummary: summarized(trimmedCommand)
-                        )
-                    ]
-                )
-            }
-            if completedCount == 1 {
-                return V4Plan(
-                    steps: [
-                        V4StepRecord(
-                            traceID: request.traceID,
-                            lane: request.lane,
-                            goalSummary: request.goalSummary,
-                            title: "写入备忘录",
-                            status: .queued,
-                            toolName: "apple.notes.create",
-                            inputSummary: summarized(trimmedCommand)
-                        )
-                    ]
-                )
-            }
-            return V4Plan(
-                steps: [],
-                terminalDecision: V4LoopDecision(
-                    action: .finish,
-                    message: "已完成全部规划步骤。"
                 )
             )
         }
@@ -301,35 +212,6 @@ struct V4PlannerRuleBased: V4Planner {
             inputSummary: summarized(nextSegment)
         )
         return V4Plan(steps: [step])
-    }
-
-    private func selectionToNotesFallbackPlan(
-        for request: V4RunRequest,
-        trimmedCommand: String
-    ) -> V4Plan? {
-        guard request.lane == .selectionRewrite else {
-            return nil
-        }
-        guard request.selectionText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
-            return nil
-        }
-        let normalized = trimmedCommand.lowercased()
-        guard normalized == "skill" || normalized == "skills" else {
-            return nil
-        }
-        return V4Plan(
-            steps: [
-                V4StepRecord(
-                    traceID: request.traceID,
-                    lane: request.lane,
-                    goalSummary: request.goalSummary,
-                    title: "写入备忘录",
-                    status: .queued,
-                    toolName: "apple.notes.create",
-                    inputSummary: summarized(trimmedCommand)
-                )
-            ]
-        )
     }
 
     private func summarized(_ value: String) -> String {

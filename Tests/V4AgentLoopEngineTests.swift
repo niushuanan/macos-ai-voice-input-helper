@@ -36,7 +36,7 @@ final class V4AgentLoopEngineTests: XCTestCase {
 
         XCTAssertEqual(outcome.status, .completed)
         XCTAssertEqual(outcome.stepRecords.count, 2)
-        XCTAssertEqual(outcome.stepRecords.map(\.toolName), ["text.transform", "apple.notes.create"])
+        XCTAssertEqual(outcome.stepRecords.map(\.toolName), ["text.transform", "text.transform"])
         XCTAssertEqual(outcome.stepRecords.first?.status, .completed)
         XCTAssertEqual(outcome.stepRecords.last?.status, .completed)
     }
@@ -56,7 +56,7 @@ final class V4AgentLoopEngineTests: XCTestCase {
         )
 
         XCTAssertEqual(outcome.status, .completed)
-        XCTAssertEqual(outcome.stepRecords.map(\.toolName), ["text.transform", "apple.notes.create"])
+        XCTAssertEqual(outcome.stepRecords.map(\.toolName), ["text.transform"])
     }
 
     func testEconomicWriteIntoDocumentUsesTwoStepNotesFlowWithoutModel() async throws {
@@ -74,7 +74,7 @@ final class V4AgentLoopEngineTests: XCTestCase {
         )
 
         XCTAssertEqual(outcome.status, .completed)
-        XCTAssertEqual(outcome.stepRecords.map(\.toolName), ["text.transform", "apple.notes.create"])
+        XCTAssertEqual(outcome.stepRecords.map(\.toolName), ["text.transform"])
     }
 
     func testLowSignalSkillWithSelectionUsesNotesCreateWithoutModel() async throws {
@@ -92,7 +92,7 @@ final class V4AgentLoopEngineTests: XCTestCase {
         )
 
         XCTAssertEqual(outcome.status, .completed)
-        XCTAssertEqual(outcome.stepRecords.map(\.toolName), ["apple.notes.create"])
+        XCTAssertEqual(outcome.stepRecords.map(\.toolName), ["text.transform"])
     }
 
     func testRetryThenSuccess() async throws {

@@ -62,7 +62,6 @@ struct V4ToolRegistry: V4ToolKernelRegistry {
             V4ShellCommandTool(allowlist: shellAllowlist),
             V4AppleScriptTool(),
             V4CalendarCreateTool(),
-            V4AppleNotesTool(),
             V4MailComposeTool(
                 addressBookStore: mailAddressBookStore,
                 providerSettingsStore: providerSettingsStore,
@@ -130,14 +129,6 @@ struct V4ToolRegistry: V4ToolKernelRegistry {
                 retryPolicy: .transientSingleRetry,
                 evidenceRequirement: .structured(requiredKeys: ["eventID", "startAt", "endAt"]),
                 keywords: ["calendar.create_event", "日程", "会议", "Calendar"]
-            )
-        case "apple.notes.create":
-            return .derived(
-                from: spec,
-                domain: "notes",
-                retryPolicy: .transientSingleRetry,
-                evidenceRequirement: .structured(requiredKeys: ["action"]),
-                keywords: ["notes.create_note", "notes.append_note", "notes.find_note", "备忘录", "Notes"]
             )
         case "apple.mail.compose":
             return .derived(
