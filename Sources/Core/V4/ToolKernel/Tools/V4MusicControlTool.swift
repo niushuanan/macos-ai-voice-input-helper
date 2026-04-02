@@ -21,6 +21,38 @@ struct V4MusicControlTool: V4Tool {
         let reason: String?
     }
 
+    private struct LibraryTrackCandidate: Equatable, Sendable {
+        let track: LibraryTrackRecord
+        let score: Int
+    }
+
+    private struct RagTrackPickPayload: Decodable {
+        let persistentID: String?
+        let confidence: Double?
+        let reason: String?
+    }
+
+    private actor LibraryCatalogCache {
+        private var tracks: [LibraryTrackRecord] = []
+        private var updatedAt: Date?
+
+        func load(maxAge: TimeInterval) -> [LibraryTrackRecord]? {
+            guard
+                let updatedAt,
+                Date().timeIntervalSince(updatedAt) <= maxAge,
+                !tracks.isEmpty
+            else {
+                return nil
+            }
+            return tracks
+        }
+
+        func save(_ tracks: [LibraryTrackRecord]) {
+            self.tracks = tracks
+            updatedAt = Date()
+        }
+    }
+
     enum PlayIntent: String, Equatable, Sendable {
         case auto
         case song
@@ -79,6 +111,7 @@ struct V4MusicControlTool: V4Tool {
     private let generationProvider: any TextGenerationProvider
     private let semanticResolver: SemanticResolver
     private let errorCatalog = V4ToolErrorCatalog()
+    private static let libraryCatalogCache = LibraryCatalogCache()
 
     init(
         modelSlotManager: V4ModelSlotManager? = nil,
@@ -89,7 +122,10 @@ struct V4MusicControlTool: V4Tool {
         let resolvedGenerationProvider = generationProvider ?? OpenAITextGenerationProvider()
         self.modelSlotManager = modelSlotManager
         self.generationProvider = resolvedGenerationProvider
-        self.executeHandler = executeHandler ?? Self.liveExecuteHandler()
+        self.executeHandler = executeHandler ?? Self.liveExecuteHandler(
+            modelSlotManager: modelSlotManager,
+            generationProvider: resolvedGenerationProvider
+        )
         if let semanticResolver {
             self.semanticResolver = semanticResolver
         } else {
@@ -459,6 +495,29 @@ struct V4MusicControlTool: V4Tool {
         }
     }
 
+    private static func semanticModelConfiguration(
+        modelSlotManager: V4ModelSlotManager?
+    ) async -> TextGenerationProviderConfiguration? {
+        guard let modelSlotManager else {
+            return nil
+        }
+        do {
+            let endpoint = try await modelSlotManager.resolve(.text)
+            guard let baseURL = URL(string: endpoint.baseURLString) else {
+                return nil
+            }
+            return TextGenerationProviderConfiguration(
+                profileID: endpoint.credentialRef?.rawValue ?? endpoint.sourceConfigurationKey,
+                providerType: endpoint.providerType,
+                providerName: endpoint.providerDisplayName,
+                modelName: endpoint.modelName,
+                baseURL: baseURL
+            )
+        } catch {
+            return nil
+        }
+    }
+
     private static func semanticModelAPIKey(
         context: V4ToolExecutionContext,
         modelSlotManager: V4ModelSlotManager?
@@ -471,6 +530,20 @@ struct V4MusicControlTool: V4Tool {
                 return try await modelSlotManager.loadAPIKey(for: .text)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             }
+            return try await modelSlotManager.loadAPIKey(for: .text)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            return nil
+        }
+    }
+
+    private static func semanticModelAPIKey(
+        modelSlotManager: V4ModelSlotManager?
+    ) async -> String? {
+        guard let modelSlotManager else {
+            return nil
+        }
+        do {
             return try await modelSlotManager.loadAPIKey(for: .text)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
@@ -498,7 +571,10 @@ struct V4MusicControlTool: V4Tool {
         return try? JSONDecoder().decode(T.self, from: data)
     }
 
-    private static func liveExecuteHandler() -> ExecuteHandler {
+    private static func liveExecuteHandler(
+        modelSlotManager: V4ModelSlotManager?,
+        generationProvider: any TextGenerationProvider
+    ) -> ExecuteHandler {
         { command in
             guard MagicianMusicCapability.musicAppAvailable else {
                 throw V4ToolErrorCatalog().bridgeNotReady(
@@ -542,7 +618,11 @@ struct V4MusicControlTool: V4Tool {
                 )
             }
 
-            let process = await runLiveCommand(command)
+            let process = await runLiveCommand(
+                command,
+                modelSlotManager: modelSlotManager,
+                generationProvider: generationProvider
+            )
             guard process.exitCode == 0 else {
                 let recoverAction = magicianLooksLikeAutomationPermissionDenied(process.detail)
                     ? "open_music_automation_permission"
@@ -604,7 +684,11 @@ struct V4MusicControlTool: V4Tool {
         }
     }
 
-    private static func runLiveCommand(_ command: Command) async -> MagicianProcessResult {
+    private static func runLiveCommand(
+        _ command: Command,
+        modelSlotManager: V4ModelSlotManager?,
+        generationProvider: any TextGenerationProvider
+    ) async -> MagicianProcessResult {
         switch command.action {
         case .open:
             return await runOsaScript(
@@ -673,8 +757,14 @@ struct V4MusicControlTool: V4Tool {
                     }
                 }
 
-                if let normalizedMatch = await runLibraryNormalizedMatchAndPlay(query: query) {
-                    return normalizedMatch
+                if let ragPick = await runLibraryRAGSelectionAndPlay(
+                    query: query,
+                    rawCommand: command.rawCommand,
+                    playIntent: command.playIntent,
+                    modelSlotManager: modelSlotManager,
+                    generationProvider: generationProvider
+                ) {
+                    return ragPick
                 }
 
                 let uiAssist = await runUISearchAssist(query: query)
@@ -929,24 +1019,201 @@ struct V4MusicControlTool: V4Tool {
         return lowered.contains("歌曲") || lowered.contains("这首") || lowered.contains("song")
     }
 
-    private static func runLibraryNormalizedMatchAndPlay(query: String) async -> MagicianProcessResult? {
-        let catalogResult = await fetchLibraryCatalog()
-        guard catalogResult.exitCode == 0 else {
-            return nil
-        }
-        let tracks = parseLibraryCatalog(catalogResult.stdout)
+    private static func runLibraryRAGSelectionAndPlay(
+        query: String,
+        rawCommand: String,
+        playIntent: PlayIntent,
+        modelSlotManager: V4ModelSlotManager?,
+        generationProvider: any TextGenerationProvider
+    ) async -> MagicianProcessResult? {
+        let tracks = await loadLibraryCatalog()
         guard !tracks.isEmpty else {
             return nil
         }
-        guard let best = bestTrackMatch(for: query, tracks: tracks) else {
+
+        let candidates = retrieveLibraryCandidates(
+            query: query,
+            rawCommand: rawCommand,
+            playIntent: playIntent,
+            tracks: tracks,
+            limit: 24
+        )
+        guard !candidates.isEmpty else {
             return nil
         }
-        let playResult = await playTrackByPersistentID(best.persistentID)
+
+        let pick = await selectTrackWithRAG(
+            query: query,
+            rawCommand: rawCommand,
+            playIntent: playIntent,
+            candidates: candidates,
+            modelSlotManager: modelSlotManager,
+            generationProvider: generationProvider
+        ) ?? candidates.first?.track
+        guard let pick else {
+            return nil
+        }
+
+        let playResult = await playTrackByPersistentID(pick.persistentID)
         guard playResult.exitCode == 0, playResult.stdout.hasPrefix("track=") else {
             return nil
         }
-        let evidence = playResult.stdout + "|strategy=library_normalized_match"
+        let evidence = playResult.stdout + "|strategy=library_rag"
         return MagicianProcessResult(exitCode: 0, stdout: evidence, stderr: playResult.stderr)
+    }
+
+    private static func loadLibraryCatalog() async -> [LibraryTrackRecord] {
+        if let cached = await libraryCatalogCache.load(maxAge: 12) {
+            return cached
+        }
+        let catalogResult = await fetchLibraryCatalog()
+        guard catalogResult.exitCode == 0 else {
+            return []
+        }
+        let tracks = parseLibraryCatalog(catalogResult.stdout)
+        guard !tracks.isEmpty else {
+            return []
+        }
+        await libraryCatalogCache.save(tracks)
+        return tracks
+    }
+
+    private static func retrieveLibraryCandidates(
+        query: String,
+        rawCommand: String,
+        playIntent: PlayIntent,
+        tracks: [LibraryTrackRecord],
+        limit: Int
+    ) -> [LibraryTrackCandidate] {
+        let searchTexts = magicianMusicSearchQueries(from: query)
+        let normalizedQueries = searchTexts
+            .map(normalizedMusicMatchText)
+            .filter { !$0.isEmpty }
+        let rawNormalized = normalizedMusicMatchText(rawCommand)
+        let isAlbumIntent = playIntent == .album || rawCommand.lowercased().contains("专辑")
+
+        var scored: [LibraryTrackCandidate] = []
+        scored.reserveCapacity(min(tracks.count, limit * 3))
+
+        for track in tracks {
+            let normalizedName = normalizedMusicMatchText(track.name)
+            let normalizedArtist = normalizedMusicMatchText(track.artist)
+            let normalizedAlbum = normalizedMusicMatchText(track.album)
+            let combined = normalizedName + normalizedArtist + normalizedAlbum
+            guard !combined.isEmpty else {
+                continue
+            }
+
+            var bestScore = 0
+            for nq in normalizedQueries {
+                var score = 0
+                if nq == normalizedName {
+                    score += 140
+                } else if !nq.isEmpty, normalizedName.contains(nq) {
+                    score += 105
+                }
+                if isAlbumIntent {
+                    if nq == normalizedAlbum {
+                        score += 135
+                    } else if !nq.isEmpty, normalizedAlbum.contains(nq) {
+                        score += 100
+                    }
+                } else {
+                    if !nq.isEmpty, normalizedAlbum.contains(nq) {
+                        score += 45
+                    }
+                }
+                if !nq.isEmpty, normalizedArtist.contains(nq) {
+                    score += 35
+                }
+                let parts = queryParts(from: nq)
+                if !parts.isEmpty {
+                    let hitCount = parts.reduce(0) { $0 + (combined.contains($1) ? 1 : 0) }
+                    score += hitCount * 14
+                }
+                bestScore = max(bestScore, score)
+            }
+
+            if bestScore == 0, !rawNormalized.isEmpty {
+                if combined.contains(rawNormalized) {
+                    bestScore = 80
+                }
+            }
+
+            if bestScore > 0 {
+                scored.append(LibraryTrackCandidate(track: track, score: bestScore))
+            }
+        }
+
+        let sorted = scored.sorted { lhs, rhs in
+            if lhs.score != rhs.score {
+                return lhs.score > rhs.score
+            }
+            return lhs.track.name < rhs.track.name
+        }
+        return Array(sorted.prefix(limit))
+    }
+
+    private static func selectTrackWithRAG(
+        query: String,
+        rawCommand: String,
+        playIntent: PlayIntent,
+        candidates: [LibraryTrackCandidate],
+        modelSlotManager: V4ModelSlotManager?,
+        generationProvider: any TextGenerationProvider
+    ) async -> LibraryTrackRecord? {
+        guard
+            let configuration = await semanticModelConfiguration(modelSlotManager: modelSlotManager),
+            let apiKey = await semanticModelAPIKey(modelSlotManager: modelSlotManager),
+            !apiKey.isEmpty || !configuration.providerType.requiresAPIKey
+        else {
+            return nil
+        }
+
+        let candidateList = candidates.enumerated().map { idx, item in
+            "\(idx + 1). id=\(item.track.persistentID) | song=\(item.track.name) | artist=\(item.track.artist) | album=\(item.track.album) | score=\(item.score)"
+        }.joined(separator: "\n")
+
+        let systemPrompt = """
+        你是 PulseType 的音乐选曲器。你会收到用户请求和一组来自资料库的候选曲目。
+        你必须只在候选里选 1 首最合适的歌。
+        只输出 JSON，不要解释。
+        JSON 格式：
+        {"persistentID":"候选中的id","confidence":0~1,"reason":"一句话"}
+        如果都不合适，返回：
+        {"persistentID":"","confidence":0,"reason":"no-fit"}
+        """
+        let userPrompt = """
+        用户命令：\(rawCommand)
+        检索意图：\(playIntent.rawValue)
+        检索词：\(query)
+        候选曲目：
+        \(candidateList)
+        """
+
+        do {
+            let generation = try await generationProvider.generateText(
+                request: TextGenerationRequest(
+                    systemPrompt: systemPrompt,
+                    userPrompt: userPrompt,
+                    temperature: 0.1,
+                    maxOutputTokens: 180
+                ),
+                configuration: configuration,
+                apiKey: apiKey
+            )
+            guard
+                let payload: RagTrackPickPayload = decodeLLMJSONPayload(from: generation.outputText),
+                let persistentID = payload.persistentID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                !persistentID.isEmpty,
+                (payload.confidence ?? 0.5) >= 0.35
+            else {
+                return nil
+            }
+            return candidates.first(where: { $0.track.persistentID == persistentID })?.track
+        } catch {
+            return nil
+        }
     }
 
     private static func fetchLibraryCatalog() async -> MagicianProcessResult {
@@ -992,57 +1259,8 @@ struct V4MusicControlTool: V4Tool {
             }
     }
 
-    private static func bestTrackMatch(for query: String, tracks: [LibraryTrackRecord]) -> LibraryTrackRecord? {
-        let candidates = magicianMusicSearchQueries(from: query)
-        let normalizedCandidates = candidates
-            .map(normalizedMusicMatchText)
-            .filter { !$0.isEmpty }
-        guard !normalizedCandidates.isEmpty else {
-            return nil
-        }
-
-        var best: (track: LibraryTrackRecord, score: Int)?
-        for track in tracks {
-            let normalizedName = normalizedMusicMatchText(track.name)
-            guard !normalizedName.isEmpty else {
-                continue
-            }
-            for candidate in normalizedCandidates {
-                let score = matchScore(candidate: candidate, normalizedName: normalizedName)
-                guard score > 0 else {
-                    continue
-                }
-                if let currentBest = best {
-                    if score > currentBest.score {
-                        best = (track, score)
-                    }
-                } else {
-                    best = (track, score)
-                }
-            }
-        }
-        guard let best, best.score >= 65 else {
-            return nil
-        }
-        return best.track
-    }
-
-    private static func matchScore(candidate: String, normalizedName: String) -> Int {
-        if normalizedName == candidate {
-            return 100
-        }
-        if normalizedName.contains(candidate) {
-            return 85
-        }
-        let terms = candidateTerms(from: candidate)
-        if !terms.isEmpty, terms.allSatisfy({ normalizedName.contains($0) }) {
-            return 70
-        }
-        return 0
-    }
-
-    private static func candidateTerms(from value: String) -> [String] {
-        value
+    private static func queryParts(from normalized: String) -> [String] {
+        normalized
             .split(separator: "的")
             .map(String.init)
             .filter { $0.count >= 2 }
