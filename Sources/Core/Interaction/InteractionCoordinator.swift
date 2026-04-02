@@ -2125,6 +2125,8 @@ final class InteractionCoordinator {
         }
 
         switch lastTool {
+        case "local.md.create":
+            return "本地 md 文档已创建，结果文本已同步到剪贴板。"
         case "apple.notes.create":
             return "备忘录操作已完成，结果文本已同步到剪贴板。"
         case "apple.calendar.create":

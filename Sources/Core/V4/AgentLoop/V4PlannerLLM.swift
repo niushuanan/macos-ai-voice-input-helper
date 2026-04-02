@@ -68,7 +68,8 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
         }
 
         do {
-            return try await semanticRoutePlan(for: request, modelContext: modelContext)
+            let plan = try await semanticRoutePlan(for: request, modelContext: modelContext)
+            return enforceSelectionFlow(for: request, plan: plan)
         } catch {
             return V4Plan(
                 steps: [],
@@ -107,7 +108,7 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
 
         channel 枚举：
         - text_transform
-        - notes
+        - local_markdown
         - mail
         - calendar
         - music
@@ -127,15 +128,16 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
         - 第一步必须先做语义判定并映射 channel，再产出 step。
         - 只规划下一步，不要一次规划完整长链。
         - 已经完成的 step 不要重复做，除非上一步失败且明确需要重试。
-        - 如果用户想“整理后再写备忘录 / 发邮件 / 建日程”，优先先走 text.transform，再进入外部 tool。
-        - 如果当前已有一段整理好的 latestOutput，就优先拿它进入 mail / notes / calendar，而不是再重复改写。
+        - 只要存在选中文本，优先先走 text.transform；如果命令不明确，默认做“中文总结 + 要点列表”。
+        - 当任务是“处理文本并保存本地”时，先 text.transform，再 local.md.create。
+        - 如果当前已有一段整理好的 latestOutput，就优先拿它进入 local.md.create / mail / calendar，而不是再重复改写。
         - 如果时间、对象、目标明显不够，优先 ask_user，不要硬猜。
         - 如果一句话混了互相独立的多个外部动作，也优先 ask_user。
         - 如果最新一步已经满足用户目标，直接 finish。
 
         可用 tool：
         - text.transform: 把当前文本按指令改写、整理、提炼、翻译。
-        - apple.notes.create: 备忘录动作（create / append / find）。
+        - local.md.create: 新建本地 Markdown 文档，固定落到项目根目录下的 md 文件夹。
         - apple.mail.compose: 写邮件、发邮件、生成草稿。
         - apple.calendar.create: 新建 Calendar 日程。
         - apple.music.control: 打开音乐、播放、暂停、切歌。
@@ -188,6 +190,78 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
 
         只输出 JSON。
         """
+    }
+
+    private func enforceSelectionFlow(
+        for request: V4RunRequest,
+        plan: V4Plan
+    ) -> V4Plan {
+        guard request.lane == .selectionRewrite else {
+            return plan
+        }
+        let trimmedSelection = request.selectionText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedSelection.isEmpty else {
+            return plan
+        }
+
+        let hasTransformStep = request.stepRecords.contains {
+            $0.toolName == "text.transform" && $0.status == .completed
+        }
+        let hasLocalMDStep = request.stepRecords.contains {
+            $0.toolName == "local.md.create" && $0.status == .completed
+        }
+        if hasLocalMDStep {
+            return plan
+        }
+
+        if !hasTransformStep {
+            if plan.steps.first?.toolName == "text.transform" {
+                return plan
+            }
+            return makeSingleStepPlan(
+                for: request,
+                toolName: "text.transform",
+                title: "文字处理",
+                inputSummary: transformInstruction(command: request.inputText)
+            )
+        }
+
+        if plan.steps.first?.toolName == "local.md.create" {
+            return plan
+        }
+
+        return makeSingleStepPlan(
+            for: request,
+            toolName: "local.md.create",
+            title: "本地文档归档",
+            inputSummary: "将上一轮文字处理结果写入本地 md 文档。"
+        )
+    }
+
+    private func transformInstruction(command: String) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "请总结选中文本，输出中文摘要和要点列表。"
+        }
+        if looksLikeGenericSelectionCommand(trimmed) {
+            return "请总结选中文本，输出中文摘要和要点列表。"
+        }
+        return trimmed
+    }
+
+    private func looksLikeGenericSelectionCommand(_ command: String) -> Bool {
+        let lowered = command.lowercased()
+        let genericCommands = [
+            "skill",
+            "写进备忘录",
+            "写入备忘录",
+            "写进文档",
+            "写入文档",
+            "保存",
+            "存本地",
+            "放进文档"
+        ]
+        return genericCommands.contains { lowered.contains($0) }
     }
 
     private func makeSingleStepPlan(
@@ -325,6 +399,8 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
         switch toolName {
         case "text.transform":
             return "文字处理"
+        case "local.md.create":
+            return "本地文档归档"
         case "apple.notes.create":
             return "处理备忘录"
         case "apple.mail.compose":
@@ -359,7 +435,7 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
 
     private static let allowedToolNames: Set<String> = [
         "text.transform",
-        "apple.notes.create",
+        "local.md.create",
         "apple.mail.compose",
         "apple.calendar.create",
         "apple.music.control",

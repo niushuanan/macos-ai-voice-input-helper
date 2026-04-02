@@ -256,6 +256,17 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
                 "text": .string(preferredText),
                 "instruction": .string(step.inputSummary.nilIfEmpty ?? request.goalSummary)
             ]
+        case "local.md.create":
+            let command = step.inputSummary.nilIfEmpty ?? request.inputText
+            var arguments: V4ToolArguments = [
+                "command": .string(command),
+                "title": .string(defaultNoteTitle(from: preferredText)),
+                "body": .string(preferredText)
+            ]
+            if let source = selectionText?.nilIfEmpty {
+                arguments["sourceText"] = .string(source)
+            }
+            return arguments
         case "apple.notes.create":
             let command = step.inputSummary.nilIfEmpty ?? request.inputText
             let action = inferredNotesAction(from: step)

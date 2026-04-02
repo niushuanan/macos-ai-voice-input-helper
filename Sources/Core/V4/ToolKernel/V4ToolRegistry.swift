@@ -59,6 +59,7 @@ struct V4ToolRegistry: V4ToolKernelRegistry {
                 modelSlotManager: modelSlotManager,
                 generationProvider: resolvedGenerationProvider
             ),
+            V4LocalMarkdownTool(),
             V4ShellCommandTool(allowlist: shellAllowlist),
             V4AppleScriptTool(),
             V4CalendarCreateTool(),
@@ -106,6 +107,14 @@ struct V4ToolRegistry: V4ToolKernelRegistry {
                 retryPolicy: .transientSingleRetry,
                 evidenceRequirement: .summary,
                 keywords: ["text", "改写", "翻译", "polish", "transform"]
+            )
+        case "local.md.create":
+            return .derived(
+                from: spec,
+                domain: "local_md",
+                retryPolicy: .none,
+                evidenceRequirement: .structured(requiredKeys: ["path"]),
+                keywords: ["local.md.create", "markdown", "md", "本地", "归档"]
             )
         case "shell.command.run":
             return .derived(

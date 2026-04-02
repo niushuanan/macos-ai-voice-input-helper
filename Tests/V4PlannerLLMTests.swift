@@ -260,6 +260,83 @@ final class V4PlannerLLMTests: XCTestCase {
         XCTAssertEqual(plan.terminalDecision?.failureCode, .modelUnavailable)
     }
 
+    func testPlannerEnforcesTextTransformAsFirstStepWhenSelectionExists() async throws {
+        let planner = V4PlannerLLM(
+            generationProvider: StubGenerationProvider(
+                output: #"{"action":"step","step":{"toolName":"local.md.create","title":"本地文档归档","inputSummary":"直接保存"}}"#
+            ),
+            modelResolver: { _ in
+                V4PlannerLLM.ModelContext(
+                    configuration: TextGenerationProviderConfiguration(
+                        profileID: "planner",
+                        providerType: .openAICompatible,
+                        providerName: "Stub",
+                        modelName: "stub-model",
+                        baseURL: URL(string: "https://example.com")!
+                    ),
+                    apiKey: "test-key"
+                )
+            }
+        )
+
+        let request = V4RunRequest(
+            lane: .selectionRewrite,
+            goalSummary: "写进文档",
+            inputText: "写进文档",
+            selectionText: "这是选中的段落"
+        )
+
+        let plan = try await planner.plan(for: request)
+
+        XCTAssertEqual(plan.steps.count, 1)
+        XCTAssertEqual(plan.steps.first?.toolName, "text.transform")
+    }
+
+    func testPlannerEnforcesLocalMarkdownAfterTransform() async throws {
+        let planner = V4PlannerLLM(
+            generationProvider: StubGenerationProvider(
+                output: #"{"action":"finish","message":"已完成"}"#
+            ),
+            modelResolver: { _ in
+                V4PlannerLLM.ModelContext(
+                    configuration: TextGenerationProviderConfiguration(
+                        profileID: "planner",
+                        providerType: .openAICompatible,
+                        providerName: "Stub",
+                        modelName: "stub-model",
+                        baseURL: URL(string: "https://example.com")!
+                    ),
+                    apiKey: "test-key"
+                )
+            }
+        )
+
+        let request = V4RunRequest(
+            lane: .selectionRewrite,
+            goalSummary: "总结",
+            inputText: "总结",
+            selectionText: "这是选中的段落",
+            stepRecords: [
+                V4StepRecord(
+                    traceID: V4TraceID(rawValue: "trace"),
+                    lane: .selectionRewrite,
+                    goalSummary: "总结",
+                    title: "文字处理",
+                    status: .completed,
+                    toolName: "text.transform",
+                    inputSummary: "总结",
+                    outputSummary: "这是总结后的内容"
+                )
+            ]
+        )
+
+        let plan = try await planner.plan(for: request)
+
+        XCTAssertEqual(plan.steps.count, 1)
+        XCTAssertEqual(plan.steps.first?.toolName, "local.md.create")
+        XCTAssertNil(plan.terminalDecision)
+    }
+
     func testPlannerFallsBackWhenModelUnavailableForResearchThenNotesFlow() async throws {
         let provider = TrackingPlannerGenerationProvider(output: #"{"action":"fail","message":"unused"}"#)
         let planner = V4PlannerLLM(
