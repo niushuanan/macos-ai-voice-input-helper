@@ -50,6 +50,13 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
             return try await fallbackPlanner.plan(for: request)
         }
 
+        if let deterministicNotesPlan = deterministicSelectionNotesPlan(
+            for: request,
+            trimmedInput: trimmedInput
+        ) {
+            return deterministicNotesPlan
+        }
+
         guard let modelContext = try await modelResolver(request) else {
             if let selectionFallback = selectionToNotesFallbackPlan(for: request, trimmedInput: trimmedInput) {
                 return selectionFallback
@@ -65,6 +72,79 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
             }
             return try await fallbackPlanner.plan(for: request)
         }
+    }
+
+    private func deterministicSelectionNotesPlan(
+        for request: V4RunRequest,
+        trimmedInput: String
+    ) -> V4Plan? {
+        guard request.lane == .selectionRewrite else {
+            return nil
+        }
+        guard V4RulePlannerHeuristics.hasNotesIntent(trimmedInput) else {
+            return nil
+        }
+
+        let hasSelection = request.selectionText?.trimmedNilIfEmpty != nil
+        let hasTransform = V4RulePlannerHeuristics.hasTransformIntent(trimmedInput)
+        let findIntent = V4RulePlannerHeuristics.hasNoteFindIntent(trimmedInput)
+        let selectionDependentTransform = V4RulePlannerHeuristics.hasSelectionDependentTransformIntent(trimmedInput)
+        let completedCount = request.stepRecords.count
+
+        if completedCount == 0 {
+            if !hasSelection && selectionDependentTransform {
+                return V4Plan(
+                    steps: [],
+                    terminalDecision: V4LoopDecision(
+                        action: .askUser,
+                        message: "请先选中要处理的文本，再执行翻译/改写并写入备忘录。"
+                    )
+                )
+            }
+
+            if hasTransform {
+                return makeSingleStepPlan(
+                    for: request,
+                    toolName: "text.transform",
+                    title: "翻译并整理文本",
+                    inputSummary: trimmedInput
+                )
+            }
+
+            if !hasSelection && !findIntent {
+                return V4Plan(
+                    steps: [],
+                    terminalDecision: V4LoopDecision(
+                        action: .askUser,
+                        message: "请先选中要写入备忘录的文本。"
+                    )
+                )
+            }
+
+            return makeSingleStepPlan(
+                for: request,
+                toolName: "apple.notes.create",
+                title: "写入备忘录",
+                inputSummary: trimmedInput
+            )
+        }
+
+        if hasTransform, completedCount == 1, request.stepRecords.last?.toolName == "text.transform" {
+            return makeSingleStepPlan(
+                for: request,
+                toolName: "apple.notes.create",
+                title: "写入备忘录",
+                inputSummary: trimmedInput
+            )
+        }
+
+        return V4Plan(
+            steps: [],
+            terminalDecision: V4LoopDecision(
+                action: .finish,
+                message: "已完成当前任务。"
+            )
+        )
     }
 
     private func semanticRoutePlan(

@@ -1939,15 +1939,11 @@ final class InteractionCoordinator {
         audioDurationSeconds: Double,
         appliedSkills: [SkillRuleID]
     ) async {
-        let plannerCommand = selectionAwarePlannerCommand(
-            spokenInstruction: spokenInstruction,
-            selectionText: selectionSnapshot?.selectedText
-        )
         let request = V4RunRequest(
             traceID: V4TraceID(rawValue: traceID),
             lane: .selectionRewrite,
-            goalSummary: plannerCommand,
-            inputText: plannerCommand,
+            goalSummary: spokenInstruction.trimmingCharacters(in: .whitespacesAndNewlines),
+            inputText: spokenInstruction,
             appName: fallbackFocusContext.appName,
             bundleID: fallbackFocusContext.bundleID,
             selectionText: selectionSnapshot?.selectedText,
@@ -2052,24 +2048,6 @@ final class InteractionCoordinator {
             v4SessionStoreBridge.applyRunOutcome(outcome, to: sessionStore)
             currentTraceID = nil
         }
-    }
-
-    private func selectionAwarePlannerCommand(
-        spokenInstruction: String,
-        selectionText: String?
-    ) -> String {
-        let normalizedInstruction = spokenInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedSelection = selectionText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !normalizedSelection.isEmpty else {
-            return normalizedInstruction
-        }
-        let clippedSelection = String(normalizedSelection.prefix(1_200))
-        return """
-        \(normalizedInstruction)
-
-        [SELECTED_TEXT]
-        \(clippedSelection)
-        """
     }
 
     private func v4TextWritebackMessage(

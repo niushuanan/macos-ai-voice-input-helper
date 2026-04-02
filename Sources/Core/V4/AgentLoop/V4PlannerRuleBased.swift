@@ -143,12 +143,25 @@ enum V4RulePlannerHeuristics {
 
     static func shouldUseTwoStepNoteFlow(command: String) -> Bool {
         let normalized = command.lowercased()
-        let hasNotesIntent = containsAny(
-            normalized,
-            tokens: noteIntentTokens
-        )
+        let hasNotesIntent = containsAny(normalized, tokens: noteIntentTokens)
         let hasTransformIntent = containsAny(normalized, tokens: transformIntentTokens)
         return hasNotesIntent && hasTransformIntent
+    }
+
+    static func hasNotesIntent(_ command: String) -> Bool {
+        containsAny(command.lowercased(), tokens: noteIntentTokens)
+    }
+
+    static func hasTransformIntent(_ command: String) -> Bool {
+        containsAny(command.lowercased(), tokens: transformIntentTokens)
+    }
+
+    static func hasSelectionDependentTransformIntent(_ command: String) -> Bool {
+        containsAny(command.lowercased(), tokens: selectionDependentTransformTokens)
+    }
+
+    static func hasNoteFindIntent(_ command: String) -> Bool {
+        containsAny(command.lowercased(), tokens: noteFindIntentTokens)
     }
 
     private static let noteIntentTokens: [String] = [
@@ -163,6 +176,14 @@ enum V4RulePlannerHeuristics {
         "调研", "研究", "思考", "分析", "原创", "写一篇", "文章", "草稿",
         "经济", "趋势", "现状", "数据", "报告", "上半年", "下半年", "同比", "环比",
         "gdp", "cpi", "pmi", "进出口"
+    ]
+
+    private static let selectionDependentTransformTokens: [String] = [
+        "翻译", "润色", "改写", "重写", "总结", "摘要", "提炼", "压缩", "扩写", "美化", "改成", "改为"
+    ]
+
+    private static let noteFindIntentTokens: [String] = [
+        "查找", "查询", "搜索", "find", "search", "lookup"
     ]
 
     private static func containsAny(_ value: String, tokens: [String]) -> Bool {
