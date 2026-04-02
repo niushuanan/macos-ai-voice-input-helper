@@ -104,7 +104,7 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
         可用 tool：
         - text.transform: 把当前文本按指令改写、整理、提炼、翻译。
         - apple.mail.compose: 写邮件、发邮件、生成草稿。
-        - apple.notes.create: 新建备忘录。
+        - apple.notes.create: 备忘录动作（create / append / find）。
         - apple.calendar.create: 新建 Calendar 日程。
         - apple.music.control: 打开音乐、播放、暂停、切歌。
         - feishu.cli: 飞书相关动作。
@@ -370,7 +370,7 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
         case "apple.mail.compose":
             return "整理邮件"
         case "apple.notes.create":
-            return "写入备忘录"
+            return "处理备忘录"
         case "apple.calendar.create":
             return "创建日程"
         case "apple.music.control":

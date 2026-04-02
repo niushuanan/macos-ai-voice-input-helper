@@ -136,8 +136,8 @@ struct V4ToolRegistry: V4ToolKernelRegistry {
                 from: spec,
                 domain: "notes",
                 retryPolicy: .transientSingleRetry,
-                evidenceRequirement: .structured(requiredKeys: ["noteID"]),
-                keywords: ["notes.create_note", "备忘录", "Notes"]
+                evidenceRequirement: .structured(requiredKeys: ["action"]),
+                keywords: ["notes.create_note", "notes.append_note", "notes.find_note", "备忘录", "Notes"]
             )
         case "apple.mail.compose":
             return .derived(

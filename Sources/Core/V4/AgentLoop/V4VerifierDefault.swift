@@ -115,13 +115,27 @@ struct V4VerifierDefault: V4Verifier {
 
         case "apple.notes.create":
             let lowered = latestToolResult.evidenceSummary.lowercased()
-            let hasNoteEvidence = lowered.contains("note_id=") || lowered.contains("x-coredata://")
-            if !hasNoteEvidence {
-                return V4VerificationResult(
-                    status: .failed,
-                    message: "备忘录动作缺少结构化证据，已判定失败。",
-                    evidenceSummary: mergedEvidence
-                )
+            let fields = parseEvidenceFields(from: latestToolResult.evidenceSummary)
+            let action = (fields["action"] ?? "create").lowercased()
+            switch action {
+            case "find":
+                let hasMatched = fields["matched"] != nil || lowered.contains("matched=")
+                if !hasMatched {
+                    return V4VerificationResult(
+                        status: .failed,
+                        message: "备忘录检索缺少命中证据，已判定失败。",
+                        evidenceSummary: mergedEvidence
+                    )
+                }
+            default:
+                let hasNoteEvidence = lowered.contains("note_id=") || lowered.contains("x-coredata://")
+                if !hasNoteEvidence {
+                    return V4VerificationResult(
+                        status: .failed,
+                        message: "备忘录动作缺少结构化证据，已判定失败。",
+                        evidenceSummary: mergedEvidence
+                    )
+                }
             }
             return nil
 

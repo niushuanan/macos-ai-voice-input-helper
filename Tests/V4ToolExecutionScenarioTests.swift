@@ -403,7 +403,38 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         )
 
         XCTAssertTrue((output.outputText ?? "").contains("演练完成"))
-        XCTAssertEqual(output.evidenceSummary, "apple.notes.create dry_run=true")
+        XCTAssertEqual(output.evidenceSummary, "apple.notes.create action=create; dry_run=true")
+    }
+
+    func testAppleNotesAppendDryRun() async throws {
+        let tool = V4AppleNotesTool()
+        let output = try await tool.execute(
+            arguments: [
+                "command": .string("把这段补充到周会纪要 --dry-run"),
+                "action": .string("append"),
+                "targetTitle": .string("周会纪要"),
+                "body": .string("补充内容")
+            ],
+            context: makeContext(toolName: "apple.notes.create")
+        )
+
+        XCTAssertEqual(output.evidenceSummary, "apple.notes.create action=append; dry_run=true")
+        XCTAssertEqual(output.rawPayload?.objectValue?["action"]?.stringValue, "append")
+    }
+
+    func testAppleNotesFindDryRun() async throws {
+        let tool = V4AppleNotesTool()
+        let output = try await tool.execute(
+            arguments: [
+                "command": .string("查找项目周报 --dry-run"),
+                "action": .string("find"),
+                "query": .string("项目周报")
+            ],
+            context: makeContext(toolName: "apple.notes.create")
+        )
+
+        XCTAssertEqual(output.evidenceSummary, "apple.notes.create action=find; dry_run=true")
+        XCTAssertEqual(output.rawPayload?.objectValue?["action"]?.stringValue, "find")
     }
 
     func testCalendarCreateWithTimeParseFallback() async {

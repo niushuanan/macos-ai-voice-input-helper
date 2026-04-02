@@ -2,16 +2,25 @@ import AppKit
 import Foundation
 
 final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
+    private enum Action: String {
+        case create
+        case append
+        case find
+    }
+
     let spec = V4ToolSpec(
         toolName: "apple.notes.create",
-        displayName: "写入备忘录",
-        summary: "在 Apple Notes 创建新笔记，并返回可核验的证据。",
+        displayName: "备忘录操作",
+        summary: "在 Apple Notes 创建、追加或检索备忘录，并返回可核验证据。",
         supportedLanes: V4Lane.allCases,
         inputSchemaVersion: "v1",
         inputSchema: V4ToolInputSchema(
             fields: [
-                V4ToolInputField(name: "title", kind: .string, summary: "笔记标题"),
-                V4ToolInputField(name: "body", kind: .string, summary: "笔记正文")
+                V4ToolInputField(name: "action", kind: .string, isRequired: false, summary: "create / append / find"),
+                V4ToolInputField(name: "title", kind: .string, isRequired: false, summary: "笔记标题（create 或 append）"),
+                V4ToolInputField(name: "targetTitle", kind: .string, isRequired: false, summary: "目标标题（append）"),
+                V4ToolInputField(name: "body", kind: .string, isRequired: false, summary: "笔记正文（create / append）"),
+                V4ToolInputField(name: "query", kind: .string, isRequired: false, summary: "检索关键词（find）")
             ]
         ),
         requiresPermission: true,
@@ -27,42 +36,77 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
         arguments: V4ToolArguments,
         context _: V4ToolExecutionContext
     ) async -> V4ToolSemanticValidationFailure? {
-        let title = arguments.string(for: "title")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let body = arguments.string(for: "body")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-        if title.isEmpty {
-            return V4ToolSemanticValidationFailure(
-                messageForUser: "`title` 不能为空。",
-                messageForDebug: "title empty"
-            )
+        switch resolvedAction(from: arguments) {
+        case .create:
+            let body = arguments.string(for: "body")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if body.isEmpty {
+                return V4ToolSemanticValidationFailure(
+                    messageForUser: "`body` 不能为空。",
+                    messageForDebug: "notes create body empty"
+                )
+            }
+            return nil
+        case .append:
+            let targetTitle = resolveTargetTitle(from: arguments)
+            let body = arguments.string(for: "body")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if targetTitle.isEmpty {
+                return V4ToolSemanticValidationFailure(
+                    messageForUser: "追加备忘录需要提供目标标题（`targetTitle` 或 `title`）。",
+                    messageForDebug: "notes append target title empty"
+                )
+            }
+            if body.isEmpty {
+                return V4ToolSemanticValidationFailure(
+                    messageForUser: "追加备忘录需要 `body`。",
+                    messageForDebug: "notes append body empty"
+                )
+            }
+            return nil
+        case .find:
+            let query = resolveQuery(from: arguments)
+            if query.isEmpty {
+                return V4ToolSemanticValidationFailure(
+                    messageForUser: "检索备忘录需要 `query` 或 `title`。",
+                    messageForDebug: "notes find query empty"
+                )
+            }
+            return nil
         }
-        if body.isEmpty {
-            return V4ToolSemanticValidationFailure(
-                messageForUser: "`body` 不能为空。",
-                messageForDebug: "body empty"
-            )
-        }
-        return nil
     }
 
     func execute(
         arguments: V4ToolArguments,
         context _: V4ToolExecutionContext
     ) async throws -> V4ToolExecutionOutput {
-        let title = arguments.string(for: "title") ?? ""
-        let body = arguments.string(for: "body") ?? ""
+        let action = resolvedAction(from: arguments)
+        let body = arguments.string(for: "body")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = resolveCreateTitle(from: arguments, body: body)
+        let targetTitle = resolveTargetTitle(from: arguments)
+        let query = resolveQuery(from: arguments)
         let command = arguments.string(for: "command") ?? ""
 
         if magicianIsDryRunCommand(command) {
+            let summary: String
+            switch action {
+            case .create:
+                summary = "演练完成：将创建 Notes。"
+            case .append:
+                summary = "演练完成：将追加 Notes。"
+            case .find:
+                summary = "演练完成：将检索 Notes。"
+            }
             return V4ToolExecutionOutput(
-                outputText: "演练完成：将写入 Notes。",
-                evidenceSummary: "apple.notes.create dry_run=true",
+                outputText: summary,
+                evidenceSummary: "apple.notes.create action=\(action.rawValue); dry_run=true",
                 rawPayload: .object(
                     [
+                        "action": .string(action.rawValue),
                         "title": .string(title),
+                        "targetTitle": .string(targetTitle),
+                        "query": .string(query),
                         "bodyPreview": .string(String(body.prefix(80))),
                         "dryRun": .boolean(true),
-                        "summary": .string("演练完成：将写入 Notes。")
+                        "summary": .string(summary)
                     ]
                 )
             )
@@ -77,11 +121,128 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
             )
         }
 
+        switch action {
+        case .create:
+            let chain = await createNoteChain(title: title, body: body)
+            if
+                let chain,
+                let evidence = await resolveNoteEvidence(title: title, body: body, primaryEvidence: chain.processResult.stdout)
+            {
+                return makeMutatingOutput(
+                    action: .create,
+                    title: title,
+                    body: body,
+                    evidence: evidence,
+                    layer: chain.layer,
+                    attempts: chain.attempts
+                )
+            }
+            throw makeFailureError(chain: chain)
+
+        case .append:
+            let chain = await runMagicianAutomationChain(
+                [
+                    MagicianAutomationStep(
+                        layer: .appleScript,
+                        run: { await self.appendNoteViaAppleScript(title: targetTitle, body: body) },
+                        success: { $0.exitCode == 0 }
+                    )
+                ]
+            )
+
+            if
+                let chain,
+                let evidence = await resolveNoteEvidence(title: targetTitle, body: body, primaryEvidence: chain.processResult.stdout)
+            {
+                return makeMutatingOutput(
+                    action: .append,
+                    title: targetTitle,
+                    body: body,
+                    evidence: evidence,
+                    layer: chain.layer,
+                    attempts: chain.attempts
+                )
+            }
+            throw makeFailureError(chain: chain)
+
+        case .find:
+            let process = await findNotesViaAppleScript(query: query)
+            guard process.exitCode == 0 else {
+                throw errorCatalog.executionFailure(
+                    toolID: spec.toolID,
+                    userMessage: "检索 Notes 失败，请稍后再试。",
+                    debugMessage: process.detail,
+                    recoverAction: "retry_command",
+                    isRetryable: false
+                )
+            }
+            let matches = process.stdout
+                .split(separator: "\n")
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            let summary = matches.isEmpty
+                ? "未找到匹配的 Notes。"
+                : "检索完成，共找到 \(matches.count) 条 Notes。"
+            let preview = matches.prefix(8)
+            let evidence = "apple.notes.create action=find; query=\(query); matched=\(matches.count)"
+            return V4ToolExecutionOutput(
+                outputText: summary,
+                evidenceSummary: evidence,
+                rawPayload: .object(
+                    [
+                        "action": .string(Action.find.rawValue),
+                        "query": .string(query),
+                        "matchedCount": .number(Double(matches.count)),
+                        "titles": .array(preview.map(V4ToolValue.string)),
+                        "summary": .string(summary)
+                    ]
+                )
+            )
+        }
+    }
+
+    private func resolvedAction(from arguments: V4ToolArguments) -> Action {
+        let raw = arguments.string(for: "action")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        return Action(rawValue: raw) ?? .create
+    }
+
+    private func resolveCreateTitle(from arguments: V4ToolArguments, body: String) -> String {
+        if let explicit = arguments.string(for: "title")?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
+            return explicit
+        }
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "PulseType 速记"
+        }
+        return String(trimmed.prefix(40))
+    }
+
+    private func resolveTargetTitle(from arguments: V4ToolArguments) -> String {
+        if let explicit = arguments.string(for: "targetTitle")?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
+            return explicit
+        }
+        if let fallback = arguments.string(for: "title")?.trimmingCharacters(in: .whitespacesAndNewlines), !fallback.isEmpty {
+            return fallback
+        }
+        return ""
+    }
+
+    private func resolveQuery(from arguments: V4ToolArguments) -> String {
+        if let explicit = arguments.string(for: "query")?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
+            return explicit
+        }
+        if let fallback = arguments.string(for: "title")?.trimmingCharacters(in: .whitespacesAndNewlines), !fallback.isEmpty {
+            return fallback
+        }
+        return ""
+    }
+
+    private func createNoteChain(title: String, body: String) async -> MagicianAutomationChainResult? {
         let shortcutName = MagicianCreateNoteShortcutSupport().shortcutName
         let shortcutPayload = """
         {"title":"\(title.replacingOccurrences(of: "\"", with: "\\\""))","body":"\(body.replacingOccurrences(of: "\"", with: "\\\""))"}
         """
-        let chain = await runMagicianAutomationChain(
+        return await runMagicianAutomationChain(
             [
                 MagicianAutomationStep(
                     layer: .shortcuts,
@@ -101,46 +262,37 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
                 )
             ]
         )
+    }
 
-        if
-            let chain,
-            let evidence = await resolveNoteEvidence(title: title, body: body, primaryEvidence: chain.processResult.stdout)
-        {
-            return makeOutput(
-                title: title,
-                body: body,
-                evidence: evidence,
-                layer: chain.layer,
-                attempts: chain.attempts
-            )
-        }
-
+    private func makeFailureError(chain: MagicianAutomationChainResult?) -> V4ToolError {
         let failureDebug = chain.map { magicianAutomationDebugSummary(from: $0.attempts) } ?? "notes chain empty"
         let recoverAction = magicianLooksLikeAutomationPermissionDenied(failureDebug)
             ? "open_notes_automation_permission"
             : "open_notes_app"
-        throw errorCatalog.executionFailure(
+        return errorCatalog.executionFailure(
             toolID: spec.toolID,
-            userMessage: "写入 Notes 失败，请检查自动化权限后再试。",
+            userMessage: "Notes 操作失败，请检查自动化权限后再试。",
             debugMessage: failureDebug,
             recoverAction: recoverAction,
             isRetryable: false
         )
     }
 
-    private func makeOutput(
+    private func makeMutatingOutput(
+        action: Action,
         title: String,
         body: String,
         evidence: String,
         layer: MagicianAutomationLayer,
         attempts: [MagicianAutomationAttempt]
     ) -> V4ToolExecutionOutput {
-        let summary = "已写入 Notes。"
+        let summary = action == .append ? "已追加 Notes。" : "已写入 Notes。"
         return V4ToolExecutionOutput(
             outputText: summary,
-            evidenceSummary: "apple.notes.create note_id=\(evidence)",
+            evidenceSummary: "apple.notes.create action=\(action.rawValue); note_id=\(evidence)",
             rawPayload: .object(
                 [
+                    "action": .string(action.rawValue),
                     "title": .string(title),
                     "bodyPreview": .string(String(body.prefix(80))),
                     "noteID": .string(evidence),
@@ -178,6 +330,69 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
                 "end run"
             ],
             arguments: [title, body]
+        )
+    }
+
+    private func appendNoteViaAppleScript(
+        title: String,
+        body: String
+    ) async -> MagicianProcessResult {
+        await runOsaScript(
+            lines: [
+                "on run argv",
+                "set noteTitle to item 1 of argv",
+                "set noteBody to item 2 of argv",
+                "tell application \"Notes\"",
+                "set targetNote to missing value",
+                "repeat with targetAccount in accounts",
+                "repeat with targetFolder in folders of targetAccount",
+                "repeat with currentNote in notes of targetFolder",
+                "if (name of currentNote as text) is noteTitle then",
+                "set targetNote to currentNote",
+                "exit repeat",
+                "end if",
+                "end repeat",
+                "if targetNote is not missing value then exit repeat",
+                "end repeat",
+                "if targetNote is not missing value then exit repeat",
+                "end repeat",
+                "if targetNote is missing value then error \"note_not_found\"",
+                "set body of targetNote to (body of targetNote) & return & noteBody",
+                "try",
+                "return (id of targetNote) as string",
+                "on error",
+                "return noteTitle",
+                "end try",
+                "end tell",
+                "end run"
+            ],
+            arguments: [title, body]
+        )
+    }
+
+    private func findNotesViaAppleScript(query: String) async -> MagicianProcessResult {
+        await runOsaScript(
+            lines: [
+                "on run argv",
+                "set noteQuery to item 1 of argv",
+                "tell application \"Notes\"",
+                "set outputLines to {}",
+                "repeat with targetAccount in accounts",
+                "repeat with targetFolder in folders of targetAccount",
+                "repeat with currentNote in notes of targetFolder",
+                "set noteName to name of currentNote as text",
+                "set noteBody to body of currentNote as text",
+                "if noteName contains noteQuery or noteBody contains noteQuery then",
+                "set end of outputLines to noteName",
+                "end if",
+                "end repeat",
+                "end repeat",
+                "end repeat",
+                "return outputLines as text",
+                "end tell",
+                "end run"
+            ],
+            arguments: [query]
         )
     }
 

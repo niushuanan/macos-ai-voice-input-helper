@@ -63,24 +63,6 @@
     "verifyPolicy": "note_created"
   },
   {
-    "id": "apple.notes.append_note",
-    "featureID": "create_note",
-    "domain": "apple.notes",
-    "intentScope": "追加内容到备忘录",
-    "inputSchema": "{\"title\":string,\"append_text\":string}",
-    "riskNote": "会修改系统备忘录",
-    "verifyPolicy": "note_body_appended"
-  },
-  {
-    "id": "apple.notes.find_note",
-    "featureID": "create_note",
-    "domain": "apple.notes",
-    "intentScope": "检索备忘录",
-    "inputSchema": "{\"title\":string}",
-    "riskNote": "只读",
-    "verifyPolicy": "note_query_non_empty"
-  },
-  {
     "id": "apple.mail.compose",
     "featureID": "compose_email_draft",
     "domain": "apple.mail",

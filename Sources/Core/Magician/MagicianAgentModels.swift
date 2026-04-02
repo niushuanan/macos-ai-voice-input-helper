@@ -1703,13 +1703,7 @@ private final class MagicianSkillRouterV3 {
         }
 
         if containsAny(normalized, tokens: ["备忘录", "note", "笔记"]) {
-            if containsAny(normalized, tokens: ["追加", "补充", "加到", "append"]) {
-                appendIfExists("apple.notes.append_note")
-            } else if containsAny(normalized, tokens: ["查找", "查询", "搜索", "find", "search"]) {
-                appendIfExists("apple.notes.find_note")
-            } else {
-                appendIfExists("apple.notes.create_note")
-            }
+            appendIfExists("apple.notes.create_note")
         }
 
         if containsAny(normalized, tokens: ["翻译", "润色", "改写", "总结", "提炼", "rewrite", "summarize", "translate"]) {
@@ -1896,12 +1890,6 @@ private final class MagicianSkillRuntimeV3 {
         }
         if skillID == "apple.calendar.find_event" {
             return try await findEventSkill(input: input, request: request)
-        }
-        if skillID == "apple.notes.append_note" {
-            return try await appendNoteSkill(input: input, request: request)
-        }
-        if skillID == "apple.notes.find_note" {
-            return try await findNoteSkill(input: input, request: request)
         }
         if skillID == "apple.mail.resolve_recipient" {
             return try resolveRecipientSkill(input: input, request: request)
@@ -2542,109 +2530,6 @@ private final class MagicianSkillRuntimeV3 {
             ),
             skillID: "apple.calendar.find_event",
             evidence: "matched=\(events.count)"
-        )
-    }
-
-    private func appendNoteSkill(
-        input: [String: Any],
-        request: MagicianAgentRequest
-    ) async throws -> MagicianSkillInvokeResultV3 {
-        let title = stringValue(input["title"]) ?? ""
-        let appendText = stringValue(input["append_text"]) ?? request.selectionSnapshot?.selectedText ?? ""
-        guard !title.isEmpty, !appendText.isEmpty else {
-            throw MagicianError(
-                code: .toolExecutionFailed,
-                userMessage: "追加备忘录需要 title 和 append_text。",
-                debugMessage: "append note missing params",
-                recoverAction: "retry_command"
-            )
-        }
-        let script = [
-            "on run argv",
-            "set noteTitle to item 1 of argv",
-            "set noteAppend to item 2 of argv",
-            "tell application \"Notes\"",
-            "set targetNote to missing value",
-            "repeat with f in folders",
-            "repeat with n in notes of f",
-            "if (name of n as text) is noteTitle then",
-            "set targetNote to n",
-            "exit repeat",
-            "end if",
-            "end repeat",
-            "if targetNote is not missing value then exit repeat",
-            "end repeat",
-            "if targetNote is missing value then error \"note_not_found\"",
-            "set body of targetNote to (body of targetNote) & return & noteAppend",
-            "end tell",
-            "return \"ok\"",
-            "end run"
-        ]
-        let process = await runOsaScript(lines: script, arguments: [title, appendText])
-        guard process.exitCode == 0 else {
-            throw MagicianError(
-                code: .toolExecutionFailed,
-                userMessage: "备忘录追加失败。",
-                debugMessage: process.detail,
-                recoverAction: "retry_command"
-            )
-        }
-        return MagicianSkillInvokeResultV3(
-            execution: MagicianExecutionResult(
-                intent: .createNote,
-                userMessage: "备忘录已追加",
-                outputText: nil,
-                historyDisplayText: "备忘录追加：\(title)",
-                fallbackUsed: false,
-                observation: MagicianAgentObservation(
-                    verificationStatus: .verified,
-                    targetSummary: title,
-                    evidenceSummary: "notes append ok"
-                )
-            ),
-            skillID: "apple.notes.append_note",
-            evidence: "notes append ok"
-        )
-    }
-
-    private func findNoteSkill(
-        input: [String: Any],
-        request: MagicianAgentRequest
-    ) async throws -> MagicianSkillInvokeResultV3 {
-        let title = stringValue(input["title"]) ?? request.command
-        let script = [
-            "on run argv",
-            "set noteTitle to item 1 of argv",
-            "tell application \"Notes\"",
-            "repeat with f in folders",
-            "repeat with n in notes of f",
-            "if (name of n as text) contains noteTitle then",
-            "return name of n as text",
-            "end if",
-            "end repeat",
-            "end repeat",
-            "end tell",
-            "return \"\"",
-            "end run"
-        ]
-        let process = await runOsaScript(lines: script, arguments: [title])
-        let output = process.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        let display = output.isEmpty ? "未找到备忘录" : output
-        return MagicianSkillInvokeResultV3(
-            execution: MagicianExecutionResult(
-                intent: .createNote,
-                userMessage: "备忘录检索完成",
-                outputText: display,
-                historyDisplayText: "备忘录检索：\(summarizedHistoryText(display))",
-                fallbackUsed: false,
-                observation: MagicianAgentObservation(
-                    verificationStatus: .verified,
-                    targetSummary: title,
-                    evidenceSummary: output.isEmpty ? "not_found" : "found"
-                )
-            ),
-            skillID: "apple.notes.find_note",
-            evidence: output.isEmpty ? "not_found" : "found"
         )
     }
 

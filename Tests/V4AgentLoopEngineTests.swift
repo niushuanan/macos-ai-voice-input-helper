@@ -297,6 +297,14 @@ private struct StaticSuccessExecutor {
             outputText = request.selectionText ?? request.inputText
         }
 
+        let evidenceSummary: String
+        switch step.toolName {
+        case "apple.notes.create":
+            evidenceSummary = "apple.notes.create action=create; note_id=note_test_1"
+        default:
+            evidenceSummary = "\(step.toolName ?? "text.transform") completed"
+        }
+
         return V4ToolResult(
             runID: request.runID,
             stepID: step.id,
@@ -306,7 +314,7 @@ private struct StaticSuccessExecutor {
             toolName: step.toolName ?? "text.transform",
             status: .success,
             outputText: outputText,
-            evidenceSummary: "\(step.toolName ?? "text.transform") completed",
+            evidenceSummary: evidenceSummary,
             rawPayload: nil,
             startedAt: Date(),
             finishedAt: Date(),

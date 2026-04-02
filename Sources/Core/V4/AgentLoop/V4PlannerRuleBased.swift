@@ -69,9 +69,17 @@ enum V4RulePlannerHeuristics {
             )
         }
         if externalActions.contains(.note) {
+            let noteTitle: String
+            if containsAny(lowered, tokens: ["查找", "查询", "搜索", "find", "search"]) {
+                noteTitle = "检索备忘录"
+            } else if containsAny(lowered, tokens: ["追加", "补充", "append", "续写", "加到"]) {
+                noteTitle = "追加备忘录"
+            } else {
+                noteTitle = "写入备忘录"
+            }
             return Classification(
                 toolName: "apple.notes.create",
-                title: "写入备忘录",
+                title: noteTitle,
                 externalActions: externalActions
             )
         }
