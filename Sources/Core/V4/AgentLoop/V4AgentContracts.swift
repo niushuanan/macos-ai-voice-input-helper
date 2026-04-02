@@ -136,7 +136,13 @@ struct MagicianLaneClassifier {
         if magicianValueContainsAny(normalized, tokens: ["邮件", "mail", "email", "草稿", "发邮件", "写邮件", "邮箱", "收件人"]) {
             actions.insert(.mail)
         }
-        if magicianValueContainsAny(normalized, tokens: ["备忘录", "note", "notes", "记下来", "记到", "写进备忘录", "写入备忘录"]) {
+        if magicianValueContainsAny(
+            normalized,
+            tokens: [
+                "备忘录", "note", "notes", "记下来", "记到", "写进备忘录", "写入备忘录",
+                "写进文档", "写入文档", "记到文档", "记录到文档", "写到文档", "放到文档", "放进文档"
+            ]
+        ) {
             actions.insert(.note)
         }
         if magicianShouldTreatAsNativeCalendarIntent(

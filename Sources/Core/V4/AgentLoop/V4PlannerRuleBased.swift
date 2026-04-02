@@ -44,7 +44,7 @@ enum V4RulePlannerHeuristics {
         if containsAny(lowered, tokens: ["邮件", "mail", "email", "草稿", "邮箱", "发邮件", "写邮件"]) {
             externalActions.insert(.mail)
         }
-        if containsAny(lowered, tokens: ["备忘录", "note", "notes", "写进备忘录", "写入备忘录", "记到备忘录", "记录到备忘录"]) {
+        if containsAny(lowered, tokens: noteIntentTokens) {
             externalActions.insert(.note)
         }
         if containsAny(lowered, tokens: ["日程", "会议", "calendar", "event", "安排", "课程", "上课", "行程"]) {
@@ -145,18 +145,25 @@ enum V4RulePlannerHeuristics {
         let normalized = command.lowercased()
         let hasNotesIntent = containsAny(
             normalized,
-            tokens: ["备忘录", "note", "notes", "写进备忘录", "写入备忘录", "记到备忘录", "记录到备忘录"]
+            tokens: noteIntentTokens
         )
-        let hasTransformIntent = containsAny(
-            normalized,
-            tokens: [
-                "整理", "润色", "改写", "重写", "优化", "总结", "摘要", "提炼",
-                "翻译", "压缩", "扩写", "美化", "改得", "改成", "改为", "重组",
-                "调研", "研究", "思考", "分析", "原创", "写一篇", "文章", "草稿"
-            ]
-        )
+        let hasTransformIntent = containsAny(normalized, tokens: transformIntentTokens)
         return hasNotesIntent && hasTransformIntent
     }
+
+    private static let noteIntentTokens: [String] = [
+        "备忘录", "note", "notes",
+        "写进备忘录", "写入备忘录", "记到备忘录", "记录到备忘录",
+        "写进文档", "写入文档", "记到文档", "记录到文档", "写到文档", "放到文档", "放进文档"
+    ]
+
+    private static let transformIntentTokens: [String] = [
+        "整理", "润色", "改写", "重写", "优化", "总结", "摘要", "提炼",
+        "翻译", "压缩", "扩写", "美化", "改得", "改成", "改为", "重组",
+        "调研", "研究", "思考", "分析", "原创", "写一篇", "文章", "草稿",
+        "经济", "趋势", "现状", "数据", "报告", "上半年", "下半年", "同比", "环比",
+        "gdp", "cpi", "pmi", "进出口"
+    ]
 
     private static func containsAny(_ value: String, tokens: [String]) -> Bool {
         tokens.contains { value.contains($0) }

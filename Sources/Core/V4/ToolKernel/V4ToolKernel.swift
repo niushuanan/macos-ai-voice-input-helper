@@ -341,9 +341,9 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
 
     private func extractNoteTargetTitle(from command: String) -> String? {
         let patterns = [
-            #"(?:追加到|加到|补充到|写到)(?:标题为)?[《“\"]?([^》”\"\n]{1,48})[》”\"]?(?:这条|这个|该)?备忘录"#,
-            #"(?:在|给)[《“\"]?([^》”\"\n]{1,48})[》”\"]?(?:这条|这个|该)?备忘录(?:里|中|内)?(?:追加|补充|加上)"#,
-            #"(?:追加|补充|加上|续写).{0,20}到[《“\"]?([^》”\"\n]{1,48})[》”\"]?备忘录"#
+            #"(?:追加到|加到|补充到|写到)(?:标题为)?[《“\"]?([^》”\"\n]{1,48})[》”\"]?(?:这条|这个|该)?(?:备忘录|文档)"#,
+            #"(?:在|给)[《“\"]?([^》”\"\n]{1,48})[》”\"]?(?:这条|这个|该)?(?:备忘录|文档)(?:里|中|内)?(?:追加|补充|加上)"#,
+            #"(?:追加|补充|加上|续写).{0,20}到[《“\"]?([^》”\"\n]{1,48})[》”\"]?(?:备忘录|文档)"#
         ]
         for pattern in patterns {
             if let match = firstRegexCapture(in: command, pattern: pattern) {
@@ -355,8 +355,8 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
 
     private func extractNoteQuery(from command: String) -> String? {
         let patterns = [
-            #"(?:查找|查询|搜索|找一下|找找|find|search)(?:标题为)?[《“\"]?([^》”\"\n]{1,64})[》”\"]?(?:的)?备忘录"#,
-            #"(?:备忘录里|备忘录中|notes?)(?:查找|查询|搜索|find|search)?[：: ]?([^，。；\n]{1,64})"#
+            #"(?:查找|查询|搜索|找一下|找找|find|search)(?:标题为)?[《“\"]?([^》”\"\n]{1,64})[》”\"]?(?:的)?(?:备忘录|文档)"#,
+            #"(?:(?:备忘录|文档)里|(?:备忘录|文档)中|notes?)(?:查找|查询|搜索|find|search)?[：: ]?([^，。；\n]{1,64})"#
         ]
         for pattern in patterns {
             if let match = firstRegexCapture(in: command, pattern: pattern) {
