@@ -417,8 +417,18 @@ final class InteractionCoordinator {
     private func prepareMagicianSelectionCapture() {
         pendingMagicianSelectionSnapshot = textOutputCoordinator.currentSelectionSnapshot()
         pendingMagicianSelectionCaptureTask?.cancel()
-        pendingMagicianSelectionCaptureTask = Task { [textOutputCoordinator] in
-            await textOutputCoordinator.captureSelectionSnapshot()
+        pendingMagicianSelectionCaptureTask = Task { [weak self, textOutputCoordinator] in
+            if
+                let self,
+                let warmableCoordinator = textOutputCoordinator as? AccessibilityTextOutputCoordinator,
+                let externalTarget = self.lastExternalDictationTarget
+            {
+                await warmableCoordinator.prepareForWrite(
+                    preferredTarget: externalTarget.snapshot,
+                    fallbackFocusContext: externalTarget.focusContext
+                )
+            }
+            return await textOutputCoordinator.captureSelectionSnapshot()
         }
     }
 

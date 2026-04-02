@@ -607,15 +607,14 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
                     "try",
                     "set currentID to (id of targetNote) as string",
                     "end try",
-                    "if currentID is expectedID then",
-                    // noteID 命中就是硬证据；标题/正文仅作软检查，避免误杀真实成功
+                "if currentID is expectedID then",
+                    // create/append 必须命中正文（或本次没有正文要求）才算成功，避免空白假成功
                     "if expectedTitle is \"\" and expectedBodyNeedle is \"\" then return currentID",
                     "set currentTitle to (name of targetNote) as string",
                     "set noteContent to body of targetNote",
                     "if expectedTitle is \"\" or currentTitle is expectedTitle then",
                     "if expectedBodyNeedle is \"\" or noteContent contains expectedBodyNeedle then return currentID",
                     "end if",
-                    "return currentID",
                     "end if",
                     "end repeat",
                     "end repeat",
