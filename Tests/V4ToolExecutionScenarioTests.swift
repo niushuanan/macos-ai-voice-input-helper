@@ -327,6 +327,38 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         )
     }
 
+    func testMusicMoodSceneUsesSemanticResolver() async {
+        let tool = V4MusicControlTool(
+            executeHandler: { command in
+                XCTAssertEqual(command.action, .play)
+                XCTAssertEqual(command.playIntent, .mood)
+                XCTAssertEqual(command.query, "治愈 轻松")
+                return V4MusicControlTool.ResultPayload(
+                    action: .play,
+                    state: "play",
+                    track: "晴天",
+                    artist: "周杰伦",
+                    evidence: "track=晴天|artist=周杰伦|album=叶惠美|state=play|strategy=library_song"
+                )
+            },
+            semanticResolver: { command, _ in
+                guard command == "我很悲伤，放首歌" else {
+                    return nil
+                }
+                return V4MusicControlTool.SemanticPlayDecision(
+                    query: "治愈 轻松",
+                    intent: .mood,
+                    confidence: 0.92,
+                    reason: "场景情绪请求"
+                )
+            }
+        )
+        _ = try? await tool.execute(
+            arguments: ["command": .string("我很悲伤，放首歌")],
+            context: makeContext(toolName: "apple.music.control")
+        )
+    }
+
     func testAppleNotesDryRunSkipsAutomation() async throws {
         let tool = V4AppleNotesTool()
         let output = try await tool.execute(

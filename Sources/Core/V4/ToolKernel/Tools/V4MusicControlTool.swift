@@ -1,6 +1,20 @@
 import Foundation
 
 struct V4MusicControlTool: V4Tool {
+    struct SemanticPlayDecision: Equatable, Sendable {
+        let query: String
+        let intent: PlayIntent
+        let confidence: Double
+        let reason: String?
+    }
+
+    private struct SemanticPlayPayload: Decodable {
+        let intent: String?
+        let query: String?
+        let confidence: Double?
+        let reason: String?
+    }
+
     enum PlayIntent: String, Equatable, Sendable {
         case auto
         case song
@@ -33,6 +47,7 @@ struct V4MusicControlTool: V4Tool {
     }
 
     typealias ExecuteHandler = @Sendable (Command) async throws -> ResultPayload
+    typealias SemanticResolver = @Sendable (String, V4ToolExecutionContext) async -> SemanticPlayDecision?
 
     let spec = V4ToolSpec(
         toolName: "apple.music.control",
@@ -54,10 +69,42 @@ struct V4MusicControlTool: V4Tool {
     )
 
     private let executeHandler: ExecuteHandler
+    private let modelSlotManager: V4ModelSlotManager?
+    private let generationProvider: any TextGenerationProvider
+    private let semanticResolver: SemanticResolver
     private let errorCatalog = V4ToolErrorCatalog()
 
-    init(executeHandler: ExecuteHandler? = nil) {
+    init(
+        modelSlotManager: V4ModelSlotManager? = nil,
+        generationProvider: (any TextGenerationProvider)? = nil,
+        executeHandler: ExecuteHandler? = nil,
+        semanticResolver: SemanticResolver? = nil
+    ) {
+        let resolvedGenerationProvider = generationProvider ?? OpenAITextGenerationProvider()
+        self.modelSlotManager = modelSlotManager
+        self.generationProvider = resolvedGenerationProvider
         self.executeHandler = executeHandler ?? Self.liveExecuteHandler()
+        if let semanticResolver {
+            self.semanticResolver = semanticResolver
+        } else {
+            self.semanticResolver = { [modelSlotManager, generationProvider = resolvedGenerationProvider] command, context in
+                await Self.liveSemanticPlayDecision(
+                    command: command,
+                    context: context,
+                    modelSlotManager: modelSlotManager,
+                    generationProvider: generationProvider
+                )
+            }
+        }
+    }
+
+    init(executeHandler: @escaping ExecuteHandler) {
+        self.init(
+            modelSlotManager: nil,
+            generationProvider: nil,
+            executeHandler: executeHandler,
+            semanticResolver: nil
+        )
     }
 
     func validateSemanticInput(
@@ -76,9 +123,9 @@ struct V4MusicControlTool: V4Tool {
 
     func execute(
         arguments: V4ToolArguments,
-        context _: V4ToolExecutionContext
+        context: V4ToolExecutionContext
     ) async throws -> V4ToolExecutionOutput {
-        let resolved = resolveCommand(arguments: arguments)
+        let resolved = await resolveCommand(arguments: arguments, context: context)
         let commandText = arguments.string(for: "command") ?? ""
         if magicianIsDryRunCommand(commandText) {
             return V4ToolExecutionOutput(
@@ -141,7 +188,10 @@ struct V4MusicControlTool: V4Tool {
         )
     }
 
-    private func resolveCommand(arguments: V4ToolArguments) -> Command {
+    private func resolveCommand(
+        arguments: V4ToolArguments,
+        context: V4ToolExecutionContext
+    ) async -> Command {
         let explicitQuery = arguments.string(for: "query")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let command = arguments.string(for: "command") ?? ""
         let lowered = command.lowercased()
@@ -168,6 +218,18 @@ struct V4MusicControlTool: V4Tool {
         if let explicitQuery, !explicitQuery.isEmpty {
             return Command(action: .play, query: explicitQuery, playIntent: playIntent, rawCommand: command)
         }
+
+        if shouldUseSemanticMoodResolver(loweredCommand: lowered) {
+            if let semanticDecision = await semanticResolver(command, context) {
+                return Command(
+                    action: .play,
+                    query: semanticDecision.query,
+                    playIntent: semanticDecision.intent,
+                    rawCommand: command
+                )
+            }
+        }
+
         let inferredQuery = magicianMusicSearchQueries(from: command).first
         if let inferredQuery, isGenericPlaybackQuery(inferredQuery) {
             return Command(action: .play, query: nil, playIntent: .auto, rawCommand: command)
@@ -186,6 +248,20 @@ struct V4MusicControlTool: V4Tool {
         return [
             "音乐", "music", "歌曲", "歌", "打开音乐", "播放音乐", "打开播放器", "启动音乐", "启动播放器"
         ].contains(normalized)
+    }
+
+    private func shouldUseSemanticMoodResolver(loweredCommand: String) -> Bool {
+        if containsAny(loweredCommand, keywords: ["《", "“", "\"", "专辑", "album"]) {
+            return false
+        }
+        return containsAny(
+            loweredCommand,
+            keywords: [
+                "我很", "我现在", "心情", "悲伤", "难过", "失恋", "压力", "焦虑", "孤独", "低落",
+                "开心", "快乐", "放松", "治愈", "燃", "热血", "来首歌", "放首歌", "推荐",
+                "sad", "happy", "mood", "vibe"
+            ]
+        )
     }
 
     private func inferredPlayIntent(from loweredCommand: String) -> PlayIntent {
@@ -231,7 +307,12 @@ struct V4MusicControlTool: V4Tool {
         case "伤感", "sad":
             return [query, "伤感", "sad", "抒情", "慢歌"]
         default:
-            return [query]
+            let separators = CharacterSet(charactersIn: ",，、/| ")
+            let terms = query
+                .components(separatedBy: separators)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            return Array(Set([query] + terms))
         }
     }
 
@@ -247,6 +328,140 @@ struct V4MusicControlTool: V4Tool {
             }
         }
         return (songExact, albumExact)
+    }
+
+    private static func liveSemanticPlayDecision(
+        command: String,
+        context: V4ToolExecutionContext,
+        modelSlotManager: V4ModelSlotManager?,
+        generationProvider: any TextGenerationProvider
+    ) async -> SemanticPlayDecision? {
+        guard let configuration = await semanticModelConfiguration(
+            context: context,
+            modelSlotManager: modelSlotManager
+        ) else {
+            return nil
+        }
+        let apiKey = await semanticModelAPIKey(context: context, modelSlotManager: modelSlotManager) ?? ""
+        guard !configuration.providerType.requiresAPIKey || !apiKey.isEmpty else {
+            return nil
+        }
+
+        let systemPrompt = """
+        你是 PulseType 的音乐语义解析器。请把自然语言音乐请求解析成 JSON。
+        只输出 JSON，不要解释。JSON 字段：
+        intent: song | album | mood | none
+        query: 可用于 Music 资料库搜索的短查询词
+        confidence: 0~1
+        reason: 简短原因
+        规则：
+        1) 明确歌名用 song；明确专辑名用 album。
+        2) 情绪/场景请求（如“我很悲伤，放首歌”）用 mood，query 输出 1~3 个描述风格或情绪的短词。
+        3) 无法判断时 intent=none，query 为空字符串。
+        """
+        let userPrompt = "用户请求：\(command)"
+
+        do {
+            let generation = try await generationProvider.generateText(
+                request: TextGenerationRequest(
+                    systemPrompt: systemPrompt,
+                    userPrompt: userPrompt,
+                    temperature: 0.1,
+                    maxOutputTokens: 180
+                ),
+                configuration: configuration,
+                apiKey: apiKey
+            )
+            guard
+                let payload: SemanticPlayPayload = decodeLLMJSONPayload(from: generation.outputText),
+                let rawIntent = payload.intent?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                let intent = PlayIntent(rawValue: rawIntent),
+                intent != .auto,
+                let query = payload.query?.trimmingCharacters(in: .whitespacesAndNewlines),
+                !query.isEmpty
+            else {
+                return nil
+            }
+            let confidence = payload.confidence ?? 0.5
+            if confidence < 0.45 {
+                return nil
+            }
+            return SemanticPlayDecision(
+                query: query,
+                intent: intent,
+                confidence: confidence,
+                reason: payload.reason
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    private static func semanticModelConfiguration(
+        context: V4ToolExecutionContext,
+        modelSlotManager: V4ModelSlotManager?
+    ) async -> TextGenerationProviderConfiguration? {
+        do {
+            let endpoint: V4ModelEndpoint
+            if let resolved = context.request.modelSlots?.endpoint(for: .text) {
+                endpoint = resolved
+            } else if let modelSlotManager {
+                endpoint = try await modelSlotManager.resolve(.text)
+            } else {
+                return nil
+            }
+            guard let baseURL = URL(string: endpoint.baseURLString) else {
+                return nil
+            }
+            return TextGenerationProviderConfiguration(
+                profileID: endpoint.credentialRef?.rawValue ?? endpoint.sourceConfigurationKey,
+                providerType: endpoint.providerType,
+                providerName: endpoint.providerDisplayName,
+                modelName: endpoint.modelName,
+                baseURL: baseURL
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    private static func semanticModelAPIKey(
+        context: V4ToolExecutionContext,
+        modelSlotManager: V4ModelSlotManager?
+    ) async -> String? {
+        guard let modelSlotManager else {
+            return nil
+        }
+        do {
+            if context.request.modelSlots?.endpoint(for: .text) != nil {
+                return try await modelSlotManager.loadAPIKey(for: .text)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return try await modelSlotManager.loadAPIKey(for: .text)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            return nil
+        }
+    }
+
+    private static func decodeLLMJSONPayload<T: Decodable>(from output: String) -> T? {
+        let stripped = output
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"^```(?:json)?\s*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s*```$"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard
+            let firstBrace = stripped.firstIndex(of: "{"),
+            let lastBrace = stripped.lastIndex(of: "}"),
+            firstBrace <= lastBrace
+        else {
+            return nil
+        }
+        let jsonText = String(stripped[firstBrace ... lastBrace])
+        guard let data = jsonText.data(using: .utf8) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(T.self, from: data)
     }
 
     private static func liveExecuteHandler() -> ExecuteHandler {

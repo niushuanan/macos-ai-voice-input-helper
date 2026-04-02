@@ -68,7 +68,10 @@ struct V4ToolRegistry: V4ToolKernelRegistry {
                 providerSettingsStore: providerSettingsStore,
                 generationProvider: resolvedGenerationProvider
             ),
-            V4MusicControlTool(),
+            V4MusicControlTool(
+                modelSlotManager: modelSlotManager,
+                generationProvider: resolvedGenerationProvider
+            ),
             V4FeishuCLITool(
                 providerSettingsStore: providerSettingsStore,
                 cliRegistry: cliRegistry
