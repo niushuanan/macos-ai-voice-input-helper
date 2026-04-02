@@ -767,6 +767,10 @@ struct V4MusicControlTool: V4Tool {
                     return ragPick
                 }
 
+                if command.playIntent == .mood, let moodFallback = await runFallbackRandomPlay() {
+                    return moodFallback
+                }
+
                 let uiAssist = await runUISearchAssist(query: query)
                 if uiAssist.exitCode == 0 {
                     let trimmed = uiAssist.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1031,25 +1035,37 @@ struct V4MusicControlTool: V4Tool {
             return nil
         }
 
-        let candidates = retrieveLibraryCandidates(
-            query: query,
-            rawCommand: rawCommand,
-            playIntent: playIntent,
-            tracks: tracks,
-            limit: 24
-        )
-        guard !candidates.isEmpty else {
-            return nil
+                let candidates = retrieveLibraryCandidates(
+                    query: query,
+                    rawCommand: rawCommand,
+                    playIntent: playIntent,
+                    tracks: tracks,
+                    limit: 24
+                )
+        let pick: LibraryTrackRecord?
+        if candidates.isEmpty, playIntent == .mood {
+            let broadCandidates = retrieveBroadMoodCandidates(tracks: tracks, limit: 60)
+            pick = await selectTrackWithRAG(
+                query: query,
+                rawCommand: rawCommand,
+                playIntent: playIntent,
+                candidates: broadCandidates,
+                modelSlotManager: modelSlotManager,
+                generationProvider: generationProvider
+            ) ?? broadCandidates.first?.track
+        } else {
+            guard !candidates.isEmpty else {
+                return nil
+            }
+            pick = await selectTrackWithRAG(
+                query: query,
+                rawCommand: rawCommand,
+                playIntent: playIntent,
+                candidates: candidates,
+                modelSlotManager: modelSlotManager,
+                generationProvider: generationProvider
+            ) ?? candidates.first?.track
         }
-
-        let pick = await selectTrackWithRAG(
-            query: query,
-            rawCommand: rawCommand,
-            playIntent: playIntent,
-            candidates: candidates,
-            modelSlotManager: modelSlotManager,
-            generationProvider: generationProvider
-        ) ?? candidates.first?.track
         guard let pick else {
             return nil
         }
@@ -1152,6 +1168,21 @@ struct V4MusicControlTool: V4Tool {
             return lhs.track.name < rhs.track.name
         }
         return Array(sorted.prefix(limit))
+    }
+
+    private static func retrieveBroadMoodCandidates(
+        tracks: [LibraryTrackRecord],
+        limit: Int
+    ) -> [LibraryTrackCandidate] {
+        let sorted = tracks.sorted { lhs, rhs in
+            if lhs.artist != rhs.artist {
+                return lhs.artist < rhs.artist
+            }
+            return lhs.name < rhs.name
+        }
+        return Array(sorted.prefix(limit)).map {
+            LibraryTrackCandidate(track: $0, score: 1)
+        }
     }
 
     private static func selectTrackWithRAG(
@@ -1291,6 +1322,31 @@ struct V4MusicControlTool: V4Tool {
             arguments: [persistentID],
             timeoutSeconds: 16
         )
+    }
+
+    private static func runFallbackRandomPlay() async -> MagicianProcessResult? {
+        let result = await runOsaScript(
+            lines: [
+                "tell application \"Music\"",
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+                "set allTracks to tracks of library playlist 1",
+                "set totalCount to count of allTracks",
+                "if totalCount is 0 then return \"track_not_found\"",
+                "set randomIndex to (random number from 1 to totalCount)",
+                "set targetTrack to item randomIndex of allTracks",
+                "play targetTrack",
+                "delay 0.6",
+                "set nowTrack to current track",
+                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play|strategy=mood_random_fallback\"",
+                "end tell"
+            ],
+            arguments: [],
+            timeoutSeconds: 12
+        )
+        guard result.exitCode == 0, result.stdout.hasPrefix("track=") else {
+            return nil
+        }
+        return result
     }
 
     private static func parseEvidence(_ output: String) -> (state: String?, track: String?, artist: String?) {

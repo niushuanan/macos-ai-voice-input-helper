@@ -315,6 +315,7 @@ struct SettingsView: View {
                                 onCopyDialogue: { copyBrainstormDialogueText(entry) },
                                 onCopyRaw: { copyRawMemoryText(entry) },
                                 onCopyCommand: { copyInstructionMemoryText(entry) },
+                                onCopyExecutionTrace: { copyExecutionTraceMemoryText(entry) },
                                 onDelete: {
                                     localHistoryStore.delete(entryID: entry.id)
                                     showToast("已删除一条记录。")
@@ -2366,6 +2367,23 @@ struct SettingsView: View {
 
         writeTextToPasteboard(text)
         showToast("已复制命令。")
+    }
+
+    private func copyExecutionTraceMemoryText(_ entry: SessionHistoryEntry) {
+        guard entry.mode == .selectionRewrite else {
+            showToast("当前模式没有执行链路。")
+            return
+        }
+        guard
+            let trace = entry.magicianExecutionTrace?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !trace.isEmpty
+        else {
+            showToast("这条记录没有执行链路可复制。")
+            return
+        }
+        writeTextToPasteboard(trace)
+        showToast("已复制执行链路。")
     }
 
     private func copyBrainstormDialogueText(_ entry: SessionHistoryEntry) {

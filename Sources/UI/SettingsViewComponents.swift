@@ -25,6 +25,7 @@ struct MemoryRowView: View {
     let onCopyDialogue: () -> Void
     let onCopyRaw: () -> Void
     let onCopyCommand: () -> Void
+    let onCopyExecutionTrace: () -> Void
     let onDelete: () -> Void
     @State private var brainstormDetailsExpanded = false
     @State private var magicianTraceExpanded = false
@@ -266,6 +267,12 @@ struct MemoryRowView: View {
                 } else if entry.mode == .selectionRewrite {
                     Button(magicianTraceExpanded ? "隐藏执行链路" : "展开执行链路") {
                         magicianTraceExpanded.toggle()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!hasMagicianTrace)
+
+                    Button("复制执行链路") {
+                        onCopyExecutionTrace()
                     }
                     .buttonStyle(.bordered)
                     .disabled(!hasMagicianTrace)
