@@ -353,29 +353,65 @@ struct V4MusicControlTool: V4Tool {
             )
 
         case .next:
-            return await runOsaScript(
-                lines: [
-                    "tell application \"Music\"",
-                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
-                    "next track",
-                    "return \"state=next\"",
-                    "end tell"
-                ],
-                arguments: []
-            )
+            return await runLibraryOrderedStep(direction: "next")
 
         case .previous:
-            return await runOsaScript(
-                lines: [
-                    "tell application \"Music\"",
-                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
-                    "previous track",
-                    "return \"state=previous\"",
-                    "end tell"
-                ],
-                arguments: []
-            )
+            return await runLibraryOrderedStep(direction: "previous")
         }
+    }
+
+    private static func runLibraryOrderedStep(direction: String) async -> MagicianProcessResult {
+        await runOsaScript(
+            lines: [
+                "on run argv",
+                "set directionText to item 1 of argv",
+                "tell application \"Music\"",
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+                "set libraryTracks to tracks of library playlist 1",
+                "set totalCount to count of libraryTracks",
+                "if totalCount is 0 then error \"library empty\"",
+                "set targetIndex to 1",
+                "try",
+                "set nowTrack to current track",
+                "set nowTrackID to (persistent ID of nowTrack) as string",
+                "repeat with idx from 1 to totalCount",
+                "set candidateTrack to item idx of libraryTracks",
+                "try",
+                "set candidateID to (persistent ID of candidateTrack) as string",
+                "if candidateID is nowTrackID then",
+                "if directionText is \"next\" then",
+                "set targetIndex to idx + 1",
+                "if targetIndex > totalCount then set targetIndex to 1",
+                "else",
+                "set targetIndex to idx - 1",
+                "if targetIndex < 1 then set targetIndex to totalCount",
+                "end if",
+                "exit repeat",
+                "end if",
+                "end try",
+                "end repeat",
+                "on error",
+                "if directionText is \"next\" then",
+                "set targetIndex to 1",
+                "else",
+                "set targetIndex to totalCount",
+                "end if",
+                "end try",
+                "set targetTrack to item targetIndex of libraryTracks",
+                "play targetTrack",
+                "delay 0.5",
+                "set nowTrack to current track",
+                "if directionText is \"next\" then",
+                "set resolvedState to \"next\"",
+                "else",
+                "set resolvedState to \"previous\"",
+                "end if",
+                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|state=\" & resolvedState & \"|strategy=library_order\"",
+                "end tell",
+                "end run"
+            ],
+            arguments: [direction]
+        )
     }
 
     private static func runLibrarySearchAndPlay(keyword: String) async -> MagicianProcessResult {
