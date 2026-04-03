@@ -980,7 +980,7 @@ struct V4MusicControlTool: V4Tool {
                 "set directionText to item 1 of argv",
                 "tell application \"Music\"",
             ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
-                + libraryOrderedPlaybackSetupAppleScriptLines()
+                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: true)
                 + [
                 "set libraryTracks to tracks of library playlist 1",
                 "set totalCount to count of libraryTracks",
@@ -1036,7 +1036,7 @@ struct V4MusicControlTool: V4Tool {
                 "set keywordText to item 1 of argv",
                 "tell application \"Music\"",
             ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
-                + libraryOrderedPlaybackSetupAppleScriptLines()
+                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: true)
                 + [
                 "set matchedTracks to (search library playlist 1 for keywordText only songs)",
                 "if (count of matchedTracks) is 0 then return \"track_not_found\"",
@@ -1059,7 +1059,7 @@ struct V4MusicControlTool: V4Tool {
                 "set keywordText to item 1 of argv",
                 "tell application \"Music\"",
             ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
-                + libraryOrderedPlaybackSetupAppleScriptLines()
+                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: true)
                 + [
                 "set matchedTracks to (search library playlist 1 for keywordText only albums)",
                 "if (count of matchedTracks) is 0 then return \"album_not_found\"",
@@ -1607,7 +1607,7 @@ struct V4MusicControlTool: V4Tool {
                 "set targetPID to item 1 of argv",
                 "tell application \"Music\"",
             ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
-                + libraryOrderedPlaybackSetupAppleScriptLines()
+                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: true)
                 + [
                 "set allTracks to tracks of library playlist 1",
                 "repeat with t in allTracks",
