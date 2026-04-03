@@ -343,7 +343,7 @@ final class MusicFastExecutor: MusicFastExecuting {
             }
 
             if request.intent == .play {
-                if playbackState != "play" {
+                if !isPlaybackStateActive(playbackState) {
                     return MusicFastOutcome(
                         status: .failed,
                         message: "已定位到歌曲，但未真正开始播放，请重试。",
@@ -445,6 +445,16 @@ final class MusicFastExecutor: MusicFastExecuting {
             return requestedTrack?.isEmpty ?? true
         }
         return normalizedMusicMatchText(requestedTrack) == normalizedMusicMatchText(resolvedTrack)
+    }
+
+    private func isPlaybackStateActive(_ playbackState: String?) -> Bool {
+        guard let playbackState else {
+            return false
+        }
+        let normalized = playbackState
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalized == "play" || normalized == "playing"
     }
 
     private func composeFastEvidence(
