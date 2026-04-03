@@ -828,7 +828,7 @@ struct V4MusicControlTool: V4Tool {
                 lines: [
                     "tell application \"Music\"",
                 ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
-                    + libraryOrderedPlaybackSetupAppleScriptLines()
+                    + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: true)
                     + [
                     "play",
                     "return \"state=play|queue_mode=library_order\"",
@@ -934,7 +934,7 @@ struct V4MusicControlTool: V4Tool {
                 "set keywordText to item 1 of argv",
                 "tell application \"Music\"",
             ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
-                + libraryOrderedPlaybackSetupAppleScriptLines()
+                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: true)
                 + [
                 "set matchedTracks to (search library playlist 1 for keywordText only songs)",
                 "if (count of matchedTracks) is 0 then return \"track_not_found\"",
@@ -957,7 +957,7 @@ struct V4MusicControlTool: V4Tool {
                 "set keywordText to item 1 of argv",
                 "tell application \"Music\"",
             ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
-                + libraryOrderedPlaybackSetupAppleScriptLines()
+                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: true)
                 + [
                 "set matchedTracks to (search library playlist 1 for keywordText only albums)",
                 "if (count of matchedTracks) is 0 then return \"album_not_found\"",
@@ -1505,7 +1505,7 @@ struct V4MusicControlTool: V4Tool {
                 "set targetPID to item 1 of argv",
                 "tell application \"Music\"",
             ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
-                + libraryOrderedPlaybackSetupAppleScriptLines()
+                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: true)
                 + [
                 "set allTracks to tracks of library playlist 1",
                 "repeat with t in allTracks",
@@ -1532,7 +1532,7 @@ struct V4MusicControlTool: V4Tool {
             lines: [
                 "tell application \"Music\"",
             ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
-                + libraryOrderedPlaybackSetupAppleScriptLines()
+                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: true)
                 + [
                 "set allTracks to tracks of library playlist 1",
                 "set totalCount to count of allTracks",
@@ -1553,11 +1553,8 @@ struct V4MusicControlTool: V4Tool {
         return result
     }
 
-    private static func libraryOrderedPlaybackSetupAppleScriptLines() -> [String] {
-        [
-            "try",
-            "set current playlist to library playlist 1",
-            "end try",
+    private static func libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: Bool = false) -> [String] {
+        var lines = [
             "try",
             "set shuffle enabled to false",
             "end try",
@@ -1565,6 +1562,15 @@ struct V4MusicControlTool: V4Tool {
             "set song repeat to off",
             "end try"
         ]
+        if anchorToLibraryQueue {
+            lines += [
+                "try",
+                "play library playlist 1",
+                "delay 0.08",
+                "end try"
+            ]
+        }
+        return lines
     }
 
     private static func parseEvidence(_ output: String) -> (state: String?, track: String?, artist: String?) {
