@@ -818,40 +818,20 @@ struct V4MusicControlTool: V4Tool {
                     return ragPick
                 }
 
-                if command.playIntent == .mood, let moodFallback = await runFallbackRandomPlay() {
+                if command.playIntent == .mood, let moodFallback = await runFallbackLibraryOrderedPlay() {
                     return moodFallback
                 }
 
-                let uiAssist = await runUISearchAssist(query: query)
-                if uiAssist.exitCode == 0 {
-                    let trimmed = uiAssist.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if trimmed.hasPrefix("track=") {
-                        return uiAssist
-                    }
-                    if isExplicitSongRequest(command.rawCommand), command.playIntent != .album {
-                        return MagicianProcessResult(exitCode: 0, stdout: "track_not_found", stderr: "")
-                    }
-                    return MagicianProcessResult(
-                        exitCode: 0,
-                        stdout: "search_opened|query=\(query)|state=open_search",
-                        stderr: ""
-                    )
-                }
-                if isExplicitSongRequest(command.rawCommand), command.playIntent != .album {
-                    return MagicianProcessResult(exitCode: 0, stdout: "track_not_found", stderr: uiAssist.detail)
-                }
-                return MagicianProcessResult(
-                    exitCode: 0,
-                    stdout: "search_opened|query=\(query)|state=open_search",
-                    stderr: uiAssist.detail
-                )
+                return MagicianProcessResult(exitCode: 0, stdout: "track_not_found", stderr: "library_only_mode")
             }
             return await runOsaScript(
                 lines: [
                     "tell application \"Music\"",
-                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
+                    + libraryOrderedPlaybackSetupAppleScriptLines()
+                    + [
                     "play",
-                    "return \"state=play\"",
+                    "return \"state=play|queue_mode=library_order\"",
                     "end tell"
                 ],
                 arguments: []
@@ -873,9 +853,11 @@ struct V4MusicControlTool: V4Tool {
             return await runOsaScript(
                 lines: [
                     "tell application \"Music\"",
-                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+                ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
+                    + libraryOrderedPlaybackSetupAppleScriptLines()
+                    + [
                     "play",
-                    "return \"state=resume\"",
+                    "return \"state=resume|queue_mode=library_order\"",
                     "end tell"
                 ],
                 arguments: []
@@ -895,7 +877,9 @@ struct V4MusicControlTool: V4Tool {
                 "on run argv",
                 "set directionText to item 1 of argv",
                 "tell application \"Music\"",
-            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
+                + libraryOrderedPlaybackSetupAppleScriptLines()
+                + [
                 "set libraryTracks to tracks of library playlist 1",
                 "set totalCount to count of libraryTracks",
                 "if totalCount is 0 then error \"library empty\"",
@@ -935,7 +919,7 @@ struct V4MusicControlTool: V4Tool {
                 "else",
                 "set resolvedState to \"previous\"",
                 "end if",
-                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|state=\" & resolvedState & \"|strategy=library_order\"",
+                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|state=\" & resolvedState & \"|strategy=library_order|queue_mode=library_order\"",
                 "end tell",
                 "end run"
             ],
@@ -949,14 +933,16 @@ struct V4MusicControlTool: V4Tool {
                 "on run argv",
                 "set keywordText to item 1 of argv",
                 "tell application \"Music\"",
-            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
+                + libraryOrderedPlaybackSetupAppleScriptLines()
+                + [
                 "set matchedTracks to (search library playlist 1 for keywordText only songs)",
                 "if (count of matchedTracks) is 0 then return \"track_not_found\"",
                 "set targetTrack to item 1 of matchedTracks",
                 "play targetTrack",
                 "delay 0.8",
                 "set nowTrack to current track",
-                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play|strategy=library_song\"",
+                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play|strategy=library_song|queue_mode=library_order\"",
                 "end tell",
                 "end run"
             ],
@@ -970,15 +956,16 @@ struct V4MusicControlTool: V4Tool {
                 "on run argv",
                 "set keywordText to item 1 of argv",
                 "tell application \"Music\"",
-            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
+                + libraryOrderedPlaybackSetupAppleScriptLines()
+                + [
                 "set matchedTracks to (search library playlist 1 for keywordText only albums)",
                 "if (count of matchedTracks) is 0 then return \"album_not_found\"",
-                "set randomIndex to (random number from 1 to (count of matchedTracks))",
-                "set targetTrack to item randomIndex of matchedTracks",
+                "set targetTrack to item 1 of matchedTracks",
                 "play targetTrack",
                 "delay 0.8",
                 "set nowTrack to current track",
-                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play|strategy=library_album_random\"",
+                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play|strategy=library_album_order|queue_mode=library_order\"",
                 "end tell",
                 "end run"
             ],
@@ -1016,62 +1003,9 @@ struct V4MusicControlTool: V4Tool {
         )
     }
 
-    private static func runUISearchAssist(query: String) async -> MagicianProcessResult {
-        await runOsaScript(
-            lines: [
-                "on run argv",
-                "set keywordText to item 1 of argv",
-                "tell application \"Music\"",
-                "activate",
-                "end tell",
-                "delay 0.2",
-                "try",
-                "tell application \"System Events\"",
-                "if not (UI elements enabled) then error \"ui scripting disabled\"",
-                "tell process \"Music\"",
-                "set frontmost to true",
-                "keystroke \"f\" using {command down}",
-                "delay 0.15",
-                "keystroke keywordText",
-                "delay 0.15",
-                "key code 36",
-                "delay 0.7",
-                "key code 125",
-                "delay 0.1",
-                "key code 36",
-                "end tell",
-                "end tell",
-                "on error uiErr",
-                "return \"ui_search_failed=\" & uiErr",
-                "end try",
-                "tell application \"Music\"",
-                "delay 0.8",
-                "try",
-                "if player state is playing then",
-                "set nowTrack to current track",
-                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|state=play|strategy=ui_search\"",
-                "end if",
-                "end try",
-                "end tell",
-                "return \"ui_search_opened\"",
-                "end run"
-            ],
-            arguments: [query],
-            timeoutSeconds: 16
-        )
-    }
-
     private enum SearchKind {
         case song
         case album
-    }
-
-    private static func isExplicitSongRequest(_ rawCommand: String) -> Bool {
-        let lowered = rawCommand.lowercased()
-        if lowered.contains("《"), lowered.contains("》") {
-            return true
-        }
-        return lowered.contains("歌曲") || lowered.contains("这首") || lowered.contains("song")
     }
 
     private static func runLibraryRAGSelectionAndPlay(
@@ -1395,7 +1329,7 @@ struct V4MusicControlTool: V4Tool {
     ) -> LibraryTrackRecord? {
         let trackSet = Set(album.trackIDs)
         let albumTracks = tracks.filter { trackSet.contains($0.persistentID) }
-        return randomTrack(from: albumTracks)
+        return albumTracks.first
     }
 
     private static func localFallbackTrack(
@@ -1440,21 +1374,16 @@ struct V4MusicControlTool: V4Tool {
                 }
             }
         }
-        if exactFirst, let pick = randomTrack(from: exact) {
+        if exactFirst, let pick = exact.first {
             return pick
         }
-        if let pick = randomTrack(from: fuzzy) {
+        if let pick = exact.first {
+            return pick
+        }
+        if let pick = fuzzy.first {
             return pick
         }
         return nil
-    }
-
-    private static func randomTrack(from tracks: [LibraryTrackRecord]) -> LibraryTrackRecord? {
-        guard !tracks.isEmpty else {
-            return nil
-        }
-        let index = Int.random(in: 0 ..< tracks.count)
-        return tracks[index]
     }
 
     private static func selectTrackWithRAG(
@@ -1575,7 +1504,9 @@ struct V4MusicControlTool: V4Tool {
                 "on run argv",
                 "set targetPID to item 1 of argv",
                 "tell application \"Music\"",
-            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
+                + libraryOrderedPlaybackSetupAppleScriptLines()
+                + [
                 "set allTracks to tracks of library playlist 1",
                 "repeat with t in allTracks",
                 "try",
@@ -1583,7 +1514,7 @@ struct V4MusicControlTool: V4Tool {
                 "play t",
                 "delay 0.6",
                 "set nowTrack to current track",
-                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play\"",
+                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play|queue_mode=library_order\"",
                 "end if",
                 "end try",
                 "end repeat",
@@ -1596,20 +1527,21 @@ struct V4MusicControlTool: V4Tool {
         )
     }
 
-    private static func runFallbackRandomPlay() async -> MagicianProcessResult? {
+    private static func runFallbackLibraryOrderedPlay() async -> MagicianProcessResult? {
         let result = await runOsaScript(
             lines: [
                 "tell application \"Music\"",
-            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
+                + libraryOrderedPlaybackSetupAppleScriptLines()
+                + [
                 "set allTracks to tracks of library playlist 1",
                 "set totalCount to count of allTracks",
                 "if totalCount is 0 then return \"track_not_found\"",
-                "set randomIndex to (random number from 1 to totalCount)",
-                "set targetTrack to item randomIndex of allTracks",
+                "set targetTrack to item 1 of allTracks",
                 "play targetTrack",
                 "delay 0.6",
                 "set nowTrack to current track",
-                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play|strategy=mood_random_fallback\"",
+                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play|strategy=library_order_fallback|queue_mode=library_order\"",
                 "end tell"
             ],
             arguments: [],
@@ -1619,6 +1551,20 @@ struct V4MusicControlTool: V4Tool {
             return nil
         }
         return result
+    }
+
+    private static func libraryOrderedPlaybackSetupAppleScriptLines() -> [String] {
+        [
+            "try",
+            "set current playlist to library playlist 1",
+            "end try",
+            "try",
+            "set shuffle enabled to false",
+            "end try",
+            "try",
+            "set song repeat to off",
+            "end try"
+        ]
     }
 
     private static func parseEvidence(_ output: String) -> (state: String?, track: String?, artist: String?) {
