@@ -905,6 +905,20 @@ struct V4MusicControlTool: V4Tool {
                             result = await runLibraryAlbumSearchAndPlay(keyword: item)
                         }
                         if result.exitCode == 0, result.stdout.hasPrefix("track=") {
+                            let matchesRequestedTarget: Bool = {
+                                switch kind {
+                                case .song:
+                                    if command.playIntent == .mood {
+                                        return true
+                                    }
+                                    return magicianMusicEvidenceMatchesQuery(output: result.stdout, query: query)
+                                case .album:
+                                    return albumEvidenceMatchesQuery(output: result.stdout, query: query)
+                                }
+                            }()
+                            if !matchesRequestedTarget {
+                                continue
+                            }
                             return result
                         }
                     }
@@ -1041,6 +1055,14 @@ struct V4MusicControlTool: V4Tool {
                 "set matchedTracks to (search library playlist 1 for keywordText only songs)",
                 "if (count of matchedTracks) is 0 then return \"track_not_found\"",
                 "set targetTrack to item 1 of matchedTracks",
+                "repeat with t in matchedTracks",
+                "try",
+                "if (name of t) is keywordText then",
+                "set targetTrack to t",
+                "exit repeat",
+                "end if",
+                "end try",
+                "end repeat",
                 "play targetTrack",
                 "delay 0.8",
                 "set nowTrack to current track",
