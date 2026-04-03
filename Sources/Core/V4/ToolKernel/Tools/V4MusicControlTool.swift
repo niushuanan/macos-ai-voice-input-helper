@@ -874,21 +874,6 @@ struct V4MusicControlTool: V4Tool {
                 ) {
                     return llmResult
                 }
-
-                if let ragPick = await runLibraryRAGSelectionAndPlay(
-                    query: query,
-                    rawCommand: command.rawCommand,
-                    playIntent: command.playIntent,
-                    modelSlotManager: modelSlotManager,
-                    generationProvider: generationProvider
-                ) {
-                    return ragPick
-                }
-
-                if command.playIntent == .mood, let moodFallback = await runFallbackLibraryOrderedPlay() {
-                    return moodFallback
-                }
-
                 return MagicianProcessResult(exitCode: 0, stdout: "track_not_found", stderr: "library_only_mode")
             }
             return await runOsaScript(
@@ -1009,31 +994,6 @@ struct V4MusicControlTool: V4Tool {
             return nil
         }
 
-        if playIntent != .mood {
-            let normalizedQueries = magicianMusicSearchQueries(from: query)
-                .map(normalizedMusicMatchText)
-                .filter { !$0.isEmpty }
-            if let exact = tracks.first(where: { track in
-                let name = normalizedMusicMatchText(track.name)
-                return normalizedQueries.contains(name)
-            }) {
-                let play = await playTrackByPersistentID(exact.persistentID)
-                guard
-                    play.exitCode == 0,
-                    play.stdout.hasPrefix("track="),
-                    evidenceResolvedTrackIDMatchesTarget(output: play.stdout, targetID: exact.persistentID)
-                else {
-                    return nil
-                }
-                let exactEvidenceValid = magicianMusicEvidenceMatchesQuery(output: play.stdout, query: query)
-                if !exactEvidenceValid {
-                    return nil
-                }
-                let evidence = play.stdout + "|strategy=library_exact_name|index_revision=\(snapshot.revision)"
-                return MagicianProcessResult(exitCode: 0, stdout: evidence, stderr: play.stderr)
-            }
-        }
-
         guard
             let configuration = await semanticModelConfiguration(modelSlotManager: modelSlotManager),
             let apiKey = await semanticModelAPIKey(modelSlotManager: modelSlotManager),
@@ -1076,7 +1036,7 @@ struct V4MusicControlTool: V4Tool {
         else {
             return nil
         }
-        let evidence = playResult.stdout + "|strategy=library_llm_index|index_revision=\(snapshot.revision)"
+        let evidence = playResult.stdout + "|strategy=library_llm_index_only|index_revision=\(snapshot.revision)"
         return MagicianProcessResult(exitCode: 0, stdout: evidence, stderr: playResult.stderr)
     }
 
@@ -1151,10 +1111,13 @@ struct V4MusicControlTool: V4Tool {
         }.joined(separator: "\n")
         let systemPrompt = """
         你是 PulseType 的音乐选曲器。你会收到用户请求和本地资料库曲目列表。
+        每次任务都是全新任务，只能基于这次输入判断，不得引用任何历史对话。
         规则：
         1) 必须只从给定列表里选择一首最匹配的歌。
         2) 严禁输出列表中不存在的 id。
-        3) 只输出 JSON，不要输出解释文字。
+        3) 点名歌曲时优先按歌名匹配，歌手/专辑仅用于消歧。
+        4) 输出必须是可执行指令，只能返回列表中的 persistentID。
+        5) 只输出 JSON，不要输出解释文字。
         JSON:
         {"persistentID":"列表里的id","confidence":0~1,"reason":"一句话"}
         若没有合适项：
