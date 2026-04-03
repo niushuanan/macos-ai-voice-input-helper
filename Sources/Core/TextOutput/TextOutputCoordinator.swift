@@ -131,7 +131,11 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             return nil
         }
 
-        if let selectedText = stringAttribute(kAXSelectedTextAttribute, on: focused) {
+        if
+            let selectedRange,
+            selectedRange.length > 0,
+            let selectedText = stringAttribute(kAXSelectedTextAttribute, on: focused)
+        {
             let normalized = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
             if !normalized.isEmpty {
                 return FocusedSelectionSnapshot(

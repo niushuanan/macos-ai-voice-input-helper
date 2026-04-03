@@ -102,22 +102,45 @@ enum MagicianSelectionMode {
     case required
 }
 
+enum MagicianExecutionPath {
+    case musicFast
+    case plannerV4
+}
+
+enum MagicianNormalizedIntent: String, Codable {
+    case play
+    case pause
+    case resume
+    case next
+    case previous
+    case open
+}
+
 struct MagicianLaneDecision {
     let lane: MagicianLane
     let reason: String
     let userMessage: String?
     let selectionMode: MagicianSelectionMode
+    let executionPath: MagicianExecutionPath
+    let normalizedIntent: MagicianNormalizedIntent?
+    let normalizedQuery: String?
 
     init(
         lane: MagicianLane,
         reason: String,
         userMessage: String?,
-        selectionMode: MagicianSelectionMode = .optional
+        selectionMode: MagicianSelectionMode = .optional,
+        executionPath: MagicianExecutionPath = .plannerV4,
+        normalizedIntent: MagicianNormalizedIntent? = nil,
+        normalizedQuery: String? = nil
     ) {
         self.lane = lane
         self.reason = reason
         self.userMessage = userMessage
         self.selectionMode = selectionMode
+        self.executionPath = executionPath
+        self.normalizedIntent = normalizedIntent
+        self.normalizedQuery = normalizedQuery
     }
 }
 

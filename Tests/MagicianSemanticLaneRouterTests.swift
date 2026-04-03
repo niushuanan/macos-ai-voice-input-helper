@@ -88,7 +88,7 @@ final class MagicianSemanticLaneRouterTests: XCTestCase {
 
     func testSemanticRouterParsesSelectionModeFromModelOutput() async {
         let provider = TrackingLaneGenerationProvider(
-            output: #"{"lane":"agent","selection_mode":"none","reason":"music_command"}"#
+            output: #"{"lane":"agent","path":"music_fast","selection_mode":"none","normalized_intent":"play","normalized_query":"稻香","reason":"music_command"}"#
         )
         let router = MagicianSemanticLaneRouter(
             generationProvider: provider,
@@ -123,6 +123,9 @@ final class MagicianSemanticLaneRouterTests: XCTestCase {
 
         XCTAssertEqual(decision.lane, .agent)
         XCTAssertEqual(decision.selectionMode, .none)
+        XCTAssertEqual(decision.executionPath, .musicFast)
+        XCTAssertEqual(decision.normalizedIntent, .play)
+        XCTAssertEqual(decision.normalizedQuery, "稻香")
     }
 }
 

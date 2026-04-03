@@ -181,7 +181,7 @@ final class HUDProgressStateMachineTests: XCTestCase {
             defaultTitle: "转写中"
         )
 
-        XCTAssertEqual(title, "魔术先生 · 思考中")
+        XCTAssertEqual(title, "思考中")
     }
 
     func testMagicianTitleResolverUsesTaskLabelDuringRewriting() {
@@ -192,7 +192,7 @@ final class HUDProgressStateMachineTests: XCTestCase {
             defaultTitle: "魔术先生执行"
         )
 
-        XCTAssertEqual(title, "魔术先生 · 写入备忘录中")
+        XCTAssertEqual(title, "写入备忘录中")
     }
 
     func testListeningTitleResolverKeepsNonMagicianLaneUnchanged() {

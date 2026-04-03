@@ -1148,6 +1148,80 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.inputText, "")
     }
 
+    func testMusicFastPathRunsWithoutPlannerRuntime() async throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
+            focusContext: FocusedAppContext(
+                appName: "TextEdit",
+                bundleID: "com.apple.TextEdit",
+                focusedRole: "AXTextArea",
+                hasEditableTarget: true,
+                strategyHint: "stale"
+            ),
+            selectedText: "旧选区不应该参与音乐命令"
+        )
+        let laneRouter = StubMagicianLaneRouter(
+            decisions: [
+                MagicianLaneDecision(
+                    lane: .agent,
+                    reason: "music_fast",
+                    userMessage: nil,
+                    selectionMode: .none,
+                    executionPath: .musicFast,
+                    normalizedIntent: .play,
+                    normalizedQuery: "稻香"
+                )
+            ]
+        )
+        let runtime = FakeMagicianAgentRuntime(
+            result: .success(
+                MagicianAgentRunOutcome(
+                    sessionID: "session-should-not-run",
+                    runID: "run-should-not-run",
+                    goalSummary: "播放稻香",
+                    finalStatusMessage: "不应命中",
+                    finalOutputText: nil,
+                    displayText: "不应命中",
+                    steps: [],
+                    evidenceSummary: "none"
+                )
+            )
+        )
+        let fastExecutor = StubMusicFastExecutor(
+            outcome: MusicFastOutcome(
+                status: .success,
+                message: "已开始播放：周杰伦 - 稻香",
+                outputText: "已开始播放：周杰伦 - 稻香",
+                evidenceSummary: "apple.music.control|requested_track=稻香|resolved_track=稻香|exact_match=true|playback_state=play|evidence_confidence=high",
+                failureCode: nil
+            )
+        )
+
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutputCoordinator,
+            magicianLaneRouter: laneRouter,
+            musicFastExecutor: fastExecutor,
+            magicianNativeRuntime: runtime,
+            magicianAgentRuntime: runtime,
+            transcriptionText: "播放稻香"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .controlMusic)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(runtime.callCount, 0)
+        XCTAssertEqual(fastExecutor.callCount, 1)
+        XCTAssertEqual(fastExecutor.lastRequest?.query, "稻香")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .success)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.inputText, "")
+        XCTAssertTrue(fixture.localHistoryStore.entries.first?.magicianExecutionTrace?.contains("path: music_fast") == true)
+        XCTAssertTrue(fixture.localHistoryStore.entries.first?.magicianExecutionTrace?.contains("selection_present: false") == true)
+    }
+
     func testMagicianSelectionRequiredCapturesSnapshotWhenNeeded() async throws {
         let textOutputCoordinator = FakeTextOutputCoordinator()
         textOutputCoordinator.selectionSnapshot = nil
@@ -1509,6 +1583,7 @@ final class InteractionCoordinatorTests: XCTestCase {
             )
         ),
         magicianLaneRouter: (any MagicianLaneRouting)? = nil,
+        musicFastExecutor: (any MusicFastExecuting)? = nil,
         magicianToolExecutor: (any MagicianToolExecuting)? = nil,
         v4MagicianRuntime: (any V4MagicianRuntimeRunning)? = nil,
         v4RuntimeSwitchStore: V4RuntimeSwitchStore? = nil,
@@ -1617,6 +1692,7 @@ final class InteractionCoordinatorTests: XCTestCase {
             magicianFeatureToggleStore: magicianFeatureToggleStore,
             workflowTelemetryReporter: workflowTelemetryReporter,
             magicianLaneRouter: magicianLaneRouter,
+            musicFastExecutor: musicFastExecutor,
             magicianToolExecutor: magicianToolExecutor ?? MagicianToolExecutor(),
             v4MagicianRuntime: v4MagicianRuntime,
             v4RuntimeSwitchStore: resolvedRuntimeSwitchStore,
@@ -1835,6 +1911,23 @@ private actor StubMagicianLaneRouter: MagicianLaneRouting {
             )
         }
         return decisions[index]
+    }
+}
+
+@MainActor
+private final class StubMusicFastExecutor: MusicFastExecuting {
+    private let fixedOutcome: MusicFastOutcome
+    private(set) var callCount = 0
+    private(set) var lastRequest: MusicFastRequest?
+
+    init(outcome: MusicFastOutcome) {
+        self.fixedOutcome = outcome
+    }
+
+    func execute(_ request: MusicFastRequest) async -> MusicFastOutcome {
+        callCount += 1
+        lastRequest = request
+        return fixedOutcome
     }
 }
 

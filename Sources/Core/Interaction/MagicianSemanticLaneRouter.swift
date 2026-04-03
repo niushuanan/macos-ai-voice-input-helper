@@ -58,7 +58,8 @@ struct MagicianSemanticLaneRouter: MagicianLaneRouting, @unchecked Sendable {
                 lane: .nativeFast,
                 reason: "semantic_empty_command",
                 userMessage: nil,
-                selectionMode: .none
+                selectionMode: .none,
+                executionPath: .plannerV4
             )
         }
         guard let modelContext = try? await modelResolver() else {
@@ -66,7 +67,8 @@ struct MagicianSemanticLaneRouter: MagicianLaneRouting, @unchecked Sendable {
                 lane: .agent,
                 reason: "semantic_router_no_model",
                 userMessage: nil,
-                selectionMode: .optional
+                selectionMode: .optional,
+                executionPath: .plannerV4
             )
         }
 
@@ -90,7 +92,8 @@ struct MagicianSemanticLaneRouter: MagicianLaneRouting, @unchecked Sendable {
                     lane: .agent,
                     reason: "semantic_router_invalid_output",
                     userMessage: nil,
-                    selectionMode: .optional
+                    selectionMode: .optional,
+                    executionPath: .plannerV4
                 )
             }
             return parsed.toDecision()
@@ -99,7 +102,8 @@ struct MagicianSemanticLaneRouter: MagicianLaneRouting, @unchecked Sendable {
                 lane: .agent,
                 reason: "semantic_router_error",
                 userMessage: nil,
-                selectionMode: .optional
+                selectionMode: .optional,
+                executionPath: .plannerV4
             )
         }
     }
@@ -114,14 +118,28 @@ struct MagicianSemanticLaneRouter: MagicianLaneRouting, @unchecked Sendable {
         - native_fast
         - agent
 
+        可选 path：
+        - music_fast
+        - planner_v4
+
+        可选 normalized_intent：
+        - play
+        - pause
+        - resume
+        - next
+        - previous
+        - open
+
         输出格式：
-        {"lane":"native_fast|agent","selection_mode":"none|optional|required","reason":"...","user_message":"..."}
+        {"lane":"native_fast|agent","path":"music_fast|planner_v4","selection_mode":"none|optional|required","normalized_intent":"play|pause|resume|next|previous|open","normalized_query":"...","reason":"...","user_message":"..."}
 
         规则：
         - 语义优先，不要依赖关键词硬匹配。
         - 如果一句话包含多个外部动作或复杂多步骤自动化，统一输出 agent。
         - 如果是飞书、多步骤自动化、调研后执行外部动作，输出 agent。
         - 纯文本改写、单一原生动作可走 native_fast。
+        - 音乐控制命令（播放/暂停/继续/上一首/下一首/打开音乐）优先输出 path=music_fast；其余输出 path=planner_v4。
+        - path=music_fast 时，必须给 normalized_intent；播放类命令尽量给 normalized_query。
         - selection_mode 判定：
           - required：命令核心依赖“当前选中的文本”，没有选中就无法完成（如“把选中的内容翻译/总结/改写/提炼”）。
           - none：命令不依赖当前选中（如音乐控制、发邮件、创建日程、纯口述任务）。
@@ -221,6 +239,11 @@ private enum SemanticLane: String, Decodable {
     case unsupportedMixedExternal = "unsupported_mixed_external"
 }
 
+private enum SemanticPath: String, Decodable {
+    case musicFast = "music_fast"
+    case plannerV4 = "planner_v4"
+}
+
 private enum SemanticSelectionMode: String, Decodable {
     case none
     case optional
@@ -240,40 +263,68 @@ private enum SemanticSelectionMode: String, Decodable {
 
 private struct LaneResponse: Decodable {
     let lane: SemanticLane
+    let path: SemanticPath?
     let selectionMode: SemanticSelectionMode?
     let reason: String?
     let userMessage: String?
+    let normalizedIntent: MagicianNormalizedIntent?
+    let normalizedQuery: String?
 
     enum CodingKeys: String, CodingKey {
         case lane
+        case path
         case selectionMode = "selection_mode"
         case reason
         case userMessage = "user_message"
+        case normalizedIntent = "normalized_intent"
+        case normalizedQuery = "normalized_query"
     }
 
     func toDecision() -> MagicianLaneDecision {
         let resolvedSelectionMode = selectionMode?.value ?? .optional
+        let resolvedPath: MagicianExecutionPath = {
+            if normalizedIntent != nil {
+                return .musicFast
+            }
+            switch path {
+            case .some(.musicFast):
+                return .musicFast
+            case .some(.plannerV4), .none:
+                return .plannerV4
+            }
+        }()
+        let trimmedQuery = normalizedQuery?.trimmingCharacters(in: .whitespacesAndNewlines)
+
         switch lane {
         case .nativeFast:
             return MagicianLaneDecision(
                 lane: .nativeFast,
                 reason: reason?.trimmedNilIfEmpty ?? "semantic_native_fast",
-                userMessage: nil,
-                selectionMode: resolvedSelectionMode
+                userMessage: userMessage?.trimmedNilIfEmpty,
+                selectionMode: resolvedSelectionMode,
+                executionPath: resolvedPath,
+                normalizedIntent: normalizedIntent,
+                normalizedQuery: trimmedQuery?.isEmpty == false ? trimmedQuery : nil
             )
         case .agent:
             return MagicianLaneDecision(
                 lane: .agent,
                 reason: reason?.trimmedNilIfEmpty ?? "semantic_agent",
-                userMessage: nil,
-                selectionMode: resolvedSelectionMode
+                userMessage: userMessage?.trimmedNilIfEmpty,
+                selectionMode: resolvedSelectionMode,
+                executionPath: resolvedPath,
+                normalizedIntent: normalizedIntent,
+                normalizedQuery: trimmedQuery?.isEmpty == false ? trimmedQuery : nil
             )
         case .unsupportedMixedExternal:
             return MagicianLaneDecision(
                 lane: .agent,
                 reason: reason?.trimmedNilIfEmpty ?? "semantic_unsupported_mixed_external",
-                userMessage: nil,
-                selectionMode: .optional
+                userMessage: userMessage?.trimmedNilIfEmpty,
+                selectionMode: .optional,
+                executionPath: .plannerV4,
+                normalizedIntent: nil,
+                normalizedQuery: nil
             )
         }
     }

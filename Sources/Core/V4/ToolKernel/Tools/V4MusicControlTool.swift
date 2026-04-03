@@ -228,21 +228,48 @@ struct V4MusicControlTool: V4Tool {
             }
         }
 
-        return V4ToolExecutionOutput(
-            outputText: outputText,
-            evidenceSummary: composedEvidenceSummary(
+        let requestedTrack = resolved.query?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedTrack = result.track?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let exactMatch = isExactTrackMatch(
+            requestedTrack: requestedTrack,
+            resolvedTrack: resolvedTrack,
+            action: result.action
+        )
+        let evidenceConfidence: String = {
+            if result.action == .play, let requestedTrack, !requestedTrack.isEmpty {
+                return exactMatch ? "high" : "low"
+            }
+            return "medium"
+        }()
+        let enrichedEvidence = enrichedEvidenceSummary(
+            baseEvidence: composedEvidenceSummary(
                 action: result.action,
                 state: resolvedState,
                 track: result.track,
                 artist: result.artist,
                 rawEvidence: result.evidence
             ),
+            requestedTrack: requestedTrack,
+            resolvedTrack: resolvedTrack,
+            exactMatch: exactMatch,
+            playbackState: resolvedState,
+            evidenceConfidence: evidenceConfidence
+        )
+
+        return V4ToolExecutionOutput(
+            outputText: outputText,
+            evidenceSummary: enrichedEvidence,
             rawPayload: .object(
                 [
                     "action": .string(result.action.rawValue),
                     "state": .string(resolvedState),
                     "playIntent": .string(resolved.playIntent.rawValue),
+                    "requestedTrack": requestedTrack.map(V4ToolValue.string) ?? .null,
                     "track": result.track.map(V4ToolValue.string) ?? .null,
+                    "resolvedTrack": resolvedTrack.map(V4ToolValue.string) ?? .null,
+                    "exactMatch": .boolean(exactMatch),
+                    "playbackState": .string(resolvedState),
+                    "evidenceConfidence": .string(evidenceConfidence),
                     "artist": result.artist.map(V4ToolValue.string) ?? .null,
                     "evidence": .string(result.evidence),
                     "summary": .string(outputText)
@@ -274,6 +301,50 @@ struct V4MusicControlTool: V4Tool {
             fields.append(trimmedRawEvidence)
         }
         return fields.joined(separator: " ")
+    }
+
+    private func enrichedEvidenceSummary(
+        baseEvidence: String,
+        requestedTrack: String?,
+        resolvedTrack: String?,
+        exactMatch: Bool,
+        playbackState: String,
+        evidenceConfidence: String
+    ) -> String {
+        var lines: [String] = []
+        let normalizedBase = baseEvidence.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedBase.isEmpty {
+            lines.append(normalizedBase)
+        }
+        if let requestedTrack, !requestedTrack.isEmpty {
+            lines.append("requested_track=\(requestedTrack)")
+        }
+        if let resolvedTrack, !resolvedTrack.isEmpty {
+            lines.append("resolved_track=\(resolvedTrack)")
+        }
+        lines.append("exact_match=\(exactMatch ? "true" : "false")")
+        lines.append("playback_state=\(playbackState)")
+        lines.append("evidence_confidence=\(evidenceConfidence)")
+        return lines.joined(separator: "|")
+    }
+
+    private func isExactTrackMatch(
+        requestedTrack: String?,
+        resolvedTrack: String?,
+        action: Action
+    ) -> Bool {
+        guard action == .play else {
+            return true
+        }
+        guard
+            let requestedTrack,
+            let resolvedTrack,
+            !requestedTrack.isEmpty,
+            !resolvedTrack.isEmpty
+        else {
+            return requestedTrack?.isEmpty ?? true
+        }
+        return normalizedMusicMatchText(requestedTrack) == normalizedMusicMatchText(resolvedTrack)
     }
 
     private func normalizedMusicState(_ raw: String, action: Action) -> String {

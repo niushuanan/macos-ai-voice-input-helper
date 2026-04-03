@@ -21,6 +21,7 @@ final class InteractionCoordinator {
     private let magicianFeatureToggleStore: MagicianFeatureToggleStore
     private let workflowTelemetryReporter: any WorkflowTelemetryReporting
     private let magicianLaneRouter: any MagicianLaneRouting
+    private let musicFastExecutor: any MusicFastExecuting
     private let v4MagicianRuntime: any V4MagicianRuntimeRunning
     private let v4RuntimeSwitchStore: V4RuntimeSwitchStore
     private let v4SessionStoreBridge: V4ToSessionStoreBridge
@@ -62,6 +63,7 @@ final class InteractionCoordinator {
         magicianFeatureToggleStore: MagicianFeatureToggleStore? = nil,
         workflowTelemetryReporter: (any WorkflowTelemetryReporting)? = nil,
         magicianLaneRouter: (any MagicianLaneRouting)? = nil,
+        musicFastExecutor: (any MusicFastExecuting)? = nil,
         magicianToolExecutor: (any MagicianToolExecuting)? = nil,
         v4MagicianRuntime: (any V4MagicianRuntimeRunning)? = nil,
         v4RuntimeSwitchStore: V4RuntimeSwitchStore? = nil,
@@ -100,6 +102,7 @@ final class InteractionCoordinator {
             let modelSlotManager = V4ModelSlotManager(bridge: providerSettingsBridge)
             self.magicianLaneRouter = MagicianSemanticLaneRouter(modelSlotManager: modelSlotManager)
         }
+        self.musicFastExecutor = musicFastExecutor ?? MusicFastExecutor(providerSettingsStore: providerSettingsStore)
         self.v4RuntimeSwitchStore = v4RuntimeSwitchStore ?? V4RuntimeSwitchStore()
         self.v4SessionStoreBridge = v4SessionStoreBridge ?? V4ToSessionStoreBridge()
         self.v4HistoryBridge = v4HistoryBridge
@@ -1711,7 +1714,7 @@ final class InteractionCoordinator {
         let traceID = ensureTraceID()
         let rawInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialFocusContext = contextDetector.focusedAppContext()
-        let seedSelectionSnapshot = normalizedSelectionSnapshot(textOutputCoordinator.currentSelectionSnapshot())
+        let seedSelectionSnapshot: FocusedSelectionSnapshot? = nil
         let enabledFeatures = magicianFeatureToggleStore.enabledFeatures
         let defaultRuntimeVersion = v4RuntimeSwitchStore.defaultRuntimeVersion
         let runtimeEvents: [MagicianAgentRuntimeEvent] = []
@@ -1741,7 +1744,7 @@ final class InteractionCoordinator {
         )
         let spokenInstruction = commandPreprocessResult.command
         let commandAppliedSkills = commandPreprocessResult.appliedSkills
-        let seedSelectionText = seedSelectionSnapshot?.selectedText ?? ""
+        let seedSelectionText = ""
 
         guard !spokenInstruction.isEmpty else {
             let message = "改写指令为空，请重试并说出明确命令。"
@@ -1819,14 +1822,23 @@ final class InteractionCoordinator {
             return
         }
 
+        let laneRouterStartedAt = Date()
         let initialLaneDecision = await magicianLaneRouter.decide(
             command: spokenInstruction,
             selectionSnapshot: seedSelectionSnapshot,
             enabledFeatures: enabledFeatures
         )
+        let laneRouterEndedAt = Date()
+        let routerLLMMilliseconds = Int(laneRouterEndedAt.timeIntervalSince(laneRouterStartedAt) * 1000)
+        let selectionSeedAfterRoute: FocusedSelectionSnapshot? = {
+            guard initialLaneDecision.selectionMode != .none else {
+                return nil
+            }
+            return normalizedSelectionSnapshot(textOutputCoordinator.currentSelectionSnapshot())
+        }()
         let selectionSnapshot = await resolveMagicianSelectionSnapshot(
             mode: initialLaneDecision.selectionMode,
-            seedSnapshot: seedSelectionSnapshot
+            seedSnapshot: selectionSeedAfterRoute
         )
         if abortIfSessionCancelled() {
             return
@@ -1882,7 +1894,7 @@ final class InteractionCoordinator {
         let refreshedLaneDecision: MagicianLaneDecision
         if
             initialLaneDecision.selectionMode != .none,
-            seedSelectionSnapshot?.selectedText != selectionSnapshot?.selectedText
+            selectionSeedAfterRoute?.selectedText != selectionSnapshot?.selectedText
         {
             refreshedLaneDecision = await magicianLaneRouter.decide(
                 command: spokenInstruction,
@@ -1891,6 +1903,21 @@ final class InteractionCoordinator {
             )
         } else {
             refreshedLaneDecision = initialLaneDecision
+        }
+
+        if refreshedLaneDecision.executionPath == .musicFast {
+            await executeMusicFastPath(
+                traceID: traceID,
+                spokenInstruction: spokenInstruction,
+                focusContext: fallbackFocusContext,
+                selectionText: selectionText,
+                laneDecision: refreshedLaneDecision,
+                transcription: transcription,
+                audioDurationSeconds: audioDurationSeconds,
+                appliedSkills: commandAppliedSkills,
+                routerLLMMilliseconds: routerLLMMilliseconds
+            )
+            return
         }
 
         let runtimeRoute = v4RuntimeSwitchStore.route(for: refreshedLaneDecision)
@@ -1938,6 +1965,135 @@ final class InteractionCoordinator {
         case .failed, .completed:
             break
         }
+    }
+
+    private func executeMusicFastPath(
+        traceID: String,
+        spokenInstruction: String,
+        focusContext: FocusedAppContext,
+        selectionText: String,
+        laneDecision: MagicianLaneDecision,
+        transcription: SpeechTranscriptionResult,
+        audioDurationSeconds: Double,
+        appliedSkills: [SkillRuleID],
+        routerLLMMilliseconds: Int
+    ) async {
+        guard let intent = laneDecision.normalizedIntent else {
+            let message = "音乐命令解析失败，请重试。"
+            let executionTrace = musicFastExecutionTraceText(
+                traceID: traceID,
+                command: spokenInstruction,
+                selectionPresent: false,
+                routerLLMMilliseconds: routerLLMMilliseconds,
+                toolMilliseconds: nil,
+                verifyMilliseconds: nil,
+                outcome: nil,
+                errorCode: V4FailureCode.invalidRequest.rawValue,
+                errorMessage: message
+            )
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: focusContext.appName,
+                    bundleID: focusContext.bundleID,
+                    inputText: selectionText,
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    magicianRuntimeVersion: 4,
+                    magicianExecutionTrace: executionTrace,
+                    status: .failed,
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: appliedSkills
+                )
+            )
+            sessionStore.fail(message: message)
+            currentTraceID = nil
+            return
+        }
+
+        let toolStartedAt = Date()
+        let outcome = await musicFastExecutor.execute(
+            MusicFastRequest(
+                traceID: traceID,
+                command: spokenInstruction,
+                intent: intent,
+                query: laneDecision.normalizedQuery,
+                focusContext: focusContext
+            )
+        )
+        let toolFinishedAt = Date()
+        let toolMilliseconds = Int(toolFinishedAt.timeIntervalSince(toolStartedAt) * 1000)
+        let verifyStartedAt = Date()
+        let verifyMilliseconds = Int(Date().timeIntervalSince(verifyStartedAt) * 1000)
+        let endToEndMilliseconds = Int(toolFinishedAt.timeIntervalSince(toolStartedAt) * 1000) + routerLLMMilliseconds
+        let executionTrace = musicFastExecutionTraceText(
+            traceID: traceID,
+            command: spokenInstruction,
+            selectionPresent: false,
+            routerLLMMilliseconds: routerLLMMilliseconds,
+            toolMilliseconds: toolMilliseconds,
+            verifyMilliseconds: verifyMilliseconds,
+            outcome: outcome,
+            errorCode: outcome.failureCode?.rawValue,
+            errorMessage: outcome.status == .failed ? outcome.message : nil,
+            endToEndMilliseconds: endToEndMilliseconds
+        )
+        localHistoryStore.append(
+            SessionHistoryEntry(
+                mode: .selectionRewrite,
+                appName: focusContext.appName,
+                bundleID: focusContext.bundleID,
+                inputText: selectionText,
+                outputText: outcome.outputText,
+                instructionText: spokenInstruction,
+                magicianFeatureID: .controlMusic,
+                displayText: outcome.message,
+                transcriptionProvider: transcription.providerName,
+                transcriptionModel: transcription.modelName,
+                magicianRuntimeVersion: 4,
+                magicianEvidenceSummary: outcome.evidenceSummary,
+                magicianExecutionTrace: executionTrace,
+                status: outcome.status,
+                errorMessage: outcome.status == .failed ? outcome.message : nil,
+                audioDurationSeconds: audioDurationSeconds,
+                appliedSkills: appliedSkills
+            )
+        )
+
+        let telemetryEvent: WorkflowTelemetryEvent = {
+            if outcome.status == .success {
+                return WorkflowTelemetryEvent(
+                    traceID: traceID,
+                    lane: .selectionRewrite,
+                    provider: nil,
+                    model: nil,
+                    event: .done,
+                    detail: spokenInstruction,
+                    audioDuration: audioDurationSeconds,
+                    transcriptLength: outcome.outputText?.count,
+                    stepCount: 1
+                )
+            }
+            return WorkflowTelemetryEvent(
+                traceID: traceID,
+                lane: .selectionRewrite,
+                provider: nil,
+                model: nil,
+                event: .failed,
+                errorType: outcome.failureCode?.rawValue ?? V4FailureCode.toolExecutionFailed.rawValue,
+                detail: outcome.message,
+                audioDuration: audioDurationSeconds
+            )
+        }()
+        workflowTelemetryReporter.record(telemetryEvent)
+
+        if outcome.status == .success {
+            sessionStore.completeAction(statusMessage: outcome.message)
+        } else {
+            sessionStore.fail(message: outcome.message)
+        }
+        currentTraceID = nil
     }
 
     private func executeSelectionRewriteWithV4(
@@ -2663,6 +2819,50 @@ final class InteractionCoordinator {
         appendTraceField(&lines, key: "recover_action", value: recoverAction)
         lines.append("")
         appendTraceEvents(&lines, runtimeEvents: runtimeEvents)
+        return lines.joined(separator: "\n")
+    }
+
+    private func musicFastExecutionTraceText(
+        traceID: String,
+        command: String,
+        selectionPresent: Bool,
+        routerLLMMilliseconds: Int,
+        toolMilliseconds: Int?,
+        verifyMilliseconds: Int?,
+        outcome: MusicFastOutcome?,
+        errorCode: String?,
+        errorMessage: String?,
+        endToEndMilliseconds: Int? = nil
+    ) -> String {
+        var lines: [String] = []
+        lines.append("goal: \(command)")
+        lines.append("command: \(command)")
+        lines.append("trace_id: \(traceID)")
+        lines.append("lane: magicianCommand")
+        lines.append("path: music_fast")
+        lines.append("selection_present: \(selectionPresent ? "true" : "false")")
+        lines.append("router_llm_ms: \(routerLLMMilliseconds)")
+        if let toolMilliseconds {
+            lines.append("music_tool_ms: \(toolMilliseconds)")
+        }
+        if let verifyMilliseconds {
+            lines.append("music_verify_ms: \(verifyMilliseconds)")
+        }
+        if let endToEndMilliseconds {
+            lines.append("end_to_end_ms: \(endToEndMilliseconds)")
+        }
+        if let outcome {
+            lines.append("status: \(outcome.status == .success ? "completed" : "failed")")
+            lines.append("final_status: \(outcome.message)")
+            appendTraceField(&lines, key: "final_output", value: outcome.outputText)
+            appendTraceField(&lines, key: "final_evidence", value: outcome.evidenceSummary)
+        } else {
+            lines.append("status: failed")
+        }
+        if let errorCode {
+            lines.append("failure_code: \(errorCode)")
+        }
+        appendTraceField(&lines, key: "error_message", value: errorMessage)
         return lines.joined(separator: "\n")
     }
 

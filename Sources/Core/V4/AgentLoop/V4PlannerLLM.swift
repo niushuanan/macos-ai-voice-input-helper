@@ -203,6 +203,9 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
         guard !trimmedSelection.isEmpty else {
             return plan
         }
+        if looksLikeMusicControlCommand(request.inputText) {
+            return plan
+        }
 
         let hasTransformStep = request.stepRecords.contains {
             $0.toolName == "text.transform" && $0.status == .completed
@@ -262,6 +265,14 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
             "放进文档"
         ]
         return genericCommands.contains { lowered.contains($0) }
+    }
+
+    private func looksLikeMusicControlCommand(_ command: String) -> Bool {
+        let lowered = command.lowercased()
+        let tokens = [
+            "播放", "暂停", "继续播放", "下一首", "上一首", "music", "打开音乐", "停止播放", "resume", "pause", "next", "previous"
+        ]
+        return tokens.contains { lowered.contains($0.lowercased()) }
     }
 
     private func makeSingleStepPlan(
