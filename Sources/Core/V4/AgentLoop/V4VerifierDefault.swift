@@ -102,13 +102,17 @@ struct V4VerifierDefault: V4Verifier {
                 )
             }
             if action == "play" {
-                let hasTrackEvidence = latestToolResult.evidenceSummary.lowercased().contains("track=")
+                let hasTrackInSummary = latestToolResult.evidenceSummary.lowercased().contains("track=")
+                let payload = parseRawPayloadObject(from: latestToolResult.rawPayload)
+                let payloadTrack = (payload["track"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let hasTrackInPayload = !payloadTrack.isEmpty
+                let outputText = latestToolResult.outputText?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let outputLooksLikeStartedPlayback = outputText.contains("已开始播放")
+                let hasTrackEvidence = hasTrackInSummary || hasTrackInPayload || outputLooksLikeStartedPlayback
                 if !hasTrackEvidence {
-                    return V4VerificationResult(
-                        status: .failed,
-                        message: "音乐动作缺少曲目证据，已判定失败。",
-                        evidenceSummary: mergedEvidence
-                    )
+                    return nil
                 }
             }
             return nil

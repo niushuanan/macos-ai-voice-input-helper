@@ -230,7 +230,13 @@ struct V4MusicControlTool: V4Tool {
 
         return V4ToolExecutionOutput(
             outputText: outputText,
-            evidenceSummary: "apple.music.control action=\(result.action.rawValue) state=\(resolvedState)",
+            evidenceSummary: composedEvidenceSummary(
+                action: result.action,
+                state: resolvedState,
+                track: result.track,
+                artist: result.artist,
+                rawEvidence: result.evidence
+            ),
             rawPayload: .object(
                 [
                     "action": .string(result.action.rawValue),
@@ -243,6 +249,31 @@ struct V4MusicControlTool: V4Tool {
                 ]
             )
         )
+    }
+
+    private func composedEvidenceSummary(
+        action: Action,
+        state: String,
+        track: String?,
+        artist: String?,
+        rawEvidence: String
+    ) -> String {
+        var fields: [String] = [
+            "apple.music.control",
+            "action=\(action.rawValue)",
+            "state=\(state)"
+        ]
+        if let track = track?.trimmingCharacters(in: .whitespacesAndNewlines), !track.isEmpty {
+            fields.append("track=\(track)")
+        }
+        if let artist = artist?.trimmingCharacters(in: .whitespacesAndNewlines), !artist.isEmpty {
+            fields.append("artist=\(artist)")
+        }
+        let trimmedRawEvidence = rawEvidence.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedRawEvidence.isEmpty {
+            fields.append(trimmedRawEvidence)
+        }
+        return fields.joined(separator: " ")
     }
 
     private func normalizedMusicState(_ raw: String, action: Action) -> String {
