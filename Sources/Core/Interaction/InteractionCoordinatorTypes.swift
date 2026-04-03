@@ -326,11 +326,6 @@ final class MusicFastExecutor: MusicFastExecuting {
             let exactMatch = isExactTrackMatch(requestedTrack: requestedTrack, resolvedTrack: resolvedTrack)
 
             if request.intent == .play, let requestedTrack, !requestedTrack.isEmpty, !exactMatch {
-                _ = await pauseAfterMismatch(
-                    tool: tool,
-                    runRequest: runRequest,
-                    stepRecord: stepRecord
-                )
                 return MusicFastOutcome(
                     status: .failed,
                     message: "资料库未找到精确匹配歌曲：\(requestedTrack)。",
@@ -345,6 +340,25 @@ final class MusicFastExecutor: MusicFastExecuting {
                     ),
                     failureCode: .toolExecutionFailed
                 )
+            }
+
+            if request.intent == .play {
+                if playbackState != "play" {
+                    return MusicFastOutcome(
+                        status: .failed,
+                        message: "已定位到歌曲，但未真正开始播放，请重试。",
+                        outputText: output.outputText,
+                        evidenceSummary: composeFastEvidence(
+                            baseEvidence: output.evidenceSummary,
+                            requestedTrack: requestedTrack,
+                            resolvedTrack: resolvedTrack,
+                            exactMatch: exactMatch,
+                            playbackState: playbackState,
+                            confidence: "low"
+                        ),
+                        failureCode: .verificationFailed
+                    )
+                }
             }
 
             if request.intent != .play {
@@ -461,35 +475,4 @@ final class MusicFastExecutor: MusicFastExecuting {
         return lines.joined(separator: "|")
     }
 
-    private func pauseAfterMismatch(
-        tool: V4MusicControlTool,
-        runRequest: V4RunRequest,
-        stepRecord: V4StepRecord
-    ) async -> Bool {
-        let now = Date()
-        let context = V4ToolExecutionContext(
-            toolUse: V4ToolUse(
-                runID: runRequest.runID,
-                stepID: stepRecord.id,
-                traceID: runRequest.traceID,
-                lane: runRequest.lane,
-                goalSummary: runRequest.goalSummary,
-                toolName: "apple.music.control",
-                inputJSON: "暂停播放",
-                inputSummary: "暂停播放",
-                requestedAt: now
-            ),
-            request: runRequest,
-            step: stepRecord,
-            accumulatedStepRecords: [],
-            turnIndex: 1
-        )
-        let args: V4ToolArguments = ["command": .string("暂停播放")]
-        do {
-            _ = try await tool.execute(arguments: args, context: context)
-            return true
-        } catch {
-            return false
-        }
-    }
 }

@@ -1021,6 +1021,10 @@ struct V4MusicControlTool: V4Tool {
                 guard play.exitCode == 0, play.stdout.hasPrefix("track=") else {
                     return nil
                 }
+                let exactEvidenceValid = magicianMusicEvidenceMatchesQuery(output: play.stdout, query: query)
+                if !exactEvidenceValid {
+                    return nil
+                }
                 let evidence = play.stdout + "|strategy=library_exact_name|index_revision=\(snapshot.revision)"
                 return MagicianProcessResult(exitCode: 0, stdout: evidence, stderr: play.stderr)
             }

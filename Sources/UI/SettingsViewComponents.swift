@@ -218,21 +218,12 @@ struct MemoryRowView: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                             Text(magicianExecutionInterpretation)
-                                .font(.caption)
+                                .font(.caption2)
                                 .foregroundStyle(.primary)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
                         }
-                        .padding(10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(Color.accentColor.opacity(0.08))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .stroke(Color.accentColor.opacity(0.22), lineWidth: 1)
-                                )
-                        )
                     }
 
                     if magicianTraceExpanded, let magicianExecutionTrace {
