@@ -213,6 +213,34 @@ final class V4AgentLoopEngineTests: XCTestCase {
         XCTAssertEqual(outcome.stepRecords.map(\.toolName), ["text.transform", "apple.mail.compose"])
     }
 
+    func testPlannerDrivenDeciderFinishesSingleCommandOnMagicianLane() async throws {
+        let planner = LoopingSingleStepPlanner(toolName: "apple.music.control", title: "播放稻香")
+        let engine = V4AgentLoopEngine(
+            planner: planner,
+            postStepDecider: V4PostStepDeciderPlannerDriven(),
+            verifier: V4VerifierDefault(),
+            maxTurns: 6,
+            stepExecutor: { step, request, _, _ in
+                StaticSuccessExecutor().execute(step: step, request: request)
+            }
+        )
+        let request = V4RunRequest(
+            lane: .directDictation,
+            goalSummary: "播放稻香",
+            inputText: "播放稻香"
+        )
+
+        let outcome = try await engine.run(
+            request: request,
+            onEvent: nil as (@Sendable (V4RuntimeEvent) -> Void)?
+        )
+
+        XCTAssertEqual(outcome.status, V4RunStatus.completed)
+        XCTAssertEqual(outcome.failureCode, nil)
+        XCTAssertEqual(outcome.stepRecords.count, 1)
+        XCTAssertEqual(outcome.stepRecords.first?.toolName, "apple.music.control")
+    }
+
     private func makeRequest(command: String) -> V4RunRequest {
         V4RunRequest(
             lane: .selectionRewrite,
@@ -440,5 +468,26 @@ private final class SequencedPlanner: V4Planner, @unchecked Sendable {
                 terminalDecision: V4LoopDecision(action: .finish, message: "已完成。")
             )
         }
+    }
+}
+
+private struct LoopingSingleStepPlanner: V4Planner {
+    let toolName: String
+    let title: String
+
+    func plan(for request: V4RunRequest) async throws -> V4Plan {
+        V4Plan(
+            steps: [
+                V4StepRecord(
+                    traceID: request.traceID,
+                    lane: request.lane,
+                    goalSummary: request.goalSummary,
+                    title: title,
+                    status: .queued,
+                    toolName: toolName,
+                    inputSummary: request.inputText
+                )
+            ]
+        )
     }
 }
