@@ -92,6 +92,7 @@ final class V4MemoryQueryPlannerInputAdapter: V4MemoryQueryPlannerInputAdapting 
             appName: request.appName,
             bundleID: request.bundleID,
             selectionText: request.selectionText,
+            selectedFiles: request.selectedFiles,
             enabledFeatureIDs: request.enabledFeatureIDs,
             stepRecords: request.stepRecords,
             evidenceSummary: request.evidenceSummary,

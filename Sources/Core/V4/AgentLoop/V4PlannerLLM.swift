@@ -108,7 +108,7 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
 
         channel 枚举：
         - text_transform
-        - local_markdown
+        - md_pipeline
         - mail
         - calendar
         - music
@@ -129,15 +129,15 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
         - 只规划下一步，不要一次规划完整长链。
         - 已经完成的 step 不要重复做，除非上一步失败且明确需要重试。
         - 只要存在选中文本，优先先走 text.transform；如果命令不明确，默认做“中文总结 + 要点列表”。
-        - 当任务是“处理文本并保存本地”时，先 text.transform，再 local.md.create。
-        - 如果当前已有一段整理好的 latestOutput，就优先拿它进入 local.md.create / mail / calendar，而不是再重复改写。
+        - 当任务是“生成 Markdown 文档”时，直接用 md.pipeline。
+        - 如果当前已有一段整理好的 latestOutput，就优先拿它进入 md.pipeline / mail / calendar，而不是再重复改写。
         - 如果时间、对象、目标明显不够，优先 ask_user，不要硬猜。
         - 如果一句话混了互相独立的多个外部动作，也优先 ask_user。
         - 如果最新一步已经满足用户目标，直接 finish。
 
         可用 tool：
         - text.transform: 把当前文本按指令改写、整理、提炼、翻译。
-        - local.md.create: 新建本地 Markdown 文档，固定落到项目根目录下的 md 文件夹。
+        - md.pipeline: 统一处理语音文本 + 选中文字 + 选中文件，执行联网生成、文档分块、Markdown 渲染与落盘。
         - apple.mail.compose: 写邮件、发邮件、生成草稿。
         - apple.calendar.create: 新建 Calendar 日程。
         - apple.music.control: 打开音乐、播放、暂停、切歌。
@@ -176,8 +176,15 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
         用户原始命令：
         \(request.inputText)
 
-        当前选中文本：
+        PromptEnvelope（统一输入）：
+        voice_command:
+        \(request.inputText)
+
+        selected_text:
         \(request.selectionText?.trimmedNilIfEmpty ?? "(none)")
+
+        selected_files:
+        \(formattedSelectedFiles(request.selectedFiles))
 
         当前 App：
         \(request.appName?.trimmedNilIfEmpty ?? "(unknown)") | \(request.bundleID?.trimmedNilIfEmpty ?? "(unknown)")
@@ -210,10 +217,10 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
         let hasTransformStep = request.stepRecords.contains {
             $0.toolName == "text.transform" && $0.status == .completed
         }
-        let hasLocalMDStep = request.stepRecords.contains {
-            $0.toolName == "local.md.create" && $0.status == .completed
+        let hasMDPipelineStep = request.stepRecords.contains {
+            $0.toolName == "md.pipeline" && $0.status == .completed
         }
-        if hasLocalMDStep {
+        if hasMDPipelineStep {
             return plan
         }
 
@@ -229,15 +236,15 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
             )
         }
 
-        if plan.steps.first?.toolName == "local.md.create" {
+        if plan.steps.first?.toolName == "md.pipeline" {
             return plan
         }
 
         return makeSingleStepPlan(
             for: request,
-            toolName: "local.md.create",
-            title: "本地文档归档",
-            inputSummary: "将上一轮文字处理结果写入本地 md 文档。"
+            toolName: "md.pipeline",
+            title: "生成 Markdown 文档",
+            inputSummary: "将语音文本、选区文本与选中文件统一生成结构化 Markdown 文档。"
         )
     }
 
@@ -410,8 +417,8 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
         switch toolName {
         case "text.transform":
             return "文字处理"
-        case "local.md.create":
-            return "本地文档归档"
+        case "md.pipeline":
+            return "生成 Markdown 文档"
         case "apple.notes.create":
             return "处理备忘录"
         case "apple.mail.compose":
@@ -446,7 +453,7 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
 
     private static let allowedToolNames: Set<String> = [
         "text.transform",
-        "local.md.create",
+        "md.pipeline",
         "apple.mail.compose",
         "apple.calendar.create",
         "apple.music.control",
@@ -454,6 +461,17 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
         "time_machine.create",
         "time_machine.remind"
     ]
+}
+
+private extension V4PlannerLLM {
+    func formattedSelectedFiles(_ files: [V4SelectedFileInput]) -> String {
+        guard !files.isEmpty else {
+            return "(none)"
+        }
+        return files.enumerated().map { index, file in
+            "\(index + 1). name=\(file.name) | type=\(file.fileType) | path=\(file.path)"
+        }.joined(separator: "\n")
+    }
 }
 
 private enum PlannerDecodeError: Error {

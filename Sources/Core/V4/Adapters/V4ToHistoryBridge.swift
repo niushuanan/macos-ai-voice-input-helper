@@ -36,6 +36,11 @@ struct V4ToHistoryBridge {
                 status: status,
                 runtimeEvents: runtimeEvents
             ),
+            magicianExecutionInterpretation: executionInterpretation(
+                request: request,
+                outcome: outcome,
+                status: status
+            ),
             status: status,
             errorMessage: status == .success ? nil : outcome.finalStatusMessage,
             audioDurationSeconds: audioDurationSeconds,
@@ -58,6 +63,8 @@ struct V4ToHistoryBridge {
         }
 
         switch toolName {
+        case "md.pipeline":
+            return .createNote
         case "apple.calendar.create":
             return .createEvent
         case "apple.notes.create":
@@ -75,6 +82,42 @@ struct V4ToHistoryBridge {
         }
     }
 
+    private func executionInterpretation(
+        request: V4RunRequest,
+        outcome: V4RunOutcome,
+        status: SessionHistoryStatus
+    ) -> String? {
+        guard let lastTool = outcome.stepRecords.last?.toolName else {
+            return nil
+        }
+        guard lastTool == "md.pipeline" else {
+            return nil
+        }
+
+        let hasVoice = !request.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasSelection = !(request.selectionText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        let hasFiles = !request.selectedFiles.isEmpty
+        let sourceBadges = [
+            hasVoice ? "语音" : nil,
+            hasSelection ? "选区" : nil,
+            hasFiles ? "文件" : nil
+        ].compactMap { $0 }.joined(separator: " + ")
+
+        if status == .success {
+            return """
+            任务已完成。输入来源：\(sourceBadges.isEmpty ? "无" : sourceBadges)。
+            系统按 md.pipeline 执行了：理解意图 -> 文件解析 -> 联网证据采集 -> 文档分块生成 -> Markdown 渲染 -> 落盘 -> 记忆记录。
+            最终结果：\(outcome.finalStatusMessage)
+            """
+        }
+
+        return """
+        任务未完成。输入来源：\(sourceBadges.isEmpty ? "无" : sourceBadges)。
+        系统已经执行到 md.pipeline，但在某个阶段失败：\(outcome.finalStatusMessage)。
+        建议先看“原始执行链路”中的 failure_code 与 final_evidence，再决定是否重试。
+        """
+    }
+
     private func executionTrace(
         request: V4RunRequest,
         outcome: V4RunOutcome,
@@ -88,6 +131,15 @@ struct V4ToHistoryBridge {
         lines.append("session_id: \(outcome.sessionID.rawValue)")
         lines.append("run_id: \(outcome.runID.rawValue)")
         lines.append("lane: \(traceLaneLabel(request: request, outcome: outcome))")
+        let hasVoice = !request.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasSelection = !(request.selectionText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        let hasFiles = !request.selectedFiles.isEmpty
+        lines.append("input_sources: voice=\(hasVoice) selection=\(hasSelection) files=\(hasFiles)")
+        if hasFiles {
+            for (index, file) in request.selectedFiles.enumerated() {
+                lines.append("  [file \(index + 1)] \(file.name) | type=\(file.fileType) | path=\(file.path)")
+            }
+        }
         lines.append("status: \(status.rawValue)")
         appendField(&lines, key: "failure_code", value: outcome.failureCode?.rawValue)
         lines.append("")

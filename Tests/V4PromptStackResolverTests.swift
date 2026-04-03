@@ -129,6 +129,7 @@ final class V4PromptStackResolverTests: XCTestCase {
             sourceAppName: appName,
             sourceBundleID: bundleID,
             selectionText: "原始选中文本",
+            selectedFiles: [],
             stepRecords: [],
             evidenceSummary: "",
             requestedAt: Date(timeIntervalSince1970: 1_710_000_000)
@@ -147,4 +148,3 @@ final class V4PromptStackResolverTests: XCTestCase {
         return defaults
     }
 }
-

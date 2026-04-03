@@ -12,7 +12,7 @@ final class V4ToolManifestTests: XCTestCase {
         let byChinese = registry.search(keyword: "日程")
         XCTAssertTrue(byChinese.contains(where: { $0.toolID == "apple.calendar.create" }))
         let byLocalMD = registry.search(keyword: "本地")
-        XCTAssertTrue(byLocalMD.contains(where: { $0.toolID == "local.md.create" }))
+        XCTAssertTrue(byLocalMD.contains(where: { $0.toolID == "md.pipeline" }))
 
         let appleTools = registry.list(by: .appleNativeApps)
         let toolIDs = Set(appleTools.map(\.toolID))

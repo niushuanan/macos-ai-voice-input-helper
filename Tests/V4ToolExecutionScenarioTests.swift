@@ -101,6 +101,7 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
                     sourceAppName: nil,
                     sourceBundleID: nil,
                     selectionText: "原始内容",
+                    selectedFiles: [],
                     stepRecords: [],
                     evidenceSummary: "",
                     requestedAt: Date()

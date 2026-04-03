@@ -234,6 +234,8 @@ final class V4MagicianRuntimeAdapter: MagicianAgentRunning, V4MagicianRuntimeRun
 
     nonisolated private static func featureID(for toolName: String?) -> MagicianFeatureID {
         switch toolName {
+        case "md.pipeline":
+            return .createNote
         case "apple.calendar.create":
             return .createEvent
         case "apple.notes.create":

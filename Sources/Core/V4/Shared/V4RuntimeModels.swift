@@ -1,5 +1,24 @@
 import Foundation
 
+struct V4SelectedFileInput: Codable, Equatable, Sendable, Identifiable {
+    let id: String
+    let path: String
+    let name: String
+    let fileType: String
+
+    init(
+        id: String = UUID().uuidString,
+        path: String,
+        name: String,
+        fileType: String
+    ) {
+        self.id = id
+        self.path = path
+        self.name = name
+        self.fileType = fileType
+    }
+}
+
 enum V4RuntimeEventName: String, Codable, Equatable, Sendable {
     case requestAccepted = "request_accepted"
     case stateChanged = "state_changed"
@@ -34,6 +53,8 @@ struct V4RunRequest: Codable, Equatable, Sendable {
     let bundleID: String?
     /// 当前选中文本快照，供 rewrite lane 与 tool lane 使用。
     let selectionText: String?
+    /// 当前选中文件快照，供 md.pipeline 与后续多模态 tool 使用。
+    let selectedFiles: [V4SelectedFileInput]
     /// 当前请求允许的 feature 标识，供 planner 与 adapter 做边界判断。
     let enabledFeatureIDs: Set<String>
     /// 当前 run 已累计的 step records，首轮默认空数组。
@@ -65,6 +86,7 @@ struct V4RunRequest: Codable, Equatable, Sendable {
         appName: String? = nil,
         bundleID: String? = nil,
         selectionText: String? = nil,
+        selectedFiles: [V4SelectedFileInput] = [],
         enabledFeatureIDs: Set<String> = [],
         stepRecords: [V4StepRecord] = [],
         evidenceSummary: String = "",
@@ -85,6 +107,7 @@ struct V4RunRequest: Codable, Equatable, Sendable {
         self.appName = appName
         self.bundleID = bundleID
         self.selectionText = selectionText
+        self.selectedFiles = selectedFiles
         self.enabledFeatureIDs = enabledFeatureIDs
         self.stepRecords = stepRecords
         self.evidenceSummary = evidenceSummary

@@ -78,7 +78,7 @@ final class V4PlannerLLMTests: XCTestCase {
         let plan = try await planner.plan(for: request)
 
         XCTAssertEqual(plan.steps.count, 1)
-        XCTAssertEqual(plan.steps.first?.toolName, "local.md.create")
+        XCTAssertEqual(plan.steps.first?.toolName, "md.pipeline")
         let invocationCount = await provider.invocationCount
         XCTAssertEqual(invocationCount, 1)
     }
@@ -171,8 +171,8 @@ final class V4PlannerLLMTests: XCTestCase {
 
         XCTAssertEqual(plan.terminalDecision, nil)
         XCTAssertEqual(plan.steps.count, 1)
-        XCTAssertEqual(plan.steps.first?.toolName, "local.md.create")
-        XCTAssertEqual(plan.steps.first?.title, "本地文档归档")
+        XCTAssertEqual(plan.steps.first?.toolName, "md.pipeline")
+        XCTAssertEqual(plan.steps.first?.title, "生成 Markdown 文档")
     }
 
     func testPlannerCanFinishFromModelDecision() async throws {
@@ -263,7 +263,7 @@ final class V4PlannerLLMTests: XCTestCase {
     func testPlannerEnforcesTextTransformAsFirstStepWhenSelectionExists() async throws {
         let planner = V4PlannerLLM(
             generationProvider: StubGenerationProvider(
-                output: #"{"action":"step","step":{"toolName":"local.md.create","title":"本地文档归档","inputSummary":"直接保存"}}"#
+                output: #"{"action":"step","step":{"toolName":"md.pipeline","title":"生成 Markdown 文档","inputSummary":"直接保存"}}"#
             ),
             modelResolver: { _ in
                 V4PlannerLLM.ModelContext(
@@ -333,7 +333,7 @@ final class V4PlannerLLMTests: XCTestCase {
         let plan = try await planner.plan(for: request)
 
         XCTAssertEqual(plan.steps.count, 1)
-        XCTAssertEqual(plan.steps.first?.toolName, "local.md.create")
+        XCTAssertEqual(plan.steps.first?.toolName, "md.pipeline")
         XCTAssertNil(plan.terminalDecision)
     }
 

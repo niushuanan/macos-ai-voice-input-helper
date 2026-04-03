@@ -214,7 +214,7 @@ struct MemoryRowView: View {
 
                     if let magicianExecutionInterpretation {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("执行解读（额外任务）")
+                            Text("执行解读")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                             Text(magicianExecutionInterpretation)
@@ -224,7 +224,15 @@ struct MemoryRowView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
                         }
-                        .padding(.top, 2)
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.primary.opacity(0.04))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                                )
+                        )
                     }
 
                     if magicianTraceExpanded, let magicianExecutionTrace {

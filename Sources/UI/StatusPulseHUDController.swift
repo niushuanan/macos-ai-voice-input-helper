@@ -337,7 +337,7 @@ enum StatusPulseHUDMessageResolver {
     private static func isCreateNoteSuccess(_ message: String) -> Bool {
         containsAny(
             message,
-            tokens: ["备忘录", "Notes", "快捷指令", "Shortcuts URL 触发写入", "本地 md 文档", "local.md.create"]
+            tokens: ["备忘录", "Notes", "快捷指令", "Shortcuts URL 触发写入", "本地 md 文档", "md.pipeline"]
         )
     }
 

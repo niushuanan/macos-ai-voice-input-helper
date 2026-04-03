@@ -1850,6 +1850,7 @@ final class InteractionCoordinator {
         }
 
         let selectionText = selectionSnapshot?.selectedText ?? ""
+        let selectedFiles = captureFinderSelectedFiles()
         let fallbackFocusContext: FocusedAppContext = {
             if let selectionSnapshot {
                 return selectionSnapshot.focusContext
@@ -1932,6 +1933,7 @@ final class InteractionCoordinator {
                 traceID: traceID,
                 spokenInstruction: spokenInstruction,
                 selectionSnapshot: selectionSnapshot,
+                selectedFiles: selectedFiles,
                 fallbackFocusContext: fallbackFocusContext,
                 selectionText: selectionText,
                 enabledFeatures: enabledFeatures,
@@ -2131,6 +2133,7 @@ final class InteractionCoordinator {
         traceID: String,
         spokenInstruction: String,
         selectionSnapshot: FocusedSelectionSnapshot?,
+        selectedFiles: [V4SelectedFileInput],
         fallbackFocusContext: FocusedAppContext,
         selectionText: String,
         enabledFeatures: Set<MagicianFeatureID>,
@@ -2155,6 +2158,7 @@ final class InteractionCoordinator {
             appName: fallbackFocusContext.appName,
             bundleID: fallbackFocusContext.bundleID,
             selectionText: selectionSnapshot?.selectedText,
+            selectedFiles: selectedFiles,
             enabledFeatureIDs: Set(enabledFeatures.map(\.rawValue))
         )
         let plannerRequest = v4MemoryPlannerInputAdapter.adapt(
@@ -2302,7 +2306,7 @@ final class InteractionCoordinator {
         }
 
         switch lastTool {
-        case "local.md.create":
+        case "md.pipeline":
             return "本地 md 文档已创建，结果文本已同步到剪贴板。"
         case "apple.notes.create":
             return "备忘录操作已完成，结果文本已同步到剪贴板。"
@@ -2330,6 +2334,49 @@ final class InteractionCoordinator {
         \(selectionText)
         [/SELECTED_TEXT]
         """
+    }
+
+    private func captureFinderSelectedFiles() -> [V4SelectedFileInput] {
+        let script = """
+        tell application "Finder"
+            set sel to selection as alias list
+            set outText to ""
+            repeat with itemAlias in sel
+                set outText to outText & POSIX path of itemAlias & linefeed
+            end repeat
+            return outText
+        end tell
+        """
+        guard let appleScript = NSAppleScript(source: script) else {
+            return []
+        }
+
+        var errorInfo: NSDictionary?
+        let result = appleScript.executeAndReturnError(&errorInfo)
+        if errorInfo != nil {
+            return []
+        }
+        guard let raw = result.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return []
+        }
+
+        let allowedTypes: Set<String> = ["pdf", "docx", "xlsx", "xls", "csv"]
+        return raw
+            .components(separatedBy: .newlines)
+            .compactMap { line in
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            .map { path in
+                let url = URL(fileURLWithPath: path)
+                let ext = url.pathExtension.lowercased()
+                return V4SelectedFileInput(
+                    path: path,
+                    name: url.lastPathComponent,
+                    fileType: ext
+                )
+            }
+            .filter { allowedTypes.contains($0.fileType) }
     }
 
     private func goalSummaryForV4Planner(

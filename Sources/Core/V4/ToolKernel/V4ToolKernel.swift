@@ -256,15 +256,26 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
                 "text": .string(preferredText),
                 "instruction": .string(step.inputSummary.nilIfEmpty ?? request.goalSummary)
             ]
-        case "local.md.create":
+        case "md.pipeline":
             let command = step.inputSummary.nilIfEmpty ?? request.inputText
             var arguments: V4ToolArguments = [
                 "command": .string(command),
-                "title": .string(defaultNoteTitle(from: preferredText)),
-                "body": .string(preferredText)
+                "selectedText": .string(selectionText?.nilIfEmpty ?? ""),
+                "styleProfile": .string(inferredMDStyleProfile(from: command)),
+                "networkPolicy": .string("required")
             ]
-            if let source = selectionText?.nilIfEmpty {
-                arguments["sourceText"] = .string(source)
+            if !request.selectedFiles.isEmpty {
+                arguments["selectedFiles"] = .array(
+                    request.selectedFiles.map { file in
+                        .object(
+                            [
+                                "path": .string(file.path),
+                                "name": .string(file.name),
+                                "type": .string(file.fileType)
+                            ]
+                        )
+                    }
+                )
             }
             return arguments
         case "apple.notes.create":
@@ -354,6 +365,17 @@ final class V4ToolKernel: V4ToolKernelRunning, @unchecked Sendable {
             return .append
         }
         return .create
+    }
+
+    private func inferredMDStyleProfile(from command: String) -> String {
+        let lowered = command.lowercased()
+        if containsAny(lowered, tokens: ["prd", "需求文档", "产品需求"]) {
+            return "prd"
+        }
+        if containsAny(lowered, tokens: ["周报", "weekly", "本周"]) {
+            return "weekly_report"
+        }
+        return "meeting_notes"
     }
 
     private func extractNoteTargetTitle(from command: String) -> String? {

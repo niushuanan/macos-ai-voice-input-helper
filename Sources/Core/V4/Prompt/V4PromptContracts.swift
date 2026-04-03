@@ -24,6 +24,8 @@ struct V4PromptContext: Codable, Equatable, Sendable {
     let sourceBundleID: String?
     /// 当前选中文本快照，供 rewrite lane 使用。
     let selectionText: String?
+    /// 当前选中文件快照，供多输入 prompt 组装使用。
+    let selectedFiles: [V4SelectedFileInput]
     /// 当前 run 已累计的 step records，供 tool-result layer 与 memory layer 参考。
     let stepRecords: [V4StepRecord]
     /// 当前聚合证据摘要，供 memory 与 verification layer 参考。
@@ -39,6 +41,7 @@ struct V4PromptContext: Codable, Equatable, Sendable {
         sourceAppName: String?,
         sourceBundleID: String?,
         selectionText: String?,
+        selectedFiles: [V4SelectedFileInput],
         stepRecords: [V4StepRecord],
         evidenceSummary: String,
         requestedAt: Date
@@ -50,6 +53,7 @@ struct V4PromptContext: Codable, Equatable, Sendable {
         self.sourceAppName = sourceAppName
         self.sourceBundleID = sourceBundleID
         self.selectionText = selectionText
+        self.selectedFiles = selectedFiles
         self.stepRecords = stepRecords
         self.evidenceSummary = evidenceSummary
         self.requestedAt = requestedAt
@@ -64,6 +68,7 @@ struct V4PromptContext: Codable, Equatable, Sendable {
             sourceAppName: request.appName,
             sourceBundleID: request.bundleID,
             selectionText: request.selectionText,
+            selectedFiles: request.selectedFiles,
             stepRecords: request.stepRecords,
             evidenceSummary: request.evidenceSummary,
             requestedAt: request.requestedAt
