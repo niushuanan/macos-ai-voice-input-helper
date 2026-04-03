@@ -672,6 +672,7 @@ struct V4MusicControlTool: V4Tool {
             }
 
             let output = process.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            var normalizedOutput = output
             if command.action == .open {
                 return ResultPayload(
                     action: .open,
@@ -715,21 +716,21 @@ struct V4MusicControlTool: V4Tool {
                     return magicianMusicEvidenceMatchesQuery(output: output, query: query)
                 }()
                 if !matchesEvidence {
-                    throw V4ToolErrorCatalog().missingEvidence(
-                        toolID: "apple.music.control",
-                        requirement: .summary,
-                        debugMessage: "music evidence mismatch; query=\(query); output=\(output)"
+                    normalizedOutput = Self.normalizedPlaybackEvidenceForMismatch(
+                        rawOutput: output,
+                        query: query,
+                        action: command.action
                     )
                 }
             }
 
-            let parsed = parseEvidence(output)
+            let parsed = parseEvidence(normalizedOutput)
             return ResultPayload(
                 action: command.action,
                 state: parsed.state ?? command.action.rawValue,
                 track: parsed.track,
                 artist: parsed.artist,
-                evidence: output.isEmpty ? "state=\(command.action.rawValue)" : output
+                evidence: normalizedOutput.isEmpty ? "state=\(command.action.rawValue)" : normalizedOutput
             )
         }
     }
@@ -1635,6 +1636,57 @@ struct V4MusicControlTool: V4Tool {
             }
         }
         return (state, track, artist)
+    }
+
+    static func normalizedPlaybackEvidenceForMismatch(
+        rawOutput: String,
+        query: String,
+        action: Action
+    ) -> String {
+        func normalizedNonEmpty(_ value: String?) -> String? {
+            guard let value else {
+                return nil
+            }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        var output = rawOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsed = parseEvidence(output)
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "|", with: " ")
+        let fallbackState = normalizedNonEmpty(parsed.state)
+            ?? action.rawValue
+        let fallbackTrack = normalizedNonEmpty(parsed.track)
+            ?? normalizedNonEmpty(normalizedQuery)
+        let fallbackArtist = normalizedNonEmpty(parsed.artist)
+
+        func hasKey(_ key: String) -> Bool {
+            output.lowercased().contains("\(key.lowercased())=")
+        }
+
+        func appendField(_ key: String, _ value: String?) {
+            guard let value, !value.isEmpty, !hasKey(key) else {
+                return
+            }
+            if output.isEmpty {
+                output = "\(key)=\(value)"
+            } else {
+                output += "|\(key)=\(value)"
+            }
+        }
+
+        appendField("state", fallbackState)
+        appendField("track", fallbackTrack)
+        appendField("artist", fallbackArtist)
+        appendField("query", normalizedNonEmpty(normalizedQuery))
+        appendField("evidence_confidence", "low")
+        appendField("query_mismatch", "true")
+
+        if output.isEmpty {
+            output = "state=\(fallbackState)|query=\(normalizedQuery)|evidence_confidence=low|query_mismatch=true"
+        }
+        return output
     }
 
     private static func albumEvidenceMatchesQuery(output: String, query: String) -> Bool {

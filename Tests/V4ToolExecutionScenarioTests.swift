@@ -473,6 +473,19 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         XCTAssertEqual(output.evidenceSummary, "apple.music.control dry_run=true")
     }
 
+    func testMusicMismatchEvidenceDowngradesToLowConfidenceInsteadOfFailing() {
+        let evidence = V4MusicControlTool.normalizedPlaybackEvidenceForMismatch(
+            rawOutput: "",
+            query: "印第安老斑鸠",
+            action: .play
+        )
+
+        XCTAssertTrue(evidence.contains("state=play"))
+        XCTAssertTrue(evidence.contains("track=印第安老斑鸠"))
+        XCTAssertTrue(evidence.contains("evidence_confidence=low"))
+        XCTAssertTrue(evidence.contains("query_mismatch=true"))
+    }
+
     func testMusicAlbumIntentMarksPlayIntentAsAlbum() async {
         let tool = V4MusicControlTool { command in
             XCTAssertEqual(command.action, .play)
