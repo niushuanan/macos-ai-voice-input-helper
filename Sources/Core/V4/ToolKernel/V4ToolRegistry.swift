@@ -161,7 +161,7 @@ struct V4ToolRegistry: V4ToolKernelRegistry {
                 from: spec,
                 domain: "music",
                 retryPolicy: .transientSingleRetry,
-                evidenceRequirement: .structured(requiredKeys: ["action", "state"]),
+                evidenceRequirement: .none,
                 keywords: ["music.control", "音乐", "Music", "播放", "暂停"]
             )
         case "feishu.cli":

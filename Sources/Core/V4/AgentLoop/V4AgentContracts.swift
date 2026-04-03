@@ -96,10 +96,29 @@ enum MagicianLane {
     case agent
 }
 
+enum MagicianSelectionMode {
+    case none
+    case optional
+    case required
+}
+
 struct MagicianLaneDecision {
     let lane: MagicianLane
     let reason: String
     let userMessage: String?
+    let selectionMode: MagicianSelectionMode
+
+    init(
+        lane: MagicianLane,
+        reason: String,
+        userMessage: String?,
+        selectionMode: MagicianSelectionMode = .optional
+    ) {
+        self.lane = lane
+        self.reason = reason
+        self.userMessage = userMessage
+        self.selectionMode = selectionMode
+    }
 }
 
 func magicianContainsFeishuIntent(_ value: String) -> Bool {

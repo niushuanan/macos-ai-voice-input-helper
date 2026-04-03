@@ -81,8 +81,48 @@ final class MagicianSemanticLaneRouterTests: XCTestCase {
 
         XCTAssertEqual(decision.lane, .agent)
         XCTAssertEqual(decision.reason, "semantic_router_no_model")
+        XCTAssertEqual(decision.selectionMode, .optional)
         let calls = await provider.invocationCount
         XCTAssertEqual(calls, 0)
+    }
+
+    func testSemanticRouterParsesSelectionModeFromModelOutput() async {
+        let provider = TrackingLaneGenerationProvider(
+            output: #"{"lane":"agent","selection_mode":"none","reason":"music_command"}"#
+        )
+        let router = MagicianSemanticLaneRouter(
+            generationProvider: provider,
+            modelResolver: {
+                MagicianSemanticLaneRouter.ModelContext(
+                    configuration: TextGenerationProviderConfiguration(
+                        profileID: "lane-router",
+                        providerType: .openAICompatible,
+                        providerName: "Stub",
+                        modelName: "stub-model",
+                        baseURL: URL(string: "https://example.com")!
+                    ),
+                    apiKey: "test-key"
+                )
+            }
+        )
+
+        let decision = await router.decide(
+            command: "播放稻香",
+            selectionSnapshot: FocusedSelectionSnapshot(
+                focusContext: FocusedAppContext(
+                    appName: "TextEdit",
+                    bundleID: "com.apple.TextEdit",
+                    focusedRole: "AXTextArea",
+                    hasEditableTarget: true,
+                    strategyHint: "test"
+                ),
+                selectedText: "旧选区"
+            ),
+            enabledFeatures: Set(MagicianFeatureID.allCases)
+        )
+
+        XCTAssertEqual(decision.lane, .agent)
+        XCTAssertEqual(decision.selectionMode, .none)
     }
 }
 

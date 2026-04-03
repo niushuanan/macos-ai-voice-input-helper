@@ -125,18 +125,24 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             return nil
         }
 
+        let selectedRange = selectedTextRange(for: focused)
+        if let selectedRange, selectedRange.length <= 0 {
+            // 某些 App 会在无选区时残留 AXSelectedText 的旧值；只要 range=0 就视为无选中。
+            return nil
+        }
+
         if let selectedText = stringAttribute(kAXSelectedTextAttribute, on: focused) {
             let normalized = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
             if !normalized.isEmpty {
                 return FocusedSelectionSnapshot(
                     focusContext: focusContext,
-                    selectedText: selectedText
+                    selectedText: normalized
                 )
             }
         }
 
         guard
-            let selectedRange = selectedTextRange(for: focused),
+            let selectedRange,
             selectedRange.length > 0,
             let value = stringAttribute(kAXValueAttribute, on: focused)
         else {
@@ -150,10 +156,13 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         guard nsRange.length > 0 else {
             return nil
         }
-
+        let selectedText = text.substring(with: nsRange).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selectedText.isEmpty else {
+            return nil
+        }
         return FocusedSelectionSnapshot(
             focusContext: focusContext,
-            selectedText: text.substring(with: nsRange)
+            selectedText: selectedText
         )
     }
 

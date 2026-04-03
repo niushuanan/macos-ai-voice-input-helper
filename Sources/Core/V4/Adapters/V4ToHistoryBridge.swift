@@ -87,7 +87,7 @@ struct V4ToHistoryBridge {
         lines.append("trace_id: \(outcome.traceID.rawValue)")
         lines.append("session_id: \(outcome.sessionID.rawValue)")
         lines.append("run_id: \(outcome.runID.rawValue)")
-        lines.append("lane: \(outcome.lane.rawValue)")
+        lines.append("lane: \(traceLaneLabel(request: request, outcome: outcome))")
         lines.append("status: \(status.rawValue)")
         appendField(&lines, key: "failure_code", value: outcome.failureCode?.rawValue)
         lines.append("")
@@ -148,6 +148,7 @@ struct V4ToHistoryBridge {
         _ lines: inout [String],
         request: V4RunRequest
     ) {
+        let stripSelectionPayload = request.selectionText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
         lines.append("memory_injection:")
         lines.append("  hints: \(request.memoryHints.count)")
         lines.append("  related_recent_runs: \(request.relatedRecentRuns.count)")
@@ -155,7 +156,14 @@ struct V4ToHistoryBridge {
 
         for hint in request.memoryHints.prefix(5) {
             lines.append("  [hint] score=\(String(format: "%.3f", hint.score)) id=\(hint.id)")
-            appendField(&lines, key: "    summary", value: hint.summary)
+            appendField(
+                &lines,
+                key: "    summary",
+                value: sanitizedHintSummary(
+                    hint.summary,
+                    stripSelectionPayload: stripSelectionPayload
+                )
+            )
             appendField(&lines, key: "    reason", value: hint.reason)
         }
 
@@ -199,6 +207,32 @@ struct V4ToHistoryBridge {
             lines.append("  (none)")
         }
         lines.append("")
+    }
+
+    private func traceLaneLabel(
+        request: V4RunRequest,
+        outcome: V4RunOutcome
+    ) -> String {
+        guard outcome.lane == .selectionRewrite else {
+            return outcome.lane.rawValue
+        }
+        let hasSelection = !(request.selectionText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        return hasSelection ? outcome.lane.rawValue : "magicianCommand"
+    }
+
+    private func sanitizedHintSummary(
+        _ summary: String,
+        stripSelectionPayload: Bool
+    ) -> String {
+        guard stripSelectionPayload else {
+            return summary
+        }
+        let pattern = #"\[SELECTED_TEXT\][\s\S]*?\[/SELECTED_TEXT\]"#
+        return summary.replacingOccurrences(
+            of: pattern,
+            with: "[SELECTED_TEXT]\n(none)\n[/SELECTED_TEXT]",
+            options: .regularExpression
+        )
     }
 
     private func appendField(

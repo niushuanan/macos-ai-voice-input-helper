@@ -1026,6 +1026,16 @@ final class InteractionCoordinatorTests: XCTestCase {
             ),
             selectedText: "4月1日 14:30 在上海办公室和产品团队开路标会"
         )
+        let laneRouter = StubMagicianLaneRouter(
+            decisions: [
+                MagicianLaneDecision(
+                    lane: .agent,
+                    reason: "selection_required",
+                    userMessage: nil,
+                    selectionMode: .required
+                )
+            ]
+        )
         let runtime = FakeMagicianAgentRuntime(
             result: .success(
                 MagicianAgentRunOutcome(
@@ -1052,6 +1062,7 @@ final class InteractionCoordinatorTests: XCTestCase {
 
         let fixture = try makeFixture(
             textOutputCoordinator: textOutputCoordinator,
+            magicianLaneRouter: laneRouter,
             magicianNativeRuntime: runtime,
             magicianAgentRuntime: runtime,
             transcriptionText: "帮我建立日程"
@@ -1077,6 +1088,173 @@ final class InteractionCoordinatorTests: XCTestCase {
             fixture.localHistoryStore.entries.first?.instructionText,
             "帮我建立日程"
         )
+    }
+
+    func testMagicianCommandModeSkipsStaleSelectionWhenRouterSaysNone() async throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = FocusedSelectionSnapshot(
+            focusContext: FocusedAppContext(
+                appName: "TextEdit",
+                bundleID: "com.apple.TextEdit",
+                focusedRole: "AXTextArea",
+                hasEditableTarget: true,
+                strategyHint: "stale"
+            ),
+            selectedText: "这是上一次残留的旧选区"
+        )
+        let laneRouter = StubMagicianLaneRouter(
+            decisions: [
+                MagicianLaneDecision(
+                    lane: .agent,
+                    reason: "music_command",
+                    userMessage: nil,
+                    selectionMode: .none
+                )
+            ]
+        )
+        let runtime = FakeMagicianAgentRuntime(
+            result: .success(
+                MagicianAgentRunOutcome(
+                    sessionID: "session-no-selection-1",
+                    runID: "run-no-selection-1",
+                    goalSummary: "播放音乐",
+                    finalStatusMessage: "已开始播放",
+                    finalOutputText: nil,
+                    displayText: "已开始播放",
+                    steps: [],
+                    evidenceSummary: "music action done"
+                )
+            )
+        )
+
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutputCoordinator,
+            magicianLaneRouter: laneRouter,
+            magicianNativeRuntime: runtime,
+            magicianAgentRuntime: runtime,
+            transcriptionText: "播放稻香"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .controlMusic)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(runtime.callCount, 1)
+        XCTAssertNil(runtime.lastRequest?.selectionSnapshot)
+        XCTAssertEqual(textOutputCoordinator.captureSelectionCallCount, 0)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.inputText, "")
+    }
+
+    func testMagicianSelectionRequiredCapturesSnapshotWhenNeeded() async throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = nil
+        textOutputCoordinator.capturedSelectionSnapshot = FocusedSelectionSnapshot(
+            focusContext: FocusedAppContext(
+                appName: "WeChat",
+                bundleID: "com.tencent.xinWeChat",
+                focusedRole: nil,
+                hasEditableTarget: false,
+                strategyHint: "copy-fallback"
+            ),
+            selectedText: "4月3日 15:00 在上海开产品评审会"
+        )
+        let laneRouter = StubMagicianLaneRouter(
+            decisions: [
+                MagicianLaneDecision(
+                    lane: .agent,
+                    reason: "selection_required",
+                    userMessage: nil,
+                    selectionMode: .required
+                )
+            ]
+        )
+        let runtime = FakeMagicianAgentRuntime(
+            result: .success(
+                MagicianAgentRunOutcome(
+                    sessionID: "session-required-selection-1",
+                    runID: "run-required-selection-1",
+                    goalSummary: "创建日程",
+                    finalStatusMessage: "日程已创建",
+                    finalOutputText: nil,
+                    displayText: "日程已创建",
+                    steps: [],
+                    evidenceSummary: "event-id=test-event-required"
+                )
+            )
+        )
+
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutputCoordinator,
+            magicianLaneRouter: laneRouter,
+            magicianNativeRuntime: runtime,
+            magicianAgentRuntime: runtime,
+            transcriptionText: "创建日程"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .createEvent)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(runtime.callCount, 1)
+        XCTAssertEqual(textOutputCoordinator.captureSelectionCallCount, 1)
+        XCTAssertEqual(runtime.lastRequest?.selectionSnapshot?.selectedText, "4月3日 15:00 在上海开产品评审会")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.inputText, "4月3日 15:00 在上海开产品评审会")
+    }
+
+    func testMagicianSelectionRequiredFailsFastWhenSelectionMissing() async throws {
+        let textOutputCoordinator = FakeTextOutputCoordinator()
+        textOutputCoordinator.selectionSnapshot = nil
+        textOutputCoordinator.capturedSelectionSnapshot = nil
+        let laneRouter = StubMagicianLaneRouter(
+            decisions: [
+                MagicianLaneDecision(
+                    lane: .agent,
+                    reason: "selection_required",
+                    userMessage: nil,
+                    selectionMode: .required
+                )
+            ]
+        )
+        let runtime = FakeMagicianAgentRuntime(
+            result: .success(
+                MagicianAgentRunOutcome(
+                    sessionID: "session-required-selection-2",
+                    runID: "run-required-selection-2",
+                    goalSummary: "文本处理",
+                    finalStatusMessage: "不应执行",
+                    finalOutputText: nil,
+                    displayText: "不应执行",
+                    steps: [],
+                    evidenceSummary: "none"
+                )
+            )
+        )
+
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutputCoordinator,
+            magicianLaneRouter: laneRouter,
+            magicianNativeRuntime: runtime,
+            magicianAgentRuntime: runtime,
+            transcriptionText: "翻译成中文并写入本地文档"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .textTransform)
+
+        fixture.coordinator.handleWakeInput(context: .magicianHold)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(runtime.callCount, 0)
+        XCTAssertEqual(fixture.sessionStore.phase, .error)
+        XCTAssertTrue(fixture.sessionStore.statusMessage.contains("请先选中一段文本"))
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .failed)
     }
 
     func testMagicianTextTransformWithoutSelectionUsesCommandModeAndInsertText() async throws {
@@ -1330,6 +1508,7 @@ final class InteractionCoordinatorTests: XCTestCase {
                 dialogueText: "A: 默认对话"
             )
         ),
+        magicianLaneRouter: (any MagicianLaneRouting)? = nil,
         magicianToolExecutor: (any MagicianToolExecuting)? = nil,
         v4MagicianRuntime: (any V4MagicianRuntimeRunning)? = nil,
         v4RuntimeSwitchStore: V4RuntimeSwitchStore? = nil,
@@ -1437,6 +1616,7 @@ final class InteractionCoordinatorTests: XCTestCase {
             asrDictionaryStore: dictionaryStore,
             magicianFeatureToggleStore: magicianFeatureToggleStore,
             workflowTelemetryReporter: workflowTelemetryReporter,
+            magicianLaneRouter: magicianLaneRouter,
             magicianToolExecutor: magicianToolExecutor ?? MagicianToolExecutor(),
             v4MagicianRuntime: v4MagicianRuntime,
             v4RuntimeSwitchStore: resolvedRuntimeSwitchStore,
@@ -1628,6 +1808,33 @@ private final class FakeTextOutputCoordinator: TextOutputCoordinator {
             didInsertIntoEditor: true,
             operation: request.operation
         )
+    }
+}
+
+private actor StubMagicianLaneRouter: MagicianLaneRouting {
+    private let decisions: [MagicianLaneDecision]
+    private var callCount = 0
+
+    init(decisions: [MagicianLaneDecision]) {
+        self.decisions = decisions
+    }
+
+    func decide(
+        command _: String,
+        selectionSnapshot _: FocusedSelectionSnapshot?,
+        enabledFeatures _: Set<MagicianFeatureID>
+    ) async -> MagicianLaneDecision {
+        let index = min(callCount, max(0, decisions.count - 1))
+        callCount += 1
+        if decisions.isEmpty {
+            return MagicianLaneDecision(
+                lane: .agent,
+                reason: "stub_default",
+                userMessage: nil,
+                selectionMode: .optional
+            )
+        }
+        return decisions[index]
     }
 }
 

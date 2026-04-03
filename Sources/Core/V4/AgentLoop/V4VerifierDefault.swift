@@ -132,8 +132,12 @@ struct V4VerifierDefault: V4Verifier {
 
     private func parseEvidenceFields(from evidenceSummary: String) -> [String: String] {
         evidenceSummary
-            .split(separator: ";")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .replacingOccurrences(of: "\n", with: " ")
+            .split(whereSeparator: { $0 == ";" || $0 == "|" })
+            .flatMap { segment in
+                segment.split(whereSeparator: \.isWhitespace)
+            }
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
             .reduce(into: [String: String]()) { partialResult, item in
                 let keyValue = item.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
                 guard keyValue.count == 2 else {

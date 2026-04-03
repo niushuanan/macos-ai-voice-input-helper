@@ -57,14 +57,16 @@ struct MagicianSemanticLaneRouter: MagicianLaneRouting, @unchecked Sendable {
             return MagicianLaneDecision(
                 lane: .nativeFast,
                 reason: "semantic_empty_command",
-                userMessage: nil
+                userMessage: nil,
+                selectionMode: .none
             )
         }
         guard let modelContext = try? await modelResolver() else {
             return MagicianLaneDecision(
                 lane: .agent,
                 reason: "semantic_router_no_model",
-                userMessage: nil
+                userMessage: nil,
+                selectionMode: .optional
             )
         }
 
@@ -87,7 +89,8 @@ struct MagicianSemanticLaneRouter: MagicianLaneRouting, @unchecked Sendable {
                 return MagicianLaneDecision(
                     lane: .agent,
                     reason: "semantic_router_invalid_output",
-                    userMessage: nil
+                    userMessage: nil,
+                    selectionMode: .optional
                 )
             }
             return parsed.toDecision()
@@ -95,7 +98,8 @@ struct MagicianSemanticLaneRouter: MagicianLaneRouting, @unchecked Sendable {
             return MagicianLaneDecision(
                 lane: .agent,
                 reason: "semantic_router_error",
-                userMessage: nil
+                userMessage: nil,
+                selectionMode: .optional
             )
         }
     }
@@ -111,13 +115,17 @@ struct MagicianSemanticLaneRouter: MagicianLaneRouting, @unchecked Sendable {
         - agent
 
         输出格式：
-        {"lane":"native_fast|agent","reason":"...","user_message":"..."}
+        {"lane":"native_fast|agent","selection_mode":"none|optional|required","reason":"...","user_message":"..."}
 
         规则：
         - 语义优先，不要依赖关键词硬匹配。
         - 如果一句话包含多个外部动作或复杂多步骤自动化，统一输出 agent。
         - 如果是飞书、多步骤自动化、调研后执行外部动作，输出 agent。
         - 纯文本改写、单一原生动作可走 native_fast。
+        - selection_mode 判定：
+          - required：命令核心依赖“当前选中的文本”，没有选中就无法完成（如“把选中的内容翻译/总结/改写/提炼”）。
+          - none：命令不依赖当前选中（如音乐控制、发邮件、创建日程、纯口述任务）。
+          - optional：有选中更好但不是必须。
         - user_message 可留空。
         """
     }
@@ -213,36 +221,59 @@ private enum SemanticLane: String, Decodable {
     case unsupportedMixedExternal = "unsupported_mixed_external"
 }
 
+private enum SemanticSelectionMode: String, Decodable {
+    case none
+    case optional
+    case required
+
+    var value: MagicianSelectionMode {
+        switch self {
+        case .none:
+            return .none
+        case .optional:
+            return .optional
+        case .required:
+            return .required
+        }
+    }
+}
+
 private struct LaneResponse: Decodable {
     let lane: SemanticLane
+    let selectionMode: SemanticSelectionMode?
     let reason: String?
     let userMessage: String?
 
     enum CodingKeys: String, CodingKey {
         case lane
+        case selectionMode = "selection_mode"
         case reason
         case userMessage = "user_message"
     }
 
     func toDecision() -> MagicianLaneDecision {
+        let resolvedSelectionMode = selectionMode?.value ?? .optional
         switch lane {
         case .nativeFast:
             return MagicianLaneDecision(
                 lane: .nativeFast,
                 reason: reason?.trimmedNilIfEmpty ?? "semantic_native_fast",
-                userMessage: nil
+                userMessage: nil,
+                selectionMode: resolvedSelectionMode
             )
         case .agent:
             return MagicianLaneDecision(
                 lane: .agent,
                 reason: reason?.trimmedNilIfEmpty ?? "semantic_agent",
-                userMessage: nil
+                userMessage: nil,
+                selectionMode: resolvedSelectionMode
             )
         case .unsupportedMixedExternal:
             return MagicianLaneDecision(
                 lane: .agent,
                 reason: reason?.trimmedNilIfEmpty ?? "semantic_unsupported_mixed_external",
-                userMessage: nil
+                userMessage: nil,
+                selectionMode: .optional
             )
         }
     }

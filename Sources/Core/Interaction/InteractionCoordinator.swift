@@ -42,8 +42,6 @@ final class InteractionCoordinator {
     private var brainstormAutoStopHasTriggered = false
     private var brainstormProbeTask: Task<Void, Never>?
     private var probingProfileKey: String?
-    private var pendingMagicianSelectionSnapshot: FocusedSelectionSnapshot?
-    private var pendingMagicianSelectionCaptureTask: Task<FocusedSelectionSnapshot?, Never>?
 
     init(
         sessionStore: SessionStore,
@@ -281,7 +279,6 @@ final class InteractionCoordinator {
             return
         }
         cancelBrainstormDurationGuard()
-        clearPendingMagicianSelectionState()
 
         let focusContext = contextDetector.focusedAppContext()
         let mode = historyMode(for: sessionStore.activeLane)
@@ -330,7 +327,6 @@ final class InteractionCoordinator {
             return
         }
         cancelBrainstormDurationGuard()
-        clearPendingMagicianSelectionState()
         currentDictationTarget = nil
         discardPendingClipIfNeeded()
         sessionStore.completeInsertion()
@@ -339,7 +335,6 @@ final class InteractionCoordinator {
 
     func handleResetInput() {
         cancelBrainstormDurationGuard()
-        clearPendingMagicianSelectionState()
         transcriptionTask?.cancel()
         transcriptionTask = nil
         currentDictationTarget = nil
@@ -363,11 +358,6 @@ final class InteractionCoordinator {
                 currentDictationTarget = resolveDictationWritebackTarget()
             } else {
                 currentDictationTarget = nil
-            }
-            if lane == .selectionRewrite {
-                prepareMagicianSelectionCapture()
-            } else {
-                clearPendingMagicianSelectionState()
             }
             try audioCaptureService.startRecording()
             switch lane {
@@ -397,7 +387,6 @@ final class InteractionCoordinator {
             }
         } catch {
             cancelBrainstormDurationGuard()
-            clearPendingMagicianSelectionState()
             currentDictationTarget = nil
             sessionStore.fail(message: "无法开始录音：\(error.localizedDescription)")
             speechPipelineLogger.log(
@@ -414,64 +403,34 @@ final class InteractionCoordinator {
         }
     }
 
-    private func prepareMagicianSelectionCapture() {
-        pendingMagicianSelectionSnapshot = textOutputCoordinator.currentSelectionSnapshot()
-        pendingMagicianSelectionCaptureTask?.cancel()
-        pendingMagicianSelectionCaptureTask = Task { [weak self, textOutputCoordinator] in
-            let preferredTarget = self?.lastExternalDictationTarget?.snapshot
-            if let snapshot = await textOutputCoordinator.captureSelectionSnapshot() {
-                let trimmedSelection = snapshot.selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmedSelection.isEmpty {
-                    return snapshot
-                }
-            }
-
-            if
-                let self,
-                let warmableCoordinator = textOutputCoordinator as? AccessibilityTextOutputCoordinator,
-                let externalTarget = self.lastExternalDictationTarget
-            {
-                await warmableCoordinator.prepareForWrite(
-                    preferredTarget: externalTarget.snapshot,
-                    fallbackFocusContext: externalTarget.focusContext
-                )
-                return await textOutputCoordinator.captureSelectionSnapshot(preferredTarget: preferredTarget)
-            }
-
-            return await textOutputCoordinator.captureSelectionSnapshot(preferredTarget: preferredTarget)
+    private func normalizedSelectionSnapshot(_ snapshot: FocusedSelectionSnapshot?) -> FocusedSelectionSnapshot? {
+        guard let snapshot else {
+            return nil
         }
+        let normalized = snapshot.selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return nil
+        }
+        return FocusedSelectionSnapshot(
+            focusContext: snapshot.focusContext,
+            selectedText: normalized
+        )
     }
 
-    private func clearPendingMagicianSelectionState() {
-        pendingMagicianSelectionCaptureTask?.cancel()
-        pendingMagicianSelectionCaptureTask = nil
-        pendingMagicianSelectionSnapshot = nil
-    }
-
-    private func resolvedMagicianSelectionSnapshot() async -> FocusedSelectionSnapshot? {
-        if
-            let pendingMagicianSelectionSnapshot,
-            !pendingMagicianSelectionSnapshot.selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        {
-            return pendingMagicianSelectionSnapshot
+    private func resolveMagicianSelectionSnapshot(
+        mode: MagicianSelectionMode,
+        seedSnapshot: FocusedSelectionSnapshot?
+    ) async -> FocusedSelectionSnapshot? {
+        if mode == .none {
+            return nil
         }
 
-        if let capturedSnapshot = await pendingMagicianSelectionCaptureTask?.value {
-            pendingMagicianSelectionSnapshot = capturedSnapshot
-            pendingMagicianSelectionCaptureTask = nil
-            let trimmedSelection = capturedSnapshot.selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedSelection.isEmpty {
-                return capturedSnapshot
-            }
+        if let normalizedSeed = normalizedSelectionSnapshot(seedSnapshot) {
+            return normalizedSeed
         }
 
-        if let recapturedSnapshot = await textOutputCoordinator.captureSelectionSnapshot() {
-            pendingMagicianSelectionSnapshot = recapturedSnapshot
-            pendingMagicianSelectionCaptureTask = nil
-            let trimmedSelection = recapturedSnapshot.selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedSelection.isEmpty {
-                return recapturedSnapshot
-            }
+        if mode == .optional {
+            return nil
         }
 
         if
@@ -485,22 +444,8 @@ final class InteractionCoordinator {
         }
 
         let preferredTarget = lastExternalDictationTarget?.snapshot
-        if let recapturedSnapshot = await textOutputCoordinator.captureSelectionSnapshot(preferredTarget: preferredTarget) {
-            pendingMagicianSelectionSnapshot = recapturedSnapshot
-            pendingMagicianSelectionCaptureTask = nil
-            let trimmedSelection = recapturedSnapshot.selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedSelection.isEmpty {
-                return recapturedSnapshot
-            }
-        }
-
-        let fallbackSnapshot = textOutputCoordinator.currentSelectionSnapshot()
-        pendingMagicianSelectionSnapshot = fallbackSnapshot
-        pendingMagicianSelectionCaptureTask = nil
-        if let fallbackSnapshot, !fallbackSnapshot.selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return fallbackSnapshot
-        }
-        return fallbackSnapshot
+        let captured = await textOutputCoordinator.captureSelectionSnapshot(preferredTarget: preferredTarget)
+        return normalizedSelectionSnapshot(captured)
     }
 
     private func ensureTraceID() -> String {
@@ -1763,19 +1708,17 @@ final class InteractionCoordinator {
         _ transcription: SpeechTranscriptionResult,
         audioDurationSeconds: TimeInterval
     ) async {
-        defer {
-            clearPendingMagicianSelectionState()
-        }
         let traceID = ensureTraceID()
         let rawInstruction = transcription.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialFocusContext = contextDetector.focusedAppContext()
-        let selectionSnapshot = await resolvedMagicianSelectionSnapshot()
-        if abortIfSessionCancelled() {
-            return
-        }
-        let fallbackFocusContext: FocusedAppContext = {
-            if let selectionSnapshot {
-                return selectionSnapshot.focusContext
+        let seedSelectionSnapshot = normalizedSelectionSnapshot(textOutputCoordinator.currentSelectionSnapshot())
+        let enabledFeatures = magicianFeatureToggleStore.enabledFeatures
+        let defaultRuntimeVersion = v4RuntimeSwitchStore.defaultRuntimeVersion
+        let runtimeEvents: [MagicianAgentRuntimeEvent] = []
+
+        let fallbackFocusContextForPreprocess: FocusedAppContext = {
+            if let seedSelectionSnapshot {
+                return seedSelectionSnapshot.focusContext
             }
             let selfBundleID = Bundle.main.bundleIdentifier
             if
@@ -1786,6 +1729,7 @@ final class InteractionCoordinator {
             }
             return initialFocusContext
         }()
+
         let commandPreprocessResult = await MagicianCommandSemanticPreprocessor(
             providerSettingsStore: providerSettingsStore,
             rewriteProviderRegistry: rewriteProviderRegistry,
@@ -1793,14 +1737,11 @@ final class InteractionCoordinator {
             asrDictionaryStore: asrDictionaryStore
         ).preprocess(
             rawCommand: rawInstruction,
-            focusContext: fallbackFocusContext
+            focusContext: fallbackFocusContextForPreprocess
         )
         let spokenInstruction = commandPreprocessResult.command
         let commandAppliedSkills = commandPreprocessResult.appliedSkills
-        let selectionText = selectionSnapshot?.selectedText ?? ""
-        let enabledFeatures = magicianFeatureToggleStore.enabledFeatures
-        let defaultRuntimeVersion = v4RuntimeSwitchStore.defaultRuntimeVersion
-        let runtimeEvents: [MagicianAgentRuntimeEvent] = []
+        let seedSelectionText = seedSelectionSnapshot?.selectedText ?? ""
 
         guard !spokenInstruction.isEmpty else {
             let message = "改写指令为空，请重试并说出明确命令。"
@@ -1812,15 +1753,15 @@ final class InteractionCoordinator {
                 errorMessage: message,
                 debugMessage: "spoken instruction empty after preprocessing",
                 recoverAction: "retry_command",
-                focusContext: fallbackFocusContext,
+                focusContext: fallbackFocusContextForPreprocess,
                 runtimeEvents: runtimeEvents
             )
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
-                    appName: fallbackFocusContext.appName,
-                    bundleID: fallbackFocusContext.bundleID,
-                    inputText: selectionText,
+                    appName: fallbackFocusContextForPreprocess.appName,
+                    bundleID: fallbackFocusContextForPreprocess.bundleID,
+                    inputText: seedSelectionText,
                     outputText: nil,
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
@@ -1841,7 +1782,7 @@ final class InteractionCoordinator {
         let hasTimeMachineIntent = V4RulePlannerHeuristics.looksLikeTimeMachineIntent(spokenInstruction)
 
         guard !enabledFeatures.isEmpty || hasTimeMachineIntent else {
-            let message = selectionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let message = seedSelectionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? "无选中场景当前没有可用能力，请先在魔术先生页面打开权限开关。"
                 : "当前没有可用能力，请先在魔术先生页面打开权限开关。"
             let failureTrace = magicianFailureExecutionTraceText(
@@ -1852,15 +1793,15 @@ final class InteractionCoordinator {
                 errorMessage: message,
                 debugMessage: "enabled feature set empty",
                 recoverAction: nil,
-                focusContext: fallbackFocusContext,
+                focusContext: fallbackFocusContextForPreprocess,
                 runtimeEvents: runtimeEvents
             )
             localHistoryStore.append(
                 SessionHistoryEntry(
                     mode: .selectionRewrite,
-                    appName: fallbackFocusContext.appName,
-                    bundleID: fallbackFocusContext.bundleID,
-                    inputText: selectionText,
+                    appName: fallbackFocusContextForPreprocess.appName,
+                    bundleID: fallbackFocusContextForPreprocess.bundleID,
+                    inputText: seedSelectionText,
                     outputText: nil,
                     instructionText: spokenInstruction,
                     transcriptionProvider: transcription.providerName,
@@ -1878,13 +1819,81 @@ final class InteractionCoordinator {
             return
         }
 
-        let laneDecision = await magicianLaneRouter.decide(
+        let initialLaneDecision = await magicianLaneRouter.decide(
             command: spokenInstruction,
-            selectionSnapshot: selectionSnapshot,
+            selectionSnapshot: seedSelectionSnapshot,
             enabledFeatures: enabledFeatures
         )
+        let selectionSnapshot = await resolveMagicianSelectionSnapshot(
+            mode: initialLaneDecision.selectionMode,
+            seedSnapshot: seedSelectionSnapshot
+        )
+        if abortIfSessionCancelled() {
+            return
+        }
 
-        let runtimeRoute = v4RuntimeSwitchStore.route(for: laneDecision)
+        let selectionText = selectionSnapshot?.selectedText ?? ""
+        let fallbackFocusContext: FocusedAppContext = {
+            if let selectionSnapshot {
+                return selectionSnapshot.focusContext
+            }
+            return fallbackFocusContextForPreprocess
+        }()
+
+        if
+            initialLaneDecision.selectionMode == .required,
+            selectionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            let message = "请先选中一段文本，再说要执行的动作。"
+            let failureTrace = magicianFailureExecutionTraceText(
+                traceID: traceID,
+                command: spokenInstruction,
+                stage: "selection_required",
+                errorCode: MagicianErrorCode.intentParseFailed.rawValue,
+                errorMessage: message,
+                debugMessage: "selection required but no live selection snapshot",
+                recoverAction: "retry_command",
+                focusContext: fallbackFocusContext,
+                runtimeEvents: runtimeEvents
+            )
+            localHistoryStore.append(
+                SessionHistoryEntry(
+                    mode: .selectionRewrite,
+                    appName: fallbackFocusContext.appName,
+                    bundleID: fallbackFocusContext.bundleID,
+                    inputText: "",
+                    outputText: nil,
+                    instructionText: spokenInstruction,
+                    transcriptionProvider: transcription.providerName,
+                    transcriptionModel: transcription.modelName,
+                    magicianRuntimeVersion: defaultRuntimeVersion,
+                    magicianExecutionTrace: failureTrace,
+                    status: .failed,
+                    errorMessage: message,
+                    audioDurationSeconds: audioDurationSeconds,
+                    appliedSkills: commandAppliedSkills
+                )
+            )
+            sessionStore.fail(message: message)
+            currentTraceID = nil
+            return
+        }
+
+        let refreshedLaneDecision: MagicianLaneDecision
+        if
+            initialLaneDecision.selectionMode != .none,
+            seedSelectionSnapshot?.selectedText != selectionSnapshot?.selectedText
+        {
+            refreshedLaneDecision = await magicianLaneRouter.decide(
+                command: spokenInstruction,
+                selectionSnapshot: selectionSnapshot,
+                enabledFeatures: enabledFeatures
+            )
+        } else {
+            refreshedLaneDecision = initialLaneDecision
+        }
+
+        let runtimeRoute = v4RuntimeSwitchStore.route(for: refreshedLaneDecision)
         switch runtimeRoute {
         case .v4:
             await executeSelectionRewriteWithV4(
