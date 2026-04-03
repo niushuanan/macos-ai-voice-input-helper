@@ -104,9 +104,136 @@ struct MusicFastOutcome {
     let failureCode: V4FailureCode?
 }
 
+struct MusicExecutionInterpretationRequest {
+    let command: String
+    let status: SessionHistoryStatus
+    let outputText: String?
+    let evidenceSummary: String
+    let rawExecutionTrace: String
+}
+
 @MainActor
 protocol MusicFastExecuting {
     func execute(_ request: MusicFastRequest) async -> MusicFastOutcome
+}
+
+@MainActor
+protocol MusicExecutionInterpreting {
+    func interpret(_ request: MusicExecutionInterpretationRequest) async -> String?
+}
+
+@MainActor
+final class MusicExecutionInterpreter: MusicExecutionInterpreting {
+    private let modelSlotManager: V4ModelSlotManager?
+    private let generationProvider: any TextGenerationProvider
+
+    init(
+        providerSettingsStore: ProviderSettingsStore? = nil,
+        generationProvider: (any TextGenerationProvider)? = nil
+    ) {
+        if let providerSettingsStore {
+            let bridge = V4ProviderSettingsBridge(providerSettingsStore: providerSettingsStore)
+            self.modelSlotManager = V4ModelSlotManager(bridge: bridge)
+        } else {
+            self.modelSlotManager = nil
+        }
+        self.generationProvider = generationProvider ?? OpenAITextGenerationProvider()
+    }
+
+    func interpret(_ request: MusicExecutionInterpretationRequest) async -> String? {
+        guard
+            let configuration = await semanticModelConfiguration(),
+            let apiKey = await semanticModelAPIKey(),
+            !configuration.providerType.requiresAPIKey || !apiKey.isEmpty
+        else {
+            return fallbackInterpretation(request)
+        }
+
+        let systemPrompt = """
+        你是 PulseType 的执行解读助手。你的任务是把音乐执行结果讲清楚，给用户看懂。
+        要求：
+        1) 用简洁中文，分 3 段：做了什么、最终结果、下一步建议。
+        2) 不要编造，必须严格依据给定原始链路。
+        3) 长度控制在 120~180 字。
+        """
+        let userPrompt = """
+        用户命令：\(request.command)
+        执行状态：\(request.status.rawValue)
+        输出文本：\(request.outputText ?? "(none)")
+        证据：\(request.evidenceSummary)
+
+        原始执行链路：
+        \(request.rawExecutionTrace)
+        """
+
+        do {
+            let generation = try await generationProvider.generateText(
+                request: TextGenerationRequest(
+                    systemPrompt: systemPrompt,
+                    userPrompt: userPrompt,
+                    temperature: 0.2,
+                    maxOutputTokens: 240
+                ),
+                configuration: configuration,
+                apiKey: apiKey
+            )
+            let text = generation.outputText.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? fallbackInterpretation(request) : text
+        } catch {
+            return fallbackInterpretation(request)
+        }
+    }
+
+    private func semanticModelConfiguration() async -> TextGenerationProviderConfiguration? {
+        guard let modelSlotManager else {
+            return nil
+        }
+        do {
+            let endpoint = try await modelSlotManager.resolve(.agent)
+            guard let baseURL = URL(string: endpoint.baseURLString) else {
+                return nil
+            }
+            return TextGenerationProviderConfiguration(
+                profileID: endpoint.credentialRef?.rawValue ?? endpoint.sourceConfigurationKey,
+                providerType: endpoint.providerType,
+                providerName: endpoint.providerDisplayName,
+                modelName: endpoint.modelName,
+                baseURL: baseURL
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    private func semanticModelAPIKey() async -> String? {
+        guard let modelSlotManager else {
+            return nil
+        }
+        do {
+            return try await modelSlotManager.loadAPIKey(for: .agent)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            return nil
+        }
+    }
+
+    private func fallbackInterpretation(_ request: MusicExecutionInterpretationRequest) -> String {
+        let finalResult: String = {
+            if request.status == .success {
+                return request.outputText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                    ? request.outputText!
+                    : "音乐动作已完成。"
+            }
+            return request.outputText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? request.outputText!
+                : "这次没有成功完成播放。"
+        }()
+        return """
+        做了什么：系统按音乐快速链路解析了你的指令，并调用本机 Music 执行。
+        最终结果：\(finalResult)
+        下一步建议：若结果不符合预期，可直接补一句更明确的歌名或歌手名再试。
+        """
+    }
 }
 
 @MainActor

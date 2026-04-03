@@ -1,11 +1,16 @@
 import Foundation
 
 struct V4MusicControlTool: V4Tool {
-    private struct LibraryTrackRecord: Equatable, Sendable {
+    private struct LibraryTrackRecord: Codable, Equatable, Sendable {
         let persistentID: String
         let name: String
         let artist: String
         let album: String
+    }
+    private struct LibraryCatalogSnapshot: Codable, Equatable, Sendable {
+        let generatedAt: Date
+        let revision: String
+        let tracks: [LibraryTrackRecord]
     }
     struct SemanticPlayDecision: Equatable, Sendable {
         let query: String
@@ -46,11 +51,18 @@ struct V4MusicControlTool: V4Tool {
         let reason: String?
     }
 
+    private struct LibraryTrackIDPickPayload: Decodable {
+        let persistentID: String?
+        let confidence: Double?
+        let reason: String?
+    }
+
     private actor LibraryCatalogCache {
         private var tracks: [LibraryTrackRecord] = []
         private var updatedAt: Date?
+        private var revision: String?
 
-        func load(maxAge: TimeInterval) -> [LibraryTrackRecord]? {
+        func load(maxAge: TimeInterval, revision expectedRevision: String?) -> [LibraryTrackRecord]? {
             guard
                 let updatedAt,
                 Date().timeIntervalSince(updatedAt) <= maxAge,
@@ -58,12 +70,22 @@ struct V4MusicControlTool: V4Tool {
             else {
                 return nil
             }
+            if let expectedRevision, let revision, expectedRevision != revision {
+                return nil
+            }
             return tracks
         }
 
-        func save(_ tracks: [LibraryTrackRecord]) {
+        func save(_ tracks: [LibraryTrackRecord], revision: String?) {
             self.tracks = tracks
             updatedAt = Date()
+            self.revision = revision
+        }
+
+        func clear() {
+            tracks = []
+            updatedAt = nil
+            revision = nil
         }
     }
 
@@ -126,6 +148,7 @@ struct V4MusicControlTool: V4Tool {
     private let semanticResolver: SemanticResolver
     private let errorCatalog = V4ToolErrorCatalog()
     private static let libraryCatalogCache = LibraryCatalogCache()
+    private static let libraryIndexFileName = "music-library-index-v1.json"
 
     init(
         modelSlotManager: V4ModelSlotManager? = nil,
@@ -511,20 +534,6 @@ struct V4MusicControlTool: V4Tool {
         }
     }
 
-    private static func ambiguityProbeFlags(from output: String) -> (songExact: Bool, albumExact: Bool) {
-        let parts = output.split(separator: "|").map(String.init)
-        var songExact = false
-        var albumExact = false
-        for part in parts {
-            if part == "song_exact=true" {
-                songExact = true
-            } else if part == "album_exact=true" {
-                albumExact = true
-            }
-        }
-        return (songExact, albumExact)
-    }
-
     private static func liveSemanticPlayDecision(
         command: String,
         context: V4ToolExecutionContext,
@@ -856,72 +865,14 @@ struct V4MusicControlTool: V4Tool {
 
         case .play:
             if let query = command.query, !query.isEmpty {
-                let probe = await runSongAlbumAmbiguityProbe(query: query)
-                let probeFlags: (songExact: Bool, albumExact: Bool) = {
-                    guard probe.exitCode == 0 else {
-                        return (false, false)
-                    }
-                    return Self.ambiguityProbeFlags(from: probe.stdout)
-                }()
-
-                if command.playIntent == .auto, probeFlags.songExact, probeFlags.albumExact {
-                    for item in magicianMusicSearchQueries(from: query) {
-                        let songFirst = await runLibrarySearchAndPlay(keyword: item)
-                        if songFirst.exitCode == 0, songFirst.stdout.hasPrefix("track=") {
-                            let evidence = songFirst.stdout + "|disambiguation=ambiguous_default_song"
-                            return MagicianProcessResult(exitCode: 0, stdout: evidence, stderr: songFirst.stderr)
-                        }
-                    }
-                }
-
-                let searchOrder: [SearchKind]
-                switch command.playIntent {
-                case .album:
-                    searchOrder = [.album, .song]
-                case .song, .mood:
-                    searchOrder = [.song, .album]
-                case .auto:
-                    if probeFlags.albumExact, !probeFlags.songExact {
-                        searchOrder = [.album, .song]
-                    } else {
-                        searchOrder = [.song, .album]
-                    }
-                }
-
-                let searchQueries: [String] = {
-                    if command.playIntent == .mood {
-                        return Self.moodExpansionQueries(for: query)
-                    }
-                    return magicianMusicSearchQueries(from: query)
-                }()
-
-                for item in searchQueries {
-                    for kind in searchOrder {
-                        let result: MagicianProcessResult
-                        switch kind {
-                        case .song:
-                            result = await runLibrarySearchAndPlay(keyword: item)
-                        case .album:
-                            result = await runLibraryAlbumSearchAndPlay(keyword: item)
-                        }
-                        if result.exitCode == 0, result.stdout.hasPrefix("track=") {
-                            let matchesRequestedTarget: Bool = {
-                                switch kind {
-                                case .song:
-                                    if command.playIntent == .mood {
-                                        return true
-                                    }
-                                    return magicianMusicEvidenceMatchesQuery(output: result.stdout, query: query)
-                                case .album:
-                                    return albumEvidenceMatchesQuery(output: result.stdout, query: query)
-                                }
-                            }()
-                            if !matchesRequestedTarget {
-                                continue
-                            }
-                            return result
-                        }
-                    }
+                if let llmResult = await runLibraryIndexSelectionAndPlay(
+                    query: query,
+                    rawCommand: command.rawCommand,
+                    playIntent: command.playIntent,
+                    modelSlotManager: modelSlotManager,
+                    generationProvider: generationProvider
+                ) {
+                    return llmResult
                 }
 
                 if let ragPick = await runLibraryRAGSelectionAndPlay(
@@ -1043,93 +994,190 @@ struct V4MusicControlTool: V4Tool {
         )
     }
 
-    private static func runLibrarySearchAndPlay(keyword: String) async -> MagicianProcessResult {
-        await runOsaScript(
-            lines: [
-                "on run argv",
-                "set keywordText to item 1 of argv",
-                "tell application \"Music\"",
-            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
-                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: true)
-                + [
-                "set matchedTracks to (search library playlist 1 for keywordText only songs)",
-                "if (count of matchedTracks) is 0 then return \"track_not_found\"",
-                "set targetTrack to item 1 of matchedTracks",
-                "repeat with t in matchedTracks",
-                "try",
-                "if (name of t) is keywordText then",
-                "set targetTrack to t",
-                "exit repeat",
-                "end if",
-                "end try",
-                "end repeat",
-                "play targetTrack",
-                "delay 0.8",
-                "set nowTrack to current track",
-                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play|strategy=library_song|queue_mode=library_order\"",
-                "end tell",
-                "end run"
-            ],
-            arguments: [keyword]
-        )
+    private static func runLibraryIndexSelectionAndPlay(
+        query: String,
+        rawCommand: String,
+        playIntent: PlayIntent,
+        modelSlotManager: V4ModelSlotManager?,
+        generationProvider: any TextGenerationProvider
+    ) async -> MagicianProcessResult? {
+        guard let snapshot = await loadLibraryCatalogSnapshot() else {
+            return nil
+        }
+        let tracks = snapshot.tracks
+        guard !tracks.isEmpty else {
+            return nil
+        }
+
+        if playIntent != .mood {
+            let normalizedQueries = magicianMusicSearchQueries(from: query)
+                .map(normalizedMusicMatchText)
+                .filter { !$0.isEmpty }
+            if let exact = tracks.first(where: { track in
+                let name = normalizedMusicMatchText(track.name)
+                return normalizedQueries.contains(name)
+            }) {
+                let play = await playTrackByPersistentID(exact.persistentID)
+                guard play.exitCode == 0, play.stdout.hasPrefix("track=") else {
+                    return nil
+                }
+                let evidence = play.stdout + "|strategy=library_exact_name|index_revision=\(snapshot.revision)"
+                return MagicianProcessResult(exitCode: 0, stdout: evidence, stderr: play.stderr)
+            }
+        }
+
+        guard
+            let configuration = await semanticModelConfiguration(modelSlotManager: modelSlotManager),
+            let apiKey = await semanticModelAPIKey(modelSlotManager: modelSlotManager),
+            !apiKey.isEmpty || !configuration.providerType.requiresAPIKey
+        else {
+            return nil
+        }
+
+        let selectedTrack: LibraryTrackRecord?
+        if tracks.count <= 280 {
+            selectedTrack = await selectTrackFromLibraryBlock(
+                query: query,
+                rawCommand: rawCommand,
+                playIntent: playIntent,
+                tracks: tracks,
+                configuration: configuration,
+                apiKey: apiKey,
+                generationProvider: generationProvider
+            )
+        } else {
+            selectedTrack = await selectTrackFromFullLibraryBatches(
+                query: query,
+                rawCommand: rawCommand,
+                playIntent: playIntent,
+                tracks: tracks,
+                configuration: configuration,
+                apiKey: apiKey,
+                generationProvider: generationProvider
+            )
+        }
+        guard let selectedTrack else {
+            return nil
+        }
+
+        let playResult = await playTrackByPersistentID(selectedTrack.persistentID)
+        guard playResult.exitCode == 0, playResult.stdout.hasPrefix("track=") else {
+            return nil
+        }
+        let evidence = playResult.stdout + "|strategy=library_llm_index|index_revision=\(snapshot.revision)"
+        return MagicianProcessResult(exitCode: 0, stdout: evidence, stderr: playResult.stderr)
     }
 
-    private static func runLibraryAlbumSearchAndPlay(keyword: String) async -> MagicianProcessResult {
-        await runOsaScript(
-            lines: [
-                "on run argv",
-                "set keywordText to item 1 of argv",
-                "tell application \"Music\"",
-            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
-                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: true)
-                + [
-                "set matchedTracks to (search library playlist 1 for keywordText only albums)",
-                "if (count of matchedTracks) is 0 then return \"album_not_found\"",
-                "set targetTrack to item 1 of matchedTracks",
-                "play targetTrack",
-                "delay 0.8",
-                "set nowTrack to current track",
-                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play|strategy=library_album_order|queue_mode=library_order\"",
-                "end tell",
-                "end run"
-            ],
-            arguments: [keyword]
-        )
+    private static func selectTrackFromFullLibraryBatches(
+        query: String,
+        rawCommand: String,
+        playIntent: PlayIntent,
+        tracks: [LibraryTrackRecord],
+        configuration: TextGenerationProviderConfiguration,
+        apiKey: String,
+        generationProvider: any TextGenerationProvider
+    ) async -> LibraryTrackRecord? {
+        let batchSize = 240
+        var topCandidates: [LibraryTrackCandidate] = []
+        var index = 0
+        while index < tracks.count {
+            let end = min(index + batchSize, tracks.count)
+            let block = Array(tracks[index..<end])
+            if let picked = await selectTrackFromLibraryBlock(
+                query: query,
+                rawCommand: rawCommand,
+                playIntent: playIntent,
+                tracks: block,
+                configuration: configuration,
+                apiKey: apiKey,
+                generationProvider: generationProvider
+            ) {
+                topCandidates.append(LibraryTrackCandidate(track: picked, score: 1_000 - index))
+            }
+            index = end
+        }
+
+        var deduplicated: [LibraryTrackRecord] = []
+        var seen = Set<String>()
+        for candidate in topCandidates {
+            if seen.insert(candidate.track.persistentID).inserted {
+                deduplicated.append(candidate.track)
+            }
+        }
+        if deduplicated.isEmpty {
+            return nil
+        }
+        if deduplicated.count == 1 {
+            return deduplicated.first
+        }
+        return await selectTrackFromLibraryBlock(
+            query: query,
+            rawCommand: rawCommand,
+            playIntent: playIntent,
+            tracks: deduplicated,
+            configuration: configuration,
+            apiKey: apiKey,
+            generationProvider: generationProvider
+        ) ?? deduplicated.first
     }
 
-    private static func runSongAlbumAmbiguityProbe(query: String) async -> MagicianProcessResult {
-        await runOsaScript(
-            lines: [
-                "on run argv",
-                "set keywordText to item 1 of argv",
-                "set hasSong to false",
-                "set hasAlbum to false",
-                "tell application \"Music\"",
-            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
-                "set songHits to (search library playlist 1 for keywordText only songs)",
-                "repeat with t in songHits",
-                "if (name of t) is keywordText then",
-                "set hasSong to true",
-                "exit repeat",
-                "end if",
-                "end repeat",
-                "set albumHits to (search library playlist 1 for keywordText only albums)",
-                "repeat with t in albumHits",
-                "if (album of t) is keywordText then",
-                "set hasAlbum to true",
-                "exit repeat",
-                "end if",
-                "end repeat",
-                "end tell",
-                "return \"song_exact=\" & (hasSong as string) & \"|album_exact=\" & (hasAlbum as string)"
-            ],
-            arguments: [query]
-        )
-    }
+    private static func selectTrackFromLibraryBlock(
+        query: String,
+        rawCommand: String,
+        playIntent: PlayIntent,
+        tracks: [LibraryTrackRecord],
+        configuration: TextGenerationProviderConfiguration,
+        apiKey: String,
+        generationProvider: any TextGenerationProvider
+    ) async -> LibraryTrackRecord? {
+        guard !tracks.isEmpty else {
+            return nil
+        }
+        let lineLimit = min(tracks.count, 320)
+        let lines = tracks.prefix(lineLimit).enumerated().map { idx, track in
+            "\(idx + 1). id=\(track.persistentID) | song=\(track.name) | artist=\(track.artist) | album=\(track.album)"
+        }.joined(separator: "\n")
+        let systemPrompt = """
+        你是 PulseType 的音乐选曲器。你会收到用户请求和本地资料库曲目列表。
+        规则：
+        1) 必须只从给定列表里选择一首最匹配的歌。
+        2) 严禁输出列表中不存在的 id。
+        3) 只输出 JSON，不要输出解释文字。
+        JSON:
+        {"persistentID":"列表里的id","confidence":0~1,"reason":"一句话"}
+        若没有合适项：
+        {"persistentID":"","confidence":0,"reason":"no-fit"}
+        """
+        let userPrompt = """
+        用户命令：\(rawCommand)
+        解析查询：\(query)
+        意图：\(playIntent.rawValue)
+        列表：
+        \(lines)
+        """
 
-    private enum SearchKind {
-        case song
-        case album
+        do {
+            let generation = try await generationProvider.generateText(
+                request: TextGenerationRequest(
+                    systemPrompt: systemPrompt,
+                    userPrompt: userPrompt,
+                    temperature: 0.1,
+                    maxOutputTokens: 220
+                ),
+                configuration: configuration,
+                apiKey: apiKey
+            )
+            guard
+                let payload: LibraryTrackIDPickPayload = decodeLLMJSONPayload(from: generation.outputText),
+                let id = payload.persistentID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                !id.isEmpty
+            else {
+                return nil
+            }
+            return tracks.first(where: { $0.persistentID == id })
+        } catch {
+            return nil
+        }
     }
 
     private static func runLibraryRAGSelectionAndPlay(
@@ -1202,19 +1250,103 @@ struct V4MusicControlTool: V4Tool {
     }
 
     private static func loadLibraryCatalog() async -> [LibraryTrackRecord] {
-        if let cached = await libraryCatalogCache.load(maxAge: 12) {
-            return cached
+        await loadLibraryCatalogSnapshot()?.tracks ?? []
+    }
+
+    private static func loadLibraryCatalogSnapshot() async -> LibraryCatalogSnapshot? {
+        let revision = await fetchLibraryRevision()
+        if let cached = await libraryCatalogCache.load(maxAge: 300, revision: revision) {
+            return LibraryCatalogSnapshot(
+                generatedAt: Date(),
+                revision: revision ?? "unknown",
+                tracks: cached
+            )
         }
+
+        if
+            let persisted = loadPersistedLibraryCatalog(),
+            let revision,
+            persisted.revision == revision,
+            !persisted.tracks.isEmpty
+        {
+            await libraryCatalogCache.save(persisted.tracks, revision: persisted.revision)
+            return persisted
+        }
+
         let catalogResult = await fetchLibraryCatalog()
         guard catalogResult.exitCode == 0 else {
-            return []
+            return loadPersistedLibraryCatalog()
         }
         let tracks = parseLibraryCatalog(catalogResult.stdout)
         guard !tracks.isEmpty else {
-            return []
+            return loadPersistedLibraryCatalog()
         }
-        await libraryCatalogCache.save(tracks)
-        return tracks
+        let snapshot = LibraryCatalogSnapshot(
+            generatedAt: Date(),
+            revision: revision ?? "unknown",
+            tracks: tracks
+        )
+        await libraryCatalogCache.save(tracks, revision: snapshot.revision)
+        persistLibraryCatalog(snapshot)
+        return snapshot
+    }
+
+    private static func libraryIndexFileURL() -> URL {
+        LocalStore.bootstrap().historyDirectory
+            .appendingPathComponent(libraryIndexFileName, isDirectory: false)
+    }
+
+    private static func loadPersistedLibraryCatalog() -> LibraryCatalogSnapshot? {
+        let fileURL = libraryIndexFileURL()
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return nil
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard
+            let data = try? Data(contentsOf: fileURL),
+            let snapshot = try? decoder.decode(LibraryCatalogSnapshot.self, from: data),
+            !snapshot.tracks.isEmpty
+        else {
+            return nil
+        }
+        return snapshot
+    }
+
+    private static func persistLibraryCatalog(_ snapshot: LibraryCatalogSnapshot) {
+        let fileURL = libraryIndexFileURL()
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(snapshot) else {
+            return
+        }
+        try? data.write(to: fileURL, options: .atomic)
+    }
+
+    private static func fetchLibraryRevision() async -> String? {
+        let probe = await runOsaScript(
+            lines: [
+                "tell application \"Music\"",
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+                "set allTracks to tracks of library playlist 1",
+                "set totalCount to count of allTracks",
+                "if totalCount is 0 then return \"count=0|first=none|last=none\"",
+                "set firstTrack to item 1 of allTracks",
+                "set lastTrack to item totalCount of allTracks",
+                "set firstID to (persistent ID of firstTrack) as string",
+                "set lastID to (persistent ID of lastTrack) as string",
+                "return \"count=\" & totalCount & \"|first=\" & firstID & \"|last=\" & lastID",
+                "end tell"
+            ],
+            arguments: [],
+            timeoutSeconds: 8
+        )
+        guard probe.exitCode == 0 else {
+            return nil
+        }
+        let value = probe.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 
     private static func retrieveLibraryCandidates(

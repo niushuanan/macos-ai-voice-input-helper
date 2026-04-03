@@ -25,6 +25,7 @@ struct MemoryRowView: View {
     let onCopyDialogue: () -> Void
     let onCopyRaw: () -> Void
     let onCopyCommand: () -> Void
+    let onCopyExecutionInterpretation: () -> Void
     let onCopyExecutionTrace: () -> Void
     let onDelete: () -> Void
     @State private var brainstormDetailsExpanded = false
@@ -174,6 +175,11 @@ struct MemoryRowView: View {
                                 onCopyCommand()
                             }
                             .disabled(magicianInstructionText == nil)
+
+                            Button("复制执行解读") {
+                                onCopyExecutionInterpretation()
+                            }
+                            .disabled(magicianExecutionInterpretation == nil)
                         } label: {
                             Image(systemName: "doc.on.doc")
                                 .font(.caption.weight(.semibold))
@@ -206,9 +212,32 @@ struct MemoryRowView: View {
                             .textSelection(.enabled)
                     }
 
+                    if let magicianExecutionInterpretation {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("执行解读（额外任务）")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(magicianExecutionInterpretation)
+                                .font(.caption)
+                                .foregroundStyle(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.accentColor.opacity(0.08))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(Color.accentColor.opacity(0.22), lineWidth: 1)
+                                )
+                        )
+                    }
+
                     if magicianTraceExpanded, let magicianExecutionTrace {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("执行链路")
+                            Text("原始执行链路")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                             Text(magicianExecutionTrace)
@@ -353,6 +382,10 @@ struct MemoryRowView: View {
 
     private var magicianInstructionText: String? {
         MemoryEntryTextResolver.magicianInstructionText(for: entry)
+    }
+
+    private var magicianExecutionInterpretation: String? {
+        MemoryEntryTextResolver.magicianExecutionInterpretation(for: entry)
     }
 
     private var magicianExecutionTrace: String? {

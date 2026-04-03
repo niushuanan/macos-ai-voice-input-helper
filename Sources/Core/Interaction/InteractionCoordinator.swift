@@ -22,6 +22,7 @@ final class InteractionCoordinator {
     private let workflowTelemetryReporter: any WorkflowTelemetryReporting
     private let magicianLaneRouter: any MagicianLaneRouting
     private let musicFastExecutor: any MusicFastExecuting
+    private let musicExecutionInterpreter: any MusicExecutionInterpreting
     private let v4MagicianRuntime: any V4MagicianRuntimeRunning
     private let v4RuntimeSwitchStore: V4RuntimeSwitchStore
     private let v4SessionStoreBridge: V4ToSessionStoreBridge
@@ -64,6 +65,7 @@ final class InteractionCoordinator {
         workflowTelemetryReporter: (any WorkflowTelemetryReporting)? = nil,
         magicianLaneRouter: (any MagicianLaneRouting)? = nil,
         musicFastExecutor: (any MusicFastExecuting)? = nil,
+        musicExecutionInterpreter: (any MusicExecutionInterpreting)? = nil,
         magicianToolExecutor: (any MagicianToolExecuting)? = nil,
         v4MagicianRuntime: (any V4MagicianRuntimeRunning)? = nil,
         v4RuntimeSwitchStore: V4RuntimeSwitchStore? = nil,
@@ -103,6 +105,9 @@ final class InteractionCoordinator {
             self.magicianLaneRouter = MagicianSemanticLaneRouter(modelSlotManager: modelSlotManager)
         }
         self.musicFastExecutor = musicFastExecutor ?? MusicFastExecutor(providerSettingsStore: providerSettingsStore)
+        self.musicExecutionInterpreter = musicExecutionInterpreter ?? MusicExecutionInterpreter(
+            providerSettingsStore: providerSettingsStore
+        )
         self.v4RuntimeSwitchStore = v4RuntimeSwitchStore ?? V4RuntimeSwitchStore()
         self.v4SessionStoreBridge = v4SessionStoreBridge ?? V4ToSessionStoreBridge()
         self.v4HistoryBridge = v4HistoryBridge
@@ -1991,8 +1996,10 @@ final class InteractionCoordinator {
                 errorCode: V4FailureCode.invalidRequest.rawValue,
                 errorMessage: message
             )
+            let entryID = UUID()
             localHistoryStore.append(
                 SessionHistoryEntry(
+                    id: entryID,
                     mode: .selectionRewrite,
                     appName: focusContext.appName,
                     bundleID: focusContext.bundleID,
@@ -2001,6 +2008,7 @@ final class InteractionCoordinator {
                     instructionText: spokenInstruction,
                     magicianRuntimeVersion: 4,
                     magicianExecutionTrace: executionTrace,
+                    magicianExecutionInterpretation: nil,
                     status: .failed,
                     errorMessage: message,
                     audioDurationSeconds: audioDurationSeconds,
@@ -2039,8 +2047,10 @@ final class InteractionCoordinator {
             errorMessage: outcome.status == .failed ? outcome.message : nil,
             endToEndMilliseconds: endToEndMilliseconds
         )
+        let entryID = UUID()
         localHistoryStore.append(
             SessionHistoryEntry(
+                id: entryID,
                 mode: .selectionRewrite,
                 appName: focusContext.appName,
                 bundleID: focusContext.bundleID,
@@ -2054,12 +2064,33 @@ final class InteractionCoordinator {
                 magicianRuntimeVersion: 4,
                 magicianEvidenceSummary: outcome.evidenceSummary,
                 magicianExecutionTrace: executionTrace,
+                magicianExecutionInterpretation: nil,
                 status: outcome.status,
                 errorMessage: outcome.status == .failed ? outcome.message : nil,
                 audioDurationSeconds: audioDurationSeconds,
                 appliedSkills: appliedSkills
             )
         )
+        Task { [weak self] in
+            guard let self else {
+                return
+            }
+            let interpretation = await self.musicExecutionInterpreter.interpret(
+                MusicExecutionInterpretationRequest(
+                    command: spokenInstruction,
+                    status: outcome.status,
+                    outputText: outcome.outputText,
+                    evidenceSummary: outcome.evidenceSummary,
+                    rawExecutionTrace: executionTrace
+                )
+            )
+            await MainActor.run {
+                self.localHistoryStore.updateMagicianExecutionInterpretation(
+                    entryID: entryID,
+                    interpretation: interpretation
+                )
+            }
+        }
 
         let telemetryEvent: WorkflowTelemetryEvent = {
             if outcome.status == .success {
@@ -2089,9 +2120,9 @@ final class InteractionCoordinator {
         workflowTelemetryReporter.record(telemetryEvent)
 
         if outcome.status == .success {
-            sessionStore.completeAction(statusMessage: outcome.message)
+            sessionStore.completeAction(statusMessage: "\(outcome.message)（执行解读会作为额外任务写入记忆。）")
         } else {
-            sessionStore.fail(message: outcome.message)
+            sessionStore.fail(message: "\(outcome.message)（执行解读会作为额外任务写入记忆。）")
         }
         currentTraceID = nil
     }

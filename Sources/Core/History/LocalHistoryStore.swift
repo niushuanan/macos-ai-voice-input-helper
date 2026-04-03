@@ -61,6 +61,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
     let magicianStepSummaries: [String]?
     let magicianEvidenceSummary: String?
     let magicianExecutionTrace: String?
+    let magicianExecutionInterpretation: String?
     let status: SessionHistoryStatus
     let errorMessage: String?
     let audioDurationSeconds: Double?
@@ -90,6 +91,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         magicianStepSummaries: [String]? = nil,
         magicianEvidenceSummary: String? = nil,
         magicianExecutionTrace: String? = nil,
+        magicianExecutionInterpretation: String? = nil,
         status: SessionHistoryStatus,
         errorMessage: String? = nil,
         audioDurationSeconds: Double? = nil,
@@ -118,6 +120,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         self.magicianStepSummaries = magicianStepSummaries
         self.magicianEvidenceSummary = magicianEvidenceSummary
         self.magicianExecutionTrace = magicianExecutionTrace
+        self.magicianExecutionInterpretation = magicianExecutionInterpretation
         self.status = status
         self.errorMessage = errorMessage
         self.audioDurationSeconds = audioDurationSeconds
@@ -148,6 +151,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         case magicianStepSummaries
         case magicianEvidenceSummary
         case magicianExecutionTrace
+        case magicianExecutionInterpretation
         case status
         case errorMessage
         case audioDurationSeconds
@@ -183,6 +187,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         magicianStepSummaries = try container.decodeIfPresent([String].self, forKey: .magicianStepSummaries)
         magicianEvidenceSummary = try container.decodeIfPresent(String.self, forKey: .magicianEvidenceSummary)
         magicianExecutionTrace = try container.decodeIfPresent(String.self, forKey: .magicianExecutionTrace)
+        magicianExecutionInterpretation = try container.decodeIfPresent(String.self, forKey: .magicianExecutionInterpretation)
         status = try container.decode(SessionHistoryStatus.self, forKey: .status)
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         audioDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .audioDurationSeconds)
@@ -214,6 +219,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(magicianStepSummaries, forKey: .magicianStepSummaries)
         try container.encodeIfPresent(magicianEvidenceSummary, forKey: .magicianEvidenceSummary)
         try container.encodeIfPresent(magicianExecutionTrace, forKey: .magicianExecutionTrace)
+        try container.encodeIfPresent(magicianExecutionInterpretation, forKey: .magicianExecutionInterpretation)
         try container.encode(status, forKey: .status)
         try container.encodeIfPresent(errorMessage, forKey: .errorMessage)
         try container.encodeIfPresent(audioDurationSeconds, forKey: .audioDurationSeconds)
@@ -340,6 +346,48 @@ final class LocalHistoryStore: ObservableObject {
 
     func delete(entryID: UUID) {
         entries.removeAll { $0.id == entryID }
+        persistEntries()
+    }
+
+    func updateMagicianExecutionInterpretation(
+        entryID: UUID,
+        interpretation: String?
+    ) {
+        guard let index = entries.firstIndex(where: { $0.id == entryID }) else {
+            return
+        }
+        let current = entries[index]
+        let next = SessionHistoryEntry(
+            id: current.id,
+            timestamp: current.timestamp,
+            mode: current.mode,
+            appName: current.appName,
+            bundleID: current.bundleID,
+            inputText: current.inputText,
+            outputText: current.outputText,
+            brainstormDialogueText: current.brainstormDialogueText,
+            instructionText: current.instructionText,
+            magicianFeatureID: current.magicianFeatureID,
+            displayText: current.displayText,
+            transcriptionProvider: current.transcriptionProvider,
+            transcriptionModel: current.transcriptionModel,
+            rewriteProvider: current.rewriteProvider,
+            rewriteModel: current.rewriteModel,
+            outputPath: current.outputPath,
+            magicianRuntimeVersion: current.magicianRuntimeVersion,
+            magicianSessionID: current.magicianSessionID,
+            magicianRunID: current.magicianRunID,
+            magicianGoalSummary: current.magicianGoalSummary,
+            magicianStepSummaries: current.magicianStepSummaries,
+            magicianEvidenceSummary: current.magicianEvidenceSummary,
+            magicianExecutionTrace: current.magicianExecutionTrace,
+            magicianExecutionInterpretation: interpretation,
+            status: current.status,
+            errorMessage: current.errorMessage,
+            audioDurationSeconds: current.audioDurationSeconds,
+            appliedSkills: current.appliedSkills
+        )
+        entries[index] = next
         persistEntries()
     }
 

@@ -75,6 +75,13 @@ enum MemoryEntryTextResolver {
         return normalized(entry.instructionText)
     }
 
+    static func magicianExecutionInterpretation(for entry: SessionHistoryEntry) -> String? {
+        guard entry.mode == .selectionRewrite else {
+            return nil
+        }
+        return normalized(entry.magicianExecutionInterpretation)
+    }
+
     static func defaultText(for entry: SessionHistoryEntry) -> String? {
         if entry.mode == .dictation {
             return primaryText(for: entry)
