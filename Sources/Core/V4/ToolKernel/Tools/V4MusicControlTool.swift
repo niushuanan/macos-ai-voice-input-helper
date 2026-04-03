@@ -1018,7 +1018,11 @@ struct V4MusicControlTool: V4Tool {
                 return normalizedQueries.contains(name)
             }) {
                 let play = await playTrackByPersistentID(exact.persistentID)
-                guard play.exitCode == 0, play.stdout.hasPrefix("track=") else {
+                guard
+                    play.exitCode == 0,
+                    play.stdout.hasPrefix("track="),
+                    evidenceResolvedTrackIDMatchesTarget(output: play.stdout, targetID: exact.persistentID)
+                else {
                     return nil
                 }
                 let exactEvidenceValid = magicianMusicEvidenceMatchesQuery(output: play.stdout, query: query)
@@ -1065,7 +1069,11 @@ struct V4MusicControlTool: V4Tool {
         }
 
         let playResult = await playTrackByPersistentID(selectedTrack.persistentID)
-        guard playResult.exitCode == 0, playResult.stdout.hasPrefix("track=") else {
+        guard
+            playResult.exitCode == 0,
+            playResult.stdout.hasPrefix("track="),
+            evidenceResolvedTrackIDMatchesTarget(output: playResult.stdout, targetID: selectedTrack.persistentID)
+        else {
             return nil
         }
         let evidence = playResult.stdout + "|strategy=library_llm_index|index_revision=\(snapshot.revision)"
@@ -1246,7 +1254,11 @@ struct V4MusicControlTool: V4Tool {
         }
 
         let playResult = await playTrackByPersistentID(pick.persistentID)
-        guard playResult.exitCode == 0, playResult.stdout.hasPrefix("track=") else {
+        guard
+            playResult.exitCode == 0,
+            playResult.stdout.hasPrefix("track="),
+            evidenceResolvedTrackIDMatchesTarget(output: playResult.stdout, targetID: pick.persistentID)
+        else {
             return nil
         }
         let evidence = playResult.stdout + "|strategy=library_rag"
@@ -1765,26 +1777,59 @@ struct V4MusicControlTool: V4Tool {
                 "set targetPID to item 1 of argv",
                 "tell application \"Music\"",
             ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
-                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: true)
+                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: false)
                 + [
                 "set allTracks to tracks of library playlist 1",
+                "set targetTrack to missing value",
                 "repeat with t in allTracks",
                 "try",
                 "if ((persistent ID of t) as string) is targetPID then",
-                "play t",
-                "delay 0.6",
-                "set nowTrack to current track",
-                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play|queue_mode=library_order\"",
+                "set targetTrack to t",
+                "exit repeat",
                 "end if",
                 "end try",
                 "end repeat",
-                "return \"track_not_found\"",
+                "if targetTrack is missing value then",
+                "return \"track_not_found|target_id=\" & targetPID",
+                "end if",
+                "set finalState to \"unknown\"",
+                "repeat with attemptIndex from 1 to 2",
+                "play targetTrack",
+                "delay 0.55",
+                "set finalState to (player state as string)",
+                "try",
+                "set nowTrack to current track",
+                "set nowID to (persistent ID of nowTrack) as string",
+                "if nowID is targetPID then",
+                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=\" & finalState & \"|queue_mode=library_order|target_id=\" & targetPID & \"|resolved_id=\" & nowID",
+                "end if",
+                "end try",
+                "delay 0.18",
+                "end repeat",
+                "try",
+                "set nowTrack to current track",
+                "set nowID to (persistent ID of nowTrack) as string",
+                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=\" & finalState & \"|queue_mode=library_order|target_id=\" & targetPID & \"|resolved_id=\" & nowID & \"|play_mismatch=true\"",
+                "on error",
+                "return \"play_mismatch|state=\" & finalState & \"|target_id=\" & targetPID",
+                "end try",
                 "end tell",
                 "end run"
             ],
             arguments: [persistentID],
             timeoutSeconds: 16
         )
+    }
+
+    private static func evidenceResolvedTrackIDMatchesTarget(output: String, targetID: String) -> Bool {
+        let normalizedTargetID = targetID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTargetID.isEmpty else {
+            return false
+        }
+        guard let resolvedID = evidenceField("resolved_id", from: output) else {
+            return true
+        }
+        return resolvedID.caseInsensitiveCompare(normalizedTargetID) == .orderedSame
     }
 
     private static func runFallbackLibraryOrderedPlay() async -> MagicianProcessResult? {
@@ -1848,6 +1893,21 @@ struct V4MusicControlTool: V4Tool {
             }
         }
         return (state, track, artist)
+    }
+
+    private static func evidenceField(_ key: String, from output: String) -> String? {
+        let prefix = "\(key)="
+        let parts = output.split(separator: "|", omittingEmptySubsequences: false)
+        for part in parts {
+            let piece = String(part)
+            if piece.hasPrefix(prefix) {
+                let value = String(piece.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    return value
+                }
+            }
+        }
+        return nil
     }
 
     static func normalizedPlaybackEvidenceForMismatch(

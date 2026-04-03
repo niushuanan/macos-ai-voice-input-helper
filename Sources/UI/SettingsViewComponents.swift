@@ -213,17 +213,18 @@ struct MemoryRowView: View {
                     }
 
                     if let magicianExecutionInterpretation {
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 8) {
                             Text("执行解读（额外任务）")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                             Text(magicianExecutionInterpretation)
-                                .font(.caption2)
+                                .font(.callout)
                                 .foregroundStyle(.primary)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
                         }
+                        .padding(.top, 2)
                     }
 
                     if magicianTraceExpanded, let magicianExecutionTrace {
