@@ -404,7 +404,7 @@ struct SettingsView: View {
                 .fixedSize()
             }
 
-            Text("日历 / 备忘录 / 邮件 / 音乐")
+            Text("日历 / 本地文档 / 邮件 / 音乐")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -1375,7 +1375,7 @@ struct SettingsView: View {
                 .font(.subheadline)
             Label("本地模型和云端模型一起工作，历史与配置默认留在本地，效果和安全感可以一起兼顾。", systemImage: "lock.shield")
                 .font(.subheadline)
-            Label("长按主键唤起魔术先生，翻译、润色、日程、备忘录、邮件一句搞定。", systemImage: "wand.and.stars")
+            Label("长按主键唤起魔术先生，翻译、润色、日程、本地文档、邮件一句搞定。", systemImage: "wand.and.stars")
                 .font(.subheadline)
             Label("双击主键进入一口气全念对，特别适合多人讨论和短会议纪要，边聊边记也能快速理清重点。", systemImage: "brain.head.profile")
                 .font(.subheadline)

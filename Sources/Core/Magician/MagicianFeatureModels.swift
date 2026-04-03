@@ -136,7 +136,7 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         case .createEvent:
             return "一键建日程"
         case .createNote:
-            return "写入备忘录"
+            return "本地文档"
         case .composeEmailDraft:
             return "邮件助手"
         case .controlMusic:
@@ -153,7 +153,7 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         case .createEvent:
             return "建日程中"
         case .createNote:
-            return "写入备忘录中"
+            return "保存本地文档中"
         case .composeEmailDraft:
             return "整理邮件中"
         case .controlMusic:
@@ -170,7 +170,7 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         case .createEvent:
             return "从选中内容里识别时间和主题，直接加入日历。"
         case .createNote:
-            return "把选中内容快速记到备忘录。"
+            return "把处理结果自动写入本地 md 文档并持久保存。"
         case .composeEmailDraft:
             return "整理主题和正文，打开 Mail；地址明确时可直接发出。"
         case .controlMusic:
@@ -187,7 +187,7 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         case .createEvent:
             return "信息不完整时按默认规则自动推断。"
         case .createNote:
-            return "只新增，不改已有笔记。"
+            return "始终新建文档，不覆盖历史内容。"
         case .composeEmailDraft:
             return "地址明确且模型判断该直接发时，会自动发送；不明确时只打开编辑窗口。"
         case .controlMusic:
@@ -204,7 +204,7 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         case .createEvent:
             return "周五下午和产品开评审会"
         case .createNote:
-            return "记到备忘录"
+            return "总结后保存到本地文档"
         case .composeEmailDraft:
             return "给小庄发邮件"
         case .controlMusic:
@@ -221,7 +221,7 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
         case .createEvent:
             return "calendar"
         case .createNote:
-            return "note.text"
+            return "doc.text"
         case .composeEmailDraft:
             return "envelope"
         case .controlMusic:

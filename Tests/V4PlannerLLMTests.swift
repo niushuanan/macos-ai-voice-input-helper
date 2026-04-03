@@ -78,7 +78,7 @@ final class V4PlannerLLMTests: XCTestCase {
         let plan = try await planner.plan(for: request)
 
         XCTAssertEqual(plan.steps.count, 1)
-        XCTAssertEqual(plan.steps.first?.toolName, "apple.mail.compose")
+        XCTAssertEqual(plan.steps.first?.toolName, "local.md.create")
         let invocationCount = await provider.invocationCount
         XCTAssertEqual(invocationCount, 1)
     }
@@ -171,8 +171,8 @@ final class V4PlannerLLMTests: XCTestCase {
 
         XCTAssertEqual(plan.terminalDecision, nil)
         XCTAssertEqual(plan.steps.count, 1)
-        XCTAssertEqual(plan.steps.first?.toolName, "apple.mail.compose")
-        XCTAssertEqual(plan.steps.first?.title, "发送邮件")
+        XCTAssertEqual(plan.steps.first?.toolName, "local.md.create")
+        XCTAssertEqual(plan.steps.first?.title, "本地文档归档")
     }
 
     func testPlannerCanFinishFromModelDecision() async throws {

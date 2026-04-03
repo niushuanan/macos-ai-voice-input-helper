@@ -231,6 +231,9 @@ enum StatusPulseHUDMessageResolver {
         if normalized.contains("复制到剪贴板") {
             return "已复制到剪贴板"
         }
+        if normalized.contains("本地 md 文档已创建") || normalized.contains("已写入本地 md") {
+            return "已保存本地文档"
+        }
         if isCreateNoteSuccess(normalized) {
             return "已写入备忘录"
         }
@@ -334,7 +337,7 @@ enum StatusPulseHUDMessageResolver {
     private static func isCreateNoteSuccess(_ message: String) -> Bool {
         containsAny(
             message,
-            tokens: ["备忘录", "Notes", "快捷指令", "Shortcuts URL 触发写入"]
+            tokens: ["备忘录", "Notes", "快捷指令", "Shortcuts URL 触发写入", "本地 md 文档", "local.md.create"]
         )
     }
 

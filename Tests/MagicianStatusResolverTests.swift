@@ -49,7 +49,7 @@ final class MagicianStatusResolverTests: XCTestCase {
         XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "请求权限")
     }
 
-    func testCreateNoteNeedsPermissionWhenShortcutsMissing() {
+    func testCreateNoteReadyWhenDependenciesMissing() {
         let resolution = resolver.resolve(
             feature: .createNote,
             isEnabled: true,
@@ -60,11 +60,12 @@ final class MagicianStatusResolverTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(resolution.status, .needsPermission)
-        XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "打开 Notes")
+        XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertNil(resolution.reason)
+        XCTAssertNil(resolution.prompt)
     }
 
-    func testCreateNoteEnabledWhenNotesAppAvailableWithoutShortcut() {
+    func testCreateNoteEnabledWhenToggleOn() {
         let resolution = resolver.resolve(
             feature: .createNote,
             isEnabled: true,
@@ -80,10 +81,10 @@ final class MagicianStatusResolverTests: XCTestCase {
         XCTAssertNil(resolution.prompt)
     }
 
-    func testCreateNoteNeedsPermissionWhenShortcutNameMissingAndNotesUnavailable() {
+    func testCreateNoteNotEnabledWhenToggleOff() {
         let resolution = resolver.resolve(
             feature: .createNote,
-            isEnabled: true,
+            isEnabled: false,
             dependencies: dependencies(
                 shortcutsAvailable: true,
                 createNoteShortcutName: "PulseType-写入备忘录",
@@ -92,9 +93,9 @@ final class MagicianStatusResolverTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(resolution.status, .needsPermission)
-        XCTAssertEqual(resolution.reason, "备忘录服务不可用，请先打开 Notes 或配置 Shortcut“PulseType-写入备忘录”。")
-        XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "打开 Notes")
+        XCTAssertEqual(resolution.status, .notEnabled)
+        XCTAssertNil(resolution.reason)
+        XCTAssertNil(resolution.prompt)
     }
 
     func testComposeEmailNeedsPermissionWhenMailUnavailable() {

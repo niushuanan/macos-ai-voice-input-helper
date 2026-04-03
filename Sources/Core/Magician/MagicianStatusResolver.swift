@@ -107,23 +107,7 @@ struct MagicianStatusResolver {
             )
 
         case .createNote:
-            if dependencies.notesAppAvailable {
-                return .ready
-            }
-            if dependencies.shortcutsCLIAvailable, dependencies.createNoteShortcutExists {
-                return .ready
-            }
-            return .blocked(
-                reason: "备忘录服务不可用，请先打开 Notes 或配置 Shortcut“\(dependencies.createNoteShortcutName)”。",
-                prompt: MagicianPermissionPromptModel(
-                    feature: feature,
-                    title: "备忘录服务不可用",
-                    message: "写入备忘录优先用 Notes 直写，若不可用会回退到 Shortcut“\(dependencies.createNoteShortcutName)”。请先打开 Notes，或在 Shortcuts 配置同名指令。",
-                    primaryButtonTitle: "打开 Notes",
-                    secondaryButtonTitle: "稍后再说",
-                    primaryAction: .openNotesApp
-                )
-            )
+            return .ready
 
         case .composeEmailDraft:
             guard

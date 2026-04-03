@@ -500,26 +500,7 @@ final class InteractionCoordinator {
         if let fallbackSnapshot, !fallbackSnapshot.selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return fallbackSnapshot
         }
-
-        if let clipboardSnapshot = snapshotFromClipboardFallback() {
-            pendingMagicianSelectionSnapshot = clipboardSnapshot
-            return clipboardSnapshot
-        }
         return fallbackSnapshot
-    }
-
-    private func snapshotFromClipboardFallback() -> FocusedSelectionSnapshot? {
-        guard let clipboardText = NSPasteboard.general.string(forType: .string)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !clipboardText.isEmpty
-        else {
-            return nil
-        }
-        let focusContext = contextDetector.focusedAppContext()
-        return FocusedSelectionSnapshot(
-            focusContext: focusContext,
-            selectedText: clipboardText
-        )
     }
 
     private func ensureTraceID() -> String {
