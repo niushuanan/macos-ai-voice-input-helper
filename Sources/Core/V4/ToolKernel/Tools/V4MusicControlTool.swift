@@ -199,8 +199,9 @@ struct V4MusicControlTool: V4Tool {
             )
         }
         let result = try await executeHandler(resolved)
+        let resolvedState = normalizedMusicState(result.state, action: result.action)
         let outputText: String
-        if result.action == .open, result.state == "open_search" {
+        if result.action == .open, resolvedState == "open_search" {
             outputText = "已打开 Music 搜索结果，请确认播放对象。"
         } else if result.action == .open {
             outputText = "已打开 Music，尚未执行播放。"
@@ -229,11 +230,11 @@ struct V4MusicControlTool: V4Tool {
 
         return V4ToolExecutionOutput(
             outputText: outputText,
-            evidenceSummary: "apple.music.control action=\(result.action.rawValue) state=\(result.state)",
+            evidenceSummary: "apple.music.control action=\(result.action.rawValue) state=\(resolvedState)",
             rawPayload: .object(
                 [
                     "action": .string(result.action.rawValue),
-                    "state": .string(result.state),
+                    "state": .string(resolvedState),
                     "playIntent": .string(resolved.playIntent.rawValue),
                     "track": result.track.map(V4ToolValue.string) ?? .null,
                     "artist": result.artist.map(V4ToolValue.string) ?? .null,
@@ -242,6 +243,27 @@ struct V4MusicControlTool: V4Tool {
                 ]
             )
         )
+    }
+
+    private func normalizedMusicState(_ raw: String, action: Action) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            return trimmed
+        }
+        switch action {
+        case .open:
+            return "open"
+        case .play:
+            return "play"
+        case .pause:
+            return "pause"
+        case .resume:
+            return "resume"
+        case .next:
+            return "next"
+        case .previous:
+            return "previous"
+        }
     }
 
     private func resolveCommand(

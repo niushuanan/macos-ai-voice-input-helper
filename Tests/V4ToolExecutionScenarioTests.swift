@@ -421,6 +421,38 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         XCTAssertTrue((output?.outputText ?? "").contains("已打开 Music"))
     }
 
+    func testMusicStructuredEvidenceStillPassesWhenStateEmptyFromExecutor() async {
+        let tool = V4MusicControlTool { command in
+            XCTAssertEqual(command.action, .play)
+            return V4MusicControlTool.ResultPayload(
+                action: .play,
+                state: "   ",
+                track: "稻香",
+                artist: "周杰伦",
+                evidence: "track=稻香|artist=周杰伦"
+            )
+        }
+        let registry = V4ToolRegistry(
+            tools: [tool],
+            manifests: [
+                V4ToolManifest.derived(
+                    from: tool.spec,
+                    domain: "music",
+                    retryPolicy: .transientSingleRetry,
+                    evidenceRequirement: .structured(requiredKeys: ["action", "state"])
+                )
+            ]
+        )
+        let kernel = makeKernel(registry: registry)
+        let result = await kernel.execute(
+            toolUse: makeToolUse(toolName: "apple.music.control", inputJSON: #"{"command":"播放稻香"}"#),
+            context: makeContext(toolName: "apple.music.control")
+        )
+        XCTAssertEqual(result.status, .success)
+        XCTAssertNil(result.error)
+        XCTAssertTrue((result.evidenceSummary).contains("state=play"))
+    }
+
     func testMusicDryRunSkipsExecutionHandler() async throws {
         let tool = V4MusicControlTool { _ in
             XCTFail("dry run 不应触发执行器")

@@ -186,11 +186,11 @@ enum StatusPulseHUDTitleResolver {
 
         switch phase {
         case .transcribing:
-            return "魔术先生 · 思考中"
+            return "思考中"
         case .rewriting:
             return magicianRewritingTitle(from: message, fallback: defaultTitle)
         case .inserting:
-            return "魔术先生 · 写入中"
+            return "写入中"
         case .idle, .listening, .cancelled, .error:
             return defaultTitle
         }
@@ -199,11 +199,11 @@ enum StatusPulseHUDTitleResolver {
     private static func magicianRewritingTitle(from message: String, fallback: String) -> String {
         let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines)
         if let explicit = extractMagicianActionTitle(from: normalized) {
-            return "魔术先生 · \(explicit)"
+            return explicit
         }
 
         let fallbackTitle = fallback == "魔术先生执行" ? "执行中" : fallback
-        return "魔术先生 · \(fallbackTitle)"
+        return fallbackTitle
     }
 
     private static func extractMagicianActionTitle(from message: String) -> String? {
@@ -729,10 +729,6 @@ private struct StatusPulseHUDView: View {
                         .font(.system(size: s(11.5), weight: .semibold, design: .rounded))
                         .foregroundStyle(Color.primary.opacity(0.86))
                         .lineLimit(1)
-
-                    Capsule(style: .continuous)
-                        .fill(Color.primary.opacity(0.16))
-                        .frame(width: s(0.7), height: s(9))
 
                     if completion {
                         Image(systemName: "checkmark.circle.fill")
