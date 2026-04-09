@@ -1080,6 +1080,7 @@ struct SettingsView: View {
                     permissionsCenter.refreshStatuses()
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.small)
                 Spacer()
             }
 
