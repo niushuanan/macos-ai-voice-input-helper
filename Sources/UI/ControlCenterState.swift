@@ -26,7 +26,7 @@ enum DesktopSection: String, CaseIterable, Identifiable {
         case .timeMachine:
             return "时光机"
         case .magician:
-            return "动作"
+            return "魔术先生"
         case .agentBrainstorm:
             return "讨论整理"
         case .settings:

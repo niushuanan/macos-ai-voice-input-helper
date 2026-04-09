@@ -5,7 +5,7 @@ import XCTest
 final class ControlCenterStateTests: XCTestCase {
     func testDesktopSectionIncludesMagician() {
         XCTAssertTrue(DesktopSection.allCases.contains(.magician))
-        XCTAssertEqual(DesktopSection.magician.title, "动作")
+        XCTAssertEqual(DesktopSection.magician.title, "魔术先生")
         XCTAssertEqual(DesktopSection.magician.symbolName, "sparkles")
         XCTAssertEqual(DesktopSection.agentBrainstorm.title, "讨论整理")
         XCTAssertFalse(DesktopSection.allCases.map(\.title).contains("Now you see me"))

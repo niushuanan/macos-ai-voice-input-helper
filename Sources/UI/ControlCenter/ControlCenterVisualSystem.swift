@@ -10,31 +10,31 @@ enum PulseUI {
     }
 
     enum Spacing {
-        static let pageHorizontal: CGFloat = 22
+        static let pageHorizontal: CGFloat = 24
         static let pageVertical: CGFloat = 20
-        static let section: CGFloat = 14
-        static let cardPadding: CGFloat = 12
-        static let compactCardPadding: CGFloat = 9
+        static let section: CGFloat = 16
+        static let cardPadding: CGFloat = 14
+        static let compactCardPadding: CGFloat = 10
     }
 
     enum Radius {
-        static let header: CGFloat = 16
-        static let sectionGroup: CGFloat = 14
-        static let card: CGFloat = 11
-        static let compactCard: CGFloat = 9
-        static let listRow: CGFloat = 12
+        static let header: CGFloat = 14
+        static let sectionGroup: CGFloat = 12
+        static let card: CGFloat = 10
+        static let compactCard: CGFloat = 8
+        static let listRow: CGFloat = 10
         static let pill: CGFloat = 999
     }
 
     enum Typography {
-        static let heroSpec = TypeSpec(size: 24, lineHeight: 30, weight: .bold, design: .rounded)
-        static let sectionSpec = TypeSpec(size: 15.5, lineHeight: 20, weight: .semibold, design: .rounded)
-        static let bodySpec = TypeSpec(size: 13.5, lineHeight: 18, weight: .regular, design: .default)
-        static let bodyMediumSpec = TypeSpec(size: 13.5, lineHeight: 18, weight: .medium, design: .default)
-        static let captionSpec = TypeSpec(size: 12, lineHeight: 16, weight: .regular, design: .default)
-        static let captionStrongSpec = TypeSpec(size: 12, lineHeight: 16, weight: .semibold, design: .default)
-        static let tinySpec = TypeSpec(size: 11, lineHeight: 14, weight: .regular, design: .default)
-        static let metricSpec = TypeSpec(size: 19, lineHeight: 24, weight: .semibold, design: .rounded)
+        static let heroSpec = TypeSpec(size: 21, lineHeight: 27, weight: .semibold, design: .serif)
+        static let sectionSpec = TypeSpec(size: 15, lineHeight: 20, weight: .semibold, design: .default)
+        static let bodySpec = TypeSpec(size: 13.5, lineHeight: 19, weight: .regular, design: .default)
+        static let bodyMediumSpec = TypeSpec(size: 13.5, lineHeight: 19, weight: .medium, design: .default)
+        static let captionSpec = TypeSpec(size: 12, lineHeight: 17, weight: .regular, design: .default)
+        static let captionStrongSpec = TypeSpec(size: 12, lineHeight: 17, weight: .semibold, design: .default)
+        static let tinySpec = TypeSpec(size: 11, lineHeight: 15, weight: .regular, design: .default)
+        static let metricSpec = TypeSpec(size: 17, lineHeight: 22, weight: .semibold, design: .default)
 
         static let pageTitle = Font.system(
             size: heroSpec.size,
@@ -64,35 +64,40 @@ enum PulseUI {
             design: metricSpec.design
         )
         static let monospacedMeta = Font.system(size: tinySpec.size, weight: tinySpec.weight, design: .monospaced)
+
+        static let pageTitleLineSpacing: CGFloat = heroSpec.lineHeight - heroSpec.size
+        static let bodyLineSpacing: CGFloat = bodySpec.lineHeight - bodySpec.size
+        static let captionLineSpacing: CGFloat = captionSpec.lineHeight - captionSpec.size
+        static let tinyLineSpacing: CGFloat = tinySpec.lineHeight - tinySpec.size
     }
 
     enum ColorTokens {
         static let textPrimary = Color.primary
-        static let textSecondary = Color.primary.opacity(0.70)
+        static let textSecondary = Color.primary.opacity(0.66)
         static let textTertiary = Color.primary.opacity(0.52)
-        static let success = Color(nsColor: NSColor(calibratedRed: 0.18, green: 0.64, blue: 0.42, alpha: 1))
-        static let warning = Color(nsColor: NSColor(calibratedRed: 0.78, green: 0.53, blue: 0.12, alpha: 1))
-        static let danger = Color(nsColor: NSColor(calibratedRed: 0.83, green: 0.30, blue: 0.30, alpha: 1))
+        static let success = Color(nsColor: NSColor(calibratedRed: 0.24, green: 0.55, blue: 0.42, alpha: 1))
+        static let warning = Color(nsColor: NSColor(calibratedRed: 0.76, green: 0.49, blue: 0.15, alpha: 1))
+        static let danger = Color(nsColor: NSColor(calibratedRed: 0.72, green: 0.29, blue: 0.27, alpha: 1))
 
         static let backgroundTop = Color(
-            nsColor: NSColor(calibratedRed: 0.961, green: 0.957, blue: 0.941, alpha: 1)
+            nsColor: NSColor(calibratedRed: 0.969, green: 0.962, blue: 0.945, alpha: 1)
         )
         static let backgroundBottom = Color(
-            nsColor: NSColor(calibratedRed: 0.947, green: 0.958, blue: 0.976, alpha: 1)
+            nsColor: NSColor(calibratedRed: 0.945, green: 0.933, blue: 0.907, alpha: 1)
         )
         static let glow = Color(
-            nsColor: NSColor(calibratedRed: 0.322, green: 0.518, blue: 0.836, alpha: 1)
+            nsColor: NSColor(calibratedRed: 0.788, green: 0.392, blue: 0.258, alpha: 1)
         )
         static let primaryFill = Color(
-            nsColor: NSColor(calibratedRed: 0.975, green: 0.975, blue: 0.971, alpha: 1)
+            nsColor: NSColor(calibratedRed: 0.988, green: 0.983, blue: 0.968, alpha: 1)
         )
         static let secondaryFill = Color(
-            nsColor: NSColor(calibratedRed: 0.957, green: 0.962, blue: 0.972, alpha: 1)
+            nsColor: NSColor(calibratedRed: 0.964, green: 0.953, blue: 0.925, alpha: 1)
         )
-        static let stroke = Color.black.opacity(0.072)
-        static let glassStroke = Color.white.opacity(0.34)
-        static let glassShadow = Color.black.opacity(0.058)
-        static let softShadow = Color.black.opacity(0.035)
+        static let stroke = Color.black.opacity(0.082)
+        static let glassStroke = Color.white.opacity(0.52)
+        static let glassShadow = Color.black.opacity(0.062)
+        static let softShadow = Color.black.opacity(0.052)
     }
 }
 
@@ -108,17 +113,25 @@ struct ControlCenterDetailBackground: View {
                 endPoint: .bottomTrailing
             )
 
-            Circle()
-                .fill(PulseUI.ColorTokens.glow.opacity(0.24))
-                .frame(width: 500, height: 500)
-                .offset(x: 240, y: -260)
-                .blur(radius: 54)
+            RadialGradient(
+                colors: [
+                    PulseUI.ColorTokens.glow.opacity(0.12),
+                    Color.clear
+                ],
+                center: .topTrailing,
+                startRadius: 40,
+                endRadius: 360
+            )
 
-            Circle()
-                .fill(Color.white.opacity(0.65))
-                .frame(width: 420, height: 420)
-                .offset(x: -280, y: 220)
-                .blur(radius: 66)
+            RadialGradient(
+                colors: [
+                    Color.white.opacity(0.48),
+                    Color.clear
+                ],
+                center: .bottomLeading,
+                startRadius: 60,
+                endRadius: 420
+            )
         }
     }
 }
@@ -132,28 +145,33 @@ private enum ControlCenterSurfaceKind {
 private struct ControlCenterSurfaceStyle: ViewModifier {
     let kind: ControlCenterSurfaceKind
     let cornerRadius: CGFloat
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityShowBorders) private var showBorders
 
     @ViewBuilder
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         if #available(macOS 26, *) {
+            let fill = kind == .secondary ? PulseUI.ColorTokens.secondaryFill.opacity(0.88) : Color.white.opacity(0.78)
             content
                 .background(
                     shape
-                        .fill(kind == .secondary ? PulseUI.ColorTokens.secondaryFill.opacity(0.18) : Color.white.opacity(0.16))
+                        .fill(reduceTransparency ? fill : Color.clear)
                 )
-                .glassEffect(
-                    .regular,
-                    in: .rect(cornerRadius: cornerRadius)
+                .modifier(
+                    GlassLayerModifier(enabled: !reduceTransparency, cornerRadius: cornerRadius)
                 )
                 .overlay(
                     shape
-                        .stroke(PulseUI.ColorTokens.glassStroke, lineWidth: 1)
+                        .stroke(
+                            showBorders ? Color.primary.opacity(0.34) : PulseUI.ColorTokens.glassStroke,
+                            lineWidth: showBorders ? 1.2 : 1
+                        )
                 )
-                .shadow(color: PulseUI.ColorTokens.glassShadow, radius: 8, x: 0, y: 3)
+                .shadow(color: PulseUI.ColorTokens.glassShadow, radius: 9, x: 0, y: 4)
         } else {
             let fill = kind == .secondary ? PulseUI.ColorTokens.secondaryFill : PulseUI.ColorTokens.primaryFill
-            let shadowRadius: CGFloat = kind == .listRow ? 8 : 12
+            let shadowRadius: CGFloat = kind == .listRow ? 6 : 10
             content
                 .background(
                     shape
@@ -161,9 +179,26 @@ private struct ControlCenterSurfaceStyle: ViewModifier {
                 )
                 .overlay(
                     shape
-                        .stroke(PulseUI.ColorTokens.stroke, lineWidth: 1)
+                        .stroke(
+                            showBorders ? Color.primary.opacity(0.34) : PulseUI.ColorTokens.stroke,
+                            lineWidth: showBorders ? 1.2 : 1
+                        )
                 )
                 .shadow(color: PulseUI.ColorTokens.softShadow, radius: shadowRadius, x: 0, y: 4)
+        }
+    }
+}
+
+@available(macOS 26, *)
+private struct GlassLayerModifier: ViewModifier {
+    let enabled: Bool
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+        } else {
+            content
         }
     }
 }

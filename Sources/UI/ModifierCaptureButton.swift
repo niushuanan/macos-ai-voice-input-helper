@@ -10,20 +10,20 @@ struct ModifierCaptureButton: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Text("[ \(valueText) ]")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .font(PulseUI.Typography.bodyStrong)
+                    .pulsePrimaryText()
                 Spacer()
                 Text(isCapturing ? "录入中" : "点击录入")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(PulseUI.Typography.caption)
+                    .pulseSecondaryText()
             }
             .padding(.horizontal, 11)
             .padding(.vertical, 7)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.65))
+                RoundedRectangle(cornerRadius: PulseUI.Radius.compactCard, style: .continuous)
+                    .fill(PulseUI.ColorTokens.primaryFill.opacity(0.78))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        RoundedRectangle(cornerRadius: PulseUI.Radius.compactCard, style: .continuous)
                             .stroke(
                                 isCapturing ? Color.accentColor : Color.primary.opacity(0.2),
                                 lineWidth: 1

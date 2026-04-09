@@ -24,19 +24,19 @@ struct MenuBarStatusView: View {
     private var menuBarColor: Color {
         switch sessionStore.phase {
         case .idle:
-            return .secondary
+            return PulseUI.ColorTokens.textSecondary
         case .listening:
-            return .accentColor
+            return PulseUI.ColorTokens.glow
         case .transcribing:
-            return .accentColor.opacity(0.82)
+            return PulseUI.ColorTokens.glow.opacity(0.82)
         case .rewriting:
-            return .primary.opacity(0.72)
+            return PulseUI.ColorTokens.textSecondary
         case .inserting:
-            return .green.opacity(0.9)
+            return PulseUI.ColorTokens.success
         case .cancelled:
-            return .red
+            return PulseUI.ColorTokens.danger
         case .error:
-            return .red
+            return PulseUI.ColorTokens.danger
         }
     }
 
@@ -58,7 +58,7 @@ private struct ListeningLevelPips: View {
         HStack(alignment: .bottom, spacing: 2) {
             ForEach(0..<3, id: \.self) { index in
                 Capsule()
-                    .fill(Color.accentColor.opacity(opacity(for: index)))
+                    .fill(PulseUI.ColorTokens.glow.opacity(opacity(for: index)))
                     .frame(width: 2.5, height: barHeight(for: index))
             }
         }

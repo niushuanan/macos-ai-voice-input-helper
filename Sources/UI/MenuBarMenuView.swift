@@ -19,17 +19,18 @@ struct MenuBarMenuView: View {
 
     var body: some View {
         Text("当前状态：\(model.sessionStore.phase.title)")
-            .font(.caption)
+            .font(PulseUI.Typography.captionStrong)
         Text(model.sessionStore.phase == .listening ? "正在聆听你的输入" : "点击下面按钮开始语音输入")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
+            .font(PulseUI.Typography.caption)
+            .lineSpacing(PulseUI.Typography.captionLineSpacing)
+            .pulseSecondaryText()
 
         if permissionsCenter.snapshot.hasBlockingIssue {
             Divider()
 
             Label("开始前需要麦克风权限。", systemImage: "exclamationmark.triangle.fill")
-                .font(.caption)
-                .foregroundStyle(.orange)
+                .font(PulseUI.Typography.caption)
+                .foregroundStyle(PulseUI.ColorTokens.warning)
 
             Button("打开隐私设置") {
                 permissionsCenter.openSystemSettings(for: .microphone)
@@ -38,7 +39,7 @@ struct MenuBarMenuView: View {
 
         Divider()
 
-        Menu("开发者信息") {
+        Menu("诊断信息（开发者）") {
             Text("通道：\(model.sessionStore.activeLane.title)")
             Text("语音引擎：\(providerSettingsStore.selectedTranscriptionProviderName)")
             Text("文本引擎：\(providerSettingsStore.selectedRewriteProviderName)")

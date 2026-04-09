@@ -11,7 +11,7 @@ struct PlaceholderPageView: View {
                 .font(PulseUI.Typography.sectionTitle)
             Text(subtitle)
                 .font(PulseUI.Typography.body)
-                .lineSpacing(1.6)
+                .lineSpacing(PulseUI.Typography.bodyLineSpacing)
                 .pulseSecondaryText()
             Spacer(minLength: 0)
         }
@@ -36,15 +36,15 @@ struct MemoryRowView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption)
+                    .font(PulseUI.Typography.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
                 Label(statusTitle, systemImage: statusSymbol)
-                    .font(.caption)
+                    .font(PulseUI.Typography.caption)
                     .foregroundStyle(statusColor)
                 if let outputPathTitle {
                     Label(outputPathTitle, systemImage: outputPathSymbol)
-                        .font(.caption2)
+                        .font(PulseUI.Typography.monospacedMeta)
                         .foregroundStyle(outputPathColor)
                 }
             }
@@ -53,7 +53,7 @@ struct MemoryRowView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .top, spacing: 8) {
                         Text(primaryText ?? "暂无主文本")
-                            .font(.callout)
+                            .font(PulseUI.Typography.body)
                             .foregroundStyle(.primary)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -71,11 +71,11 @@ struct MemoryRowView: View {
                             .disabled(rawText == nil)
                         } label: {
                             Image(systemName: "doc.on.doc")
-                                .font(.caption.weight(.semibold))
+                                .font(PulseUI.Typography.captionStrong)
                                 .foregroundStyle(.secondary)
                                 .frame(width: 24, height: 24)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    RoundedRectangle(cornerRadius: PulseUI.Radius.compactCard, style: .continuous)
                                         .fill(Color.primary.opacity(0.06))
                                 )
                         }
@@ -96,7 +96,7 @@ struct MemoryRowView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .top, spacing: 8) {
                         Text(brainstormSummaryText ?? "暂无结论")
-                            .font(.callout)
+                            .font(PulseUI.Typography.body)
                             .foregroundStyle(.primary)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -119,11 +119,11 @@ struct MemoryRowView: View {
                             .disabled(brainstormRawText == nil)
                         } label: {
                             Image(systemName: "doc.on.doc")
-                                .font(.caption.weight(.semibold))
+                                .font(PulseUI.Typography.captionStrong)
                                 .foregroundStyle(.secondary)
                                 .frame(width: 24, height: 24)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    RoundedRectangle(cornerRadius: PulseUI.Radius.compactCard, style: .continuous)
                                         .fill(Color.primary.opacity(0.06))
                                 )
                         }
@@ -134,7 +134,7 @@ struct MemoryRowView: View {
                     if brainstormDetailsExpanded {
                         if let brainstormDialogueText {
                             Text(brainstormDialogueText)
-                                .font(.caption)
+                                .font(PulseUI.Typography.caption)
                                 .foregroundStyle(.primary)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -143,7 +143,7 @@ struct MemoryRowView: View {
 
                         if let brainstormRawText {
                             Text(brainstormRawText)
-                                .font(.caption2)
+                                .font(PulseUI.Typography.monospacedMeta)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -155,7 +155,7 @@ struct MemoryRowView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .top, spacing: 8) {
                         Text(magicianPrimaryText ?? "暂无结果")
-                            .font(.callout)
+                            .font(PulseUI.Typography.body)
                             .foregroundStyle(.primary)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -183,11 +183,11 @@ struct MemoryRowView: View {
                             .disabled(magicianExecutionInterpretation == nil)
                         } label: {
                             Image(systemName: "doc.on.doc")
-                                .font(.caption.weight(.semibold))
+                                .font(PulseUI.Typography.captionStrong)
                                 .foregroundStyle(.secondary)
                                 .frame(width: 24, height: 24)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    RoundedRectangle(cornerRadius: PulseUI.Radius.compactCard, style: .continuous)
                                         .fill(Color.primary.opacity(0.06))
                                 )
                         }
@@ -197,7 +197,7 @@ struct MemoryRowView: View {
 
                     if let magicianSecondaryText {
                         Text(magicianSecondaryText)
-                            .font(.caption)
+                            .font(PulseUI.Typography.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -206,7 +206,7 @@ struct MemoryRowView: View {
 
                     if let magicianInstructionText {
                         Text(magicianInstructionText)
-                            .font(.caption2)
+                            .font(PulseUI.Typography.monospacedMeta)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -216,10 +216,10 @@ struct MemoryRowView: View {
                     if let magicianExecutionInterpretation {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("执行解读")
-                                .font(.caption.weight(.semibold))
+                                .font(PulseUI.Typography.captionStrong)
                                 .foregroundStyle(.secondary)
                             Text(magicianExecutionInterpretation)
-                                .font(.callout)
+                                .font(PulseUI.Typography.body)
                                 .foregroundStyle(.primary)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -227,10 +227,10 @@ struct MemoryRowView: View {
                         }
                         .padding(10)
                         .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            RoundedRectangle(cornerRadius: PulseUI.Radius.card, style: .continuous)
                                 .fill(Color.primary.opacity(0.04))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    RoundedRectangle(cornerRadius: PulseUI.Radius.card, style: .continuous)
                                         .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                                 )
                         )
@@ -239,7 +239,7 @@ struct MemoryRowView: View {
                     if magicianTraceExpanded, let magicianExecutionTrace {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("原始执行链路")
-                                .font(.caption.weight(.semibold))
+                                .font(PulseUI.Typography.captionStrong)
                                 .foregroundStyle(.secondary)
                             Text(magicianExecutionTrace)
                                 .font(PulseUI.Typography.monospacedMeta)
@@ -250,10 +250,10 @@ struct MemoryRowView: View {
                         }
                         .padding(10)
                         .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            RoundedRectangle(cornerRadius: PulseUI.Radius.card, style: .continuous)
                                 .fill(Color.primary.opacity(0.04))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    RoundedRectangle(cornerRadius: PulseUI.Radius.card, style: .continuous)
                                         .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                                 )
                         )
@@ -261,7 +261,7 @@ struct MemoryRowView: View {
                 }
             } else {
                 Text(singleTextPreview)
-                    .font(.callout)
+                    .font(PulseUI.Typography.body)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
@@ -272,7 +272,7 @@ struct MemoryRowView: View {
                     HStack(spacing: 6) {
                         ForEach(entry.appliedSkills, id: \.rawValue) { skill in
                             Text(skill.title)
-                                .font(.caption2)
+                                .font(PulseUI.Typography.monospacedMeta)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
                                 .background(Color.accentColor.opacity(0.14))
@@ -284,7 +284,7 @@ struct MemoryRowView: View {
 
             HStack {
                 Text(entry.appName)
-                    .font(.caption2)
+                    .font(PulseUI.Typography.monospacedMeta)
                     .foregroundStyle(.secondary)
                 Spacer()
 
@@ -475,7 +475,7 @@ struct SkillRuleCardView: View {
 
             if ruleID == .systemPrompt {
                 TextEditor(text: $parameter)
-                    .font(.system(size: 12.5))
+                    .font(PulseUI.Typography.caption)
                     .frame(minHeight: 84, maxHeight: 120)
                     .padding(6)
                     .controlCenterInsetPanel()
@@ -568,7 +568,7 @@ struct SceneAppCandidateRowView: View {
             .controlCenterSecondaryActionButton()
         }
         .padding(8)
-        .controlCenterInsetPanel(cornerRadius: 10)
+        .controlCenterInsetPanel(cornerRadius: PulseUI.Radius.card)
     }
 }
 
@@ -587,6 +587,7 @@ struct HomeMetricCard: View {
                 .pulsePrimaryText()
             Text(subtitle)
                 .font(PulseUI.Typography.caption)
+                .lineSpacing(PulseUI.Typography.captionLineSpacing)
                 .pulseSecondaryText()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -604,21 +605,22 @@ struct PulseToastView: View {
                 .foregroundStyle(PulseUI.ColorTokens.success)
             Text(text)
                 .font(PulseUI.Typography.bodyStrong)
+                .lineSpacing(PulseUI.Typography.bodyLineSpacing)
                 .pulsePrimaryText()
                 .lineLimit(2)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
         .frame(maxWidth: 420, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: PulseUI.Radius.sectionGroup, style: .continuous)
+                .fill(PulseUI.ColorTokens.primaryFill)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.white.opacity(0.75), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: PulseUI.Radius.sectionGroup, style: .continuous)
+                        .stroke(PulseUI.ColorTokens.stroke, lineWidth: 1)
                 )
         )
-        .shadow(color: Color.black.opacity(0.12), radius: 18, x: 0, y: 8)
+        .shadow(color: PulseUI.ColorTokens.softShadow, radius: 8, x: 0, y: 4)
     }
 }
 
@@ -943,7 +945,7 @@ struct ConnectionTestSummaryView: View {
         }
         .padding(PulseUI.Spacing.compactCardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .controlCenterInsetPanel(cornerRadius: 8)
+        .controlCenterInsetPanel(cornerRadius: PulseUI.Radius.compactCard)
     }
 
     private var statusTitle: String {
@@ -978,7 +980,7 @@ struct PermissionRowView: View {
                 Circle()
                     .fill(stateColor.opacity(0.12))
                 Image(systemName: iconName)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(PulseUI.Typography.captionStrong)
                     .foregroundStyle(stateColor)
             }
             .frame(width: 28, height: 28)

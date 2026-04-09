@@ -88,12 +88,14 @@ struct SettingsView: View {
             List(DesktopSection.allCases, selection: $controlCenterState.selectedSection) { section in
                 Label(section.title, systemImage: section.symbolName)
                     .font(PulseUI.Typography.bodyStrong)
+                    .lineSpacing(PulseUI.Typography.bodyLineSpacing)
                     .tag(section)
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
             .background(.clear)
-            .navigationSplitViewColumnWidth(min: 188, ideal: 204, max: 220)
+            .environment(\.defaultMinListRowHeight, 26)
+            .navigationSplitViewColumnWidth(min: 208, ideal: 224, max: 244)
             .navigationTitle("PulseType")
         } detail: {
             ZStack {
@@ -253,9 +255,9 @@ struct SettingsView: View {
                 if filteredHistoryEntries.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Label("当前筛选下还没有记录。", systemImage: "tray")
-                            .font(.subheadline.weight(.semibold))
+                            .font(PulseUI.Typography.bodyStrong)
                         Text("先回首页进行一次语音会话，完成后就会出现记录。")
-                            .font(.caption)
+                            .font(PulseUI.Typography.caption)
                             .foregroundStyle(.secondary)
                     }
                     .padding(16)
@@ -311,8 +313,8 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 pageHeader(
-                    title: "动作",
-                    subtitle: "长按主键说一句，松开就执行。这里查看每个动作是否就绪。"
+                    title: "魔术先生",
+                    subtitle: "长按主键说一句，松开后立刻执行。这里查看每个动作是否就绪。"
                 )
 
                 magicianTextTransformSection
@@ -352,9 +354,9 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.headline)
+                    .font(PulseUI.Typography.sectionTitle)
                 Text(subtitle)
-                    .font(.body)
+                    .font(PulseUI.Typography.body)
                     .foregroundStyle(.primary.opacity(0.84))
             }
 
@@ -383,18 +385,20 @@ struct SettingsView: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: feature.symbolName)
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.primary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 26, height: 26)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(feature.displayName)
-                        .font(.subheadline.weight(.semibold))
+                        .font(PulseUI.Typography.bodyStrong)
                     Text(feature.summaryLine)
-                        .font(.body)
+                        .font(PulseUI.Typography.body)
+                        .lineSpacing(PulseUI.Typography.bodyLineSpacing)
                         .foregroundStyle(.primary.opacity(0.84))
                     Text(feature.boundaryLine)
-                        .font(.caption)
+                        .font(PulseUI.Typography.caption)
+                        .lineSpacing(PulseUI.Typography.captionLineSpacing)
                         .foregroundStyle(.tertiary)
                 }
                 Spacer()
@@ -408,7 +412,7 @@ struct SettingsView: View {
 
             if let reason = resolution.reason {
                 Label(reason, systemImage: magicianGateHintIcon(resolution.gateKind))
-                    .font(.caption)
+                    .font(PulseUI.Typography.caption)
                     .foregroundStyle(.secondary)
             }
 
@@ -597,17 +601,17 @@ struct SettingsView: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("词典内容")
-                        .font(.headline)
+                        .font(PulseUI.Typography.sectionTitle)
 
                     TextEditor(text: $dictionaryDraft)
-                        .font(.system(size: 12.5))
+                        .font(PulseUI.Typography.caption)
                         .frame(minHeight: 220, maxHeight: 320)
                         .padding(8)
                         .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            RoundedRectangle(cornerRadius: PulseUI.Radius.card, style: .continuous)
                                 .stroke(Color.primary.opacity(0.12), lineWidth: 1)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    RoundedRectangle(cornerRadius: PulseUI.Radius.card, style: .continuous)
                                         .fill(Color(nsColor: .textBackgroundColor))
                                 )
                         )
@@ -619,7 +623,7 @@ struct SettingsView: View {
                         .controlCenterPrimaryActionButton()
 
                         Text(dictionaryStatusLine)
-                            .font(.caption)
+                            .font(PulseUI.Typography.caption)
                             .foregroundStyle(.secondary)
 
                         Spacer()
@@ -668,7 +672,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 10) {
                 Text(roleTitle)
-                    .font(.headline)
+                    .font(PulseUI.Typography.sectionTitle)
                 ControlCenterStatusPill(
                     title: providerType.wrappedValue.displayName,
                     systemImage: providerType.wrappedValue == .localSenseVoice ? "cpu" : "cloud.fill",
@@ -746,7 +750,7 @@ struct SettingsView: View {
                         )
                     }
                 }
-                .font(.subheadline)
+                .font(PulseUI.Typography.body)
 
                 HStack {
                     Button("准备环境") {
@@ -776,9 +780,9 @@ struct SettingsView: View {
             }
             .padding(.top, 8)
         }
-        .font(.subheadline.weight(.semibold))
+        .font(PulseUI.Typography.bodyStrong)
         .padding(10)
-        .controlCenterInsetPanel(cornerRadius: 10)
+        .controlCenterInsetPanel(cornerRadius: PulseUI.Radius.card)
     }
 
     private var settingsPage: some View {
@@ -838,19 +842,19 @@ struct SettingsView: View {
         let profile = currentBrainstormDurationProfile
         return VStack(alignment: .leading, spacing: 8) {
             Text("这个功能能帮你什么")
-                .font(.headline)
+                .font(PulseUI.Typography.sectionTitle)
             Label("多人聊完一个想法后，可直接生成能发给 AI 的上下文。", systemImage: "person.2")
-                .font(.subheadline)
+                .font(PulseUI.Typography.body)
             Label("自动理清讨论重点，减少你手动补背景。", systemImage: "text.bubble")
-                .font(.subheadline)
+                .font(PulseUI.Typography.body)
             Label("整理结果会放进输入框和剪贴板，下一问马上接上。", systemImage: "doc.on.clipboard")
-                .font(.subheadline)
+                .font(PulseUI.Typography.body)
             Divider()
             Text("当前模型实测上限：\(profile.maxSeconds) 秒")
-                .font(.body)
+                .font(PulseUI.Typography.body)
                 .foregroundStyle(.primary.opacity(0.84))
             Text("推荐时长：\(profile.recommendedSeconds) 秒以内")
-                .font(.caption)
+                .font(PulseUI.Typography.caption)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -861,7 +865,7 @@ struct SettingsView: View {
     private var brainstormTriggerCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("触发层")
-                .font(.headline)
+                .font(PulseUI.Typography.sectionTitle)
 
             brainstormModifierSection(
                 title: "双击修饰键",
@@ -870,11 +874,11 @@ struct SettingsView: View {
 
             if let conflict = hotkeyStateStore.conflictMessage {
                 Label(conflict, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
+                    .font(PulseUI.Typography.caption)
                     .foregroundStyle(.orange)
             } else {
                 Label("触发配置可用。", systemImage: "checkmark.circle.fill")
-                    .font(.caption)
+                    .font(PulseUI.Typography.caption)
                     .foregroundStyle(.green)
             }
         }
@@ -889,7 +893,7 @@ struct SettingsView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(PulseUI.Typography.bodyStrong)
             ModifierCaptureButton(
                 valueText: brainstormModifierCaptureState?.pendingModifier?.displayName ?? hotkeyStateStore.brainstormModifier.displayName,
                 isCapturing: brainstormModifierCaptureState != nil,
@@ -898,16 +902,16 @@ struct SettingsView: View {
 
             if let brainstormCaptureHint = brainstormModifierCaptureState?.hint {
                 Text(brainstormCaptureHint)
-                    .font(.caption2)
+                    .font(PulseUI.Typography.monospacedMeta)
                     .foregroundStyle(.secondary)
             } else {
                 Text("点击上面的括号区域后，按左/右修饰键，再按 Enter 确认，按 Esc 取消。")
-                    .font(.caption2)
+                    .font(PulseUI.Typography.monospacedMeta)
                     .foregroundStyle(.secondary)
             }
 
             Text(currentText)
-                .font(.body)
+                .font(PulseUI.Typography.body)
                 .foregroundStyle(.primary.opacity(0.8))
         }
     }
@@ -915,14 +919,14 @@ struct SettingsView: View {
     private var hotkeySettingsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("快捷键")
-                .font(.headline)
+                .font(PulseUI.Typography.sectionTitle)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("主键（开始/停止）")
-                    .font(.subheadline.weight(.semibold))
+                    .font(PulseUI.Typography.bodyStrong)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("单键触发按键")
-                        .font(.body.weight(.medium))
+                        .font(PulseUI.Typography.bodyStrong)
                         .foregroundStyle(.primary)
 
                     ModifierCaptureButton(
@@ -933,16 +937,16 @@ struct SettingsView: View {
 
                     if let wakeModifierCaptureHint = wakeModifierCaptureState?.hint {
                         Text(wakeModifierCaptureHint)
-                            .font(.caption2)
+                            .font(PulseUI.Typography.monospacedMeta)
                             .foregroundStyle(.secondary)
                     } else {
                         Text("点击上面的括号区域后，按左/右修饰键，再按 Enter 确认，按 Esc 取消。")
-                            .font(.caption2)
+                            .font(PulseUI.Typography.monospacedMeta)
                             .foregroundStyle(.secondary)
                     }
                 }
                 Text("当前主键：单键触发 · \(hotkeyStateStore.wakeModifier.displayName)")
-                    .font(.body)
+                    .font(PulseUI.Typography.body)
                     .foregroundStyle(.primary.opacity(0.8))
             }
 
@@ -950,9 +954,9 @@ struct SettingsView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("取消键")
-                    .font(.subheadline.weight(.semibold))
+                    .font(PulseUI.Typography.bodyStrong)
                 Text("取消键固定为 Esc，不支持修改。")
-                    .font(.body)
+                    .font(PulseUI.Typography.body)
                     .foregroundStyle(.primary.opacity(0.84))
             }
 
@@ -960,24 +964,24 @@ struct SettingsView: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("触发规则说明")
-                    .font(.subheadline.weight(.semibold))
+                    .font(PulseUI.Typography.bodyStrong)
                 Text("单击开始或停止普通语音，长按进入魔术先生，双击进入一口气全念对。")
-                    .font(.body)
+                    .font(PulseUI.Typography.body)
                     .foregroundStyle(.primary.opacity(0.84))
                 if hotkeyStateStore.wakeModifier == hotkeyStateStore.brainstormModifier {
                     Text("当前两者共用同一按键：双击优先一口气全念对，长按优先魔术先生。")
-                        .font(.caption)
+                        .font(PulseUI.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
             if let conflict = hotkeyStateStore.conflictMessage {
                 Label(conflict, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
+                    .font(PulseUI.Typography.caption)
                     .foregroundStyle(.orange)
             } else {
                 Label("两个快捷键没有冲突。", systemImage: "checkmark.circle.fill")
-                    .font(.caption)
+                    .font(PulseUI.Typography.caption)
                     .foregroundStyle(.green)
             }
         }
@@ -993,9 +997,9 @@ struct SettingsView: View {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("权限中心")
-                        .font(.headline)
+                        .font(PulseUI.Typography.sectionTitle)
                     Text("麦克风负责录音，辅助功能负责读取选区和直写。")
-                        .font(.caption)
+                        .font(PulseUI.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
 
@@ -1027,7 +1031,7 @@ struct SettingsView: View {
                     "当前不是 \(runtimePolicy.installPath)。建议用安装脚本覆盖到 \(runtimePolicy.installURL.deletingLastPathComponent().path)，避免权限反复重置。",
                     systemImage: "exclamationmark.triangle.fill"
                 )
-                .font(.caption)
+                .font(PulseUI.Typography.caption)
                 .foregroundStyle(.orange)
             }
         }
@@ -1037,10 +1041,11 @@ struct SettingsView: View {
     }
 
     private var developerEntryCard: some View {
-        DisclosureGroup("开发者入口（可选）", isExpanded: $developerEntryExpanded) {
+        DisclosureGroup("开发者文档与诊断（可选）", isExpanded: $developerEntryExpanded) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("普通使用不需要这一块。只有在排查问题或做高级配置时再打开。")
-                    .font(.caption)
+                    .font(PulseUI.Typography.caption)
+                    .lineSpacing(PulseUI.Typography.captionLineSpacing)
                     .pulseSecondaryText()
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -1062,11 +1067,20 @@ struct SettingsView: View {
                     }
                     .controlCenterSecondaryActionButton()
                     .controlSize(.small)
+
+                    Button("打开前端设计规范") {
+                        let url = model.localStore.rootDirectory
+                            .appendingPathComponent("docs", isDirectory: true)
+                            .appendingPathComponent("pulse-frontend-design-library-v2.md")
+                        NSWorkspace.shared.open(url)
+                    }
+                    .controlCenterSecondaryActionButton()
+                    .controlSize(.small)
                 }
             }
             .padding(.top, 8)
         }
-        .font(.subheadline.weight(.semibold))
+        .font(PulseUI.Typography.bodyStrong)
         .padding(12)
         .controlCenterSectionGroup()
     }
@@ -1076,7 +1090,7 @@ struct SettingsView: View {
 
         return VStack(alignment: .leading, spacing: 12) {
             Text("表达偏好")
-                .font(.headline)
+                .font(PulseUI.Typography.sectionTitle)
 
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(visibleRules.enumerated()), id: \.element.id) { index, rule in
@@ -1122,9 +1136,9 @@ struct SettingsView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("按应用风格")
-                        .font(.headline)
+                        .font(PulseUI.Typography.sectionTitle)
                     Text("给常用应用单独定语气，聊天、邮件、文档可以各说各的话。")
-                        .font(.body)
+                        .font(PulseUI.Typography.body)
                         .foregroundStyle(.primary.opacity(0.84))
                 }
                 Spacer()
@@ -1145,7 +1159,7 @@ struct SettingsView: View {
             }
 
             Text("关闭总开关后，所有应用都会用同一套表达风格。")
-                .font(.caption)
+                .font(PulseUI.Typography.caption)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 8) {
@@ -1158,7 +1172,7 @@ struct SettingsView: View {
                     ProgressView()
                         .scaleEffect(0.8)
                     Text("正在拉取应用列表…")
-                        .font(.caption)
+                        .font(PulseUI.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -1176,7 +1190,7 @@ struct SettingsView: View {
                 }
             } else if !normalizedQuery.isEmpty {
                 Text("没有匹配结果，请换个关键词。")
-                    .font(.caption)
+                    .font(PulseUI.Typography.caption)
                     .foregroundStyle(.secondary)
             }
 
@@ -1184,7 +1198,7 @@ struct SettingsView: View {
 
             if sortedScenePolicies.isEmpty {
                 Text("还没有策略。先在上面搜索应用并添加。")
-                    .font(.caption)
+                    .font(PulseUI.Typography.caption)
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(sortedScenePolicies) { policy in
@@ -1200,12 +1214,12 @@ struct SettingsView: View {
             if let editingPolicy = currentEditingScenePolicy {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("编辑提示词：\(editingPolicy.appName)")
-                        .font(.subheadline.weight(.semibold))
+                        .font(PulseUI.Typography.bodyStrong)
                     Text(editingPolicy.bundleID)
-                        .font(.caption2.monospaced())
+                        .font(PulseUI.Typography.monospacedMeta)
                         .foregroundStyle(.secondary)
                     TextEditor(text: $scenePromptDraft)
-                        .font(.system(size: 13))
+                        .font(PulseUI.Typography.caption)
                         .frame(minHeight: 88, maxHeight: 130)
                         .padding(6)
                         .controlCenterInsetPanel()
@@ -1221,7 +1235,7 @@ struct SettingsView: View {
                 }
             } else {
                 Text("点“编辑”后即可输入该应用专属提示词，保存会自动生效。")
-                    .font(.caption)
+                    .font(PulseUI.Typography.caption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -1239,22 +1253,22 @@ struct SettingsView: View {
     private var homeProductIntroCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("核心特点")
-                .font(.headline)
+                .font(PulseUI.Typography.sectionTitle)
 
             Label("开口就能写，不用切输入法，也不用先找输入框。", systemImage: "text.bubble")
-                .font(.subheadline)
+                .font(PulseUI.Typography.body)
             Label("长按魔术先生，可以直接改写、翻译、精简和整理眼前这段文字。", systemImage: "wand.and.stars")
-                .font(.subheadline)
+                .font(PulseUI.Typography.body)
             Label("五个原生动作固定保留：日历、Markdown 文档、邮件、音乐、时钟。", systemImage: "square.grid.2x2")
-                .font(.subheadline)
+                .font(PulseUI.Typography.body)
             Label("时光机负责提醒和时间中心，本地通知是稳定路径，Clock 跳转尽量贴近系统。", systemImage: "clock.badge.exclamationmark")
-                .font(.subheadline)
+                .font(PulseUI.Typography.body)
             Label("一口气全念对适合讨论、脑暴和短会，讲完就能拿到整理好的上下文。", systemImage: "brain.head.profile")
-                .font(.subheadline)
+                .font(PulseUI.Typography.body)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .pulseCard(cornerRadius: 12)
+        .pulseCard(cornerRadius: PulseUI.Radius.sectionGroup)
     }
 
     private var homeMetricColumns: [GridItem] {
@@ -1409,28 +1423,20 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
                 Text(title)
                     .font(PulseUI.Typography.pageTitle)
-                    .tracking(0.1)
+                    .tracking(0.16)
+                    .lineSpacing(PulseUI.Typography.pageTitleLineSpacing)
                     .pulsePrimaryText()
             if !subtitle.isEmpty {
                 Text(subtitle)
                     .font(PulseUI.Typography.body)
-                    .lineSpacing(1.8)
+                    .lineSpacing(PulseUI.Typography.bodyLineSpacing)
                     .pulseSecondaryText()
             }
 
-            RoundedRectangle(cornerRadius: PulseUI.Radius.pill, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.accentColor.opacity(0.60),
-                            Color.accentColor.opacity(0.18)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .frame(height: 2.5)
-                .frame(maxWidth: 180, alignment: .leading)
+            Rectangle()
+                .fill(Color.primary.opacity(0.16))
+                .frame(height: 1)
+                .frame(maxWidth: 128, alignment: .leading)
         }
         .padding(PulseUI.Spacing.section)
         .controlCenterInsetPanel(cornerRadius: PulseUI.Radius.header)
@@ -1446,28 +1452,20 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
                     .font(PulseUI.Typography.pageTitle)
-                    .tracking(0.1)
+                    .tracking(0.16)
+                    .lineSpacing(PulseUI.Typography.pageTitleLineSpacing)
                     .pulsePrimaryText()
                 if !subtitle.isEmpty {
                     Text(subtitle)
                         .font(PulseUI.Typography.body)
-                        .lineSpacing(1.8)
+                        .lineSpacing(PulseUI.Typography.bodyLineSpacing)
                         .pulseSecondaryText()
                 }
 
-                RoundedRectangle(cornerRadius: PulseUI.Radius.pill, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.accentColor.opacity(0.60),
-                                Color.accentColor.opacity(0.18)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .frame(height: 2.5)
-                    .frame(maxWidth: 180, alignment: .leading)
+                Rectangle()
+                    .fill(Color.primary.opacity(0.16))
+                    .frame(height: 1)
+                    .frame(maxWidth: 128, alignment: .leading)
             }
 
             Spacer(minLength: 12)
@@ -1864,9 +1862,9 @@ struct SettingsView: View {
                 if timeMachineItems.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Label("当前还没有时光机记录。", systemImage: "clock.badge.questionmark")
-                            .font(.subheadline.weight(.semibold))
+                            .font(PulseUI.Typography.bodyStrong)
                         Text("你可以对魔术先生说“30 分钟后提醒我…”或“记一下…”。")
-                            .font(.caption)
+                            .font(PulseUI.Typography.caption)
                             .foregroundStyle(.secondary)
                     }
                     .padding(16)
@@ -1899,25 +1897,25 @@ struct SettingsView: View {
 
         return VStack(alignment: .leading, spacing: 10) {
             Text("概览")
-                .font(.headline)
+                .font(PulseUI.Typography.sectionTitle)
             HStack(spacing: 12) {
                 Label("总记录 \(total)", systemImage: "tray.full")
-                    .font(.caption)
+                    .font(PulseUI.Typography.caption)
                 Label("已定时 \(scheduled)", systemImage: "checkmark.circle")
-                    .font(.caption)
+                    .font(PulseUI.Typography.caption)
                 Label("失败 \(failed)", systemImage: "exclamationmark.triangle")
-                    .font(.caption)
+                    .font(PulseUI.Typography.caption)
             }
             if let latest {
                 Text("最近写入：\(latest.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.caption)
+                    .font(PulseUI.Typography.caption)
                     .foregroundStyle(.secondary)
             }
             Text("提醒状态：\(notificationReadinessText)")
-                .font(.caption)
+                .font(PulseUI.Typography.caption)
                 .foregroundStyle(.secondary)
             Text("Clock 入口：\(clockHandoffReadinessText)")
-                .font(.caption)
+                .font(PulseUI.Typography.caption)
                 .foregroundStyle(.secondary)
             HStack {
                 Button("刷新时光机") {
@@ -1955,10 +1953,10 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center) {
                 Text(item.normalizedText.isEmpty ? item.rawCommand : item.normalizedText)
-                    .font(.headline)
+                    .font(PulseUI.Typography.sectionTitle)
                 Spacer()
                 Text(timeMachineStatusText(item.status))
-                    .font(.caption.weight(.semibold))
+                    .font(PulseUI.Typography.captionStrong)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(
@@ -1969,18 +1967,18 @@ struct SettingsView: View {
             }
 
             Text("创建时间：\(item.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                .font(.caption)
+                .font(PulseUI.Typography.caption)
                 .foregroundStyle(.secondary)
 
             if let scheduledAt = item.scheduledAt {
                 Text("提醒时间：\(scheduledAt.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.caption)
+                    .font(PulseUI.Typography.caption)
                     .foregroundStyle(.secondary)
             }
 
             if !item.tags.isEmpty {
                 Text("标签：\(item.tags.joined(separator: " · "))")
-                    .font(.caption2)
+                    .font(PulseUI.Typography.monospacedMeta)
                     .foregroundStyle(.secondary)
             }
         }
