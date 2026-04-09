@@ -234,8 +234,8 @@ final class V4MDPipelineTool: V4Tool, @unchecked Sendable {
             ],
             allowsAdditionalFields: true
         ),
-        requiresPermission: false,
-        permissionScope: nil,
+        requiresPermission: true,
+        requiredFeature: .markdownDocument,
         isConcurrencySafe: false,
         mutatesUserData: true,
         supportsStreamingResults: false
@@ -917,10 +917,10 @@ final class V4MDPipelineTool: V4Tool, @unchecked Sendable {
            let end = trimmed.lastIndex(of: "}") {
             return String(trimmed[start.lowerBound...end])
         }
-        if let start = trimmed.firstIndex(of: "["), let end = trimmed.lastIndex(of: "]"), start < end {
+        if let start = trimmed.firstIndex(of: "{"), let end = trimmed.lastIndex(of: "}"), start < end {
             return String(trimmed[start...end])
         }
-        if let start = trimmed.firstIndex(of: "{"), let end = trimmed.lastIndex(of: "}"), start < end {
+        if let start = trimmed.firstIndex(of: "["), let end = trimmed.lastIndex(of: "]"), start < end {
             return String(trimmed[start...end])
         }
         return trimmed

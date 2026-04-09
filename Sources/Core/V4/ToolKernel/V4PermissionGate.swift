@@ -11,7 +11,7 @@ final class V4PermissionGate: V4ToolPermissionChecking, @unchecked Sendable {
         spec: V4ToolSpec,
         request: V4RunRequest
     ) async -> V4PermissionDecision {
-        guard spec.requiresPermission, let scope = spec.permissionScope else {
+        guard spec.requiresPermission, let feature = spec.requiredFeature else {
             return V4PermissionDecision(
                 behavior: .allow,
                 traceID: request.traceID,
@@ -25,10 +25,10 @@ final class V4PermissionGate: V4ToolPermissionChecking, @unchecked Sendable {
         let enabled: Bool
         if let featureToggleStore {
             enabled = await MainActor.run {
-                featureToggleStore.isEnabled(scope)
+                featureToggleStore.isEnabled(feature)
             }
         } else {
-            enabled = !request.enabledFeatureIDs.isDisjoint(with: scope.mappedFeatures.map(\.rawValue))
+            enabled = request.enabledFeatureIDs.contains(feature.rawValue)
         }
 
         guard enabled else {
@@ -37,8 +37,8 @@ final class V4PermissionGate: V4ToolPermissionChecking, @unchecked Sendable {
                 traceID: request.traceID,
                 lane: request.lane,
                 toolName: spec.toolName,
-                reason: "scope_disabled:\(scope.rawValue)",
-                userMessage: "当前未开启“\(scope.displayName)”权限，请先到设置里打开再试。"
+                reason: "feature_disabled:\(feature.rawValue)",
+                userMessage: "当前未开启“\(feature.displayName)”能力，请先到设置里打开再试。"
             )
         }
 
@@ -47,7 +47,7 @@ final class V4PermissionGate: V4ToolPermissionChecking, @unchecked Sendable {
             traceID: request.traceID,
             lane: request.lane,
             toolName: spec.toolName,
-            reason: "scope_enabled:\(scope.rawValue)",
+            reason: "feature_enabled:\(feature.rawValue)",
             userMessage: nil
         )
     }

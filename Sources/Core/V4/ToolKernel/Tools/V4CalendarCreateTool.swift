@@ -39,7 +39,7 @@ final class V4CalendarCreateTool: V4Tool, @unchecked Sendable {
             ]
         ),
         requiresPermission: true,
-        permissionScope: .appleNativeApps,
+        requiredFeature: .calendar,
         isConcurrencySafe: false,
         mutatesUserData: true,
         supportsStreamingResults: false

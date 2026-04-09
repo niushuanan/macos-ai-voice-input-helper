@@ -153,7 +153,12 @@ final class V4AgentLoopEngineTests: XCTestCase {
     }
 
     func testMaxTurnsExceeded() async throws {
-        let engine = V4AgentLoopEngine(maxTurns: 1)
+        let engine = V4AgentLoopEngine(
+            maxTurns: 1,
+            stepExecutor: { step, request, _, _ in
+                StaticSuccessExecutor().execute(step: step, request: request)
+            }
+        )
         let request = makeRequest(command: "先润色这段文字，然后再翻成英文")
 
         let outcome = try await engine.run(
@@ -167,7 +172,11 @@ final class V4AgentLoopEngineTests: XCTestCase {
     }
 
     func testEventSequenceContainsStepLifecycle() async throws {
-        let engine = V4AgentLoopEngine()
+        let engine = V4AgentLoopEngine(
+            stepExecutor: { step, request, _, _ in
+                StaticSuccessExecutor().execute(step: step, request: request)
+            }
+        )
         let request = makeRequest(command: "润色这段文字")
         let collector = EventNameCollector()
 
@@ -246,7 +255,8 @@ final class V4AgentLoopEngineTests: XCTestCase {
             lane: .selectionRewrite,
             goalSummary: command,
             inputText: command,
-            selectionText: "原始选中文本"
+            selectionText: "原始选中文本",
+            enabledFeatureIDs: Set(MagicianFeatureID.allCases.map(\.rawValue))
         )
     }
 

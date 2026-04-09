@@ -170,7 +170,7 @@ struct SessionHistoryEntry: Identifiable, Codable, Equatable {
         brainstormDialogueText = try container.decodeIfPresent(String.self, forKey: .brainstormDialogueText)
         instructionText = try container.decodeIfPresent(String.self, forKey: .instructionText)
         if let rawFeatureID = try container.decodeIfPresent(String.self, forKey: .magicianFeatureID) {
-            magicianFeatureID = MagicianFeatureID(rawValue: rawFeatureID)
+            magicianFeatureID = MagicianFeatureID.fromStoredRawValue(rawFeatureID)
         } else {
             magicianFeatureID = nil
         }

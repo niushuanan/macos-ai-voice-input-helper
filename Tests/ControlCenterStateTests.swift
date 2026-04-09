@@ -6,15 +6,15 @@ final class ControlCenterStateTests: XCTestCase {
     func testDesktopSectionIncludesMagician() {
         XCTAssertTrue(DesktopSection.allCases.contains(.magician))
         XCTAssertEqual(DesktopSection.magician.title, "魔术先生")
-        XCTAssertEqual(DesktopSection.skills.title, "Now you see me")
         XCTAssertEqual(DesktopSection.magician.symbolName, "wand.and.stars")
         XCTAssertEqual(DesktopSection.agentBrainstorm.title, "一口气全念对")
+        XCTAssertFalse(DesktopSection.allCases.map(\.title).contains("Now you see me"))
     }
 
     func testDesktopSectionOrderMatchesSidebarDesign() {
         XCTAssertEqual(
             DesktopSection.allCases,
-            [.home, .memory, .dictionary, .model, .timeMachine, .magician, .agentBrainstorm, .skills, .settings]
+            [.home, .memory, .dictionary, .model, .timeMachine, .magician, .agentBrainstorm, .settings]
         )
     }
 

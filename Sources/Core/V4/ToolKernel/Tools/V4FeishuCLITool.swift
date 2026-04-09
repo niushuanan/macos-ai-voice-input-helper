@@ -24,8 +24,8 @@ struct V4FeishuCLITool: V4Tool {
                 V4ToolInputField(name: "arguments", kind: .array, isRequired: false, itemKind: .string, summary: "CLI 参数")
             ]
         ),
-        requiresPermission: true,
-        permissionScope: .feishu,
+        requiresPermission: false,
+        requiredFeature: nil,
         isConcurrencySafe: false,
         mutatesUserData: true,
         supportsStreamingResults: false

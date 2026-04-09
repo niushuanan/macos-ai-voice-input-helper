@@ -64,15 +64,17 @@ struct V4ToHistoryBridge {
 
         switch toolName {
         case "md.pipeline":
-            return .createNote
+            return .markdownDocument
         case "apple.calendar.create":
-            return .createEvent
+            return .calendar
         case "apple.notes.create":
-            return .createNote
+            return .markdownDocument
         case "apple.mail.compose":
-            return .composeEmailDraft
+            return .mail
         case "apple.music.control":
-            return .controlMusic
+            return .music
+        case "time_machine.create", "time_machine.remind":
+            return .clock
         case "feishu.cli":
             return .feishuCLI
         case "text.transform":

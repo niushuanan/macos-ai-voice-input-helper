@@ -811,6 +811,81 @@ struct ModelConfigCard: View {
     }
 }
 
+struct ModelStatusPanel: View {
+    let activeConfigLine: String
+    let latestResult: ConnectionTestResult?
+    let isTesting: Bool
+    let failureSuggestion: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("状态")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Label(statusTitle, systemImage: statusIcon)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(statusColor)
+            }
+
+            Text(activeConfigLine)
+                .font(.caption)
+                .lineLimit(2)
+                .textSelection(.enabled)
+
+            if let latestResult {
+                Text(latestResult.message)
+                    .font(.caption)
+                    .textSelection(.enabled)
+
+                if latestResult.status == .failure, let failureSuggestion {
+                    Text(failureSuggestion)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text("还没有测试记录。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .pulseCard(cornerRadius: 10)
+    }
+
+    private var statusTitle: String {
+        if isTesting {
+            return "测试中"
+        }
+        guard let latestResult else {
+            return "未测试"
+        }
+        return latestResult.status == .success ? "成功" : "失败"
+    }
+
+    private var statusIcon: String {
+        if isTesting {
+            return "hourglass"
+        }
+        guard let latestResult else {
+            return "clock"
+        }
+        return latestResult.status == .success ? "checkmark.circle.fill" : "xmark.octagon.fill"
+    }
+
+    private var statusColor: Color {
+        if isTesting {
+            return .accentColor
+        }
+        guard let latestResult else {
+            return .secondary
+        }
+        return latestResult.status == .success ? .green : .orange
+    }
+}
+
 struct ConnectionTestSummaryView: View {
     let title: String
     let result: ConnectionTestResult
@@ -887,10 +962,13 @@ struct PermissionRowView: View {
 
             Text(item.detail)
                 .font(.caption)
+                .foregroundStyle(item.state == .granted || item.state == .notRequired ? .primary : .secondary)
 
-            Text(item.guidance)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if item.state != .granted && item.state != .notRequired {
+                Text(item.guidance)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             HStack {
                 if item.state != .granted && item.state != .notRequired {
@@ -948,6 +1026,37 @@ struct PermissionRowView: View {
         case .notRequired:
             return "不需要"
         }
+    }
+}
+
+struct PersistentPrimaryButtonStyle: ButtonStyle {
+    @Environment(\.controlActiveState) private var controlActiveState
+
+    func makeBody(configuration: Configuration) -> some View {
+        let isActive = controlActiveState == .key
+        return configuration.label
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white.opacity(configuration.isPressed ? 0.9 : 1))
+            .padding(.horizontal, 14)
+            .frame(minWidth: 132, minHeight: 36)
+            .background(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: isActive
+                                ? [Color.accentColor.opacity(configuration.isPressed ? 0.76 : 0.92), Color.accentColor.opacity(configuration.isPressed ? 0.62 : 0.82)]
+                                : [Color.accentColor.opacity(configuration.isPressed ? 0.68 : 0.84), Color.accentColor.opacity(configuration.isPressed ? 0.54 : 0.72)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .stroke(Color.white.opacity(isActive ? 0.46 : 0.58), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(configuration.isPressed ? 0.04 : 0.12), radius: 10, x: 0, y: 4)
+            .opacity(configuration.isPressed ? 0.96 : 1)
     }
 }
 

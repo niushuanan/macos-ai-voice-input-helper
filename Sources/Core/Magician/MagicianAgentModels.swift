@@ -176,6 +176,7 @@ enum MagicianAgentActionKind: String, Codable, Equatable {
     case createNote = "create_note"
     case composeEmail = "compose_email"
     case controlMusic = "control_music"
+    case clock = "clock"
     case feishu = "feishu"
 }
 
@@ -243,30 +244,30 @@ func magicianValidateToolCommandGuards(
     let lowered = command.lowercased()
     let checks: [(feature: MagicianFeatureID, matched: Bool, message: String)] = [
         (
-            .controlMusic,
+            .music,
             ["音乐", "歌曲", "播放", "暂停", "继续播放", "下一首", "上一首", "music", "play", "pause", "next", "previous"]
                 .contains(where: lowered.contains),
-            "检测到音乐命令，但音乐控制能力未开启。请先在魔术先生里开启“苹果原生应用”能力。"
+            "检测到音乐命令，但音乐能力未开启。请先在魔术先生里打开“音乐”。"
         ),
         (
             .feishuCLI,
             magicianContainsFeishuIntent(lowered),
-            "检测到飞书命令，但飞书 CLI 能力未开启。请先在魔术先生里开启“飞书”能力。"
+            "检测到飞书命令，但飞书相关能力不在当前主体验里，请改走更复杂的 Agent 任务。"
         ),
         (
-            .composeEmailDraft,
+            .mail,
             ["邮件", "mail", "email", "草稿", "发邮件", "写邮件", "邮箱"].contains(where: lowered.contains),
-            "检测到邮件命令，但邮件助手能力未开启。请先在魔术先生里开启“苹果原生应用”能力。"
+            "检测到邮件命令，但邮件能力未开启。请先在魔术先生里打开“邮件”。"
         ),
         (
-            .createNote,
-            ["备忘录", "note", "写进备忘录", "写入备忘录", "记到备忘录", "记录到备忘录"].contains(where: lowered.contains),
-            "检测到备忘录命令，但备忘录能力未开启。请先在魔术先生里开启“苹果原生应用”能力。"
+            .markdownDocument,
+            ["markdown", "md", "文档", "保存成文档", "保存成 markdown"].contains(where: lowered.contains),
+            "检测到文档命令，但 Markdown 文档能力未开启。请先在魔术先生里打开“Markdown 文档”。"
         ),
         (
-            .createEvent,
+            .calendar,
             magicianShouldTreatAsNativeCalendarIntent(lowered),
-            "检测到日程命令，但日程能力未开启。请先在魔术先生里开启“苹果原生应用”能力。"
+            "检测到日程命令，但日历能力未开启。请先在魔术先生里打开“日历”。"
         )
     ]
 
@@ -320,7 +321,8 @@ private struct MagicianNativePlanBuilder {
                 switch feature {
                 case .textTransform:
                     input = hasSelection ? .selectionText : .commandInstruction
-                case .createNote, .composeEmailDraft, .createEvent, .controlMusic:
+                case .calendar, .markdownDocument, .mail, .music, .clock,
+                     .createNote, .composeEmailDraft, .createEvent, .controlMusic:
                     input = hasSelection ? .selectionText : .commandPayload
                 case .feishuCLI:
                     input = .commandInstruction
@@ -378,6 +380,11 @@ private struct MagicianNativePlanBuilder {
         if features.count == 1 {
             guard [
                 MagicianFeatureID.textTransform,
+                .calendar,
+                .markdownDocument,
+                .mail,
+                .music,
+                .clock,
                 .createNote,
                 .composeEmailDraft,
                 .createEvent,
@@ -391,6 +398,10 @@ private struct MagicianNativePlanBuilder {
         let second = features[1]
         let isAllowed = first == .textTransform && [
             MagicianFeatureID.textTransform,
+            .calendar,
+            .markdownDocument,
+            .mail,
+            .clock,
             .createNote,
             .composeEmailDraft,
             .createEvent
@@ -433,7 +444,8 @@ private struct MagicianNativePlanBuilder {
             return .text
         case .feishuCLI:
             return .feishu
-        case .createEvent, .createNote, .composeEmailDraft, .controlMusic:
+        case .calendar, .markdownDocument, .mail, .music, .clock,
+             .createEvent, .createNote, .composeEmailDraft, .controlMusic:
             return .apple
         }
     }
@@ -442,6 +454,16 @@ private struct MagicianNativePlanBuilder {
         switch feature {
         case .textTransform:
             return .text
+        case .calendar:
+            return .createEvent
+        case .markdownDocument:
+            return .createNote
+        case .mail:
+            return .composeEmail
+        case .music:
+            return .controlMusic
+        case .clock:
+            return .clock
         case .createEvent:
             return .createEvent
         case .createNote:
@@ -471,28 +493,34 @@ private struct MagicianNativePlanBuilder {
             return .feishuCLI
         }
 
-        if enabledFeatures.contains(.composeEmailDraft),
+        if enabledFeatures.contains(.mail),
            ["邮件", "mail", "email", "草稿", "发给", "发邮件", "写邮件", "邮箱"].contains(where: lowered.contains)
         {
-            return .composeEmailDraft
+            return .mail
         }
 
-        if enabledFeatures.contains(.createNote),
-           ["备忘录", "note", "记下来", "记到", "记一下", "写进备忘录", "写入备忘录", "记录在备忘录"].contains(where: lowered.contains)
+        if enabledFeatures.contains(.markdownDocument),
+           ["markdown", "md", "文档", "保存成文档", "保存成 markdown"].contains(where: lowered.contains)
         {
-            return .createNote
+            return .markdownDocument
         }
 
-        if enabledFeatures.contains(.createEvent),
+        if enabledFeatures.contains(.calendar),
            ["日程", "会议", "calendar", "event", "安排", "提醒", "课程", "上课"].contains(where: lowered.contains)
         {
-            return .createEvent
+            return .calendar
         }
 
-        if enabledFeatures.contains(.controlMusic),
+        if enabledFeatures.contains(.music),
            ["音乐", "歌曲", "播放", "暂停", "继续播放", "下一首", "上一首", "music", "play", "pause", "next", "previous"].contains(where: lowered.contains)
         {
-            return .controlMusic
+            return .music
+        }
+
+        if enabledFeatures.contains(.clock),
+           ["提醒我", "提醒一下", "闹钟", "计时器", "倒计时", "稍后提醒", "之后提醒"].contains(where: lowered.contains)
+        {
+            return .clock
         }
 
         if enabledFeatures.contains(.textTransform) {
@@ -752,7 +780,8 @@ final class MagicianNativeRuntime: MagicianAgentRunning {
                 inputText: inputText,
                 shouldWriteToEditor: isFinalAction
             )
-        case .createEvent, .createNote, .composeEmailDraft, .controlMusic, .feishuCLI:
+        case .calendar, .markdownDocument, .mail, .music, .clock,
+             .createEvent, .createNote, .composeEmailDraft, .controlMusic, .feishuCLI:
             let intent = buildIntent(
                 for: action,
                 inputText: inputText
@@ -826,6 +855,15 @@ final class MagicianNativeRuntime: MagicianAgentRunning {
     ) -> MagicianIntent {
         var params = MagicianIntentParams.empty
         switch action.featureID {
+        case .markdownDocument:
+            params.noteBody = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .mail:
+            params.mailBody = inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inputText
+            params.mailDeliveryMode = action.instruction.lowercased().contains("草稿") ? .draftOnly : .autoSendIfResolved
+        case .calendar:
+            params.notes = inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inputText
+        case .music, .clock:
+            break
         case .createNote:
             params.noteBody = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         case .composeEmailDraft:
@@ -857,6 +895,16 @@ final class MagicianNativeRuntime: MagicianAgentRunning {
 
     private func actionTokens(for featureID: MagicianFeatureID) -> [String] {
         switch featureID {
+        case .markdownDocument:
+            return ["markdown", "md", "文档", "保存文档", "整理成 markdown"]
+        case .mail:
+            return ["邮件", "草稿", "写邮件", "发邮件", "mail", "email", "发给", "发送"]
+        case .calendar:
+            return ["日程", "建立日程", "创建日程", "建日程", "会议", "calendar", "event", "安排", "提醒"]
+        case .music:
+            return ["音乐", "歌曲", "播放", "暂停", "继续播放", "下一首", "上一首", "music", "play", "pause"]
+        case .clock:
+            return ["提醒", "闹钟", "计时器", "倒计时", "clock", "timer", "alarm"]
         case .createNote:
             return ["备忘录", "写进备忘录", "写入备忘录", "记到", "记下来", "note", "记录"]
         case .composeEmailDraft:
@@ -1222,12 +1270,12 @@ private struct MagicianSkillManifestDiskRecordV3: Decodable {
     let verifyPolicy: String
 
     func asManifest() -> MagicianSkillManifestV3? {
-        guard let feature = MagicianFeatureID(rawValue: featureID) else {
+        guard let feature = MagicianFeatureID.fromStoredRawValue(featureID) else {
             return nil
         }
         return MagicianSkillManifestV3(
             id: id,
-            featureID: feature,
+            featureID: feature.canonicalFeature,
             domain: domain,
             intentScope: intentScope,
             inputSchema: inputSchema,
@@ -3291,7 +3339,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         1) steps 必须按执行顺序排列。
         2) 每个 step 只做一件事。
         3) 这里不要替步骤决定具体 skill，不要默认往 skill catalog 里塞 skill_id。
-        4) feature_id 只用于标注步骤归属，可选值：text_transform / compose_email_draft / create_note / create_event / control_music / feishu_cli。
+        4) feature_id 只用于标注步骤归属，可选值：text_transform / calendar / markdown_document / mail / music / clock / feishu_cli。
         5) status 仅允许 pending / in_progress / completed。
         6) 文本中间步骤只描述目标，不要把“调用某个 skill”写进 objective。
         """
@@ -3466,7 +3514,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         3) Feishu 相关动作优先考虑现有 feishu_* skill。
         4) 纯文本中间步骤，如果你已经能直接给出结果，就用 finish，并在 output_text 返回结果。
         5) 本机命令执行优先用 run_shell；macOS UI 自动化优先用 run_applescript。
-        6) feature_id 可选值：text_transform / compose_email_draft / create_note / create_event / control_music / feishu_cli。
+        6) feature_id 可选值：text_transform / calendar / markdown_document / mail / music / clock / feishu_cli。
         7) 如果 action=use_skill，skill_id 必须来自 capability_index。
         8) 不要输出任何解释文字。
         """
@@ -3740,7 +3788,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
         guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
             return nil
         }
-        return MagicianFeatureID(rawValue: raw)
+        return MagicianFeatureID.fromStoredRawValue(raw)?.canonicalFeature
     }
 
     private func executeKernelTool(

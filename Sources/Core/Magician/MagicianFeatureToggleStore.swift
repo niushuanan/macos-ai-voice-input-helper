@@ -2,24 +2,28 @@ import Foundation
 
 @MainActor
 final class MagicianFeatureToggleStore: ObservableObject {
-    @Published private(set) var scopeToggles: [MagicianPermissionScope: Bool]
+    @Published private(set) var featureToggles: [MagicianFeatureID: Bool]
 
     private let defaults: UserDefaults
     private let storageKey: String
     private let legacyStorageKey: String
+    private let legacyFeatureStorageKey: String
 
     init(
         defaults: UserDefaults = .standard,
-        storageKey: String = "magician.permission_scopes.v2",
-        legacyStorageKey: String = "magician.features.v1"
+        storageKey: String = "magician.features.v3",
+        legacyStorageKey: String = "magician.permission_scopes.v2",
+        legacyFeatureStorageKey: String = "magician.features.v1"
     ) {
         self.defaults = defaults
         self.storageKey = storageKey
         self.legacyStorageKey = legacyStorageKey
-        self.scopeToggles = Self.loadScopes(
+        self.legacyFeatureStorageKey = legacyFeatureStorageKey
+        self.featureToggles = Self.loadFeatures(
             defaults: defaults,
             storageKey: storageKey,
-            legacyStorageKey: legacyStorageKey
+            legacyScopeStorageKey: legacyStorageKey,
+            legacyFeatureStorageKey: legacyFeatureStorageKey
         )
         if defaults.data(forKey: storageKey) == nil {
             persist()
@@ -27,102 +31,74 @@ final class MagicianFeatureToggleStore: ObservableObject {
     }
 
     func isEnabled(_ feature: MagicianFeatureID) -> Bool {
-        isEnabled(Self.scope(for: feature))
-    }
-
-    func isEnabled(_ scope: MagicianPermissionScope) -> Bool {
-        scopeToggles[scope] ?? false
+        featureToggles[feature.canonicalFeature] ?? false
     }
 
     var enabledFeatures: Set<MagicianFeatureID> {
-        Set(MagicianFeatureID.allCases.filter { isEnabled($0) })
-    }
-
-    var enabledScopes: Set<MagicianPermissionScope> {
-        Set(scopeToggles.compactMap { key, value in
+        Set(featureToggles.compactMap { key, value in
             value ? key : nil
         })
     }
 
     func hasAnyEnabledFeature() -> Bool {
-        scopeToggles.values.contains(true)
+        featureToggles.values.contains(true)
     }
 
     func setEnabled(_ enabled: Bool, for feature: MagicianFeatureID) {
-        setEnabled(enabled, for: Self.scope(for: feature))
-    }
-
-    func setEnabled(_ enabled: Bool, for scope: MagicianPermissionScope) {
-        guard isEnabled(scope) != enabled else {
+        let canonicalFeature = feature.canonicalFeature
+        guard isEnabled(canonicalFeature) != enabled else {
             return
         }
-        scopeToggles[scope] = enabled
+        featureToggles[canonicalFeature] = enabled
         persist()
     }
 
     func resetAll() {
-        scopeToggles = Self.makeDefaultScopeToggles(enabledByDefault: false)
+        featureToggles = Self.makeDefaultFeatureToggles(enabledByDefault: false)
         persist()
     }
 
     private func persist() {
         let payload = Dictionary(
-            uniqueKeysWithValues: scopeToggles.map { ($0.key.rawValue, $0.value) }
+            uniqueKeysWithValues: featureToggles.map { ($0.key.rawValue, $0.value) }
         )
         if let data = try? JSONEncoder().encode(payload) {
             defaults.set(data, forKey: storageKey)
         }
     }
 
-    static func scope(for feature: MagicianFeatureID) -> MagicianPermissionScope {
-        switch feature {
-        case .textTransform:
-            return .textProcessing
-        case .feishuCLI:
-            return .feishu
-        case .createEvent, .createNote, .composeEmailDraft, .controlMusic:
-            return .appleNativeApps
-        }
-    }
-
-    static func features(for scope: MagicianPermissionScope) -> Set<MagicianFeatureID> {
-        scope.mappedFeatures
-    }
-
-    private static func loadScopes(
+    private static func loadFeatures(
         defaults: UserDefaults,
         storageKey: String,
-        legacyStorageKey: String
-    ) -> [MagicianPermissionScope: Bool] {
-        if let decoded = decodeScopeToggles(from: defaults.data(forKey: storageKey)) {
+        legacyScopeStorageKey: String,
+        legacyFeatureStorageKey: String
+    ) -> [MagicianFeatureID: Bool] {
+        if let decoded = decodeFeatureToggles(from: defaults.data(forKey: storageKey)) {
             return decoded
         }
 
-        // v2 首次上线：统一默认全开，避免历史版本迁移后能力被误关导致不可用。
-        if defaults.data(forKey: legacyStorageKey) != nil {
-            return makeDefaultScopeToggles(enabledByDefault: true)
+        if let migrated = decodeLegacyScopeToggles(from: defaults.data(forKey: legacyScopeStorageKey)) {
+            return migrated
         }
 
-        return makeDefaultScopeToggles(enabledByDefault: true)
+        if let migrated = decodeLegacyFeatureToggles(from: defaults.data(forKey: legacyFeatureStorageKey)) {
+            return migrated
+        }
+
+        return makeDefaultFeatureToggles(enabledByDefault: true)
     }
 
-    private static func makeDefaultScopeToggles(
+    private static func makeDefaultFeatureToggles(
         enabledByDefault: Bool
-    ) -> [MagicianPermissionScope: Bool] {
-        var result = Dictionary(
-            uniqueKeysWithValues: MagicianPermissionScope.allCases.map { ($0, enabledByDefault) }
+    ) -> [MagicianFeatureID: Bool] {
+        Dictionary(
+            uniqueKeysWithValues: MagicianFeatureID.allCases.map { ($0, enabledByDefault) }
         )
-        if result.count != MagicianPermissionScope.allCases.count {
-            result = Dictionary(
-                uniqueKeysWithValues: MagicianPermissionScope.allCases.map { ($0, enabledByDefault) }
-            )
-        }
-        return result
     }
 
-    private static func decodeScopeToggles(
+    private static func decodeFeatureToggles(
         from data: Data?
-    ) -> [MagicianPermissionScope: Bool]? {
+    ) -> [MagicianFeatureID: Bool]? {
         guard
             let data,
             let decoded = try? JSONDecoder().decode([String: Bool].self, from: data)
@@ -130,12 +106,62 @@ final class MagicianFeatureToggleStore: ObservableObject {
             return nil
         }
 
-        var result = makeDefaultScopeToggles(enabledByDefault: true)
-        for scope in MagicianPermissionScope.allCases {
-            guard let value = decoded[scope.rawValue] else {
+        var result = makeDefaultFeatureToggles(enabledByDefault: true)
+        for feature in MagicianFeatureID.allCases {
+            guard let value = decoded[feature.rawValue] else {
                 continue
             }
-            result[scope] = value
+            result[feature] = value
+        }
+        return result
+    }
+
+    private static func decodeLegacyScopeToggles(
+        from data: Data?
+    ) -> [MagicianFeatureID: Bool]? {
+        guard
+            let data,
+            let decoded = try? JSONDecoder().decode([String: Bool].self, from: data)
+        else {
+            return nil
+        }
+
+        var result = makeDefaultFeatureToggles(enabledByDefault: true)
+        if let textProcessing = decoded["text_processing"] {
+            result[.textTransform] = textProcessing
+        }
+        if let appleNativeApps = decoded["apple_native_apps"] {
+            result[.calendar] = appleNativeApps
+            result[.markdownDocument] = appleNativeApps
+            result[.mail] = appleNativeApps
+            result[.music] = appleNativeApps
+        }
+
+        // 旧版没有单独的时钟能力。迁移时默认保持开启，避免提醒路径被意外关掉。
+        result[.clock] = true
+        return result
+    }
+
+    private static func decodeLegacyFeatureToggles(
+        from data: Data?
+    ) -> [MagicianFeatureID: Bool]? {
+        guard
+            let data,
+            let decoded = try? JSONDecoder().decode([String: Bool].self, from: data)
+        else {
+            return nil
+        }
+
+        var result = makeDefaultFeatureToggles(enabledByDefault: true)
+        for (rawKey, value) in decoded {
+            guard let feature = MagicianFeatureID.fromStoredRawValue(rawKey)?.canonicalFeature else {
+                continue
+            }
+            result[feature] = value
+        }
+
+        if decoded["create_event"] != nil || decoded["create_note"] != nil || decoded["control_music"] != nil {
+            result[.clock] = true
         }
         return result
     }

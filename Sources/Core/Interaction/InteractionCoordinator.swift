@@ -2059,7 +2059,7 @@ final class InteractionCoordinator {
                 inputText: selectionText,
                 outputText: outcome.outputText,
                 instructionText: spokenInstruction,
-                magicianFeatureID: .controlMusic,
+                magicianFeatureID: .music,
                 displayText: outcome.message,
                 transcriptionProvider: transcription.providerName,
                 transcriptionModel: transcription.modelName,

@@ -40,9 +40,9 @@ final class MagicianAgentRuntimeScenarioTests: XCTestCase {
         }
 
         let scenarios: [Scenario] = [
-            Scenario(id: 1, command: "播放稻香", selectionText: nil, expectedFeatures: [.controlMusic]),
-            Scenario(id: 2, command: "播放跨时代", selectionText: nil, expectedFeatures: [.controlMusic]),
-            Scenario(id: 3, command: "写一篇短篇小说并写进邮件", selectionText: nil, expectedFeatures: [.textTransform, .composeEmailDraft]),
+            Scenario(id: 1, command: "播放稻香", selectionText: nil, expectedFeatures: [.music]),
+            Scenario(id: 2, command: "播放跨时代", selectionText: nil, expectedFeatures: [.music]),
+            Scenario(id: 3, command: "写一篇短篇小说并写进邮件", selectionText: nil, expectedFeatures: [.textTransform, .mail]),
             Scenario(id: 4, command: "翻译成日语并写进飞书日程", selectionText: selectionForTranslation, expectedFeatures: [.textTransform, .feishuCLI]),
             Scenario(id: 5, command: "把这9条新闻用一首七言绝句总结", selectionText: """
             1. 外交部回应Manus高管离境传闻：不了解情况，建议询问主管部门。
@@ -56,7 +56,7 @@ final class MagicianAgentRuntimeScenarioTests: XCTestCase {
             9. 乌克兰袭击俄罗斯维堡造船厂，击沉在建的9000吨破冰巡逻舰。
             """, expectedFeatures: [.textTransform]),
             Scenario(id: 6, command: "发消息给庄泓铠的飞书助手，跟他说这条消息来自 PulseType，很高兴认识他", selectionText: nil, expectedFeatures: [.feishuCLI]),
-            Scenario(id: 7, command: "调研2025年上半年的中国进出口情况，并写成新邮件", selectionText: nil, expectedFeatures: [.textTransform, .composeEmailDraft])
+            Scenario(id: 7, command: "调研2025年上半年的中国进出口情况，并写成新邮件", selectionText: nil, expectedFeatures: [.textTransform, .mail])
         ]
 
         for scenario in scenarios {
@@ -74,7 +74,7 @@ final class MagicianAgentRuntimeScenarioTests: XCTestCase {
                     FocusedSelectionSnapshot(focusContext: focusContext, selectedText: $0)
                 },
                 focusContext: focusContext,
-                enabledFeatures: Set(MagicianFeatureID.allCases)
+                enabledFeatures: enabledFeatures()
             )
 
             let outcome = try await runtime.run(request: request, onEvent: nil)
@@ -93,7 +93,7 @@ final class MagicianAgentRuntimeScenarioTests: XCTestCase {
             )
         }
 
-        let composeCalls = toolExecutor.calls.filter { $0.intent.intent == .composeEmailDraft }
+        let composeCalls = toolExecutor.calls.filter { $0.intent.intent.canonicalFeature == .mail }
         XCTAssertGreaterThanOrEqual(composeCalls.count, 2)
         XCTAssertTrue(
             composeCalls.contains(where: { ($0.intent.params.mailBody ?? "").contains("雨夜里的路灯") }),
@@ -140,7 +140,7 @@ final class MagicianAgentRuntimeScenarioTests: XCTestCase {
                 hasEditableTarget: true,
                 strategyHint: "test"
             ),
-            enabledFeatures: Set(MagicianFeatureID.allCases)
+            enabledFeatures: enabledFeatures()
         )
 
         let outcome = try await runtime.run(request: request, onEvent: nil)
@@ -179,7 +179,7 @@ final class MagicianAgentRuntimeScenarioTests: XCTestCase {
                 hasEditableTarget: true,
                 strategyHint: "test"
             ),
-            enabledFeatures: Set(MagicianFeatureID.allCases)
+            enabledFeatures: enabledFeatures()
         )
 
         let outcome = try await runtime.run(request: request, onEvent: nil)
@@ -213,7 +213,7 @@ final class MagicianAgentRuntimeScenarioTests: XCTestCase {
                 hasEditableTarget: true,
                 strategyHint: "test"
             ),
-            enabledFeatures: Set(MagicianFeatureID.allCases)
+            enabledFeatures: enabledFeatures()
         )
 
         _ = try await runtime.run(request: request, onEvent: nil)
@@ -249,7 +249,7 @@ final class MagicianAgentRuntimeScenarioTests: XCTestCase {
                 hasEditableTarget: true,
                 strategyHint: "test"
             ),
-            enabledFeatures: Set(MagicianFeatureID.allCases)
+            enabledFeatures: enabledFeatures()
         )
 
         do {
@@ -295,7 +295,7 @@ final class MagicianAgentRuntimeScenarioTests: XCTestCase {
                 hasEditableTarget: true,
                 strategyHint: "test"
             ),
-            enabledFeatures: Set(MagicianFeatureID.allCases)
+            enabledFeatures: enabledFeatures()
         )
 
         do {
@@ -340,6 +340,10 @@ final class MagicianAgentRuntimeScenarioTests: XCTestCase {
                 defaults.removePersistentDomain(forName: suiteName)
             }
         )
+    }
+
+    private func enabledFeatures() -> Set<MagicianFeatureID> {
+        Set(MagicianFeatureID.allCases).union([.feishuCLI])
     }
 }
 
@@ -474,7 +478,7 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
                 goal: "播放稻香",
                 stepsCount: 1,
                 json: """
-                {"goal":"播放稻香","todo":[{"id":"1","text":"播放歌曲","status":"pending"}],"steps":[{"id":"step-1","objective":"播放稻香","feature_id":"control_music","input":{"query":"稻香"}}]}
+                {"goal":"播放稻香","todo":[{"id":"1","text":"播放歌曲","status":"pending"}],"steps":[{"id":"step-1","objective":"播放稻香","feature_id":"music","input":{"query":"稻香"}}]}
                 """
             )
         }
@@ -483,7 +487,7 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
                 goal: "播放跨时代",
                 stepsCount: 1,
                 json: """
-                {"goal":"播放跨时代","todo":[{"id":"1","text":"播放歌曲","status":"pending"}],"steps":[{"id":"step-1","objective":"播放跨时代","feature_id":"control_music","input":{"query":"跨时代"}}]}
+                {"goal":"播放跨时代","todo":[{"id":"1","text":"播放歌曲","status":"pending"}],"steps":[{"id":"step-1","objective":"播放跨时代","feature_id":"music","input":{"query":"跨时代"}}]}
                 """
             )
         }
@@ -492,7 +496,7 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
                 goal: "写入备忘录",
                 stepsCount: 1,
                 json: """
-                {"goal":"写入备忘录","todo":[{"id":"1","text":"创建备忘录","status":"pending"}],"steps":[{"id":"step-1","objective":"创建备忘录","feature_id":"create_note","input":{"body":"这是需要写入备忘录的内容"}}]}
+                {"goal":"写入备忘录","todo":[{"id":"1","text":"创建备忘录","status":"pending"}],"steps":[{"id":"step-1","objective":"创建备忘录","feature_id":"markdown_document","input":{"body":"这是需要写入备忘录的内容"}}]}
                 """
             )
         }
@@ -501,7 +505,7 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
                 goal: "写小说并写进邮件",
                 stepsCount: 2,
                 json: """
-                {"goal":"写小说并写进邮件","todo":[{"id":"1","text":"生成短篇小说","status":"pending"},{"id":"2","text":"写入邮件草稿","status":"pending"}],"steps":[{"id":"step-1","objective":"写一篇短篇小说","feature_id":"text_transform","input":{"instruction":"写一篇短篇小说，约300字"}},{"id":"step-2","objective":"把小说写进邮件","feature_id":"compose_email_draft","input":{"subject":"短篇小说草稿"}}]}
+                {"goal":"写小说并写进邮件","todo":[{"id":"1","text":"生成短篇小说","status":"pending"},{"id":"2","text":"写入邮件草稿","status":"pending"}],"steps":[{"id":"step-1","objective":"写一篇短篇小说","feature_id":"text_transform","input":{"instruction":"写一篇短篇小说，约300字"}},{"id":"step-2","objective":"把小说写进邮件","feature_id":"mail","input":{"subject":"短篇小说草稿"}}]}
                 """
             )
         }
@@ -537,7 +541,7 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
                 goal: "调研进出口并写邮件",
                 stepsCount: 2,
                 json: """
-                {"goal":"调研进出口并写邮件","todo":[{"id":"1","text":"调研并整理要点","status":"pending"},{"id":"2","text":"写成邮件草稿","status":"pending"}],"steps":[{"id":"step-1","objective":"整理2025年上半年中国进出口情况","feature_id":"text_transform","input":{}},{"id":"step-2","objective":"写成新邮件","feature_id":"compose_email_draft","input":{"subject":"2025年上半年中国进出口简报"}}]}
+                {"goal":"调研进出口并写邮件","todo":[{"id":"1","text":"调研并整理要点","status":"pending"},{"id":"2","text":"写成邮件草稿","status":"pending"}],"steps":[{"id":"step-1","objective":"整理2025年上半年中国进出口情况","feature_id":"text_transform","input":{}},{"id":"step-2","objective":"写成新邮件","feature_id":"mail","input":{"subject":"2025年上半年中国进出口简报"}}]}
                 """
             )
         }
@@ -564,17 +568,17 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
         }
         if step.contains("播放稻香") {
             return """
-            {"action":"use_skill","feature_id":"control_music","skill_id":"apple.music.play_query","skill_input":{"query":"稻香"}}
+            {"action":"use_skill","feature_id":"music","skill_id":"apple.music.play_query","skill_input":{"query":"稻香"}}
             """
         }
         if step.contains("播放跨时代") {
             return """
-            {"action":"use_skill","feature_id":"control_music","skill_id":"apple.music.play_query","skill_input":{"query":"跨时代"}}
+            {"action":"use_skill","feature_id":"music","skill_id":"apple.music.play_query","skill_input":{"query":"跨时代"}}
             """
         }
         if step.contains("创建备忘录") {
             return """
-            {"action":"use_skill","feature_id":"create_note","skill_id":"apple.notes.create_note","skill_input":{"body":"这是需要写入备忘录的内容"}}
+            {"action":"use_skill","feature_id":"markdown_document","skill_id":"apple.notes.create_note","skill_input":{"body":"这是需要写入备忘录的内容"}}
             """
         }
         if step.contains("写一篇短篇小说") {
@@ -584,7 +588,7 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
         }
         if step.contains("把小说写进邮件") {
             return """
-            {"action":"use_skill","feature_id":"compose_email_draft","skill_id":"apple.mail.compose","skill_input":{"subject":"短篇小说草稿"}}
+            {"action":"use_skill","feature_id":"mail","skill_id":"apple.mail.compose","skill_input":{"subject":"短篇小说草稿"}}
             """
         }
         if step.contains("翻译成日语") {
@@ -614,7 +618,7 @@ private final class ScenarioTextGenerationProvider: TextGenerationProvider {
         }
         if step.contains("写成新邮件") {
             return """
-            {"action":"use_skill","feature_id":"compose_email_draft","skill_id":"apple.mail.compose","skill_input":{"subject":"2025年上半年中国进出口简报"}}
+            {"action":"use_skill","feature_id":"mail","skill_id":"apple.mail.compose","skill_input":{"subject":"2025年上半年中国进出口简报"}}
             """
         }
         return """
@@ -707,7 +711,7 @@ private final class ScenarioToolExecutor: MagicianToolExecuting {
         calls.append(CallRecord(intent: intent, context: context))
 
         switch intent.intent {
-        case .controlMusic:
+        case .music, .controlMusic:
             let song: String
             if context.command.contains("稻香") {
                 song = "稻香"
@@ -719,7 +723,7 @@ private final class ScenarioToolExecutor: MagicianToolExecuting {
             let message = "已执行播放：\(song)"
             let trackEvidence = "track=\(song)|artist=周杰伦"
             return MagicianExecutionResult(
-                intent: .controlMusic,
+                intent: .music,
                 userMessage: message,
                 outputText: trackEvidence,
                 historyDisplayText: message,
@@ -730,12 +734,12 @@ private final class ScenarioToolExecutor: MagicianToolExecuting {
                     evidenceSummary: trackEvidence
                 )
             )
-        case .composeEmailDraft:
+        case .mail, .composeEmailDraft:
             let subject = intent.params.mailSubject ?? "未命名主题"
             let body = intent.params.mailBody ?? ""
             let output = "subject: \(subject)\nbody: \(body)"
             return MagicianExecutionResult(
-                intent: .composeEmailDraft,
+                intent: .mail,
                 userMessage: "邮件已填入，待你确认",
                 outputText: output,
                 historyDisplayText: "邮件草稿：\(subject)",
@@ -768,21 +772,30 @@ private final class ScenarioToolExecutor: MagicianToolExecuting {
                     evidenceSummary: operation
                 )
             )
-        case .createEvent:
+        case .calendar, .createEvent:
             return MagicianExecutionResult(
-                intent: .createEvent,
+                intent: .calendar,
                 userMessage: "日程已创建",
                 outputText: nil,
                 historyDisplayText: "日程已创建",
                 fallbackUsed: false,
                 observation: MagicianAgentObservation(verificationStatus: .verified)
             )
-        case .createNote:
+        case .markdownDocument, .createNote:
             return MagicianExecutionResult(
-                intent: .createNote,
+                intent: .markdownDocument,
                 userMessage: "备忘录已创建",
                 outputText: nil,
                 historyDisplayText: "备忘录已创建",
+                fallbackUsed: false,
+                observation: MagicianAgentObservation(verificationStatus: .verified)
+            )
+        case .clock:
+            return MagicianExecutionResult(
+                intent: .clock,
+                userMessage: "提醒已创建",
+                outputText: nil,
+                historyDisplayText: "提醒已创建",
                 fallbackUsed: false,
                 observation: MagicianAgentObservation(verificationStatus: .verified)
             )
@@ -806,9 +819,9 @@ private final class MusicFallbackToolExecutor: MagicianToolExecuting {
         context: MagicianExecutionContext
     ) async throws -> MagicianExecutionResult {
         _ = context
-        if intent.intent == .controlMusic {
+        if intent.intent.canonicalFeature == .music {
             return MagicianExecutionResult(
-                intent: .controlMusic,
+                intent: .music,
                 userMessage: "已开始播放：稻香",
                 outputText: "state=play_fallback",
                 historyDisplayText: "已开始播放：稻香",
@@ -839,9 +852,9 @@ private final class NoteWeakEvidenceToolExecutor: MagicianToolExecuting {
         context: MagicianExecutionContext
     ) async throws -> MagicianExecutionResult {
         _ = context
-        if intent.intent == .createNote {
+        if intent.intent.canonicalFeature == .markdownDocument {
             return MagicianExecutionResult(
-                intent: .createNote,
+                intent: .markdownDocument,
                 userMessage: "已写入备忘录。",
                 outputText: "shortcut_triggered",
                 historyDisplayText: "已写入备忘录。",

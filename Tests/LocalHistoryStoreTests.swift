@@ -477,7 +477,7 @@ final class LocalHistoryStoreTests: XCTestCase {
         decoder.dateDecodingStrategy = .iso8601
         let decoded = try decoder.decode([SessionHistoryEntry].self, from: data)
 
-        XCTAssertEqual(decoded.first?.magicianFeatureID, .createNote)
+        XCTAssertEqual(decoded.first?.magicianFeatureID, .markdownDocument)
         XCTAssertEqual(decoded.first?.magicianRuntimeVersion, 2)
         XCTAssertEqual(decoded.first?.displayText, "已写入备忘录：周五 15:00 在 A 会议室评审 PRD")
     }

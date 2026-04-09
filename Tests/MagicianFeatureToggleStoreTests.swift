@@ -3,116 +3,144 @@ import XCTest
 
 @MainActor
 final class MagicianFeatureToggleStoreTests: XCTestCase {
-    func testDefaultsAllScopesEnabled() {
+    func testDefaultsAllFeaturesEnabled() {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
 
         let store = MagicianFeatureToggleStore(
             defaults: defaults,
-            storageKey: "magician.permission_scopes.tests",
-            legacyStorageKey: "magician.features.tests"
+            storageKey: "magician.features.tests",
+            legacyStorageKey: "magician.permission_scopes.tests",
+            legacyFeatureStorageKey: "magician.features.v1.tests"
         )
 
-        XCTAssertEqual(
-            store.enabledScopes,
-            Set(MagicianPermissionScope.allCases)
-        )
-        for scope in MagicianPermissionScope.allCases {
-            XCTAssertTrue(store.isEnabled(scope))
+        XCTAssertEqual(store.enabledFeatures, Set(MagicianFeatureID.allCases))
+        for feature in MagicianFeatureID.allCases {
+            XCTAssertTrue(store.isEnabled(feature))
         }
-        XCTAssertEqual(
-            store.enabledFeatures,
-            Set(MagicianFeatureID.allCases)
-        )
     }
 
-    func testScopeTogglePersistsAcrossInstances() {
+    func testFeatureTogglePersistsAcrossInstances() {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
 
         let first = MagicianFeatureToggleStore(
             defaults: defaults,
-            storageKey: "magician.permission_scopes.tests",
-            legacyStorageKey: "magician.features.tests"
+            storageKey: "magician.features.tests",
+            legacyStorageKey: "magician.permission_scopes.tests",
+            legacyFeatureStorageKey: "magician.features.v1.tests"
         )
-        first.setEnabled(false, for: .feishu)
-        first.setEnabled(false, for: .appleNativeApps)
+        first.setEnabled(false, for: .markdownDocument)
+        first.setEnabled(false, for: .clock)
 
         let second = MagicianFeatureToggleStore(
             defaults: defaults,
-            storageKey: "magician.permission_scopes.tests",
-            legacyStorageKey: "magician.features.tests"
+            storageKey: "magician.features.tests",
+            legacyStorageKey: "magician.permission_scopes.tests",
+            legacyFeatureStorageKey: "magician.features.v1.tests"
         )
-        XCTAssertTrue(second.isEnabled(.textProcessing))
-        XCTAssertFalse(second.isEnabled(.feishu))
-        XCTAssertFalse(second.isEnabled(.appleNativeApps))
-        XCTAssertFalse(second.isEnabled(.feishuCLI))
-        XCTAssertFalse(second.isEnabled(.createEvent))
+        XCTAssertTrue(second.isEnabled(.textTransform))
+        XCTAssertFalse(second.isEnabled(.markdownDocument))
         XCTAssertFalse(second.isEnabled(.createNote))
-        XCTAssertFalse(second.isEnabled(.composeEmailDraft))
+        XCTAssertFalse(second.isEnabled(.clock))
+        XCTAssertTrue(second.isEnabled(.calendar))
+        XCTAssertTrue(second.isEnabled(.mail))
+        XCTAssertTrue(second.isEnabled(.music))
     }
 
-    func testFeatureSetterUpdatesMappedScope() {
-        let defaults = makeDefaults()
-        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
-
-        let store = MagicianFeatureToggleStore(
-            defaults: defaults,
-            storageKey: "magician.permission_scopes.tests",
-            legacyStorageKey: "magician.features.tests"
-        )
-        store.setEnabled(false, for: .createNote)
-
-        XCTAssertFalse(store.isEnabled(.appleNativeApps))
-        XCTAssertFalse(store.isEnabled(.createEvent))
-        XCTAssertFalse(store.isEnabled(.createNote))
-        XCTAssertFalse(store.isEnabled(.composeEmailDraft))
-        XCTAssertTrue(store.isEnabled(.textTransform))
-        XCTAssertTrue(store.isEnabled(.feishuCLI))
-    }
-
-    func testResetAllWritesDisabledScopes() {
+    func testResetAllDisablesEveryFeature() {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
 
         let first = MagicianFeatureToggleStore(
             defaults: defaults,
-            storageKey: "magician.permission_scopes.tests",
-            legacyStorageKey: "magician.features.tests"
+            storageKey: "magician.features.tests",
+            legacyStorageKey: "magician.permission_scopes.tests",
+            legacyFeatureStorageKey: "magician.features.v1.tests"
         )
         first.resetAll()
 
         let second = MagicianFeatureToggleStore(
             defaults: defaults,
-            storageKey: "magician.permission_scopes.tests",
-            legacyStorageKey: "magician.features.tests"
+            storageKey: "magician.features.tests",
+            legacyStorageKey: "magician.permission_scopes.tests",
+            legacyFeatureStorageKey: "magician.features.v1.tests"
         )
         XCTAssertFalse(second.hasAnyEnabledFeature())
-        for scope in MagicianPermissionScope.allCases {
-            XCTAssertFalse(second.isEnabled(scope))
+        for feature in MagicianFeatureID.allCases {
+            XCTAssertFalse(second.isEnabled(feature))
         }
     }
 
-    func testMigrationFromLegacyV1DefaultsToAllScopesEnabled() throws {
+    func testLegacyScopeMigrationExpandsAppleNativeAppsIntoFourFeatures() throws {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
 
         let legacyPayload = [
-            "text_transform": false,
-            "create_event": false,
-            "feishu_cli": false
+            "text_processing": false,
+            "apple_native_apps": false
         ]
         let legacyData = try JSONEncoder().encode(legacyPayload)
-        defaults.set(legacyData, forKey: "magician.features.tests")
+        defaults.set(legacyData, forKey: "magician.permission_scopes.tests")
 
         let store = MagicianFeatureToggleStore(
             defaults: defaults,
-            storageKey: "magician.permission_scopes.tests",
-            legacyStorageKey: "magician.features.tests"
+            storageKey: "magician.features.tests",
+            legacyStorageKey: "magician.permission_scopes.tests",
+            legacyFeatureStorageKey: "magician.features.v1.tests"
         )
-        XCTAssertEqual(store.enabledScopes, Set(MagicianPermissionScope.allCases))
-        XCTAssertTrue(store.isEnabled(.textTransform))
-        XCTAssertTrue(store.isEnabled(.feishuCLI))
+
+        XCTAssertFalse(store.isEnabled(.textTransform))
+        XCTAssertFalse(store.isEnabled(.calendar))
+        XCTAssertFalse(store.isEnabled(.markdownDocument))
+        XCTAssertFalse(store.isEnabled(.mail))
+        XCTAssertFalse(store.isEnabled(.music))
+        XCTAssertTrue(store.isEnabled(.clock))
+    }
+
+    func testLegacyFeatureMigrationMapsAliasesToCanonicalFeatures() throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let legacyPayload = [
+            "create_note": false,
+            "control_music": false
+        ]
+        let legacyData = try JSONEncoder().encode(legacyPayload)
+        defaults.set(legacyData, forKey: "magician.features.v1.tests")
+
+        let store = MagicianFeatureToggleStore(
+            defaults: defaults,
+            storageKey: "magician.features.tests",
+            legacyStorageKey: "magician.permission_scopes.tests",
+            legacyFeatureStorageKey: "magician.features.v1.tests"
+        )
+
+        XCTAssertFalse(store.isEnabled(.markdownDocument))
+        XCTAssertFalse(store.isEnabled(.createNote))
+        XCTAssertFalse(store.isEnabled(.music))
+        XCTAssertFalse(store.isEnabled(.controlMusic))
+    }
+
+    func testLegacyFeatureMigrationKeepsClockEnabledForOldNativeActions() throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let legacyPayload = [
+            "create_event": false
+        ]
+        let legacyData = try JSONEncoder().encode(legacyPayload)
+        defaults.set(legacyData, forKey: "magician.features.v1.tests")
+
+        let store = MagicianFeatureToggleStore(
+            defaults: defaults,
+            storageKey: "magician.features.tests",
+            legacyStorageKey: "magician.permission_scopes.tests",
+            legacyFeatureStorageKey: "magician.features.v1.tests"
+        )
+
+        XCTAssertFalse(store.isEnabled(.calendar))
+        XCTAssertTrue(store.isEnabled(.clock))
     }
 
     private var defaultsSuiteName: String {

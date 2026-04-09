@@ -82,6 +82,73 @@ final class V4ToolKernelTests: XCTestCase {
         XCTAssertEqual(result.error?.messageForUser, "权限没开")
     }
 
+    func testPermissionGateUsesFeatureNameForDisabledTool() async {
+        let gate = V4PermissionGate()
+        let spec = V4ToolSpec(
+            toolName: "time_machine.remind",
+            displayName: "时钟提醒",
+            summary: "建提醒",
+            supportedLanes: V4Lane.allCases,
+            inputSchemaVersion: "v1",
+            inputSchema: V4ToolInputSchema(fields: []),
+            requiresPermission: true,
+            requiredFeature: .clock,
+            isConcurrencySafe: true,
+            mutatesUserData: false,
+            supportsStreamingResults: false
+        )
+
+        let decision = await gate.evaluate(
+            spec: spec,
+            request: V4RunRequest(
+                sessionID: V4SessionID(rawValue: "session"),
+                runID: V4RunID(rawValue: "run"),
+                traceID: V4TraceID(rawValue: "trace"),
+                lane: .selectionRewrite,
+                goalSummary: "goal",
+                inputText: "30 分钟后提醒我",
+                enabledFeatureIDs: Set([MagicianFeatureID.mail.rawValue])
+            )
+        )
+
+        XCTAssertEqual(decision.behavior, V4PermissionDecision.Behavior.deny)
+        XCTAssertEqual(decision.reason, "feature_disabled:clock")
+        XCTAssertEqual(decision.userMessage, "当前未开启“时钟”能力，请先到设置里打开再试。")
+    }
+
+    func testPermissionGateAllowsEnabledMarkdownDocumentTool() async {
+        let gate = V4PermissionGate()
+        let spec = V4ToolSpec(
+            toolName: "md.pipeline",
+            displayName: "Markdown 文档",
+            summary: "生成 Markdown 文档",
+            supportedLanes: V4Lane.allCases,
+            inputSchemaVersion: "v1",
+            inputSchema: V4ToolInputSchema(fields: []),
+            requiresPermission: true,
+            requiredFeature: .markdownDocument,
+            isConcurrencySafe: true,
+            mutatesUserData: false,
+            supportsStreamingResults: false
+        )
+
+        let decision = await gate.evaluate(
+            spec: spec,
+            request: V4RunRequest(
+                sessionID: V4SessionID(rawValue: "session"),
+                runID: V4RunID(rawValue: "run"),
+                traceID: V4TraceID(rawValue: "trace"),
+                lane: .selectionRewrite,
+                goalSummary: "goal",
+                inputText: "整理成 Markdown",
+                enabledFeatureIDs: Set([MagicianFeatureID.markdownDocument.rawValue])
+            )
+        )
+
+        XCTAssertEqual(decision.behavior, V4PermissionDecision.Behavior.allow)
+        XCTAssertEqual(decision.reason, "feature_enabled:markdown_document")
+    }
+
     func testConcurrencySafeBatchRunsInParallel() async {
         let recorder = TimingRecorder()
         let slowA = KernelTestTool(
@@ -291,7 +358,7 @@ private final class KernelTestTool: V4Tool, @unchecked Sendable {
             inputSchemaVersion: "v1",
             inputSchema: schema,
             requiresPermission: requiresPermission,
-            permissionScope: requiresPermission ? .textProcessing : nil,
+            requiredFeature: requiresPermission ? .textTransform : nil,
             isConcurrencySafe: isConcurrencySafe,
             mutatesUserData: !isConcurrencySafe,
             supportsStreamingResults: false

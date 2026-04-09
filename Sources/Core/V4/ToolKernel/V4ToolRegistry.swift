@@ -40,8 +40,8 @@ struct V4ToolRegistry: V4ToolKernelRegistry {
         manifestIndex.search(keyword: keyword)
     }
 
-    func list(by scope: MagicianPermissionScope?) -> [V4ToolManifest] {
-        manifestIndex.list(by: scope)
+    func list(by feature: MagicianFeatureID?) -> [V4ToolManifest] {
+        manifestIndex.list(by: feature)
     }
 
     static func live(

@@ -39,7 +39,7 @@ final class V4AppleNotesTool: V4Tool, @unchecked Sendable {
             allowsAdditionalFields: true
         ),
         requiresPermission: true,
-        permissionScope: .appleNativeApps,
+        requiredFeature: .markdownDocument,
         isConcurrencySafe: false,
         mutatesUserData: true,
         supportsStreamingResults: false

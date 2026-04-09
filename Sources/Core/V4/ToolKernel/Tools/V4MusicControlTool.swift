@@ -136,7 +136,7 @@ struct V4MusicControlTool: V4Tool {
             ]
         ),
         requiresPermission: true,
-        permissionScope: .appleNativeApps,
+        requiredFeature: .music,
         isConcurrencySafe: false,
         mutatesUserData: true,
         supportsStreamingResults: false
@@ -1740,7 +1740,7 @@ struct V4MusicControlTool: V4Tool {
                 "set targetPID to item 1 of argv",
                 "tell application \"Music\"",
             ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
-                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: false)
+                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: true)
                 + [
                 "set allTracks to tracks of library playlist 1",
                 "set targetTrack to missing value",

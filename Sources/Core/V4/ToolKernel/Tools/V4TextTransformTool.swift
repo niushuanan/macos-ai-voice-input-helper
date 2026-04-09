@@ -21,8 +21,8 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
                 V4ToolInputField(name: "instruction", kind: .string, summary: "处理指令")
             ]
         ),
-        requiresPermission: false,
-        permissionScope: nil,
+        requiresPermission: true,
+        requiredFeature: .textTransform,
         isConcurrencySafe: true,
         mutatesUserData: false,
         supportsStreamingResults: false

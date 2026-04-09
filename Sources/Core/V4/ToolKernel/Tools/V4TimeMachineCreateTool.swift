@@ -12,8 +12,8 @@ struct V4TimeMachineCreateTool: V4Tool {
                 V4ToolInputField(name: "command", kind: .string, summary: "原始语音命令")
             ]
         ),
-        requiresPermission: false,
-        permissionScope: nil,
+        requiresPermission: true,
+        requiredFeature: .clock,
         isConcurrencySafe: false,
         mutatesUserData: true,
         supportsStreamingResults: false

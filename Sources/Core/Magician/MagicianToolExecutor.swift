@@ -104,14 +104,18 @@ final class MagicianToolExecutor: MagicianToolExecuting {
 
     private func v4ToolName(for featureID: MagicianFeatureID) -> String {
         switch featureID {
-        case .createEvent:
+        case .calendar, .createEvent:
             return "apple.calendar.create"
+        case .markdownDocument:
+            return "md.pipeline"
         case .createNote:
             return "apple.notes.create"
-        case .composeEmailDraft:
+        case .mail, .composeEmailDraft:
             return "apple.mail.compose"
-        case .controlMusic:
+        case .music, .controlMusic:
             return "apple.music.control"
+        case .clock:
+            return shouldUseReminderFlow(for: featureID) ? "time_machine.remind" : "time_machine.create"
         case .feishuCLI:
             return "feishu.cli"
         case .textTransform:
@@ -124,7 +128,7 @@ final class MagicianToolExecutor: MagicianToolExecuting {
         context: MagicianExecutionContext
     ) -> V4ToolArguments {
         switch intent.intent {
-        case .createEvent:
+        case .calendar, .createEvent:
             var arguments: V4ToolArguments = [
                 "command": .string(context.command)
             ]
@@ -135,6 +139,11 @@ final class MagicianToolExecutor: MagicianToolExecuting {
             appendIfExists(intent.params.notes, key: "notes", into: &arguments)
             return arguments
 
+        case .markdownDocument:
+            return [
+                "command": .string(context.command)
+            ]
+
         case .createNote:
             let body = resolvedNoteBody(intent: intent, context: context)
             return [
@@ -144,7 +153,7 @@ final class MagicianToolExecutor: MagicianToolExecuting {
                 "body": .string(body)
             ]
 
-        case .composeEmailDraft:
+        case .mail, .composeEmailDraft:
             var arguments: V4ToolArguments = [
                 "command": .string(context.command),
                 "deliveryMode": .string((intent.params.mailDeliveryMode ?? .draftOnly).rawValue)
@@ -159,7 +168,7 @@ final class MagicianToolExecutor: MagicianToolExecuting {
             }
             return arguments
 
-        case .controlMusic:
+        case .music, .controlMusic:
             var arguments: V4ToolArguments = [
                 "command": .string(context.command)
             ]
@@ -167,6 +176,11 @@ final class MagicianToolExecutor: MagicianToolExecuting {
                 arguments["query"] = .string(query)
             }
             return arguments
+
+        case .clock:
+            return [
+                "command": .string(context.command)
+            ]
 
         case .feishuCLI:
             var arguments: V4ToolArguments = [
@@ -233,14 +247,18 @@ final class MagicianToolExecutor: MagicianToolExecuting {
         fallback: String?
     ) -> String {
         switch intent {
-        case .createEvent:
+        case .calendar, .createEvent:
             return fallback ?? "已建日程"
+        case .markdownDocument:
+            return fallback ?? "Markdown 文档已生成"
         case .createNote:
             return "已写入 Notes。"
-        case .composeEmailDraft:
+        case .mail, .composeEmailDraft:
             return fallback ?? "邮件已处理"
-        case .controlMusic:
+        case .music, .controlMusic:
             return payload.string(for: "summary") ?? fallback ?? "已控制音乐"
+        case .clock:
+            return fallback ?? "时光机已更新"
         case .feishuCLI:
             return fallback ?? "飞书命令已执行"
         case .textTransform:
@@ -255,20 +273,28 @@ final class MagicianToolExecutor: MagicianToolExecuting {
         outputText: String?
     ) -> String? {
         switch intent {
-        case .createEvent:
+        case .calendar, .createEvent:
+            return outputText
+        case .markdownDocument:
             return outputText
         case .createNote:
             let body = arguments.string(for: "body") ?? outputText ?? "无内容"
             return "已写入备忘录：\(summarizedHistoryText(body))"
-        case .composeEmailDraft:
+        case .mail, .composeEmailDraft:
             return outputText ?? payload.string(for: "historyDisplayText")
-        case .controlMusic:
+        case .music, .controlMusic:
             return payload.string(for: "summary") ?? outputText
+        case .clock:
+            return outputText
         case .feishuCLI:
             return outputText.map { "飞书 CLI：\(summarizedHistoryText($0, limit: 96))" }
         case .textTransform:
             return outputText
         }
+    }
+
+    private func shouldUseReminderFlow(for featureID: MagicianFeatureID) -> Bool {
+        featureID.canonicalFeature == .clock
     }
 
     private func magicianError(from error: V4ToolError) -> MagicianError {

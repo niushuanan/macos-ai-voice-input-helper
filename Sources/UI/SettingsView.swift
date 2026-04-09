@@ -3,6 +3,7 @@ import Combine
 import EventKit
 import KeyboardShortcuts
 import SwiftUI
+import UserNotifications
 
 enum MemoryToolbarLayoutMode: Equatable {
     case singleRow
@@ -94,28 +95,20 @@ struct SettingsView: View {
     @State private var magicianPermissionPrompt: MagicianPermissionPromptModel?
     @State private var showingMailAddressBookSheet = false
     @State private var magicianEventAuthorizationStatus: EKAuthorizationStatus = EKEventStore.authorizationStatus(for: .event)
-    @State private var magicianShortcutsAvailable = FileManager.default.isExecutableFile(atPath: "/usr/bin/shortcuts")
-    @State private var magicianCreateNoteShortcutName = MagicianCreateNoteShortcutSupport().shortcutName
-    @State private var magicianCreateNoteShortcutExists = MagicianCreateNoteShortcutSupport().hasShortcut()
-    @State private var magicianNotesAppAvailable = MagicianNotesCapability.notesAppAvailable
     @State private var magicianComposeEmailAvailable = MagicianMailCapability.composeEmailServiceAvailable
     @State private var magicianMailtoAvailable = MagicianMailCapability.mailtoAvailable
     @State private var magicianMailAppAvailable = MagicianMailCapability.mailAppAvailable
     @State private var magicianMusicAppAvailable = MagicianMusicCapability.musicAppAvailable
-    @State private var magicianFeishuCLIAvailable = FeishuCLIProvider.detectAvailability().isAvailable
-    @State private var magicianFeishuCLICommandName = FeishuCLIProvider.detectAvailability().commandName ?? "未检测到"
-    @State private var magicianFeishuCLIResolvedPath = FeishuCLIProvider.detectAvailability().backend?.executablePath ?? "未检测到"
-    @State private var magicianFeishuCLIHealth: MagicianFeishuCLIHealth = .unknown
-    @State private var magicianCLIAuthChecking = false
-    @State private var magicianCLIDoctorChecking = false
-    @State private var magicianCLIScopeFixing = false
+    @State private var magicianNotificationAuthorizationStatus: V4NotificationAuthorizationStatus = .notDetermined
+    @State private var magicianClockAppAvailable = MagicianClockCapability.clockAppAvailable
+    @State private var magicianClockAlarmSurfaceAvailable = MagicianClockCapability.canOpen(surface: .alarm)
+    @State private var magicianClockTimerSurfaceAvailable = MagicianClockCapability.canOpen(surface: .timer)
     @State private var memoryToolbarAvailableWidth: CGFloat = 0
     @State private var memoryFilterBarWidth: CGFloat = 0
     @State private var clearMemoryButtonWidth: CGFloat = 0
     @State private var timeMachineItems: [V4TimeItem] = []
 
     private let magicianStatusResolver = MagicianStatusResolver()
-    private let magicianCapabilityProbe = MagicianCapabilityProbe()
 
     init(model: AppModel) {
         self.model = model
@@ -158,8 +151,6 @@ struct SettingsView: View {
                         memoryPage
                     case .magician:
                         magicianPage
-                    case .skills:
-                        skillsPage
                     case .agentBrainstorm:
                         agentBrainstormPage
                     case .dictionary:
@@ -217,12 +208,6 @@ struct SettingsView: View {
             }
             model.interactionCoordinator.ensureBrainstormDurationProfile()
         }
-        .onChange(of: providerSettingsStore.feishuCLIExecutablePathOverride) { _, _ in
-            guard controlCenterState.selectedSection == .magician else {
-                return
-            }
-            refreshMagicianCapabilityState()
-        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshMagicianCapabilityState()
         }
@@ -249,7 +234,7 @@ struct SettingsView: View {
     private var homePage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                pageHeader(title: "首页")
+                pageHeader(title: "首页", subtitle: "先开口，再决定要写字、做动作，还是留个提醒。")
 
                 homeProductIntroCard
 
@@ -358,12 +343,11 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 pageHeader(
                     title: "魔术先生",
-                    subtitle: "默认走 V4 主链。这里展示当前能稳定执行的能力入口。"
+                    subtitle: "长按主键说一句，松开就做。这里把主能力拆成文本处理和五个原生动作。"
                 )
 
-                magicianNativeFeatureBoard
-                magicianCLIControlCard
-                magicianSkillUploadCard
+                magicianTextTransformCard
+                magicianNativeActionsSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
@@ -375,86 +359,31 @@ struct SettingsView: View {
         }
     }
 
-    private var magicianNativeFeatureBoard: some View {
-        let textScope = MagicianPermissionScope.textProcessing
-        let textResolution = magicianStatusResolver.resolve(
-            feature: .textTransform,
-            isEnabled: magicianFeatureToggleStore.isEnabled(textScope),
-            dependencies: currentMagicianDependencies
-        )
-
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("原生功能")
-                .font(.headline)
-            HStack(spacing: 12) {
-                Text("文本处理 / 原生动作")
-                    .font(.subheadline)
-                Spacer()
-                Toggle(
-                    "",
-                    isOn: Binding(
-                        get: { magicianFeatureToggleStore.isEnabled(textScope) },
-                        set: { enabled in
-                            handleMagicianScopeToggleChange(scope: textScope, enabled: enabled)
-                        }
-                    )
-                )
-                .labelsHidden()
-                .toggleStyle(SwitchToggleStyle())
-                .scaleEffect(0.8)
-                .fixedSize()
-            }
-
-            Text("日历 / 本地文档 / 邮件 / 音乐")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Text("长按主键（默认右 Shift）说命令，松开执行。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if let reason = textResolution.reason {
-                Text(reason)
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .pulseCard(cornerRadius: 12)
-    }
-
-    private var magicianCLIControlCard: some View {
-        let sharedScope = MagicianPermissionScope.textProcessing
+    private var magicianTextTransformCard: some View {
+        let feature: MagicianFeatureID = .textTransform
         let resolution = magicianStatusResolver.resolve(
-            feature: .textTransform,
-            isEnabled: magicianFeatureToggleStore.isEnabled(sharedScope),
+            feature: feature,
+            isEnabled: magicianFeatureToggleStore.isEnabled(feature),
             dependencies: currentMagicianDependencies
         )
 
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
-                Text("skill")
+                Label(feature.displayName, systemImage: feature.symbolName)
                     .font(.headline)
                 Spacer()
-                Toggle(
-                    "",
-                    isOn: Binding(
-                        get: { magicianFeatureToggleStore.isEnabled(sharedScope) },
-                        set: { enabled in
-                            handleMagicianScopeToggleChange(scope: sharedScope, enabled: enabled)
-                        }
-                    )
-                )
-                .labelsHidden()
-                .toggleStyle(SwitchToggleStyle())
-                .scaleEffect(0.8)
-                .fixedSize()
+                Toggle("", isOn: magicianFeatureToggleBinding(feature))
+                    .labelsHidden()
+                    .toggleStyle(SwitchToggleStyle())
+                    .scaleEffect(0.8)
+                    .fixedSize()
             }
 
-            Text("skill 用来接外部 Agent 能力（例如飞书）。这个开关与上面的“文本处理 / 原生动作”共用。")
+            Text("长按魔术先生，直接处理当前文字。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            magicianFeatureStatusBadge(resolution.status)
 
             if let reason = resolution.reason {
                 Text(reason)
@@ -467,210 +396,93 @@ struct SettingsView: View {
         .pulseCard(cornerRadius: 12)
     }
 
-    private var magicianSkillUploadCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("本地 skill 文件")
+    private var magicianNativeActionsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("原生动作")
                 .font(.headline)
-            Text("当前版本不提供界面上传。请把 skill 放到应用约定目录，重启后会自动识别。")
+
+            Text("只保留日历、Markdown 文档、邮件、音乐、时钟。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            LazyVGrid(
+                columns: [
+                    GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 12, alignment: .top)
+                ],
+                spacing: 12
+            ) {
+                ForEach([MagicianFeatureID.calendar, .markdownDocument, .mail, .music, .clock], id: \.rawValue) { feature in
+                    magicianNativeActionCard(feature: feature)
+                }
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func magicianNativeActionCard(feature: MagicianFeatureID) -> some View {
+        let resolution = magicianStatusResolver.resolve(
+            feature: feature,
+            isEnabled: magicianFeatureToggleStore.isEnabled(feature),
+            dependencies: currentMagicianDependencies
+        )
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
+                Label(feature.displayName, systemImage: feature.symbolName)
+                    .font(.headline)
+                Spacer()
+                Toggle("", isOn: magicianFeatureToggleBinding(feature))
+                .labelsHidden()
+                .toggleStyle(SwitchToggleStyle())
+                .scaleEffect(0.8)
+                .fixedSize()
+            }
+
+            Text(feature.summaryLine)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            magicianFeatureStatusBadge(resolution.status)
+
+            if let reason = resolution.reason {
+                Text(reason)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .pulseCard(cornerRadius: 12)
     }
 
-    private var feishuSupportTierGroups: [(tier: FeishuOperationSupportTier, operations: [FeishuOperationDescriptor])] {
-        FeishuOperationCatalog.groupedBySupportTier()
-    }
-
-    private var feishuHealthColor: Color {
-        switch magicianFeishuCLIHealth {
-        case .ready:
-            return .green
-        case .permissionLimited:
-            return .orange
-        case .authRequired, .unavailable:
-            return .red
-        case .unknown:
-            return .secondary
-        }
-    }
-
-    private var feishuHealthSymbolName: String {
-        switch magicianFeishuCLIHealth {
-        case .ready:
-            return "checkmark.seal.fill"
-        case .permissionLimited:
-            return "exclamationmark.shield.fill"
-        case .authRequired:
-            return "person.crop.circle.badge.exclamationmark"
-        case .unavailable:
-            return "exclamationmark.triangle.fill"
-        case .unknown:
-            return "questionmark.circle"
-        }
-    }
-
-    private var magicianCLIExecutablePathBinding: Binding<String> {
+    private func magicianFeatureToggleBinding(_ feature: MagicianFeatureID) -> Binding<Bool> {
         Binding(
-            get: { providerSettingsStore.feishuCLIExecutablePathOverride },
-            set: { newValue in
-                providerSettingsStore.updateFeishuCLIExecutablePathOverride(newValue)
-                refreshMagicianCapabilityState()
+            get: { magicianFeatureToggleStore.isEnabled(feature) },
+            set: { enabled in
+                handleMagicianFeatureToggleChange(feature: feature, enabled: enabled)
             }
         )
     }
 
-    private enum FeishuCLIQuickCheckMode {
-        case auth
-        case doctor
-        case scopeFix
-    }
-
-    private func runFeishuCLIQuickCheck(
-        arguments: [String],
-        mode: FeishuCLIQuickCheckMode
-    ) {
-        let availability = currentFeishuCLIAvailability()
-        guard let backend = availability.backend else {
-            showToast("未检测到飞书 CLI，请先安装或填写可执行路径。")
-            return
+    @ViewBuilder
+    private func magicianFeatureStatusBadge(_ status: MagicianFeatureStatus) -> some View {
+        let color: Color = switch status {
+        case .enabled:
+            .green
+        case .needsPermission:
+            .orange
+        case .notEnabled:
+            .secondary
         }
-
-        switch mode {
-        case .auth:
-            magicianCLIAuthChecking = true
-        case .doctor:
-            magicianCLIDoctorChecking = true
-        case .scopeFix:
-            magicianCLIScopeFixing = true
-        }
-
-        Task {
-            let result = await runProcessWithTimeout(
-                executablePath: backend.executablePath,
-                arguments: arguments,
-                timeoutSeconds: 14,
-                maxOutputCharacters: 2_600,
-                environment: FeishuCLIProvider.buildProcessEnvironment(
-                    executablePath: backend.executablePath
-                )
+        Label(status.labelText, systemImage: status == .enabled ? "checkmark.circle.fill" : "slider.horizontal.3")
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(color.opacity(0.14))
             )
-            await MainActor.run {
-                let output = !result.stdout.isEmpty ? result.stdout : result.stderr
-                let concise = output
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .split(separator: "\n")
-                    .prefix(2)
-                    .joined(separator: " | ")
-                if result.exitCode == 0 {
-                    showToast(concise.isEmpty ? "检查完成。" : concise)
-                } else {
-                    showToast("检查失败（\(result.exitCode)）：\(concise.isEmpty ? "请打开日志查看详情。" : concise)")
-                }
-                refreshMagicianCapabilityState()
-                switch mode {
-                case .auth:
-                    magicianCLIAuthChecking = false
-                case .doctor:
-                    magicianCLIDoctorChecking = false
-                case .scopeFix:
-                    magicianCLIScopeFixing = false
-                }
-            }
-        }
-    }
-
-    private func runFeishuCLIScopeFix(_ scopes: [String]) {
-        let uniqueScopes = Array(Set(scopes)).sorted()
-        guard !uniqueScopes.isEmpty else {
-            showToast("当前没有待补 scope。")
-            return
-        }
-        var arguments = ["auth", "login", "--no-wait"]
-        for scope in uniqueScopes {
-            arguments.append("--scope")
-            arguments.append(scope)
-        }
-        runFeishuCLIQuickCheck(
-            arguments: arguments,
-            mode: .scopeFix
-        )
-    }
-
-    private var mailAssistantAddressBookSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label("邮箱名库", systemImage: "tray.full")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("\(mailAddressBookStore.entries.count) 条")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Color.white.opacity(0.66))
-                    )
-            }
-
-            Text("系统会先用你自己的名库匹配联系人，再在必要时用文本模型推断新地址。地址不够稳时，只打开 Mail 编辑窗口，不会直接发。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Button("管理邮箱名库") {
-                showingMailAddressBookSheet = true
-            }
-            .buttonStyle(.bordered)
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.48))
-        )
-    }
-
-    private var skillsPage: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                pageHeader(
-                    title: "Now you see me",
-                    subtitle: "这里是你的自定义区：表达风格、规则偏好、场景策略都在这。"
-                )
-
-                ForEach(skillRuleStore.visibleRules()) { rule in
-                    SkillRuleCardView(
-                        ruleID: rule.id,
-                        title: rule.id.title,
-                        subtitle: rule.id.subtitle,
-                        isEnabled: Binding(
-                            get: { skillRuleStore.rule(for: rule.id).isEnabled },
-                            set: { enabled in
-                                skillRuleStore.setEnabled(enabled, for: rule.id)
-                                showToast("\(rule.id.title)现在已经\(enabled ? "开启" : "关闭")。")
-                            }
-                        ),
-                        parameter: Binding(
-                            get: { skillRuleStore.rule(for: rule.id).parameter },
-                            set: { parameter in
-                                skillRuleStore.setParameter(parameter, for: rule.id)
-                                scheduleDebouncedToast("\(rule.id.title)已更新并生效。")
-                            }
-                        ),
-                        parameterPlaceholder: rule.id == .systemPrompt
-                            ? "例如：默认更简洁、保留重点、避免过度客套"
-                            : "例如：嗯,啊,就是,那个,然后"
-                    )
-                }
-
-                scenePolicySkillsCard
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
-            .padding(.vertical, 22)
-        }
+            .foregroundStyle(color)
     }
 
     private var modelPage: some View {
@@ -915,32 +727,20 @@ struct SettingsView: View {
                 localSenseVoiceRuntimeInlineSection
             }
 
-            LabeledContent("当前生效配置", value: activeConfigLine)
-                .font(.caption)
+            ModelStatusPanel(
+                activeConfigLine: activeConfigLine,
+                latestResult: latestResult,
+                isTesting: isTesting,
+                failureSuggestion: latestResult?.status == .failure ? actionSuggestion(for: latestResult!) : nil
+            )
 
             HStack {
                 Button(isTesting ? "\(testButtonTitle)中..." : testButtonTitle) {
                     onTest()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PersistentPrimaryButtonStyle())
                 .disabled(isTesting)
                 Spacer()
-            }
-
-            if let latestResult {
-                ConnectionTestSummaryView(title: "最近一次测试", result: latestResult)
-                Label(
-                    "建议：\(actionSuggestion(for: latestResult))",
-                    systemImage: latestResult.status == .success
-                        ? "checkmark.seal.fill"
-                        : "lightbulb.fill"
-                )
-                .font(.caption)
-                .foregroundStyle(latestResult.status == .success ? .green : .secondary)
-            } else {
-                Text("还没有测试记录。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .padding(14)
@@ -1008,6 +808,8 @@ struct SettingsView: View {
                     subtitle: "管理快捷键、权限与基础环境。"
                 )
 
+                expressionPreferenceCard
+                scenePolicySkillsCard
                 hotkeySettingsCard
                 permissionSettingsCard
             }
@@ -1177,18 +979,14 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("触发规则说明")
                     .font(.subheadline.weight(.semibold))
-                Text("主键单击：普通语音开始/停止。")
+                Text("单击开始或停止普通语音，长按进入魔术先生，双击进入一口气全念对。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("主键长按（≥180ms）：进入魔术先生，按住说话，松开执行。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("一口气全念对键双击（≤350ms）：进入一口气全念对。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("当主键与一口气全念对键相同：双击优先一口气全念对，长按优先魔术先生，单击普通语音。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if hotkeyStateStore.wakeModifier == hotkeyStateStore.brainstormModifier {
+                    Text("当前两者共用同一按键：双击优先一口气全念对，长按优先魔术先生。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             if let conflict = hotkeyStateStore.conflictMessage {
@@ -1241,13 +1039,48 @@ struct SettingsView: View {
         .pulseCard(cornerRadius: 12)
     }
 
+    private var expressionPreferenceCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("表达偏好")
+                .font(.headline)
+
+            ForEach(skillRuleStore.visibleRules()) { rule in
+                SkillRuleCardView(
+                    ruleID: rule.id,
+                    title: rule.id.title,
+                    subtitle: rule.id.subtitle,
+                    isEnabled: Binding(
+                        get: { skillRuleStore.rule(for: rule.id).isEnabled },
+                        set: { enabled in
+                            skillRuleStore.setEnabled(enabled, for: rule.id)
+                            showToast("\(rule.id.title)现在已经\(enabled ? "开启" : "关闭")。")
+                        }
+                    ),
+                    parameter: Binding(
+                        get: { skillRuleStore.rule(for: rule.id).parameter },
+                        set: { parameter in
+                            skillRuleStore.setParameter(parameter, for: rule.id)
+                            scheduleDebouncedToast("\(rule.id.title)已更新并生效。")
+                        }
+                    ),
+                    parameterPlaceholder: rule.id == .systemPrompt
+                        ? "例如：默认更直接、少一点客套、保留重点"
+                        : "例如：嗯,啊,就是,那个,然后"
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .pulseCard(cornerRadius: 12)
+    }
+
     private var scenePolicySkillsCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("按应用风格")
                         .font(.headline)
-                    Text("给每个应用设独立表达风格，写出来的话更贴场景。")
+                    Text("给常用应用单独定语气，聊天、邮件、文档可以各说各的话。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1372,15 +1205,15 @@ struct SettingsView: View {
             Text("核心特点")
                 .font(.headline)
 
-            Label("比敲键盘更轻松，也比普通语音输入法更懂你的表达习惯，目标是把日常输入慢慢变成纯语音交互。", systemImage: "text.bubble")
+            Label("开口就能写，不用切输入法，也不用先找输入框。", systemImage: "text.bubble")
                 .font(.subheadline)
-            Label("本地模型和云端模型一起工作，历史与配置默认留在本地，效果和安全感可以一起兼顾。", systemImage: "lock.shield")
+            Label("长按魔术先生，可以直接改写、翻译、精简和整理眼前这段文字。", systemImage: "wand.and.stars")
                 .font(.subheadline)
-            Label("长按主键唤起魔术先生，翻译、润色、日程、本地文档、邮件一句搞定。", systemImage: "wand.and.stars")
+            Label("五个原生动作固定保留：日历、Markdown 文档、邮件、音乐、时钟。", systemImage: "square.grid.2x2")
                 .font(.subheadline)
-            Label("双击主键进入一口气全念对，特别适合多人讨论和短会议纪要，边聊边记也能快速理清重点。", systemImage: "brain.head.profile")
+            Label("时光机负责提醒和时间中心，本地通知是稳定路径，Clock 跳转尽量贴近系统。", systemImage: "clock.badge.exclamationmark")
                 .font(.subheadline)
-            Label("不同应用可配不同提示词和风格，聊天、邮件、文档各有各的语气，满足多元场景需求。", systemImage: "arrow.triangle.2.circlepath.circle")
+            Label("一口气全念对适合讨论、脑暴和短会，讲完就能拿到整理好的上下文。", systemImage: "brain.head.profile")
                 .font(.subheadline)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1579,67 +1412,78 @@ struct SettingsView: View {
         }
     }
 
+    private var magicianTextModelReady: Bool {
+        providerSettingsStore.textConfigurationValidationMessage == nil
+            && {
+                if !providerSettingsStore.textConfig.providerType.requiresAPIKey {
+                    return true
+                }
+                switch providerSettingsStore.textCredentialState {
+                case .saved, .inaccessible:
+                    return true
+                case .saving, .failed, .unknown, .missing:
+                    return false
+                }
+            }()
+    }
+
     private var currentMagicianDependencies: MagicianDependencySnapshot {
         MagicianDependencySnapshot(
             accessibilityState: permissionsCenter.snapshot.accessibility,
+            textModelReady: magicianTextModelReady,
             eventAuthorizationStatus: magicianEventAuthorizationStatus,
-            shortcutsCLIAvailable: magicianShortcutsAvailable,
-            createNoteShortcutName: magicianCreateNoteShortcutName,
-            createNoteShortcutExists: magicianCreateNoteShortcutExists,
-            notesAppAvailable: magicianNotesAppAvailable,
             composeEmailAvailable: magicianComposeEmailAvailable,
             mailtoAvailable: magicianMailtoAvailable,
             mailAppAvailable: magicianMailAppAvailable,
             musicAppAvailable: magicianMusicAppAvailable,
-            feishuCLIAvailable: magicianFeishuCLIAvailable,
-            feishuCLICommandName: magicianFeishuCLICommandName
-        )
-    }
-
-    private func currentFeishuCLIAvailability() -> FeishuCLIAvailability {
-        FeishuCLIProvider.detectAvailability(
-            executableOverride: providerSettingsStore.resolvedFeishuCLIExecutablePathOverride
+            notificationAuthorizationStatus: magicianNotificationAuthorizationStatus,
+            clockAppAvailable: magicianClockAppAvailable,
+            clockAlarmSurfaceAvailable: magicianClockAlarmSurfaceAvailable,
+            clockTimerSurfaceAvailable: magicianClockTimerSurfaceAvailable
         )
     }
 
     private func refreshMagicianCapabilityState() {
-        let shortcutSupport = MagicianCreateNoteShortcutSupport()
         magicianEventAuthorizationStatus = EKEventStore.authorizationStatus(for: .event)
-        magicianShortcutsAvailable = shortcutSupport.cliAvailable
-        magicianCreateNoteShortcutName = shortcutSupport.shortcutName
-        magicianCreateNoteShortcutExists = shortcutSupport.hasShortcut(named: magicianCreateNoteShortcutName)
-        magicianNotesAppAvailable = MagicianNotesCapability.notesAppAvailable
         magicianComposeEmailAvailable = MagicianMailCapability.composeEmailServiceAvailable
         magicianMailtoAvailable = MagicianMailCapability.mailtoAvailable
         magicianMailAppAvailable = MagicianMailCapability.mailAppAvailable
         magicianMusicAppAvailable = MagicianMusicCapability.musicAppAvailable
-        let feishuAvailability = currentFeishuCLIAvailability()
-        magicianFeishuCLIAvailable = feishuAvailability.isAvailable
-        magicianFeishuCLICommandName = feishuAvailability.commandName ?? "未检测到"
-        magicianFeishuCLIResolvedPath = feishuAvailability.backend?.executablePath ?? "未检测到"
-        magicianFeishuCLIHealth = feishuAvailability.isAvailable
-            ? .unknown
-            : .unavailable(message: "未检测到 feishu 或 lark-cli。")
+        magicianClockAppAvailable = MagicianClockCapability.clockAppAvailable
+        magicianClockAlarmSurfaceAvailable = MagicianClockCapability.canOpen(surface: .alarm)
+        magicianClockTimerSurfaceAvailable = MagicianClockCapability.canOpen(surface: .timer)
 
         Task {
-            let result = await magicianCapabilityProbe.probeFeishuCLI(
-                executableOverride: providerSettingsStore.resolvedFeishuCLIExecutablePathOverride
-            )
+            let notificationCenter = V4UNUserNotificationCenterClient()
+            let notificationStatus = await notificationCenter.authorizationStatus()
             await MainActor.run {
-                magicianFeishuCLIAvailable = result.availability.isAvailable
-                magicianFeishuCLICommandName = result.availability.commandName ?? "未检测到"
-                magicianFeishuCLIResolvedPath = result.availability.backend?.executablePath ?? "未检测到"
-                magicianFeishuCLIHealth = result.health
+                magicianNotificationAuthorizationStatus = notificationStatus
             }
         }
     }
 
-    private func handleMagicianScopeToggleChange(
-        scope: MagicianPermissionScope,
+    private func handleMagicianFeatureToggleChange(
+        feature: MagicianFeatureID,
         enabled: Bool
     ) {
-        magicianFeatureToggleStore.setEnabled(enabled, for: scope)
-        showToast("\(scope.displayName)能力已\(enabled ? "开启" : "关闭")。")
+        guard enabled else {
+            magicianFeatureToggleStore.setEnabled(false, for: feature)
+            showToast("\(feature.displayName)已关闭。")
+            return
+        }
+
+        let requirement = magicianStatusResolver.requirement(
+            for: feature,
+            dependencies: currentMagicianDependencies
+        )
+        switch requirement {
+        case .ready:
+            magicianFeatureToggleStore.setEnabled(true, for: feature)
+            showToast("\(feature.displayName)已开启。")
+        case let .blocked(_, prompt):
+            magicianFeatureToggleStore.setEnabled(false, for: feature)
+            magicianPermissionPrompt = prompt
+        }
     }
 
     private func handleMagicianPromptPrimary(_ prompt: MagicianPermissionPromptModel) {
@@ -1685,6 +1529,19 @@ struct SettingsView: View {
                     NSWorkspace.shared.open(url)
                 }
             }
+        case .requestNotificationAccess:
+            _ = try? await V4UNUserNotificationCenterClient().requestAuthorization()
+        case let .openSettingsSection(sectionID):
+            await MainActor.run {
+                switch sectionID {
+                case "model":
+                    controlCenterState.selectedSection = .model
+                case "settings":
+                    controlCenterState.selectedSection = .settings
+                default:
+                    break
+                }
+            }
         case let .openSystemSettings(urlString):
             guard let url = URL(string: urlString) else {
                 return
@@ -1727,6 +1584,10 @@ struct SettingsView: View {
                     fallbackPath: "/System/Applications/Music.app"
                 )
             }
+        case let .openClockApp(surface):
+            await MainActor.run {
+                openClockSurface(surface)
+            }
         }
     }
 
@@ -1753,6 +1614,22 @@ struct SettingsView: View {
 
         let fallbackURL = URL(fileURLWithPath: fallbackPath, isDirectory: true)
         NSWorkspace.shared.open(fallbackURL)
+    }
+
+    private func openClockSurface(_ surface: MagicianClockSurface?) {
+        if
+            let surface,
+            let surfaceURL = URL(string: surface.urlString),
+            NSWorkspace.shared.urlForApplication(toOpen: surfaceURL) != nil
+        {
+            NSWorkspace.shared.open(surfaceURL)
+            return
+        }
+
+        openApplication(
+            bundleIdentifier: MagicianClockCapability.bundleIdentifier,
+            fallbackPath: MagicianClockCapability.appPath
+        )
     }
 
     private func baseURLPlaceholder(for type: ProviderType) -> String {
@@ -1945,7 +1822,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 pageHeader(
                     title: "时光机",
-                    subtitle: "这里是本地提醒与时间相关记忆的总览。"
+                    subtitle: "提醒与时间中心。本地通知是稳定路径，Clock 跳转会尽量带你去最接近的入口。"
                 )
 
                 timeMachineOverviewCard
@@ -1975,6 +1852,7 @@ struct SettingsView: View {
             .padding(.vertical, 22)
         }
         .onAppear {
+            refreshMagicianCapabilityState()
             refreshTimeMachineItems()
         }
     }
@@ -2001,12 +1879,37 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Text("提醒状态：\(notificationReadinessText)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("Clock 入口：\(clockHandoffReadinessText)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             HStack {
                 Button("刷新时光机") {
                     refreshTimeMachineItems()
                     showToast("时光机列表已刷新。")
                 }
                 .buttonStyle(.bordered)
+
+                Button("打开时钟") {
+                    openClockSurface(.worldClock)
+                }
+                .buttonStyle(.bordered)
+                .disabled(!magicianClockAppAvailable)
+
+                Button("闹钟") {
+                    openClockSurface(.alarm)
+                }
+                .buttonStyle(.bordered)
+                .disabled(!magicianClockAlarmSurfaceAvailable && !magicianClockAppAvailable)
+
+                Button("计时器") {
+                    openClockSurface(.timer)
+                }
+                .buttonStyle(.bordered)
+                .disabled(!magicianClockTimerSurfaceAvailable && !magicianClockAppAvailable)
+
                 Spacer()
             }
         }
@@ -2051,6 +1954,26 @@ struct SettingsView: View {
 
     private func refreshTimeMachineItems() {
         timeMachineItems = V4TimeMachineStore.loadItems(historyDirectory: model.localStore.historyDirectory)
+    }
+
+    private var notificationReadinessText: String {
+        switch magicianNotificationAuthorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            return "本地通知已允许"
+        case .notDetermined:
+            return "还没请求通知权限"
+        case .denied:
+            return "通知权限未开启"
+        case .unknown:
+            return "通知状态暂时未知"
+        }
+    }
+
+    private var clockHandoffReadinessText: String {
+        if magicianClockAlarmSurfaceAvailable || magicianClockTimerSurfaceAvailable || magicianClockAppAvailable {
+            return "可以打开 Clock 或接近的系统入口"
+        }
+        return "这台 Mac 还没有可用的 Clock handoff"
     }
 
     private func timeMachineStatusText(_ status: V4TimeItemStatus) -> String {

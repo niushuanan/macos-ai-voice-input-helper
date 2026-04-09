@@ -23,10 +23,10 @@ struct V4ToolManifestIndex: Sendable {
             .filter { $0.matches(keyword: keyword) }
     }
 
-    func list(by scope: MagicianPermissionScope?) -> [V4ToolManifest] {
+    func list(by feature: MagicianFeatureID?) -> [V4ToolManifest] {
         orderedToolIDs
             .compactMap { manifestsByID[$0] }
-            .filter { $0.requiredScope == scope }
+            .filter { $0.requiredFeature == feature }
     }
 
     func all() -> [V4ToolManifest] {

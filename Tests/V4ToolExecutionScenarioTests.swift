@@ -994,7 +994,7 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
             toolID: tool.spec.toolID,
             displayName: tool.spec.displayName,
             domain: "test",
-            requiredScope: nil,
+            requiredFeature: nil,
             inputSchemaSummary: "无输入",
             isConcurrencySafe: true,
             retryPolicy: V4ToolRetryPolicy(maxRetryCount: 1, retryableCodes: [.toolExecutionFailed]),
@@ -1182,7 +1182,7 @@ private struct RetryableTestTool: V4Tool {
         inputSchemaVersion: "v1",
         inputSchema: V4ToolInputSchema(fields: []),
         requiresPermission: false,
-        permissionScope: nil,
+        requiredFeature: nil,
         isConcurrencySafe: true,
         mutatesUserData: false,
         supportsStreamingResults: false

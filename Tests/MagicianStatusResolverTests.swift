@@ -16,20 +16,20 @@ final class MagicianStatusResolverTests: XCTestCase {
         XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "打开系统设置")
     }
 
-    func testTextTransformEnabledWhenToggleOnAndAccessibilityGranted() {
+    func testTextTransformNeedsModelWhenTextModelUnavailable() {
         let resolution = resolver.resolve(
             feature: .textTransform,
             isEnabled: true,
-            dependencies: dependencies(accessibility: .granted)
+            dependencies: dependencies(textModelReady: false)
         )
 
-        XCTAssertEqual(resolution.status, .enabled)
-        XCTAssertNil(resolution.prompt)
+        XCTAssertEqual(resolution.status, .needsPermission)
+        XCTAssertEqual(resolution.prompt?.primaryAction, .openSettingsSection(sectionID: "model"))
     }
 
-    func testCreateEventNotEnabledWhenToggleOff() {
+    func testCalendarNotEnabledWhenToggleOff() {
         let resolution = resolver.resolve(
-            feature: .createEvent,
+            feature: .calendar,
             isEnabled: false,
             dependencies: dependencies()
         )
@@ -38,9 +38,9 @@ final class MagicianStatusResolverTests: XCTestCase {
         XCTAssertNil(resolution.prompt)
     }
 
-    func testCreateEventNeedsPermissionWhenNotDetermined() {
+    func testCalendarNeedsPermissionWhenNotDetermined() {
         let resolution = resolver.resolve(
-            feature: .createEvent,
+            feature: .calendar,
             isEnabled: false,
             dependencies: dependencies(eventStatus: .notDetermined)
         )
@@ -49,14 +49,18 @@ final class MagicianStatusResolverTests: XCTestCase {
         XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "请求权限")
     }
 
-    func testCreateNoteReadyWhenDependenciesMissing() {
+    func testMarkdownDocumentEnabledWithoutSystemPermission() {
         let resolution = resolver.resolve(
-            feature: .createNote,
+            feature: .markdownDocument,
             isEnabled: true,
             dependencies: dependencies(
-                shortcutsAvailable: false,
-                createNoteShortcutExists: false,
-                notesAppAvailable: false
+                composeEmailAvailable: false,
+                mailtoAvailable: false,
+                mailAppAvailable: false,
+                musicAppAvailable: false,
+                clockAppAvailable: false,
+                clockAlarmSurfaceAvailable: false,
+                clockTimerSurfaceAvailable: false
             )
         )
 
@@ -65,42 +69,20 @@ final class MagicianStatusResolverTests: XCTestCase {
         XCTAssertNil(resolution.prompt)
     }
 
-    func testCreateNoteEnabledWhenToggleOn() {
+    func testMarkdownDocumentNotEnabledWhenToggleOff() {
         let resolution = resolver.resolve(
-            feature: .createNote,
-            isEnabled: true,
-            dependencies: dependencies(
-                shortcutsAvailable: false,
-                createNoteShortcutExists: false,
-                notesAppAvailable: true
-            )
-        )
-
-        XCTAssertEqual(resolution.status, .enabled)
-        XCTAssertNil(resolution.reason)
-        XCTAssertNil(resolution.prompt)
-    }
-
-    func testCreateNoteNotEnabledWhenToggleOff() {
-        let resolution = resolver.resolve(
-            feature: .createNote,
+            feature: .markdownDocument,
             isEnabled: false,
-            dependencies: dependencies(
-                shortcutsAvailable: true,
-                createNoteShortcutName: "PulseType-写入备忘录",
-                createNoteShortcutExists: false,
-                notesAppAvailable: false
-            )
+            dependencies: dependencies()
         )
 
         XCTAssertEqual(resolution.status, .notEnabled)
-        XCTAssertNil(resolution.reason)
         XCTAssertNil(resolution.prompt)
     }
 
-    func testComposeEmailNeedsPermissionWhenMailUnavailable() {
+    func testMailNeedsPermissionWhenMailUnavailable() {
         let resolution = resolver.resolve(
-            feature: .composeEmailDraft,
+            feature: .mail,
             isEnabled: true,
             dependencies: dependencies(
                 composeEmailAvailable: false,
@@ -110,13 +92,13 @@ final class MagicianStatusResolverTests: XCTestCase {
         )
 
         XCTAssertEqual(resolution.status, .needsPermission)
-        XCTAssertEqual(resolution.reason, "当前无法使用邮件助手，请先打开 Mail 并完成账号配置。")
+        XCTAssertEqual(resolution.reason, "当前无法使用邮件，请先打开 Mail 并完成账号配置。")
         XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "打开 Mail")
     }
 
-    func testComposeEmailReadyWhenOnlyMailtoAvailable() {
+    func testMailReadyWhenOnlyMailtoAvailable() {
         let resolution = resolver.resolve(
-            feature: .composeEmailDraft,
+            feature: .mail,
             isEnabled: true,
             dependencies: dependencies(
                 composeEmailAvailable: false,
@@ -129,52 +111,9 @@ final class MagicianStatusResolverTests: XCTestCase {
         XCTAssertNil(resolution.prompt)
     }
 
-    func testComposeEmailReadyWhenOnlyMailAppAvailable() {
+    func testMusicNeedsPermissionWhenMusicUnavailable() {
         let resolution = resolver.resolve(
-            feature: .composeEmailDraft,
-            isEnabled: true,
-            dependencies: dependencies(
-                composeEmailAvailable: false,
-                mailtoAvailable: false,
-                mailAppAvailable: true
-            )
-        )
-
-        XCTAssertEqual(resolution.status, .enabled)
-        XCTAssertNil(resolution.prompt)
-    }
-
-    func testFeishuCLIBlockedWhenCommandMissing() {
-        let resolution = resolver.resolve(
-            feature: .feishuCLI,
-            isEnabled: true,
-            dependencies: dependencies(
-                feishuCLIAvailable: false,
-                feishuCLICommandName: nil
-            )
-        )
-
-        XCTAssertEqual(resolution.status, .needsPermission)
-        XCTAssertEqual(resolution.prompt?.title, "飞书 CLI 不可用")
-    }
-
-    func testFeishuCLIReadyWhenCommandAvailable() {
-        let resolution = resolver.resolve(
-            feature: .feishuCLI,
-            isEnabled: true,
-            dependencies: dependencies(
-                feishuCLIAvailable: true,
-                feishuCLICommandName: "feishu"
-            )
-        )
-
-        XCTAssertEqual(resolution.status, .enabled)
-        XCTAssertNil(resolution.prompt)
-    }
-
-    func testControlMusicNeedsPermissionWhenMusicUnavailable() {
-        let resolution = resolver.resolve(
-            feature: .controlMusic,
+            feature: .music,
             isEnabled: true,
             dependencies: dependencies(musicAppAvailable: false)
         )
@@ -184,9 +123,9 @@ final class MagicianStatusResolverTests: XCTestCase {
         XCTAssertEqual(resolution.prompt?.primaryAction, .openMusicApp)
     }
 
-    func testControlMusicReadyWhenMusicAvailable() {
+    func testMusicReadyWhenMusicAvailable() {
         let resolution = resolver.resolve(
-            feature: .controlMusic,
+            feature: .music,
             isEnabled: true,
             dependencies: dependencies(musicAppAvailable: true)
         )
@@ -195,33 +134,73 @@ final class MagicianStatusResolverTests: XCTestCase {
         XCTAssertNil(resolution.prompt)
     }
 
+    func testClockNeedsNotificationPermissionWhenNotDetermined() {
+        let resolution = resolver.resolve(
+            feature: .clock,
+            isEnabled: true,
+            dependencies: dependencies(notificationAuthorizationStatus: .notDetermined)
+        )
+
+        XCTAssertEqual(resolution.status, .needsPermission)
+        XCTAssertEqual(resolution.prompt?.primaryAction, .requestNotificationAccess)
+    }
+
+    func testClockNeedsHandoffWhenNotificationReadyButClockUnavailable() {
+        let resolution = resolver.resolve(
+            feature: .clock,
+            isEnabled: true,
+            dependencies: dependencies(
+                notificationAuthorizationStatus: .authorized,
+                clockAppAvailable: false,
+                clockAlarmSurfaceAvailable: false,
+                clockTimerSurfaceAvailable: false
+            )
+        )
+
+        XCTAssertEqual(resolution.status, .needsPermission)
+        XCTAssertEqual(resolution.prompt?.title, "Clock 不可用")
+        XCTAssertEqual(resolution.prompt?.primaryAction, .openClockApp(surface: .worldClock))
+    }
+
+    func testClockReadyWhenNotificationAndClockPathAvailable() {
+        let resolution = resolver.resolve(
+            feature: .clock,
+            isEnabled: true,
+            dependencies: dependencies(
+                notificationAuthorizationStatus: .authorized,
+                clockAppAvailable: true
+            )
+        )
+
+        XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertNil(resolution.prompt)
+    }
+
     private func dependencies(
         accessibility: PermissionState = .granted,
+        textModelReady: Bool = true,
         eventStatus: EKAuthorizationStatus = .fullAccess,
-        shortcutsAvailable: Bool = true,
-        createNoteShortcutName: String = "PulseType-写入备忘录",
-        createNoteShortcutExists: Bool = true,
-        notesAppAvailable: Bool = true,
         composeEmailAvailable: Bool = true,
         mailtoAvailable: Bool = true,
         mailAppAvailable: Bool = true,
         musicAppAvailable: Bool = true,
-        feishuCLIAvailable: Bool = true,
-        feishuCLICommandName: String? = "feishu"
+        notificationAuthorizationStatus: V4NotificationAuthorizationStatus = .authorized,
+        clockAppAvailable: Bool = true,
+        clockAlarmSurfaceAvailable: Bool = false,
+        clockTimerSurfaceAvailable: Bool = false
     ) -> MagicianDependencySnapshot {
         MagicianDependencySnapshot(
             accessibilityState: accessibility,
+            textModelReady: textModelReady,
             eventAuthorizationStatus: eventStatus,
-            shortcutsCLIAvailable: shortcutsAvailable,
-            createNoteShortcutName: createNoteShortcutName,
-            createNoteShortcutExists: createNoteShortcutExists,
-            notesAppAvailable: notesAppAvailable,
             composeEmailAvailable: composeEmailAvailable,
             mailtoAvailable: mailtoAvailable,
             mailAppAvailable: mailAppAvailable,
             musicAppAvailable: musicAppAvailable,
-            feishuCLIAvailable: feishuCLIAvailable,
-            feishuCLICommandName: feishuCLICommandName
+            notificationAuthorizationStatus: notificationAuthorizationStatus,
+            clockAppAvailable: clockAppAvailable,
+            clockAlarmSurfaceAvailable: clockAlarmSurfaceAvailable,
+            clockTimerSurfaceAvailable: clockTimerSurfaceAvailable
         )
     }
 }

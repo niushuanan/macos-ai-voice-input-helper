@@ -39,7 +39,7 @@ struct V4ShellCommandTool: V4Tool {
                 ]
             ),
             requiresPermission: false,
-            permissionScope: nil,
+            requiredFeature: nil,
             isConcurrencySafe: false,
             mutatesUserData: true,
             supportsStreamingResults: false

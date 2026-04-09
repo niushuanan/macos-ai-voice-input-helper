@@ -11,7 +11,7 @@ final class V4ToolEvidencePolicyTests: XCTestCase {
             inputSchemaVersion: "v1",
             inputSchema: V4ToolInputSchema(fields: []),
             requiresPermission: false,
-            permissionScope: nil,
+            requiredFeature: nil,
             isConcurrencySafe: true,
             mutatesUserData: false,
             supportsStreamingResults: false
@@ -45,7 +45,7 @@ final class V4ToolEvidencePolicyTests: XCTestCase {
             inputSchemaVersion: "v1",
             inputSchema: V4ToolInputSchema(fields: []),
             requiresPermission: false,
-            permissionScope: nil,
+            requiredFeature: nil,
             isConcurrencySafe: true,
             mutatesUserData: false,
             supportsStreamingResults: false

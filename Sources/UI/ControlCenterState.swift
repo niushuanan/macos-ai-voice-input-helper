@@ -9,7 +9,6 @@ enum DesktopSection: String, CaseIterable, Identifiable {
     case timeMachine
     case magician
     case agentBrainstorm
-    case skills
     case settings
 
     var id: String { rawValue }
@@ -30,8 +29,6 @@ enum DesktopSection: String, CaseIterable, Identifiable {
             return "魔术先生"
         case .agentBrainstorm:
             return "一口气全念对"
-        case .skills:
-            return "Now you see me"
         case .settings:
             return "设置"
         }
@@ -53,8 +50,6 @@ enum DesktopSection: String, CaseIterable, Identifiable {
             return "wand.and.stars"
         case .agentBrainstorm:
             return "person.2.wave.2"
-        case .skills:
-            return "slider.horizontal.3"
         case .settings:
             return "gearshape"
         }

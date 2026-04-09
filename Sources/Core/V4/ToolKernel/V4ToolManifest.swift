@@ -30,7 +30,7 @@ struct V4ToolManifest: Codable, Equatable, Sendable, Identifiable {
     let toolID: String
     let displayName: String
     let domain: String
-    let requiredScope: MagicianPermissionScope?
+    let requiredFeature: MagicianFeatureID?
     let inputSchemaSummary: String
     let isConcurrencySafe: Bool
     let supportsRetry: Bool
@@ -44,7 +44,7 @@ struct V4ToolManifest: Codable, Equatable, Sendable, Identifiable {
         toolID: String,
         displayName: String,
         domain: String,
-        requiredScope: MagicianPermissionScope?,
+        requiredFeature: MagicianFeatureID?,
         inputSchemaSummary: String,
         isConcurrencySafe: Bool,
         retryPolicy: V4ToolRetryPolicy,
@@ -54,7 +54,7 @@ struct V4ToolManifest: Codable, Equatable, Sendable, Identifiable {
         self.toolID = toolID
         self.displayName = displayName
         self.domain = domain
-        self.requiredScope = requiredScope
+        self.requiredFeature = requiredFeature
         self.inputSchemaSummary = inputSchemaSummary
         self.isConcurrencySafe = isConcurrencySafe
         self.retryPolicy = retryPolicy
@@ -79,8 +79,8 @@ struct V4ToolManifest: Codable, Equatable, Sendable, Identifiable {
             toolID,
             displayName,
             domain,
-            requiredScope?.rawValue ?? "none",
-            requiredScope?.displayName ?? "none",
+            requiredFeature?.rawValue ?? "none",
+            requiredFeature?.displayName ?? "none",
             inputSchemaSummary
         ] + keywords
     }
@@ -103,7 +103,7 @@ extension V4ToolManifest {
             toolID: spec.toolName,
             displayName: spec.displayName,
             domain: resolvedDomain,
-            requiredScope: spec.permissionScope,
+            requiredFeature: spec.requiredFeature,
             inputSchemaSummary: summary.isEmpty ? "无输入" : summary,
             isConcurrencySafe: spec.isConcurrencySafe,
             retryPolicy: retryPolicy,

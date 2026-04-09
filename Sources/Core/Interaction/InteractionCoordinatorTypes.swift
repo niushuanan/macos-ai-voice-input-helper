@@ -277,7 +277,7 @@ final class MusicFastExecutor: MusicFastExecuting {
             appName: request.focusContext.appName,
             bundleID: request.focusContext.bundleID,
             selectionText: nil,
-            enabledFeatureIDs: [MagicianFeatureID.controlMusic.rawValue]
+            enabledFeatureIDs: [MagicianFeatureID.music.rawValue]
         )
         let stepRecord = V4StepRecord(
             traceID: V4TraceID(rawValue: request.traceID),

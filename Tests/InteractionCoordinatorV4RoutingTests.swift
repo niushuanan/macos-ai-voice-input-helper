@@ -126,7 +126,7 @@ final class InteractionCoordinatorV4RoutingTests: XCTestCase {
         )
         defer { fixture.cleanUp() }
 
-        fixture.magicianFeatureToggleStore.setEnabled(true, for: .composeEmailDraft)
+        fixture.magicianFeatureToggleStore.setEnabled(true, for: .mail)
         fixture.magicianFeatureToggleStore.setEnabled(true, for: .feishuCLI)
 
         fixture.coordinator.handleWakeInput(context: .magicianHold)

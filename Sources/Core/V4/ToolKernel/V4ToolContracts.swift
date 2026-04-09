@@ -267,7 +267,7 @@ struct V4ToolSpec: Codable, Equatable, Sendable {
     let inputSchemaVersion: String
     let inputSchema: V4ToolInputSchema
     let requiresPermission: Bool
-    let permissionScope: MagicianPermissionScope?
+    let requiredFeature: MagicianFeatureID?
     let isConcurrencySafe: Bool
     let mutatesUserData: Bool
     let supportsStreamingResults: Bool

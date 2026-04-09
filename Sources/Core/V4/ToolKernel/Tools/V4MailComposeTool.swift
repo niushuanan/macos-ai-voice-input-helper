@@ -41,7 +41,7 @@ struct V4MailComposeTool: V4Tool {
             ]
         ),
         requiresPermission: true,
-        permissionScope: .appleNativeApps,
+        requiredFeature: .mail,
         isConcurrencySafe: false,
         mutatesUserData: true,
         supportsStreamingResults: false

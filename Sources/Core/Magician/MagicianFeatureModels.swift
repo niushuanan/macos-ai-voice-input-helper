@@ -48,6 +48,55 @@ enum MagicianMusicCapability {
     }
 }
 
+enum MagicianClockSurface: String, CaseIterable {
+    case worldClock
+    case alarm
+    case timer
+
+    var displayName: String {
+        switch self {
+        case .worldClock:
+            return "时钟"
+        case .alarm:
+            return "闹钟"
+        case .timer:
+            return "计时器"
+        }
+    }
+
+    var urlString: String {
+        switch self {
+        case .worldClock:
+            return "clock-worldclock://"
+        case .alarm:
+            return "clock-alarm://"
+        case .timer:
+            return "clock-timer://"
+        }
+    }
+}
+
+enum MagicianClockCapability {
+    static let bundleIdentifier = "com.apple.clock"
+    static let appPath = "/System/Applications/Clock.app"
+
+    static var clockAppAvailable: Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) != nil
+            || FileManager.default.fileExists(atPath: appPath)
+    }
+
+    static func canOpen(surface: MagicianClockSurface) -> Bool {
+        guard let url = URL(string: surface.urlString) else {
+            return false
+        }
+        return NSWorkspace.shared.urlForApplication(toOpen: url) != nil || clockAppAvailable
+    }
+
+    static var handoffAvailable: Bool {
+        clockAppAvailable
+    }
+}
+
 struct MagicianCreateNoteShortcutSupport: @unchecked Sendable {
     static let shortcutsExecutablePath = "/usr/bin/shortcuts"
     static let shortcutNameDefaultsKey = "magician.shortcuts.create_note.name.v1"
@@ -119,8 +168,13 @@ struct MagicianCreateNoteShortcutSupport: @unchecked Sendable {
     }
 }
 
-enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
+enum MagicianFeatureID: String, CaseIterable, Identifiable {
     case textTransform = "text_transform"
+    case calendar = "calendar"
+    case markdownDocument = "markdown_document"
+    case mail = "mail"
+    case music = "music"
+    case clock = "clock"
     case createEvent = "create_event"
     case createNote = "create_note"
     case composeEmailDraft = "compose_email_draft"
@@ -129,169 +183,200 @@ enum MagicianFeatureID: String, CaseIterable, Codable, Identifiable {
 
     var id: String { rawValue }
 
-    var displayName: String {
+    static var allCases: [MagicianFeatureID] {
+        [
+            .textTransform,
+            .calendar,
+            .markdownDocument,
+            .mail,
+            .music,
+            .clock
+        ]
+    }
+
+    var canonicalFeature: MagicianFeatureID {
         switch self {
-        case .textTransform:
-            return "文字处理"
         case .createEvent:
-            return "一键建日程"
+            return .calendar
         case .createNote:
-            return "本地文档"
+            return .markdownDocument
         case .composeEmailDraft:
-            return "邮件助手"
+            return .mail
         case .controlMusic:
-            return "音乐控制"
+            return .music
+        default:
+            return self
+        }
+    }
+
+    var displayName: String {
+        switch canonicalFeature {
+        case .textTransform:
+            return "文本处理"
+        case .calendar:
+            return "日历"
+        case .markdownDocument:
+            return "Markdown 文档"
+        case .mail:
+            return "邮件"
+        case .music:
+            return "音乐"
+        case .clock:
+            return "时钟"
         case .feishuCLI:
             return "飞书 CLI"
+        case .createEvent, .createNote, .composeEmailDraft, .controlMusic:
+            return canonicalFeature.displayName
         }
     }
 
     var progressTitle: String {
-        switch self {
+        switch canonicalFeature {
         case .textTransform:
-            return "文字处理中"
-        case .createEvent:
-            return "建日程中"
-        case .createNote:
-            return "保存本地文档中"
-        case .composeEmailDraft:
+            return "文本处理中"
+        case .calendar:
+            return "创建日程中"
+        case .markdownDocument:
+            return "生成 Markdown 文档中"
+        case .mail:
             return "整理邮件中"
-        case .controlMusic:
+        case .music:
             return "控制音乐中"
+        case .clock:
+            return "处理时钟动作中"
         case .feishuCLI:
             return "执行飞书命令中"
+        case .createEvent, .createNote, .composeEmailDraft, .controlMusic:
+            return canonicalFeature.progressTitle
         }
     }
 
     var summaryLine: String {
-        switch self {
+        switch canonicalFeature {
         case .textTransform:
-            return "把选中内容改成你想要的表达。"
-        case .createEvent:
-            return "从选中内容里识别时间和主题，直接加入日历。"
-        case .createNote:
-            return "把处理结果自动写入本地 md 文档并持久保存。"
-        case .composeEmailDraft:
-            return "整理主题和正文，打开 Mail；地址明确时可直接发出。"
-        case .controlMusic:
+            return "长按魔术先生，直接处理当前文字。"
+        case .calendar:
+            return "把一句话里的时间和主题写进系统日历。"
+        case .markdownDocument:
+            return "把内容整理成 Markdown 文档并落到本地。"
+        case .mail:
+            return "整理主题和正文，打开 Mail 或直接发出。"
+        case .music:
             return "一句话控制 Music：播放、暂停、继续、切歌。"
+        case .clock:
+            return "负责提醒、计时和打开系统 Clock。"
         case .feishuCLI:
-            return "无选中也能语音下令，调用飞书 CLI 执行动作。"
+            return "保留给内部兼容链路，不再属于主体验。"
+        case .createEvent, .createNote, .composeEmailDraft, .controlMusic:
+            return canonicalFeature.summaryLine
         }
     }
 
     var boundaryLine: String {
-        switch self {
+        switch canonicalFeature {
         case .textTransform:
-            return "仅作用于当前选中内容。"
-        case .createEvent:
-            return "信息不完整时按默认规则自动推断。"
-        case .createNote:
-            return "始终新建文档，不覆盖历史内容。"
-        case .composeEmailDraft:
-            return "地址明确且模型判断该直接发时，会自动发送；不明确时只打开编辑窗口。"
-        case .controlMusic:
-            return "仅控制本机 Music 应用，不会改动你的音乐资料。"
+            return "只处理文字，不直接触发系统动作。"
+        case .calendar:
+            return "只写入本机日历，不帮你群发或同步外部服务。"
+        case .markdownDocument:
+            return "主路径统一走 md.pipeline，不再混 Notes 文案。"
+        case .mail:
+            return "地址不够稳时只打开编辑窗口，不会直接发。"
+        case .music:
+            return "只控制本机 Music，不改动你的资料库。"
+        case .clock:
+            return "保证路径仍是本地提醒；打开 Clock 属于尽力而为。"
         case .feishuCLI:
-            return "仅执行飞书 CLI 允许动作；未知命令会直接拒绝并给提示。"
+            return "仅保留给内部兼容逻辑，不再在主界面出现。"
+        case .createEvent, .createNote, .composeEmailDraft, .controlMusic:
+            return canonicalFeature.boundaryLine
         }
     }
 
     var sampleCommand: String {
-        switch self {
+        switch canonicalFeature {
         case .textTransform:
-            return "翻成日语"
-        case .createEvent:
+            return "把这段话改得更利落"
+        case .calendar:
             return "周五下午和产品开评审会"
-        case .createNote:
-            return "总结后保存到本地文档"
-        case .composeEmailDraft:
+        case .markdownDocument:
+            return "整理后保存成 Markdown 文档"
+        case .mail:
             return "给小庄发邮件"
-        case .controlMusic:
+        case .music:
             return "播放稻香"
+        case .clock:
+            return "30 分钟后提醒我开会"
         case .feishuCLI:
             return "飞书查今天议程"
+        case .createEvent, .createNote, .composeEmailDraft, .controlMusic:
+            return canonicalFeature.sampleCommand
         }
     }
 
     var symbolName: String {
-        switch self {
+        switch canonicalFeature {
         case .textTransform:
             return "text.bubble"
-        case .createEvent:
+        case .calendar:
             return "calendar"
-        case .createNote:
+        case .markdownDocument:
             return "doc.text"
-        case .composeEmailDraft:
+        case .mail:
             return "envelope"
-        case .controlMusic:
+        case .music:
             return "music.note"
+        case .clock:
+            return "alarm"
         case .feishuCLI:
             return "paperplane.circle"
+        case .createEvent, .createNote, .composeEmailDraft, .controlMusic:
+            return canonicalFeature.symbolName
+        }
+    }
+
+    var isNativeAction: Bool {
+        canonicalFeature != .textTransform && canonicalFeature != .feishuCLI
+    }
+
+    static func fromStoredRawValue(_ rawValue: String) -> Self? {
+        switch rawValue {
+        case Self.textTransform.rawValue:
+            return .textTransform
+        case Self.calendar.rawValue, Self.createEvent.rawValue:
+            return .calendar
+        case Self.markdownDocument.rawValue, Self.createNote.rawValue:
+            return .markdownDocument
+        case Self.mail.rawValue, Self.composeEmailDraft.rawValue:
+            return .mail
+        case Self.music.rawValue, Self.controlMusic.rawValue:
+            return .music
+        case Self.clock.rawValue:
+            return .clock
+        case Self.feishuCLI.rawValue:
+            return .feishuCLI
+        default:
+            return nil
         }
     }
 }
 
-enum MagicianPermissionScope: String, CaseIterable, Codable, Identifiable {
-    case textProcessing = "text_processing"
-    case feishu = "feishu"
-    case appleNativeApps = "apple_native_apps"
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .textProcessing:
-            return "文字处理"
-        case .feishu:
-            return "飞书"
-        case .appleNativeApps:
-            return "苹果原生应用"
+extension MagicianFeatureID: Codable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        guard let value = Self.fromStoredRawValue(rawValue) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unknown magician feature id: \(rawValue)"
+            )
         }
+        self = value
     }
 
-    var symbolName: String {
-        switch self {
-        case .textProcessing:
-            return "text.bubble"
-        case .feishu:
-            return "paperplane.circle"
-        case .appleNativeApps:
-            return "apple.logo"
-        }
-    }
-
-    var summary: String {
-        switch self {
-        case .textProcessing:
-            return "有选中时改写文字；无选中时可当文本命令助手。"
-        case .feishu:
-            return "无选中也能语音下令，走飞书 CLI 执行。"
-        case .appleNativeApps:
-            return "统一控制系统日历、备忘录、邮件、音乐能力。"
-        }
-    }
-
-    var boundary: String {
-        switch self {
-        case .textProcessing:
-            return "只处理文本结果，不会触发系统动作。"
-        case .feishu:
-            return "仅执行 allowlist 内的飞书 CLI 动作。"
-        case .appleNativeApps:
-            return "只调用本机原生能力，不写入飞书。"
-        }
-    }
-
-    var mappedFeatures: Set<MagicianFeatureID> {
-        switch self {
-        case .textProcessing:
-            return [.textTransform]
-        case .feishu:
-            return [.feishuCLI]
-        case .appleNativeApps:
-            return [.createEvent, .createNote, .composeEmailDraft, .controlMusic]
-        }
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
@@ -325,7 +410,7 @@ enum MagicianFeatureStatus: String, Equatable {
         case .notEnabled:
             return "未开启"
         case .needsPermission:
-            return "需权限"
+            return "需准备"
         case .enabled:
             return "已开启"
         }
@@ -334,15 +419,18 @@ enum MagicianFeatureStatus: String, Equatable {
 
 struct MagicianDependencySnapshot: Equatable {
     let accessibilityState: PermissionState
+    let textModelReady: Bool
     let eventAuthorizationStatus: EKAuthorizationStatus
-    let shortcutsCLIAvailable: Bool
-    let createNoteShortcutName: String
-    let createNoteShortcutExists: Bool
-    let notesAppAvailable: Bool
     let composeEmailAvailable: Bool
     let mailtoAvailable: Bool
     let mailAppAvailable: Bool
     let musicAppAvailable: Bool
-    let feishuCLIAvailable: Bool
-    let feishuCLICommandName: String?
+    let notificationAuthorizationStatus: V4NotificationAuthorizationStatus
+    let clockAppAvailable: Bool
+    let clockAlarmSurfaceAvailable: Bool
+    let clockTimerSurfaceAvailable: Bool
+
+    var clockHandoffAvailable: Bool {
+        clockAppAvailable || clockAlarmSurfaceAvailable || clockTimerSurfaceAvailable
+    }
 }
