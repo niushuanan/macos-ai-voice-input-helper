@@ -525,6 +525,88 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         XCTAssertTrue(evidence.contains("query_mismatch=true"))
     }
 
+    func testMusicDeterministicTrackSelectionPrefersExactSongMatch() {
+        let tracks = [
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-1",
+                name: "七里香",
+                artist: "周杰伦",
+                album: "七里香"
+            ),
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-2",
+                name: "稻香",
+                artist: "周杰伦",
+                album: "魔杰座"
+            ),
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-3",
+                name: "龙战骑士",
+                artist: "周杰伦",
+                album: "魔杰座"
+            )
+        ]
+
+        let picked = V4MusicControlTool.selectDeterministicTrack(
+            query: "稻香",
+            rawCommand: "播放稻香",
+            playIntent: .song,
+            tracks: tracks
+        )
+
+        XCTAssertEqual(picked?.persistentID, "id-2")
+    }
+
+    func testMusicDeterministicTrackSelectionSkipsMoodFallback() {
+        let tracks = [
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-1",
+                name: "晴天",
+                artist: "周杰伦",
+                album: "叶惠美"
+            )
+        ]
+
+        let picked = V4MusicControlTool.selectDeterministicTrack(
+            query: "开心",
+            rawCommand: "放一首开心的歌",
+            playIntent: .mood,
+            tracks: tracks
+        )
+
+        XCTAssertNil(picked)
+    }
+
+    func testMusicVerificationAcceptsResolvedIDSubstitutionWhenMetadataMatches() {
+        let verification = V4MusicControlTool.verifyLibraryPlayback(
+            output: "track=龙战骑士|artist=周杰伦|album=魔杰座|state=playing|resolved_id=substitute-id|target_id_match=false|metadata_match=true|resolved_id_substituted=true",
+            targetID: "target-id",
+            query: "龙战骑士",
+            playIntent: .song
+        )
+
+        XCTAssertTrue(verification.playbackActive)
+        XCTAssertTrue(verification.metadataMatches)
+        XCTAssertFalse(verification.targetIDMatches)
+        XCTAssertTrue(verification.queryMatches)
+        XCTAssertTrue(verification.isAccepted)
+    }
+
+    func testMusicVerificationRejectsPlayingWrongSong() {
+        let verification = V4MusicControlTool.verifyLibraryPlayback(
+            output: "track=鞋子特大号|artist=周杰伦|album=哎呦，不错哦|state=playing|resolved_id=other-id|target_id_match=false|metadata_match=false",
+            targetID: "target-id",
+            query: "稻香",
+            playIntent: .song
+        )
+
+        XCTAssertTrue(verification.playbackActive)
+        XCTAssertFalse(verification.metadataMatches)
+        XCTAssertFalse(verification.targetIDMatches)
+        XCTAssertFalse(verification.queryMatches)
+        XCTAssertFalse(verification.isAccepted)
+    }
+
     func testMusicAlbumIntentMarksPlayIntentAsAlbum() async {
         let tool = V4MusicControlTool { command in
             XCTAssertEqual(command.action, .play)

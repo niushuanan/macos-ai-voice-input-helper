@@ -1,7 +1,7 @@
 import Foundation
 
 struct V4MusicControlTool: V4Tool {
-    private struct LibraryTrackRecord: Codable, Equatable, Sendable {
+    struct LibraryTrackRecord: Codable, Equatable, Sendable {
         let persistentID: String
         let name: String
         let artist: String
@@ -118,6 +118,17 @@ struct V4MusicControlTool: V4Tool {
         let track: String?
         let artist: String?
         let evidence: String
+    }
+
+    struct LibraryPlaybackVerification: Equatable, Sendable {
+        let playbackActive: Bool
+        let queryMatches: Bool
+        let targetIDMatches: Bool
+        let metadataMatches: Bool
+
+        var isAccepted: Bool {
+            playbackActive && (targetIDMatches || metadataMatches || queryMatches)
+        }
     }
 
     typealias ExecuteHandler = @Sendable (Command) async throws -> ResultPayload
@@ -1021,50 +1032,64 @@ struct V4MusicControlTool: V4Tool {
             return nil
         }
 
-        guard
+        var selectedTrack: LibraryTrackRecord?
+        var strategy = "library_local_index_fallback"
+
+        if
             let configuration = await semanticModelConfiguration(modelSlotManager: modelSlotManager),
             let apiKey = await semanticModelAPIKey(modelSlotManager: modelSlotManager),
             !apiKey.isEmpty || !configuration.providerType.requiresAPIKey
-        else {
-            return nil
+        {
+            if tracks.count <= 280 {
+                selectedTrack = await selectTrackFromLibraryBlock(
+                    query: query,
+                    rawCommand: rawCommand,
+                    playIntent: playIntent,
+                    tracks: tracks,
+                    configuration: configuration,
+                    apiKey: apiKey,
+                    generationProvider: generationProvider
+                )
+            } else {
+                selectedTrack = await selectTrackFromFullLibraryBatches(
+                    query: query,
+                    rawCommand: rawCommand,
+                    playIntent: playIntent,
+                    tracks: tracks,
+                    configuration: configuration,
+                    apiKey: apiKey,
+                    generationProvider: generationProvider
+                )
+            }
+            if selectedTrack != nil {
+                strategy = "library_llm_index_only"
+            }
         }
 
-        let selectedTrack: LibraryTrackRecord?
-        if tracks.count <= 280 {
-            selectedTrack = await selectTrackFromLibraryBlock(
+        if selectedTrack == nil {
+            selectedTrack = selectDeterministicTrack(
                 query: query,
                 rawCommand: rawCommand,
                 playIntent: playIntent,
-                tracks: tracks,
-                configuration: configuration,
-                apiKey: apiKey,
-                generationProvider: generationProvider
-            )
-        } else {
-            selectedTrack = await selectTrackFromFullLibraryBatches(
-                query: query,
-                rawCommand: rawCommand,
-                playIntent: playIntent,
-                tracks: tracks,
-                configuration: configuration,
-                apiKey: apiKey,
-                generationProvider: generationProvider
+                tracks: tracks
             )
         }
+
         guard let selectedTrack else {
             return nil
         }
 
         let playResult = await playTrackByPersistentID(selectedTrack.persistentID)
-        guard
-            playResult.exitCode == 0,
-            playResult.stdout.hasPrefix("track="),
-            evidenceResolvedTrackIDMatchesTarget(output: playResult.stdout, targetID: selectedTrack.persistentID)
-        else {
+        guard let verifiedResult = await resolveAcceptedPlaybackResult(
+            initialResult: playResult,
+            targetID: selectedTrack.persistentID,
+            query: query,
+            playIntent: playIntent
+        ) else {
             return nil
         }
-        let evidence = playResult.stdout + "|strategy=library_llm_index_only|index_revision=\(snapshot.revision)"
-        return MagicianProcessResult(exitCode: 0, stdout: evidence, stderr: playResult.stderr)
+        let evidence = verifiedResult.stdout + "|strategy=\(strategy)|index_revision=\(snapshot.revision)"
+        return MagicianProcessResult(exitCode: 0, stdout: evidence, stderr: verifiedResult.stderr)
     }
 
     private static func selectTrackFromFullLibraryBatches(
@@ -1244,15 +1269,16 @@ struct V4MusicControlTool: V4Tool {
         }
 
         let playResult = await playTrackByPersistentID(pick.persistentID)
-        guard
-            playResult.exitCode == 0,
-            playResult.stdout.hasPrefix("track="),
-            evidenceResolvedTrackIDMatchesTarget(output: playResult.stdout, targetID: pick.persistentID)
-        else {
+        guard let verifiedResult = await resolveAcceptedPlaybackResult(
+            initialResult: playResult,
+            targetID: pick.persistentID,
+            query: query,
+            playIntent: playIntent
+        ) else {
             return nil
         }
-        let evidence = playResult.stdout + "|strategy=library_rag"
-        return MagicianProcessResult(exitCode: 0, stdout: evidence, stderr: playResult.stderr)
+        let evidence = verifiedResult.stdout + "|strategy=library_rag"
+        return MagicianProcessResult(exitCode: 0, stdout: evidence, stderr: verifiedResult.stderr)
     }
 
     private static func loadLibraryCatalog() async -> [LibraryTrackRecord] {
@@ -1606,6 +1632,33 @@ struct V4MusicControlTool: V4Tool {
         return candidates.first?.track
     }
 
+    static func selectDeterministicTrack(
+        query: String,
+        rawCommand: String,
+        playIntent: PlayIntent,
+        tracks: [LibraryTrackRecord]
+    ) -> LibraryTrackRecord? {
+        guard !tracks.isEmpty else {
+            return nil
+        }
+        guard playIntent != .mood else {
+            return nil
+        }
+        let candidates = retrieveLibraryCandidates(
+            query: query,
+            rawCommand: rawCommand,
+            playIntent: playIntent,
+            tracks: tracks,
+            limit: tracks.count
+        )
+        return localFallbackTrack(
+            query: query,
+            playIntent: playIntent,
+            tracks: tracks,
+            candidates: candidates
+        )
+    }
+
     private static func pickTrackFromAlbum(
         query: String,
         tracks: [LibraryTrackRecord],
@@ -1782,27 +1835,43 @@ struct V4MusicControlTool: V4Tool {
                 "if targetTrack is missing value then",
                 "return \"track_not_found|target_id=\" & targetPID",
                 "end if",
+                "set targetName to (name of targetTrack) as string",
+                "set targetArtist to (artist of targetTrack) as string",
+                "set targetAlbum to (album of targetTrack) as string",
                 "set finalState to \"unknown\"",
-                "repeat with attemptIndex from 1 to 2",
+                "set lastNowName to \"\"",
+                "set lastNowArtist to \"\"",
+                "set lastNowAlbum to \"\"",
+                "set lastNowID to \"\"",
+                "set lastMetadataMatch to false",
                 "play targetTrack",
-                "delay 0.55",
+                "repeat with attemptIndex from 1 to 6",
+                "delay 0.42",
                 "set finalState to (player state as string)",
                 "try",
                 "set nowTrack to current track",
-                "set nowID to (persistent ID of nowTrack) as string",
-                "if nowID is targetPID then",
-                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=\" & finalState & \"|queue_mode=library_order|target_id=\" & targetPID & \"|resolved_id=\" & nowID",
+                "set lastNowName to (name of nowTrack) as string",
+                "set lastNowArtist to (artist of nowTrack) as string",
+                "set lastNowAlbum to (album of nowTrack) as string",
+                "set lastNowID to (persistent ID of nowTrack) as string",
+                "set lastMetadataMatch to ((lastNowName is targetName) and (lastNowArtist is targetArtist))",
+                "if lastNowID is targetPID then",
+                "return \"track=\" & lastNowName & \"|artist=\" & lastNowArtist & \"|album=\" & lastNowAlbum & \"|state=\" & finalState & \"|queue_mode=library_order|target_id=\" & targetPID & \"|resolved_id=\" & lastNowID & \"|target_id_match=true|metadata_match=true\"",
+                "end if",
+                "if lastMetadataMatch then",
+                "return \"track=\" & lastNowName & \"|artist=\" & lastNowArtist & \"|album=\" & lastNowAlbum & \"|state=\" & finalState & \"|queue_mode=library_order|target_id=\" & targetPID & \"|resolved_id=\" & lastNowID & \"|target_id_match=false|metadata_match=true|resolved_id_substituted=true\"",
                 "end if",
                 "end try",
-                "delay 0.18",
-                "end repeat",
+                "if attemptIndex is 3 then",
                 "try",
-                "set nowTrack to current track",
-                "set nowID to (persistent ID of nowTrack) as string",
-                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=\" & finalState & \"|queue_mode=library_order|target_id=\" & targetPID & \"|resolved_id=\" & nowID & \"|play_mismatch=true\"",
-                "on error",
-                "return \"play_mismatch|state=\" & finalState & \"|target_id=\" & targetPID",
+                "play targetTrack",
                 "end try",
+                "end if",
+                "end repeat",
+                "if lastNowName is not \"\" then",
+                "return \"track=\" & lastNowName & \"|artist=\" & lastNowArtist & \"|album=\" & lastNowAlbum & \"|state=\" & finalState & \"|queue_mode=library_order|target_id=\" & targetPID & \"|resolved_id=\" & lastNowID & \"|play_mismatch=true|target_id_match=false|metadata_match=\" & (lastMetadataMatch as string)",
+                "end if",
+                "return \"play_mismatch|state=\" & finalState & \"|target_id=\" & targetPID & \"|target_name=\" & targetName & \"|target_artist=\" & targetArtist & \"|target_album=\" & targetAlbum",
                 "end tell",
                 "end run"
             ],
@@ -1812,6 +1881,9 @@ struct V4MusicControlTool: V4Tool {
     }
 
     private static func evidenceResolvedTrackIDMatchesTarget(output: String, targetID: String) -> Bool {
+        if let explicitMatch = evidenceBooleanField("target_id_match", from: output) {
+            return explicitMatch
+        }
         let normalizedTargetID = targetID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTargetID.isEmpty else {
             return false
@@ -1820,6 +1892,128 @@ struct V4MusicControlTool: V4Tool {
             return true
         }
         return resolvedID.caseInsensitiveCompare(normalizedTargetID) == .orderedSame
+    }
+
+    static func verifyLibraryPlayback(
+        output: String,
+        targetID: String,
+        query: String,
+        playIntent: PlayIntent
+    ) -> LibraryPlaybackVerification {
+        let normalizedState = (evidenceField("state", from: output) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let playbackActive = normalizedState == "play" || normalizedState == "playing"
+        let queryMatches: Bool = {
+            if playIntent == .album {
+                return albumEvidenceMatchesQuery(output: output, query: query)
+            }
+            if Self.isMoodDiscoveryQuery(query) {
+                return true
+            }
+            return magicianMusicEvidenceMatchesQuery(output: output, query: query)
+        }()
+        return LibraryPlaybackVerification(
+            playbackActive: playbackActive,
+            queryMatches: queryMatches,
+            targetIDMatches: evidenceResolvedTrackIDMatchesTarget(output: output, targetID: targetID),
+            metadataMatches: evidenceBooleanField("metadata_match", from: output) ?? false
+        )
+    }
+
+    private static func resolveAcceptedPlaybackResult(
+        initialResult: MagicianProcessResult,
+        targetID: String,
+        query: String,
+        playIntent: PlayIntent
+    ) async -> MagicianProcessResult? {
+        let initialOutput = initialResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        if initialResult.exitCode == 0, initialOutput.hasPrefix("track=") {
+            let verification = verifyLibraryPlayback(
+                output: initialOutput,
+                targetID: targetID,
+                query: query,
+                playIntent: playIntent
+            )
+            if verification.isAccepted {
+                return MagicianProcessResult(
+                    exitCode: initialResult.exitCode,
+                    stdout: initialOutput,
+                    stderr: initialResult.stderr
+                )
+            }
+        }
+
+        for attempt in 1...5 {
+            let probe = await probeCurrentPlayback(targetID: targetID)
+            let probeOutput = probe.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            if probe.exitCode == 0, probeOutput.hasPrefix("track=") {
+                let verification = verifyLibraryPlayback(
+                    output: probeOutput,
+                    targetID: targetID,
+                    query: query,
+                    playIntent: playIntent
+                )
+                if verification.isAccepted {
+                    return MagicianProcessResult(
+                        exitCode: 0,
+                        stdout: probeOutput,
+                        stderr: initialResult.stderr.isEmpty ? probe.stderr : initialResult.stderr
+                    )
+                }
+            }
+            if attempt < 5 {
+                try? await Task.sleep(nanoseconds: 350_000_000)
+            }
+        }
+        return nil
+    }
+
+    private static func probeCurrentPlayback(targetID: String) async -> MagicianProcessResult {
+        await runOsaScript(
+            lines: [
+                "on run argv",
+                "set targetPID to item 1 of argv",
+                "tell application \"Music\"",
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+                "set targetTrack to missing value",
+                "try",
+                "set allTracks to tracks of library playlist 1",
+                "repeat with t in allTracks",
+                "try",
+                "if ((persistent ID of t) as string) is targetPID then",
+                "set targetTrack to t",
+                "exit repeat",
+                "end if",
+                "end try",
+                "end repeat",
+                "end try",
+                "set finalState to (player state as string)",
+                "try",
+                "set nowTrack to current track",
+                "set nowName to (name of nowTrack) as string",
+                "set nowArtist to (artist of nowTrack) as string",
+                "set nowAlbum to (album of nowTrack) as string",
+                "set nowID to (persistent ID of nowTrack) as string",
+                "set metadataMatch to false",
+                "if targetTrack is not missing value then",
+                "set targetName to (name of targetTrack) as string",
+                "set targetArtist to (artist of targetTrack) as string",
+                "set metadataMatch to ((nowName is targetName) and (nowArtist is targetArtist))",
+                "end if",
+                "if nowID is targetPID then",
+                "return \"track=\" & nowName & \"|artist=\" & nowArtist & \"|album=\" & nowAlbum & \"|state=\" & finalState & \"|target_id=\" & targetPID & \"|resolved_id=\" & nowID & \"|target_id_match=true|metadata_match=true|verification_probe=true\"",
+                "end if",
+                "return \"track=\" & nowName & \"|artist=\" & nowArtist & \"|album=\" & nowAlbum & \"|state=\" & finalState & \"|target_id=\" & targetPID & \"|resolved_id=\" & nowID & \"|target_id_match=false|metadata_match=\" & (metadataMatch as string) & \"|verification_probe=true\"",
+                "on error errMsg",
+                "return \"state=\" & finalState & \"|target_id=\" & targetPID & \"|verification_probe=true|probe_error=\" & errMsg",
+                "end try",
+                "end tell",
+                "end run"
+            ],
+            arguments: [targetID],
+            timeoutSeconds: 10
+        )
     }
 
     private static func runFallbackLibraryOrderedPlay() async -> MagicianProcessResult? {
@@ -1898,6 +2092,23 @@ struct V4MusicControlTool: V4Tool {
             }
         }
         return nil
+    }
+
+    private static func evidenceBooleanField(_ key: String, from output: String) -> Bool? {
+        guard let rawValue = evidenceField(key, from: output)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        else {
+            return nil
+        }
+        switch rawValue {
+        case "true", "yes", "1":
+            return true
+        case "false", "no", "0":
+            return false
+        default:
+            return nil
+        }
     }
 
     static func normalizedPlaybackEvidenceForMismatch(
