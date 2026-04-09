@@ -401,11 +401,11 @@ final class HotkeyStateStore: ObservableObject {
     func registrationText(for name: KeyboardShortcuts.Name) -> String {
         switch name {
         case .wakeSession:
-            return wakeShortcutRegistered ? "主键监听已生效（单键触发）" : "主键还没有生效"
+            return wakeShortcutRegistered ? "单键触发：\(wakeModifier.displayName)" : "主键还没有生效"
         case .cancelSession:
-            return cancelShortcutRegistered ? "取消键监听已生效（Esc）" : "取消键还没有生效（Esc）"
+            return cancelShortcutRegistered ? "固定键：Esc" : "取消键还没有生效（Esc）"
         case .brainstormSession:
-            return "一口气全念对监听已生效（双击\(brainstormModifier.displayName)）"
+            return "双击修饰键：\(brainstormModifier.displayName)"
         default:
             return "监听状态未知"
         }

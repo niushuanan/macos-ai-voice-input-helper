@@ -454,11 +454,11 @@ struct SkillRuleCardView: View {
     let parameterPlaceholder: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.headline)
+                        .font(.subheadline.weight(.semibold))
                     Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -476,14 +476,7 @@ struct SkillRuleCardView: View {
                     .font(.system(size: 13))
                     .frame(minHeight: 84, maxHeight: 120)
                     .padding(6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.primary.opacity(0.12), lineWidth: 1)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(Color(nsColor: .textBackgroundColor))
-                            )
-                    )
+                    .controlCenterInsetPanel()
                     .disabled(!isEnabled)
             } else {
                 TextField(parameterPlaceholder, text: $parameter)
@@ -492,8 +485,7 @@ struct SkillRuleCardView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .pulseCard(cornerRadius: 10)
+        .padding(.vertical, 4)
     }
 }
 
@@ -504,16 +496,16 @@ struct ScenePolicyRowView: View {
     let onDelete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
                 Text(policy.appName)
                     .font(.subheadline.weight(.semibold))
                 if isEditing {
-                    Text("编辑中")
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Capsule(style: .continuous).fill(Color.accentColor.opacity(0.14)))
+                    ControlCenterStatusPill(
+                        title: "编辑中",
+                        systemImage: "pencil",
+                        tint: .accentColor
+                    )
                 }
                 Spacer()
                 Button("编辑") {
@@ -536,16 +528,12 @@ struct ScenePolicyRowView: View {
                 .lineLimit(2)
 
             HStack(spacing: 8) {
-                Label("应用提示词", systemImage: "text.bubble")
-                    .font(.caption2)
-                Label("普通听写/改写", systemImage: "wand.and.stars")
-                    .font(.caption2)
+                ControlCenterStatusPill(title: "应用提示词", systemImage: "text.bubble", tint: .secondary)
+                ControlCenterStatusPill(title: "普通听写/改写", systemImage: "wand.and.stars", tint: .secondary)
             }
-            .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .pulseCard(cornerRadius: 10)
+        .padding(.vertical, 4)
     }
 
     private var promptPreview: String {
@@ -578,10 +566,7 @@ struct SceneAppCandidateRowView: View {
             .buttonStyle(.bordered)
         }
         .padding(8)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.white.opacity(0.65))
-        )
+        .controlCenterInsetPanel(cornerRadius: 10)
     }
 }
 
@@ -635,7 +620,7 @@ struct PulseToastView: View {
 }
 
 struct ModelConfigCard: View {
-    let title: String
+    let title: String?
     let availableProviderTypes: [ProviderType]
     let providerType: Binding<ProviderType>
     let baseURL: Binding<String>
@@ -655,9 +640,12 @@ struct ModelConfigCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.headline)
-                .padding(.top, 2)
+            if let title, !title.isEmpty {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 2)
+            }
 
             Picker("Provider 类型", selection: providerType) {
                 ForEach(availableProviderTypes) { type in
@@ -665,6 +653,7 @@ struct ModelConfigCard: View {
                 }
             }
             .pickerStyle(.menu)
+            .controlSize(.regular)
 
             if showsBaseURL {
                 Text("API 地址")
@@ -718,6 +707,7 @@ struct ModelConfigCard: View {
                     .disabled(isDeleteDisabled)
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.small)
 
                 Label(
                     credentialStateTitle,
@@ -824,9 +814,11 @@ struct ModelStatusPanel: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Label(statusTitle, systemImage: statusIcon)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(statusColor)
+                ControlCenterStatusPill(
+                    title: statusTitle,
+                    systemImage: statusIcon,
+                    tint: statusColor
+                )
             }
 
             Text(activeConfigLine)
@@ -852,7 +844,7 @@ struct ModelStatusPanel: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .pulseCard(cornerRadius: 10)
+        .controlCenterInsetPanel(cornerRadius: 10)
     }
 
     private var statusTitle: String {
@@ -917,7 +909,7 @@ struct ConnectionTestSummaryView: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .pulseCard(cornerRadius: 8)
+        .controlCenterInsetPanel(cornerRadius: 8)
     }
 
     private var statusTitle: String {
@@ -947,17 +939,19 @@ struct PermissionRowView: View {
     let onOpenSettings: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
                 Label(item.title, systemImage: iconName)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(stateColor)
 
                 Spacer()
 
-                Text(stateText)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(stateColor)
+                ControlCenterStatusPill(
+                    title: stateText,
+                    systemImage: iconName,
+                    tint: stateColor
+                )
             }
 
             Text(item.detail)
@@ -980,8 +974,10 @@ struct PermissionRowView: View {
                 Button("打开系统设置") {
                     onOpenSettings()
                 }
+                Spacer()
             }
             .buttonStyle(.bordered)
+            .controlSize(.small)
         }
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1029,37 +1025,6 @@ struct PermissionRowView: View {
     }
 }
 
-struct PersistentPrimaryButtonStyle: ButtonStyle {
-    @Environment(\.controlActiveState) private var controlActiveState
-
-    func makeBody(configuration: Configuration) -> some View {
-        let isActive = controlActiveState == .key
-        return configuration.label
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white.opacity(configuration.isPressed ? 0.9 : 1))
-            .padding(.horizontal, 14)
-            .frame(minWidth: 132, minHeight: 36)
-            .background(
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: isActive
-                                ? [Color.accentColor.opacity(configuration.isPressed ? 0.76 : 0.92), Color.accentColor.opacity(configuration.isPressed ? 0.62 : 0.82)]
-                                : [Color.accentColor.opacity(configuration.isPressed ? 0.68 : 0.84), Color.accentColor.opacity(configuration.isPressed ? 0.54 : 0.72)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .stroke(Color.white.opacity(isActive ? 0.46 : 0.58), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(configuration.isPressed ? 0.04 : 0.12), radius: 10, x: 0, y: 4)
-            .opacity(configuration.isPressed ? 0.96 : 1)
-    }
-}
-
 struct MagicianPermissionSheetView: View {
     let prompt: MagicianPermissionPromptModel
     let onPrimary: () -> Void
@@ -1091,6 +1056,24 @@ struct MagicianPermissionSheetView: View {
     }
 }
 
+struct ControlCenterStatusPill: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(tint.opacity(0.14))
+            )
+            .foregroundStyle(tint)
+    }
+}
+
 private struct PulseCardStyle: ViewModifier {
     let cornerRadius: CGFloat
 
@@ -1114,8 +1097,72 @@ private struct PulseCardStyle: ViewModifier {
     }
 }
 
+private struct ControlCenterSectionGroupStyle: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background(
+                shape.fill(Color(nsColor: .windowBackgroundColor).opacity(0.94))
+                    .background(
+                        shape.fill(.ultraThinMaterial).opacity(0.24)
+                    )
+            )
+            .overlay(
+                shape.stroke(Color.white.opacity(0.72), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.022), radius: 10, x: 0, y: 2)
+    }
+}
+
+private struct ControlCenterInsetPanelStyle: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background(
+                shape.fill(Color(nsColor: .controlBackgroundColor).opacity(0.62))
+                    .background(
+                        shape.fill(.thinMaterial).opacity(0.18)
+                    )
+            )
+            .overlay(
+                shape.stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+    }
+}
+
+private struct ControlCenterListRowStyle: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background(
+                shape.fill(Color(nsColor: .windowBackgroundColor).opacity(0.88))
+            )
+            .overlay(
+                shape.stroke(Color.primary.opacity(0.06), lineWidth: 1)
+            )
+    }
+}
+
 extension View {
     func pulseCard(cornerRadius: CGFloat) -> some View {
         modifier(PulseCardStyle(cornerRadius: cornerRadius))
+    }
+
+    func controlCenterSectionGroup(cornerRadius: CGFloat = 14) -> some View {
+        modifier(ControlCenterSectionGroupStyle(cornerRadius: cornerRadius))
+    }
+
+    func controlCenterInsetPanel(cornerRadius: CGFloat = 10) -> some View {
+        modifier(ControlCenterInsetPanelStyle(cornerRadius: cornerRadius))
+    }
+
+    func controlCenterListRow(cornerRadius: CGFloat = 12) -> some View {
+        modifier(ControlCenterListRowStyle(cornerRadius: cornerRadius))
     }
 }

@@ -103,6 +103,7 @@ struct SettingsView: View {
     @State private var magicianClockAppAvailable = MagicianClockCapability.clockAppAvailable
     @State private var magicianClockAlarmSurfaceAvailable = MagicianClockCapability.canOpen(surface: .alarm)
     @State private var magicianClockTimerSurfaceAvailable = MagicianClockCapability.canOpen(surface: .timer)
+    @State private var localSenseVoiceDetailsExpanded = false
     @State private var memoryToolbarAvailableWidth: CGFloat = 0
     @State private var memoryFilterBarWidth: CGFloat = 0
     @State private var clearMemoryButtonWidth: CGFloat = 0
@@ -289,8 +290,8 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    .padding(14)
-                    .pulseCard(cornerRadius: 12)
+                    .padding(16)
+                    .controlCenterSectionGroup()
                 } else {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         ForEach(filteredHistoryEntries) { entry in
@@ -308,7 +309,7 @@ struct SettingsView: View {
                                 }
                             )
                             .padding(12)
-                            .pulseCard(cornerRadius: 12)
+                            .controlCenterListRow()
                         }
                     }
                 }
@@ -340,13 +341,13 @@ struct SettingsView: View {
 
     private var magicianPage: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 16) {
                 pageHeader(
                     title: "魔术先生",
-                    subtitle: "长按主键说一句，松开就做。这里把主能力拆成文本处理和五个原生动作。"
+                    subtitle: "长按主键说一句，松开就做。这里单独查看功能总开关，以及它当前缺的是权限、模型还是系统依赖。"
                 )
 
-                magicianTextTransformCard
+                magicianTextTransformSection
                 magicianNativeActionsSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -359,67 +360,52 @@ struct SettingsView: View {
         }
     }
 
-    private var magicianTextTransformCard: some View {
-        let feature: MagicianFeatureID = .textTransform
-        let resolution = magicianStatusResolver.resolve(
-            feature: feature,
-            isEnabled: magicianFeatureToggleStore.isEnabled(feature),
-            dependencies: currentMagicianDependencies
+    private var magicianTextTransformSection: some View {
+        magicianFeatureSection(
+            title: "文本处理",
+            subtitle: "长按魔术先生后，直接处理当前文字。",
+            features: [.textTransform]
         )
-
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                Label(feature.displayName, systemImage: feature.symbolName)
-                    .font(.headline)
-                Spacer()
-                Toggle("", isOn: magicianFeatureToggleBinding(feature))
-                    .labelsHidden()
-                    .toggleStyle(SwitchToggleStyle())
-                    .scaleEffect(0.8)
-                    .fixedSize()
-            }
-
-            Text("长按魔术先生，直接处理当前文字。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            magicianFeatureStatusBadge(resolution.status)
-
-            if let reason = resolution.reason {
-                Text(reason)
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .pulseCard(cornerRadius: 12)
     }
 
     private var magicianNativeActionsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("原生动作")
-                .font(.headline)
+        magicianFeatureSection(
+            title: "原生动作",
+            subtitle: "只保留日历、Markdown 文档、邮件、音乐、时钟。",
+            features: [.calendar, .markdownDocument, .mail, .music, .clock]
+        )
+    }
 
-            Text("只保留日历、Markdown 文档、邮件、音乐、时钟。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    private func magicianFeatureSection(
+        title: String,
+        subtitle: String,
+        features: [MagicianFeatureID]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
-            LazyVGrid(
-                columns: [
-                    GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 12, alignment: .top)
-                ],
-                spacing: 12
-            ) {
-                ForEach([MagicianFeatureID.calendar, .markdownDocument, .mail, .music, .clock], id: \.rawValue) { feature in
-                    magicianNativeActionCard(feature: feature)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(features.enumerated()), id: \.element.rawValue) { index, feature in
+                    magicianFeatureRow(feature: feature)
+                    if index < features.count - 1 {
+                        Divider()
+                            .padding(.leading, 44)
+                    }
                 }
             }
+            .padding(16)
+            .controlCenterSectionGroup()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func magicianNativeActionCard(feature: MagicianFeatureID) -> some View {
+    private func magicianFeatureRow(feature: MagicianFeatureID) -> some View {
         let resolution = magicianStatusResolver.resolve(
             feature: feature,
             isEnabled: magicianFeatureToggleStore.isEnabled(feature),
@@ -428,31 +414,58 @@ struct SettingsView: View {
 
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 12) {
-                Label(feature.displayName, systemImage: feature.symbolName)
-                    .font(.headline)
+                Image(systemName: feature.symbolName)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .frame(width: 28, height: 28)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(feature.displayName)
+                        .font(.subheadline.weight(.semibold))
+                    Text(feature.summaryLine)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(feature.boundaryLine)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
                 Spacer()
                 Toggle("", isOn: magicianFeatureToggleBinding(feature))
-                .labelsHidden()
-                .toggleStyle(SwitchToggleStyle())
-                .scaleEffect(0.8)
-                .fixedSize()
+                    .labelsHidden()
+                    .toggleStyle(SwitchToggleStyle())
+                    .scaleEffect(0.8)
+                    .fixedSize()
+                    .disabled(magicianFeatureToggleDisabled(resolution))
             }
 
-            Text(feature.summaryLine)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            magicianFeatureStatusBadge(resolution.status)
+            HStack(spacing: 8) {
+                ControlCenterStatusPill(
+                    title: resolution.status.labelText,
+                    systemImage: resolution.status == .enabled ? "checkmark.circle.fill" : "power.circle",
+                    tint: resolution.status == .enabled ? .green : .secondary
+                )
+                ControlCenterStatusPill(
+                    title: magicianAvailabilityTitle(feature: feature, resolution: resolution),
+                    systemImage: magicianAvailabilityIcon(resolution),
+                    tint: magicianAvailabilityTint(resolution)
+                )
+            }
 
             if let reason = resolution.reason {
                 Text(reason)
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
+
+            if let prompt = resolution.prompt {
+                HStack(spacing: 8) {
+                    magicianFeaturePromptButton(prompt: prompt, gateKind: resolution.gateKind)
+                    Spacer()
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .pulseCard(cornerRadius: 12)
+        .padding(.vertical, 10)
     }
 
     private func magicianFeatureToggleBinding(_ feature: MagicianFeatureID) -> Binding<Bool> {
@@ -464,25 +477,69 @@ struct SettingsView: View {
         )
     }
 
-    @ViewBuilder
-    private func magicianFeatureStatusBadge(_ status: MagicianFeatureStatus) -> some View {
-        let color: Color = switch status {
-        case .enabled:
-            .green
-        case .needsPermission:
-            .orange
-        case .notEnabled:
-            .secondary
+    private func magicianFeatureToggleDisabled(_ resolution: MagicianFeatureStatusResolution) -> Bool {
+        resolution.availability == .blocked && resolution.status == .notEnabled
+    }
+
+    private func magicianAvailabilityTitle(
+        feature: MagicianFeatureID,
+        resolution: MagicianFeatureStatusResolution
+    ) -> String {
+        if resolution.availability == .ready {
+            return feature == .markdownDocument ? "功能可用" : "依赖已就绪"
         }
-        Label(status.labelText, systemImage: status == .enabled ? "checkmark.circle.fill" : "slider.horizontal.3")
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(color.opacity(0.14))
-            )
-            .foregroundStyle(color)
+
+        switch resolution.gateKind {
+        case .systemPermission:
+            return "缺少系统权限"
+        case .serviceDependency:
+            return "依赖未就绪"
+        case .modelDependency:
+            return "模型未就绪"
+        case .ready:
+            return "依赖已就绪"
+        }
+    }
+
+    private func magicianAvailabilityIcon(_ resolution: MagicianFeatureStatusResolution) -> String {
+        if resolution.availability == .ready {
+            return "checkmark.circle.fill"
+        }
+
+        switch resolution.gateKind {
+        case .systemPermission:
+            return "lock.shield"
+        case .serviceDependency:
+            return "app.badge"
+        case .modelDependency:
+            return "cpu"
+        case .ready:
+            return "checkmark.circle.fill"
+        }
+    }
+
+    private func magicianAvailabilityTint(_ resolution: MagicianFeatureStatusResolution) -> Color {
+        resolution.availability == .ready ? .green : .orange
+    }
+
+    @ViewBuilder
+    private func magicianFeaturePromptButton(
+        prompt: MagicianPermissionPromptModel,
+        gateKind: MagicianFeatureGateKind
+    ) -> some View {
+        if gateKind == .systemPermission {
+            Button(prompt.primaryButtonTitle) {
+                handleMagicianPromptPrimary(prompt)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        } else {
+            Button(prompt.primaryButtonTitle) {
+                handleMagicianPromptPrimary(prompt)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
     }
 
     private var modelPage: some View {
@@ -495,7 +552,7 @@ struct SettingsView: View {
 
                 modelRoleSection(
                     roleTitle: "语音识别",
-                    cardTitle: "语音识别",
+                    cardTitle: nil,
                     availableProviderTypes: asrProviderOptions,
                     providerType: asrProviderTypeBinding,
                     baseURL: asrBaseURLBinding,
@@ -529,7 +586,7 @@ struct SettingsView: View {
 
                 modelRoleSection(
                     roleTitle: "文本处理",
-                    cardTitle: "文本处理",
+                    cardTitle: nil,
                     availableProviderTypes: textProviderOptions,
                     providerType: textProviderTypeBinding,
                     baseURL: textBaseURLBinding,
@@ -560,7 +617,7 @@ struct SettingsView: View {
 
                 modelRoleSection(
                     roleTitle: "CLI 模式（Agent）",
-                    cardTitle: "CLI 模式（Agent）",
+                    cardTitle: nil,
                     availableProviderTypes: textProviderOptions,
                     providerType: cliProviderTypeBinding,
                     baseURL: cliBaseURLBinding,
@@ -642,8 +699,8 @@ struct SettingsView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
-                .pulseCard(cornerRadius: 12)
+                .padding(16)
+                .controlCenterSectionGroup()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
@@ -657,7 +714,7 @@ struct SettingsView: View {
     @ViewBuilder
     private func modelRoleSection(
         roleTitle: String,
-        cardTitle: String,
+        cardTitle: String?,
         availableProviderTypes: [ProviderType],
         providerType: Binding<ProviderType>,
         baseURL: Binding<String>,
@@ -681,22 +738,15 @@ struct SettingsView: View {
         showsLocalSenseVoiceRuntimeDetails: Bool,
         onTest: @escaping () -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 10) {
                 Text(roleTitle)
                     .font(.headline)
-                Label(
-                    providerType.wrappedValue.displayName,
-                    systemImage: providerType.wrappedValue == .localSenseVoice ? "cpu" : "cloud.fill"
+                ControlCenterStatusPill(
+                    title: providerType.wrappedValue.displayName,
+                    systemImage: providerType.wrappedValue == .localSenseVoice ? "cpu" : "cloud.fill",
+                    tint: providerType.wrappedValue == .localSenseVoice ? .orange : .accentColor
                 )
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(Color.accentColor.opacity(0.14))
-                )
-                .foregroundStyle(providerType.wrappedValue == .localSenseVoice ? .orange : .accentColor)
                 Spacer()
             }
 
@@ -735,74 +785,75 @@ struct SettingsView: View {
             )
 
             HStack {
+                Spacer()
                 Button(isTesting ? "\(testButtonTitle)中..." : testButtonTitle) {
                     onTest()
                 }
-                .buttonStyle(PersistentPrimaryButtonStyle())
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
                 .disabled(isTesting)
-                Spacer()
             }
         }
-        .padding(14)
-        .pulseCard(cornerRadius: 12)
+        .padding(16)
+        .controlCenterSectionGroup()
     }
 
     private var localSenseVoiceRuntimeInlineSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("本地运行信息")
-                .font(.subheadline.weight(.semibold))
-
-            VStack(alignment: .leading, spacing: 6) {
-                LabeledContent("模型目录", value: providerSettingsStore.asrConfig.localModelPath ?? defaultSenseVoiceModelPath)
-                LabeledContent("运行环境", value: localSenseVoiceRuntimeManager.runtimeRootPath)
-                LabeledContent("当前状态", value: localSenseVoiceRuntimeManager.currentStatusText)
-                if let manifest = localSenseVoiceRuntimeManager.manifest {
-                    LabeledContent("当前后端", value: manifest.backend)
-                    LabeledContent("Python", value: manifest.pythonPath)
-                }
-                if let lastCheckedAt = localSenseVoiceRuntimeManager.lastCheckedAt {
-                    LabeledContent(
-                        "最近检测",
-                        value: lastCheckedAt.formatted(date: .omitted, time: .standard)
-                    )
-                }
-            }
-            .font(.caption)
-
-            HStack {
-                Button("准备环境") {
-                    Task {
-                        await localSenseVoiceRuntimeManager.prepare(
-                            modelDirectoryPath: providerSettingsStore.asrConfig.localModelPath
+        DisclosureGroup("本地运行信息", isExpanded: $localSenseVoiceDetailsExpanded) {
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
+                    LabeledContent("模型目录", value: providerSettingsStore.asrConfig.localModelPath ?? defaultSenseVoiceModelPath)
+                    LabeledContent("运行环境", value: localSenseVoiceRuntimeManager.runtimeRootPath)
+                    LabeledContent("当前状态", value: localSenseVoiceRuntimeManager.currentStatusText)
+                    if let manifest = localSenseVoiceRuntimeManager.manifest {
+                        LabeledContent("当前后端", value: manifest.backend)
+                        LabeledContent("Python", value: manifest.pythonPath)
+                    }
+                    if let lastCheckedAt = localSenseVoiceRuntimeManager.lastCheckedAt {
+                        LabeledContent(
+                            "最近检测",
+                            value: lastCheckedAt.formatted(date: .omitted, time: .standard)
                         )
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(isPreparingLocalSenseVoice)
+                .font(.caption)
 
-                Button("重新检测") {
-                    Task {
-                        await localSenseVoiceRuntimeManager.detect(
-                            modelDirectoryPath: providerSettingsStore.asrConfig.localModelPath
-                        )
+                HStack {
+                    Button("准备环境") {
+                        Task {
+                            await localSenseVoiceRuntimeManager.prepare(
+                                modelDirectoryPath: providerSettingsStore.asrConfig.localModelPath
+                            )
+                        }
                     }
-                }
-                .buttonStyle(.bordered)
-                .disabled(isPreparingLocalSenseVoice)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(isPreparingLocalSenseVoice)
 
-                Spacer()
+                    Button("重新检测") {
+                        Task {
+                            await localSenseVoiceRuntimeManager.detect(
+                                modelDirectoryPath: providerSettingsStore.asrConfig.localModelPath
+                            )
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isPreparingLocalSenseVoice)
+
+                    Spacer()
+                }
             }
+            .padding(.top, 8)
         }
+        .font(.subheadline.weight(.semibold))
         .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.accentColor.opacity(0.06))
-        )
+        .controlCenterInsetPanel(cornerRadius: 10)
     }
 
     private var settingsPage: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 16) {
                 pageHeader(
                     title: "设置",
                     subtitle: "管理快捷键、权限与基础环境。"
@@ -830,7 +881,7 @@ struct SettingsView: View {
 
     private var agentBrainstormPage: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 16) {
                 pageHeader(
                     title: "一口气全念对",
                     subtitle: "用于短时讨论记录，自动整理成可直接给 AI 使用的上下文。"
@@ -872,8 +923,8 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .pulseCard(cornerRadius: 12)
+        .padding(16)
+        .controlCenterSectionGroup()
     }
 
     private var brainstormTriggerCard: some View {
@@ -897,8 +948,8 @@ struct SettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .pulseCard(cornerRadius: 12)
+        .padding(16)
+        .controlCenterSectionGroup()
     }
 
     private func brainstormModifierSection(
@@ -931,7 +982,7 @@ struct SettingsView: View {
     }
 
     private var hotkeySettingsCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("快捷键")
                 .font(.headline)
 
@@ -1000,21 +1051,27 @@ struct SettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .pulseCard(cornerRadius: 12)
+        .padding(16)
+        .controlCenterSectionGroup()
     }
 
     private var permissionSettingsCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("权限中心")
                 .font(.headline)
 
-            ForEach(permissionsCenter.presentationItems()) { item in
-                PermissionRowView(
-                    item: item,
-                    onRequest: { permissionsCenter.requestAccess(for: item.id) },
-                    onOpenSettings: { permissionsCenter.openSystemSettings(for: item.id) }
-                )
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(permissionsCenter.presentationItems().enumerated()), id: \.element.id) { index, item in
+                    PermissionRowView(
+                        item: item,
+                        onRequest: { permissionsCenter.requestAccess(for: item.id) },
+                        onOpenSettings: { permissionsCenter.openSystemSettings(for: item.id) }
+                    )
+                    if index < permissionsCenter.presentationItems().count - 1 {
+                        Divider()
+                            .padding(.leading, 28)
+                    }
+                }
             }
 
             HStack {
@@ -1035,47 +1092,53 @@ struct SettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .pulseCard(cornerRadius: 12)
+        .padding(16)
+        .controlCenterSectionGroup()
     }
 
     private var expressionPreferenceCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("表达偏好")
                 .font(.headline)
 
-            ForEach(skillRuleStore.visibleRules()) { rule in
-                SkillRuleCardView(
-                    ruleID: rule.id,
-                    title: rule.id.title,
-                    subtitle: rule.id.subtitle,
-                    isEnabled: Binding(
-                        get: { skillRuleStore.rule(for: rule.id).isEnabled },
-                        set: { enabled in
-                            skillRuleStore.setEnabled(enabled, for: rule.id)
-                            showToast("\(rule.id.title)现在已经\(enabled ? "开启" : "关闭")。")
-                        }
-                    ),
-                    parameter: Binding(
-                        get: { skillRuleStore.rule(for: rule.id).parameter },
-                        set: { parameter in
-                            skillRuleStore.setParameter(parameter, for: rule.id)
-                            scheduleDebouncedToast("\(rule.id.title)已更新并生效。")
-                        }
-                    ),
-                    parameterPlaceholder: rule.id == .systemPrompt
-                        ? "例如：默认更直接、少一点客套、保留重点"
-                        : "例如：嗯,啊,就是,那个,然后"
-                )
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(skillRuleStore.visibleRules().enumerated()), id: \.element.id) { index, rule in
+                    SkillRuleCardView(
+                        ruleID: rule.id,
+                        title: rule.id.title,
+                        subtitle: rule.id.subtitle,
+                        isEnabled: Binding(
+                            get: { skillRuleStore.rule(for: rule.id).isEnabled },
+                            set: { enabled in
+                                skillRuleStore.setEnabled(enabled, for: rule.id)
+                                showToast("\(rule.id.title)现在已经\(enabled ? "开启" : "关闭")。")
+                            }
+                        ),
+                        parameter: Binding(
+                            get: { skillRuleStore.rule(for: rule.id).parameter },
+                            set: { parameter in
+                                skillRuleStore.setParameter(parameter, for: rule.id)
+                                scheduleDebouncedToast("\(rule.id.title)已更新并生效。")
+                            }
+                        ),
+                        parameterPlaceholder: rule.id == .systemPrompt
+                            ? "例如：默认更直接、少一点客套、保留重点"
+                            : "例如：嗯,啊,就是,那个,然后"
+                    )
+                    if index < skillRuleStore.visibleRules().count - 1 {
+                        Divider()
+                            .padding(.leading, 0)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .pulseCard(cornerRadius: 12)
+        .padding(16)
+        .controlCenterSectionGroup()
     }
 
     private var scenePolicySkillsCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("按应用风格")
@@ -1165,14 +1228,7 @@ struct SettingsView: View {
                         .font(.system(size: 13))
                         .frame(minHeight: 88, maxHeight: 130)
                         .padding(6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(Color(nsColor: .textBackgroundColor))
-                                )
-                        )
+                        .controlCenterInsetPanel()
                     HStack {
                         Button("完成编辑") {
                             autoSaveScenePolicyIfPossible()
@@ -1190,8 +1246,8 @@ struct SettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .pulseCard(cornerRadius: 12)
+        .padding(16)
+        .controlCenterSectionGroup()
         .onAppear {
             loadDiscoveredApps()
         }
@@ -1368,10 +1424,10 @@ struct SettingsView: View {
         LinearGradient(
             colors: [
                 Color(nsColor: .windowBackgroundColor),
-                Color.white.opacity(0.58),
-                Color(nsColor: .controlBackgroundColor).opacity(0.36)
+                Color(nsColor: .underPageBackgroundColor).opacity(0.86),
+                Color.white.opacity(0.26)
             ],
-            startPoint: .top,
+            startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
     }
@@ -1380,10 +1436,10 @@ struct SettingsView: View {
     private func pageHeader(title: String, subtitle: String = "") -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.system(size: 30, weight: .semibold, design: .rounded))
+                .font(.title2.weight(.bold))
             if !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(.system(size: 14, weight: .regular, design: .rounded))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
         }
@@ -1398,10 +1454,10 @@ struct SettingsView: View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
-                    .font(.system(size: 30, weight: .semibold, design: .rounded))
+                    .font(.title2.weight(.bold))
                 if !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.system(size: 14, weight: .regular, design: .rounded))
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -1480,7 +1536,7 @@ struct SettingsView: View {
         case .ready:
             magicianFeatureToggleStore.setEnabled(true, for: feature)
             showToast("\(feature.displayName)已开启。")
-        case let .blocked(_, prompt):
+        case let .blocked(_, _, prompt):
             magicianFeatureToggleStore.setEnabled(false, for: feature)
             magicianPermissionPrompt = prompt
         }
@@ -1500,7 +1556,7 @@ struct SettingsView: View {
                 case .ready:
                     magicianFeatureToggleStore.setEnabled(true, for: prompt.feature)
                     showToast("\(prompt.feature.displayName)已开启。")
-                case let .blocked(reason, _):
+                case let .blocked(_, reason, _):
                     magicianFeatureToggleStore.setEnabled(false, for: prompt.feature)
                     showToast(reason)
                 }
@@ -1835,14 +1891,14 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    .padding(14)
-                    .pulseCard(cornerRadius: 12)
+                    .padding(16)
+                    .controlCenterSectionGroup()
                 } else {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         ForEach(timeMachineItems.prefix(120)) { item in
                             timeMachineRow(item)
                                 .padding(12)
-                                .pulseCard(cornerRadius: 12)
+                                .controlCenterListRow()
                         }
                     }
                 }
@@ -1913,8 +1969,8 @@ struct SettingsView: View {
                 Spacer()
             }
         }
-        .padding(14)
-        .pulseCard(cornerRadius: 12)
+        .padding(16)
+        .controlCenterSectionGroup()
     }
 
     private func timeMachineRow(_ item: V4TimeItem) -> some View {

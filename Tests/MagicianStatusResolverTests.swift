@@ -12,7 +12,9 @@ final class MagicianStatusResolverTests: XCTestCase {
             dependencies: dependencies(accessibility: .denied)
         )
 
-        XCTAssertEqual(resolution.status, .needsPermission)
+        XCTAssertEqual(resolution.status, .notEnabled)
+        XCTAssertEqual(resolution.availability, .blocked)
+        XCTAssertEqual(resolution.gateKind, .systemPermission)
         XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "打开系统设置")
     }
 
@@ -23,7 +25,9 @@ final class MagicianStatusResolverTests: XCTestCase {
             dependencies: dependencies(textModelReady: false)
         )
 
-        XCTAssertEqual(resolution.status, .needsPermission)
+        XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertEqual(resolution.availability, .blocked)
+        XCTAssertEqual(resolution.gateKind, .modelDependency)
         XCTAssertEqual(resolution.prompt?.primaryAction, .openSettingsSection(sectionID: "model"))
     }
 
@@ -35,6 +39,8 @@ final class MagicianStatusResolverTests: XCTestCase {
         )
 
         XCTAssertEqual(resolution.status, .notEnabled)
+        XCTAssertEqual(resolution.availability, .ready)
+        XCTAssertEqual(resolution.gateKind, .ready)
         XCTAssertNil(resolution.prompt)
     }
 
@@ -45,7 +51,9 @@ final class MagicianStatusResolverTests: XCTestCase {
             dependencies: dependencies(eventStatus: .notDetermined)
         )
 
-        XCTAssertEqual(resolution.status, .needsPermission)
+        XCTAssertEqual(resolution.status, .notEnabled)
+        XCTAssertEqual(resolution.availability, .blocked)
+        XCTAssertEqual(resolution.gateKind, .systemPermission)
         XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "请求权限")
     }
 
@@ -65,6 +73,8 @@ final class MagicianStatusResolverTests: XCTestCase {
         )
 
         XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertEqual(resolution.availability, .ready)
+        XCTAssertEqual(resolution.gateKind, .ready)
         XCTAssertNil(resolution.reason)
         XCTAssertNil(resolution.prompt)
     }
@@ -77,6 +87,8 @@ final class MagicianStatusResolverTests: XCTestCase {
         )
 
         XCTAssertEqual(resolution.status, .notEnabled)
+        XCTAssertEqual(resolution.availability, .ready)
+        XCTAssertEqual(resolution.gateKind, .ready)
         XCTAssertNil(resolution.prompt)
     }
 
@@ -91,7 +103,9 @@ final class MagicianStatusResolverTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(resolution.status, .needsPermission)
+        XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertEqual(resolution.availability, .blocked)
+        XCTAssertEqual(resolution.gateKind, .serviceDependency)
         XCTAssertEqual(resolution.reason, "当前无法使用邮件，请先打开 Mail 并完成账号配置。")
         XCTAssertEqual(resolution.prompt?.primaryButtonTitle, "打开 Mail")
     }
@@ -108,6 +122,8 @@ final class MagicianStatusResolverTests: XCTestCase {
         )
 
         XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertEqual(resolution.availability, .ready)
+        XCTAssertEqual(resolution.gateKind, .ready)
         XCTAssertNil(resolution.prompt)
     }
 
@@ -118,7 +134,9 @@ final class MagicianStatusResolverTests: XCTestCase {
             dependencies: dependencies(musicAppAvailable: false)
         )
 
-        XCTAssertEqual(resolution.status, .needsPermission)
+        XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertEqual(resolution.availability, .blocked)
+        XCTAssertEqual(resolution.gateKind, .serviceDependency)
         XCTAssertEqual(resolution.prompt?.title, "Music 不可用")
         XCTAssertEqual(resolution.prompt?.primaryAction, .openMusicApp)
     }
@@ -131,6 +149,8 @@ final class MagicianStatusResolverTests: XCTestCase {
         )
 
         XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertEqual(resolution.availability, .ready)
+        XCTAssertEqual(resolution.gateKind, .ready)
         XCTAssertNil(resolution.prompt)
     }
 
@@ -141,7 +161,9 @@ final class MagicianStatusResolverTests: XCTestCase {
             dependencies: dependencies(notificationAuthorizationStatus: .notDetermined)
         )
 
-        XCTAssertEqual(resolution.status, .needsPermission)
+        XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertEqual(resolution.availability, .blocked)
+        XCTAssertEqual(resolution.gateKind, .systemPermission)
         XCTAssertEqual(resolution.prompt?.primaryAction, .requestNotificationAccess)
     }
 
@@ -157,7 +179,9 @@ final class MagicianStatusResolverTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(resolution.status, .needsPermission)
+        XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertEqual(resolution.availability, .blocked)
+        XCTAssertEqual(resolution.gateKind, .serviceDependency)
         XCTAssertEqual(resolution.prompt?.title, "Clock 不可用")
         XCTAssertEqual(resolution.prompt?.primaryAction, .openClockApp(surface: .worldClock))
     }
@@ -173,7 +197,21 @@ final class MagicianStatusResolverTests: XCTestCase {
         )
 
         XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertEqual(resolution.availability, .ready)
+        XCTAssertEqual(resolution.gateKind, .ready)
         XCTAssertNil(resolution.prompt)
+    }
+
+    func testCalendarBlockedStateKeepsToggleStatusWhenPreviouslyEnabled() {
+        let resolution = resolver.resolve(
+            feature: .calendar,
+            isEnabled: true,
+            dependencies: dependencies(eventStatus: .denied)
+        )
+
+        XCTAssertEqual(resolution.status, .enabled)
+        XCTAssertEqual(resolution.availability, .blocked)
+        XCTAssertEqual(resolution.gateKind, .systemPermission)
     }
 
     private func dependencies(

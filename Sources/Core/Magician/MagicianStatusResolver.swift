@@ -3,11 +3,17 @@ import Foundation
 
 enum MagicianFeatureRequirement: Equatable {
     case ready
-    case blocked(reason: String, prompt: MagicianPermissionPromptModel)
+    case blocked(
+        gateKind: MagicianFeatureGateKind,
+        reason: String,
+        prompt: MagicianPermissionPromptModel
+    )
 }
 
 struct MagicianFeatureStatusResolution: Equatable {
     let status: MagicianFeatureStatus
+    let availability: MagicianFeatureAvailability
+    let gateKind: MagicianFeatureGateKind
     let reason: String?
     let prompt: MagicianPermissionPromptModel?
 }
@@ -23,12 +29,16 @@ struct MagicianStatusResolver {
         case .ready:
             return MagicianFeatureStatusResolution(
                 status: isEnabled ? .enabled : .notEnabled,
+                availability: .ready,
+                gateKind: .ready,
                 reason: nil,
                 prompt: nil
             )
-        case let .blocked(reason, prompt):
+        case let .blocked(gateKind, reason, prompt):
             return MagicianFeatureStatusResolution(
-                status: .needsPermission,
+                status: isEnabled ? .enabled : .notEnabled,
+                availability: .blocked,
+                gateKind: gateKind,
                 reason: reason,
                 prompt: prompt
             )
@@ -45,6 +55,7 @@ struct MagicianStatusResolver {
             case .granted, .notRequired:
                 guard dependencies.textModelReady else {
                     return .blocked(
+                        gateKind: .modelDependency,
                         reason: "文本模型还没准备好，请先到模型页完成文本处理配置。",
                         prompt: MagicianPermissionPromptModel(
                             feature: feature,
@@ -60,6 +71,7 @@ struct MagicianStatusResolver {
 
             case .notRequested, .pending:
                 return .blocked(
+                    gateKind: .systemPermission,
                     reason: "需要先开启辅助功能权限。",
                     prompt: MagicianPermissionPromptModel(
                         feature: feature,
@@ -73,6 +85,7 @@ struct MagicianStatusResolver {
 
             case .denied:
                 return .blocked(
+                    gateKind: .systemPermission,
                     reason: "辅助功能权限已被拒绝，请到系统设置手动开启。",
                     prompt: MagicianPermissionPromptModel(
                         feature: feature,
@@ -95,6 +108,7 @@ struct MagicianStatusResolver {
 
             if eventStatus == .notDetermined {
                 return .blocked(
+                    gateKind: .systemPermission,
                     reason: "需要先允许日历权限。",
                     prompt: MagicianPermissionPromptModel(
                         feature: feature,
@@ -108,6 +122,7 @@ struct MagicianStatusResolver {
             }
 
             return .blocked(
+                gateKind: .systemPermission,
                 reason: "日历权限不可用，请到系统设置开启。",
                 prompt: MagicianPermissionPromptModel(
                     feature: feature,
@@ -131,6 +146,7 @@ struct MagicianStatusResolver {
                     || dependencies.mailAppAvailable
             else {
                 return .blocked(
+                    gateKind: .serviceDependency,
                     reason: "当前无法使用邮件，请先打开 Mail 并完成账号配置。",
                     prompt: MagicianPermissionPromptModel(
                         feature: feature,
@@ -147,6 +163,7 @@ struct MagicianStatusResolver {
         case .music:
             guard dependencies.musicAppAvailable else {
                 return .blocked(
+                    gateKind: .serviceDependency,
                     reason: "音乐应用不可用，请先打开 Music。",
                     prompt: MagicianPermissionPromptModel(
                         feature: feature,
@@ -166,6 +183,7 @@ struct MagicianStatusResolver {
                 break
             case .notDetermined:
                 return .blocked(
+                    gateKind: .systemPermission,
                     reason: "需要先允许通知权限，时钟提醒才有保证路径。",
                     prompt: MagicianPermissionPromptModel(
                         feature: feature,
@@ -178,6 +196,7 @@ struct MagicianStatusResolver {
                 )
             case .denied, .unknown:
                 return .blocked(
+                    gateKind: .systemPermission,
                     reason: "通知权限没开，时钟提醒无法稳定生效。",
                     prompt: MagicianPermissionPromptModel(
                         feature: feature,
@@ -194,6 +213,7 @@ struct MagicianStatusResolver {
 
             guard dependencies.clockHandoffAvailable else {
                 return .blocked(
+                    gateKind: .serviceDependency,
                     reason: "当前系统没有可用的 Clock handoff，无法把你带到闹钟或计时器入口。",
                     prompt: MagicianPermissionPromptModel(
                         feature: feature,

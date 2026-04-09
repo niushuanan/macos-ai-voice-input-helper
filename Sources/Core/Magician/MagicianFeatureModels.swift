@@ -402,19 +402,28 @@ struct MagicianFeatureDescriptor: Identifiable, Equatable {
 
 enum MagicianFeatureStatus: String, Equatable {
     case notEnabled
-    case needsPermission
     case enabled
 
     var labelText: String {
         switch self {
         case .notEnabled:
-            return "未开启"
-        case .needsPermission:
-            return "需准备"
+            return "功能已关"
         case .enabled:
-            return "已开启"
+            return "功能已开"
         }
     }
+}
+
+enum MagicianFeatureAvailability: String, Equatable {
+    case ready
+    case blocked
+}
+
+enum MagicianFeatureGateKind: String, Equatable {
+    case ready
+    case systemPermission
+    case serviceDependency
+    case modelDependency
 }
 
 struct MagicianDependencySnapshot: Equatable {
