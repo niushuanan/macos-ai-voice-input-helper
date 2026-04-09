@@ -1,16 +1,6 @@
 import AppKit
 import SwiftUI
 
-private extension Color {
-    static let controlCenterGroupFill = Color(
-        nsColor: NSColor(calibratedRed: 0.962, green: 0.963, blue: 0.969, alpha: 1)
-    )
-    static let controlCenterInsetFill = Color(
-        nsColor: NSColor(calibratedRed: 0.972, green: 0.973, blue: 0.978, alpha: 1)
-    )
-    static let controlCenterStroke = Color.black.opacity(0.055)
-}
-
 struct PlaceholderPageView: View {
     let title: String
     let subtitle: String
@@ -301,26 +291,26 @@ struct MemoryRowView: View {
                     Button(brainstormDetailsExpanded ? "隐藏详情" : "展开详情") {
                         brainstormDetailsExpanded.toggle()
                     }
-                    .buttonStyle(.bordered)
+                    .controlCenterSecondaryActionButton()
                     .disabled(!hasBrainstormDetails)
                 } else if entry.mode == .selectionRewrite {
                     Button(magicianTraceExpanded ? "隐藏执行链路" : "展开执行链路") {
                         magicianTraceExpanded.toggle()
                     }
-                    .buttonStyle(.bordered)
+                    .controlCenterSecondaryActionButton()
                     .disabled(!hasMagicianTrace)
 
                     Button("复制执行链路") {
                         onCopyExecutionTrace()
                     }
-                    .buttonStyle(.bordered)
+                    .controlCenterSecondaryActionButton()
                     .disabled(!hasMagicianTrace)
                 }
 
                 Button("删除", role: .destructive) {
                     onDelete()
                 }
-                .buttonStyle(.bordered)
+                .controlCenterSecondaryActionButton()
             }
         }
     }
@@ -521,11 +511,11 @@ struct ScenePolicyRowView: View {
                 Button("编辑") {
                     onEdit()
                 }
-                .buttonStyle(.bordered)
+                .controlCenterSecondaryActionButton()
                 Button("删除", role: .destructive) {
                     onDelete()
                 }
-                .buttonStyle(.bordered)
+                .controlCenterSecondaryActionButton()
             }
 
             Text(policy.bundleID)
@@ -573,7 +563,7 @@ struct SceneAppCandidateRowView: View {
             Button("添加") {
                 onAdd()
             }
-            .buttonStyle(.bordered)
+            .controlCenterSecondaryActionButton()
         }
         .padding(8)
         .controlCenterInsetPanel(cornerRadius: 10)
@@ -716,7 +706,7 @@ struct ModelConfigCard: View {
                     }
                     .disabled(isDeleteDisabled)
                 }
-                .buttonStyle(.bordered)
+                .controlCenterSecondaryActionButton()
                 .controlSize(.small)
 
                 Label(
@@ -1003,7 +993,7 @@ struct PermissionRowView: View {
                             onOpenSettings()
                         }
                     }
-                    .buttonStyle(.bordered)
+                    .controlCenterSecondaryActionButton()
                     .controlSize(.small)
                 } else {
                     Button(secondaryActionTitle) {
@@ -1095,12 +1085,12 @@ struct MagicianPermissionSheetView: View {
                 Button(prompt.secondaryButtonTitle) {
                     onCancel()
                 }
-                .buttonStyle(.bordered)
+                .controlCenterSecondaryActionButton()
 
                 Button(prompt.primaryButtonTitle) {
                     onPrimary()
                 }
-                .buttonStyle(.borderedProminent)
+                .controlCenterPrimaryActionButton()
             }
         }
         .padding(20)
@@ -1123,85 +1113,5 @@ struct ControlCenterStatusPill: View {
                     .fill(tint.opacity(0.14))
             )
             .foregroundStyle(tint)
-    }
-}
-
-private struct PulseCardStyle: ViewModifier {
-    let cornerRadius: CGFloat
-
-    func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        content
-            .background(
-                shape.fill(Color.controlCenterGroupFill)
-            )
-            .overlay(
-                shape.stroke(Color.controlCenterStroke, lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.018), radius: 8, x: 0, y: 2)
-    }
-}
-
-private struct ControlCenterSectionGroupStyle: ViewModifier {
-    let cornerRadius: CGFloat
-
-    func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        content
-            .background(
-                shape.fill(Color.controlCenterGroupFill)
-            )
-            .overlay(
-                shape.stroke(Color.controlCenterStroke, lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.014), radius: 6, x: 0, y: 1)
-    }
-}
-
-private struct ControlCenterInsetPanelStyle: ViewModifier {
-    let cornerRadius: CGFloat
-
-    func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        content
-            .background(
-                shape.fill(Color.controlCenterInsetFill)
-            )
-            .overlay(
-                shape.stroke(Color.controlCenterStroke, lineWidth: 1)
-            )
-    }
-}
-
-private struct ControlCenterListRowStyle: ViewModifier {
-    let cornerRadius: CGFloat
-
-    func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        content
-            .background(
-                shape.fill(Color.controlCenterGroupFill)
-            )
-            .overlay(
-                shape.stroke(Color.controlCenterStroke, lineWidth: 1)
-            )
-    }
-}
-
-extension View {
-    func pulseCard(cornerRadius: CGFloat) -> some View {
-        modifier(PulseCardStyle(cornerRadius: cornerRadius))
-    }
-
-    func controlCenterSectionGroup(cornerRadius: CGFloat = 14) -> some View {
-        modifier(ControlCenterSectionGroupStyle(cornerRadius: cornerRadius))
-    }
-
-    func controlCenterInsetPanel(cornerRadius: CGFloat = 10) -> some View {
-        modifier(ControlCenterInsetPanelStyle(cornerRadius: cornerRadius))
-    }
-
-    func controlCenterListRow(cornerRadius: CGFloat = 12) -> some View {
-        modifier(ControlCenterListRowStyle(cornerRadius: cornerRadius))
     }
 }

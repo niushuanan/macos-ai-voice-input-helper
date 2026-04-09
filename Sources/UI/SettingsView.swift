@@ -5,55 +5,6 @@ import KeyboardShortcuts
 import SwiftUI
 import UserNotifications
 
-enum MemoryToolbarLayoutMode: Equatable {
-    case singleRow
-    case stacked
-
-    static func resolve(
-        availableWidth: CGFloat,
-        filterBarWidth: CGFloat,
-        clearButtonWidth: CGFloat,
-        spacing: CGFloat
-    ) -> Self {
-        guard availableWidth > 0, filterBarWidth > 0, clearButtonWidth > 0 else {
-            return .singleRow
-        }
-
-        let requiredWidth = filterBarWidth + clearButtonWidth + spacing
-        return requiredWidth <= availableWidth ? .singleRow : .stacked
-    }
-}
-
-private enum MemoryToolbarMeasureID: Hashable {
-    case container
-    case filterBar
-    case clearButton
-}
-
-private struct MemoryToolbarWidthPreferenceKey: PreferenceKey {
-    static var defaultValue: [MemoryToolbarMeasureID: CGFloat] = [:]
-
-    static func reduce(
-        value: inout [MemoryToolbarMeasureID: CGFloat],
-        nextValue: () -> [MemoryToolbarMeasureID: CGFloat]
-    ) {
-        value.merge(nextValue(), uniquingKeysWith: { _, next in next })
-    }
-}
-
-private extension View {
-    func reportMemoryToolbarWidth(_ id: MemoryToolbarMeasureID) -> some View {
-        background(
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: MemoryToolbarWidthPreferenceKey.self,
-                    value: [id: proxy.size.width]
-                )
-            }
-        )
-    }
-}
-
 struct SettingsView: View {
     let model: AppModel
     private let runtimePolicy = AppRuntimePolicy.current()
@@ -144,26 +95,7 @@ struct SettingsView: View {
                 detailPaneBackground
                     .ignoresSafeArea()
 
-                Group {
-                    switch controlCenterState.selectedSection {
-                    case .home:
-                        homePage
-                    case .memory:
-                        memoryPage
-                    case .magician:
-                        magicianPage
-                    case .agentBrainstorm:
-                        agentBrainstormPage
-                    case .dictionary:
-                        dictionaryPage
-                    case .model:
-                        modelPage
-                    case .timeMachine:
-                        timeMachinePage
-                    case .settings:
-                        settingsPage
-                    }
-                }
+                detailPaneContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
                 if let toast = toastPresenter.message {
@@ -185,15 +117,19 @@ struct SettingsView: View {
         .onChange(of: controlCenterState.selectedSection) { _, section in
             if section == .dictionary {
                 dictionaryDraft = asrDictionaryStore.rawText
-            } else if section == .agentBrainstorm {
+            }
+            if section == .agentBrainstorm {
                 hotkeyStateStore.refresh()
                 model.interactionCoordinator.ensureBrainstormDurationProfile()
-            } else if section == .timeMachine {
+            }
+            if section == .timeMachine {
                 refreshTimeMachineItems()
-            } else if section == .magician {
+            }
+            if section == .magician {
                 refreshMagicianCapabilityState()
                 permissionsCenter.refreshStatuses()
-            } else if brainstormModifierCaptureState != nil {
+            }
+            if section != .agentBrainstorm, brainstormModifierCaptureState != nil {
                 stopBrainstormCapture()
             }
         }
@@ -229,6 +165,39 @@ struct SettingsView: View {
                 },
                 onClose: { showingMailAddressBookSheet = false }
             )
+        }
+    }
+
+    @ViewBuilder
+    private var detailPaneContent: some View {
+        if #available(macOS 26, *) {
+            GlassEffectContainer(spacing: 24) {
+                selectedDetailPage
+            }
+        } else {
+            selectedDetailPage
+        }
+    }
+
+    @ViewBuilder
+    private var selectedDetailPage: some View {
+        switch controlCenterState.selectedSection {
+        case .home:
+            homePage
+        case .memory:
+            memoryPage
+        case .magician:
+            magicianPage
+        case .agentBrainstorm:
+            agentBrainstormPage
+        case .dictionary:
+            dictionaryPage
+        case .model:
+            modelPage
+        case .timeMachine:
+            timeMachinePage
+        case .settings:
+            settingsPage
         }
     }
 
@@ -531,13 +500,13 @@ struct SettingsView: View {
             Button(prompt.primaryButtonTitle) {
                 handleMagicianPromptPrimary(prompt)
             }
-            .buttonStyle(.borderedProminent)
+            .controlCenterPrimaryActionButton()
             .controlSize(.small)
         } else {
             Button(prompt.primaryButtonTitle) {
                 handleMagicianPromptPrimary(prompt)
             }
-            .buttonStyle(.bordered)
+            .controlCenterSecondaryActionButton()
             .controlSize(.small)
         }
     }
@@ -689,7 +658,7 @@ struct SettingsView: View {
                         Button("保存") {
                             saveDictionary()
                         }
-                        .buttonStyle(.borderedProminent)
+                        .controlCenterPrimaryActionButton()
 
                         Text(dictionaryStatusLine)
                             .font(.caption)
@@ -781,14 +750,16 @@ struct SettingsView: View {
                 activeConfigLine: activeConfigLine,
                 latestResult: latestResult,
                 isTesting: isTesting,
-                failureSuggestion: latestResult?.status == .failure ? actionSuggestion(for: latestResult!) : nil
+                failureSuggestion: latestResult.flatMap { result in
+                    result.status == .failure ? actionSuggestion(for: result) : nil
+                }
             )
 
             HStack {
                 Button(isTesting ? "\(testButtonTitle)中..." : testButtonTitle) {
                     onTest()
                 }
-                .buttonStyle(.borderedProminent)
+                .controlCenterPrimaryActionButton()
                 .controlSize(.small)
                 .disabled(isTesting)
 
@@ -827,7 +798,7 @@ struct SettingsView: View {
                             )
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .controlCenterPrimaryActionButton()
                     .controlSize(.small)
                     .disabled(isPreparingLocalSenseVoice)
 
@@ -838,7 +809,7 @@ struct SettingsView: View {
                             )
                         }
                     }
-                    .buttonStyle(.bordered)
+                    .controlCenterSecondaryActionButton()
                     .controlSize(.small)
                     .disabled(isPreparingLocalSenseVoice)
 
@@ -1074,7 +1045,7 @@ struct SettingsView: View {
                 Button("重新检测") {
                     permissionsCenter.refreshStatuses()
                 }
-                .buttonStyle(.bordered)
+                .controlCenterSecondaryActionButton()
                 .controlSize(.small)
             }
 
@@ -1107,12 +1078,14 @@ struct SettingsView: View {
     }
 
     private var expressionPreferenceCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let visibleRules = skillRuleStore.visibleRules()
+
+        return VStack(alignment: .leading, spacing: 12) {
             Text("表达偏好")
                 .font(.headline)
 
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(skillRuleStore.visibleRules().enumerated()), id: \.element.id) { index, rule in
+                ForEach(Array(visibleRules.enumerated()), id: \.element.id) { index, rule in
                     SkillRuleCardView(
                         ruleID: rule.id,
                         title: rule.id.title,
@@ -1135,7 +1108,7 @@ struct SettingsView: View {
                             ? "例如：默认更直接、少一点客套、保留重点"
                             : "例如：嗯,啊,就是,那个,然后"
                     )
-                    if index < skillRuleStore.visibleRules().count - 1 {
+                    if index < visibleRules.count - 1 {
                         Divider()
                             .padding(.leading, 0)
                     }
@@ -1148,7 +1121,10 @@ struct SettingsView: View {
     }
 
     private var scenePolicySkillsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let normalizedQuery = sceneSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let appMatches = filteredDiscoveredApps
+
+        return VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("按应用风格")
@@ -1193,9 +1169,9 @@ struct SettingsView: View {
                 }
             }
 
-            if !filteredDiscoveredApps.isEmpty {
+            if !appMatches.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array(filteredDiscoveredApps.prefix(8))) { app in
+                    ForEach(Array(appMatches.prefix(8))) { app in
                         SceneAppCandidateRowView(
                             app: app,
                             onAdd: {
@@ -1204,7 +1180,7 @@ struct SettingsView: View {
                         )
                     }
                 }
-            } else if !sceneSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            } else if !normalizedQuery.isEmpty {
                 Text("没有匹配结果，请换个关键词。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1245,7 +1221,7 @@ struct SettingsView: View {
                             sceneEditingBundleID = nil
                             sceneEditingAppName = ""
                         }
-                        .buttonStyle(.bordered)
+                        .controlCenterSecondaryActionButton()
                         Spacer()
                     }
                 }
@@ -1431,20 +1407,36 @@ struct SettingsView: View {
     }
 
     private var detailPaneBackground: some View {
-        Color.white
+        ControlCenterDetailBackground()
     }
 
     @ViewBuilder
     private func pageHeader(title: String, subtitle: String = "") -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.title2.weight(.bold))
+                .font(.system(size: 30, weight: .bold, design: .rounded))
             if !subtitle.isEmpty {
                 Text(subtitle)
                     .font(.body)
                     .foregroundStyle(.primary.opacity(0.84))
             }
+
+            RoundedRectangle(cornerRadius: 99, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.accentColor.opacity(0.72),
+                            Color.accentColor.opacity(0.22)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(height: 3)
+                .frame(maxWidth: 220, alignment: .leading)
         }
+        .padding(16)
+        .controlCenterInsetPanel(cornerRadius: 18)
     }
 
     @ViewBuilder
@@ -1456,18 +1448,34 @@ struct SettingsView: View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
-                    .font(.title2.weight(.bold))
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
                 if !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.body)
                         .foregroundStyle(.primary.opacity(0.84))
                 }
+
+                RoundedRectangle(cornerRadius: 99, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.accentColor.opacity(0.72),
+                                Color.accentColor.opacity(0.22)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(height: 3)
+                    .frame(maxWidth: 220, alignment: .leading)
             }
 
             Spacer(minLength: 12)
 
             accessory()
         }
+        .padding(16)
+        .controlCenterInsetPanel(cornerRadius: 18)
     }
 
     private var magicianTextModelReady: Bool {
@@ -1749,39 +1757,7 @@ struct SettingsView: View {
         if result.status == .success {
             return "配置可用，回到首页就可以开始语音输入。"
         }
-
-        if let status = result.httpStatus {
-            switch status {
-            case 401, 403:
-                return "请核对 API Key 是否正确、是否过期，并确认模型权限。"
-            case 404:
-                return "请核对 API 地址和模型名，确认接口兼容 OpenAI 路径。"
-            case 429:
-                return "请检查额度或限频策略，稍后再试。"
-            case 500...599:
-                return "服务端临时异常，稍后重试并查看服务状态页。"
-            default:
-                break
-            }
-        }
-
-        if result.message.contains("密钥") || result.hint.contains("密钥") {
-            return "先保存有效 API Key，再重新测试。"
-        }
-
-        if result.message.contains("接口地址") || result.hint.contains("接口地址") {
-            return "请确认 Base URL 以 http/https 开头，且指向可用网关。"
-        }
-
-        if result.message.contains("模型") || result.hint.contains("模型") {
-            return "请确认模型名与服务端可用模型一致。"
-        }
-
-        if result.message.contains("网络") || result.hint.contains("网络") {
-            return "请检查网络、代理或防火墙，再重试。"
-        }
-
-        return "建议依次检查地址、模型名、密钥、额度和网络。"
+        return ConnectionFailureAdvisor.suggestion(for: result)
     }
 
     private var memoryFilters: [LocalHistoryFilter] {
@@ -1806,7 +1782,7 @@ struct SettingsView: View {
         Button("清理数据", role: .destructive) {
             showClearMemoryConfirmation = true
         }
-        .buttonStyle(.bordered)
+        .controlCenterSecondaryActionButton()
         .disabled(!hasAnyPurgeableUsageData)
         .reportMemoryToolbarWidth(.clearButton)
     }
@@ -1948,24 +1924,24 @@ struct SettingsView: View {
                     refreshTimeMachineItems()
                     showToast("时光机列表已刷新。")
                 }
-                .buttonStyle(.bordered)
+                .controlCenterSecondaryActionButton()
 
                 Button("打开时钟") {
                     openClockSurface(.worldClock)
                 }
-                .buttonStyle(.bordered)
+                .controlCenterSecondaryActionButton()
                 .disabled(!magicianClockAppAvailable)
 
                 Button("闹钟") {
                     openClockSurface(.alarm)
                 }
-                .buttonStyle(.bordered)
+                .controlCenterSecondaryActionButton()
                 .disabled(!magicianClockAlarmSurfaceAvailable && !magicianClockAppAvailable)
 
                 Button("计时器") {
                     openClockSurface(.timer)
                 }
-                .buttonStyle(.bordered)
+                .controlCenterSecondaryActionButton()
                 .disabled(!magicianClockTimerSurfaceAvailable && !magicianClockAppAvailable)
 
                 Spacer()

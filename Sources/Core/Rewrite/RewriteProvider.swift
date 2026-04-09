@@ -115,7 +115,7 @@ struct TextGenerationResult: Equatable {
     let outputText: String
 }
 
-protocol TextGenerationProvider {
+protocol TextGenerationProvider: Sendable {
     var supportedProviderTypes: [ProviderType] { get }
     func generateText(
         request: TextGenerationRequest,

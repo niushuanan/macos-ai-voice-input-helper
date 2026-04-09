@@ -381,10 +381,7 @@ final class V4TextTransformTool: V4Tool, @unchecked Sendable {
         """
     }
 
-    private static func liveResearchFetcher(
-        query: String,
-        limit: Int
-    ) async -> [ResearchSnippet] {
+    private static let liveResearchFetcher: ResearchFetcher = { query, limit in
         guard
             let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
             let url = URL(string: "https://duckduckgo.com/html/?q=\(encoded)&kl=cn-zh")
