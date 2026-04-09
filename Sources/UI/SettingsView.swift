@@ -401,23 +401,10 @@ struct SettingsView: View {
                     .disabled(magicianFeatureToggleDisabled(resolution))
             }
 
-            HStack(spacing: 8) {
-                ControlCenterStatusPill(
-                    title: resolution.status.labelText,
-                    systemImage: resolution.status == .enabled ? "checkmark.circle.fill" : "power.circle",
-                    tint: resolution.status == .enabled ? .green : .secondary
-                )
-                ControlCenterStatusPill(
-                    title: magicianAvailabilityTitle(feature: feature, resolution: resolution),
-                    systemImage: magicianAvailabilityIcon(resolution),
-                    tint: magicianAvailabilityTint(resolution)
-                )
-            }
-
             if let reason = resolution.reason {
-                Text(reason)
+                Label(reason, systemImage: magicianGateHintIcon(resolution.gateKind))
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.secondary)
             }
 
             if let prompt = resolution.prompt {
@@ -444,32 +431,8 @@ struct SettingsView: View {
         resolution.availability == .blocked && resolution.status == .notEnabled
     }
 
-    private func magicianAvailabilityTitle(
-        feature: MagicianFeatureID,
-        resolution: MagicianFeatureStatusResolution
-    ) -> String {
-        if resolution.availability == .ready {
-            return feature == .markdownDocument ? "功能可用" : "依赖已就绪"
-        }
-
-        switch resolution.gateKind {
-        case .systemPermission:
-            return "缺少系统权限"
-        case .serviceDependency:
-            return "依赖未就绪"
-        case .modelDependency:
-            return "模型未就绪"
-        case .ready:
-            return "依赖已就绪"
-        }
-    }
-
-    private func magicianAvailabilityIcon(_ resolution: MagicianFeatureStatusResolution) -> String {
-        if resolution.availability == .ready {
-            return "checkmark.circle.fill"
-        }
-
-        switch resolution.gateKind {
+    private func magicianGateHintIcon(_ gateKind: MagicianFeatureGateKind) -> String {
+        switch gateKind {
         case .systemPermission:
             return "lock.shield"
         case .serviceDependency:
@@ -477,12 +440,8 @@ struct SettingsView: View {
         case .modelDependency:
             return "cpu"
         case .ready:
-            return "checkmark.circle.fill"
+            return "info.circle"
         }
-    }
-
-    private func magicianAvailabilityTint(_ resolution: MagicianFeatureStatusResolution) -> Color {
-        resolution.availability == .ready ? .green : .orange
     }
 
     @ViewBuilder

@@ -403,15 +403,6 @@ struct MagicianFeatureDescriptor: Identifiable, Equatable {
 enum MagicianFeatureStatus: String, Equatable {
     case notEnabled
     case enabled
-
-    var labelText: String {
-        switch self {
-        case .notEnabled:
-            return "功能已关"
-        case .enabled:
-            return "功能已开"
-        }
-    }
 }
 
 enum MagicianFeatureAvailability: String, Equatable {
