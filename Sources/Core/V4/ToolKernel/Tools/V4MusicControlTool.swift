@@ -131,6 +131,35 @@ struct V4MusicControlTool: V4Tool {
         }
     }
 
+    private struct PlaybackSnapshot: Equatable, Sendable {
+        let persistentID: String
+        let track: String
+        let artist: String
+        let state: String
+        let position: Double
+        let duration: Double
+    }
+
+    private actor LibraryOrderSessionCoordinator {
+        private var task: Task<Void, Never>?
+
+        func replaceSession(orderedTrackIDs: [String]) {
+            task?.cancel()
+            guard !orderedTrackIDs.isEmpty else {
+                task = nil
+                return
+            }
+            task = Task.detached(priority: .background) {
+                await V4MusicControlTool.runLockedLibraryOrderLoop(orderedTrackIDs: orderedTrackIDs)
+            }
+        }
+
+        func cancel() {
+            task?.cancel()
+            task = nil
+        }
+    }
+
     typealias ExecuteHandler = @Sendable (Command) async throws -> ResultPayload
     typealias SemanticResolver = @Sendable (String, V4ToolExecutionContext) async -> SemanticPlayDecision?
 
@@ -160,6 +189,8 @@ struct V4MusicControlTool: V4Tool {
     private let errorCatalog = V4ToolErrorCatalog()
     private static let libraryCatalogCache = LibraryCatalogCache()
     private static let libraryIndexFileName = "music-library-index-v1.json"
+    private static let lockedQueuePlaylistName = "PulseType Library Order Queue"
+    private static let libraryOrderSessionCoordinator = LibraryOrderSessionCoordinator()
 
     init(
         modelSlotManager: V4ModelSlotManager? = nil,
@@ -891,6 +922,7 @@ struct V4MusicControlTool: V4Tool {
     ) async -> MagicianProcessResult {
         switch command.action {
         case .open:
+            await libraryOrderSessionCoordinator.cancel()
             return await runOsaScript(
                 lines: [
                     "tell application \"Music\"",
@@ -914,6 +946,7 @@ struct V4MusicControlTool: V4Tool {
                 }
                 return MagicianProcessResult(exitCode: 0, stdout: "track_not_found", stderr: "library_only_mode")
             }
+            await libraryOrderSessionCoordinator.cancel()
             return await runOsaScript(
                 lines: [
                     "tell application \"Music\"",
@@ -962,58 +995,52 @@ struct V4MusicControlTool: V4Tool {
     }
 
     private static func runLibraryOrderedStep(direction: String) async -> MagicianProcessResult {
-        await runOsaScript(
-            lines: [
-                "on run argv",
-                "set directionText to item 1 of argv",
-                "tell application \"Music\"",
-            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
-                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: true)
-                + [
-                "set libraryTracks to tracks of library playlist 1",
-                "set totalCount to count of libraryTracks",
-                "if totalCount is 0 then error \"library empty\"",
-                "set targetIndex to 1",
-                "try",
-                "set nowTrack to current track",
-                "set nowTrackID to (persistent ID of nowTrack) as string",
-                "repeat with idx from 1 to totalCount",
-                "set candidateTrack to item idx of libraryTracks",
-                "try",
-                "set candidateID to (persistent ID of candidateTrack) as string",
-                "if candidateID is nowTrackID then",
-                "if directionText is \"next\" then",
-                "set targetIndex to idx + 1",
-                "if targetIndex > totalCount then set targetIndex to 1",
-                "else",
-                "set targetIndex to idx - 1",
-                "if targetIndex < 1 then set targetIndex to totalCount",
-                "end if",
-                "exit repeat",
-                "end if",
-                "end try",
-                "end repeat",
-                "on error",
-                "if directionText is \"next\" then",
-                "set targetIndex to 1",
-                "else",
-                "set targetIndex to totalCount",
-                "end if",
-                "end try",
-                "set targetTrack to item targetIndex of libraryTracks",
-                "play targetTrack",
-                "delay 0.5",
-                "set nowTrack to current track",
-                "if directionText is \"next\" then",
-                "set resolvedState to \"next\"",
-                "else",
-                "set resolvedState to \"previous\"",
-                "end if",
-                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|state=\" & resolvedState & \"|strategy=library_order|queue_mode=library_order\"",
-                "end tell",
-                "end run"
-            ],
-            arguments: [direction]
+        guard let snapshot = await loadLibraryCatalogSnapshot(), !snapshot.tracks.isEmpty else {
+            return MagicianProcessResult(exitCode: 1, stdout: "", stderr: "library_empty")
+        }
+
+        let action: Action = direction == "next" ? .next : .previous
+        let currentTrackID = await currentTrackPersistentID()
+        guard
+            let targetTrack = adjacentLibraryTrack(
+                currentPersistentID: currentTrackID,
+                direction: action,
+                tracks: snapshot.tracks
+            )
+        else {
+            return MagicianProcessResult(exitCode: 1, stdout: "", stderr: "library_empty")
+        }
+
+        let playResult = await playTrackByPersistentID(targetTrack.persistentID)
+        guard let verifiedResult = await resolveAcceptedPlaybackResult(
+            initialResult: playResult,
+            targetID: targetTrack.persistentID,
+            query: targetTrack.name,
+            playIntent: .song
+        ) else {
+            return MagicianProcessResult(
+                exitCode: 1,
+                stdout: playResult.stdout,
+                stderr: playResult.stderr.isEmpty ? "library_order_transition_mismatch" : playResult.stderr
+            )
+        }
+
+        let annotatedOutput = annotatedTransitionPlaybackOutput(
+            verifiedResult.stdout,
+            transitionState: direction
+        ) + "|strategy=library_order|index_revision=\(snapshot.revision)"
+        if let rotatedTracks = rotatedLibraryTracks(
+            startingAtPersistentID: targetTrack.persistentID,
+            tracks: snapshot.tracks
+        ) {
+            await libraryOrderSessionCoordinator.replaceSession(
+                orderedTrackIDs: rotatedTracks.map(\.persistentID)
+            )
+        }
+        return MagicianProcessResult(
+            exitCode: 0,
+            stdout: annotatedOutput,
+            stderr: verifiedResult.stderr
         )
     }
 
@@ -1086,7 +1113,21 @@ struct V4MusicControlTool: V4Tool {
             query: query,
             playIntent: playIntent
         ) else {
-            return nil
+            return MagicianProcessResult(
+                exitCode: 1,
+                stdout: playResult.stdout,
+                stderr: playResult.stderr.isEmpty
+                    ? "library_playback_verification_failed|target_id=\(selectedTrack.persistentID)|query=\(query)"
+                    : playResult.stderr
+            )
+        }
+        if let rotatedTracks = rotatedLibraryTracks(
+            startingAtPersistentID: selectedTrack.persistentID,
+            tracks: snapshot.tracks
+        ) {
+            await libraryOrderSessionCoordinator.replaceSession(
+                orderedTrackIDs: rotatedTracks.map(\.persistentID)
+            )
         }
         let evidence = verifiedResult.stdout + "|strategy=\(strategy)|index_revision=\(snapshot.revision)"
         return MagicianProcessResult(exitCode: 0, stdout: evidence, stderr: verifiedResult.stderr)
@@ -1276,6 +1317,14 @@ struct V4MusicControlTool: V4Tool {
             playIntent: playIntent
         ) else {
             return nil
+        }
+        if let rotatedTracks = rotatedLibraryTracks(
+            startingAtPersistentID: pick.persistentID,
+            tracks: tracks
+        ) {
+            await libraryOrderSessionCoordinator.replaceSession(
+                orderedTrackIDs: rotatedTracks.map(\.persistentID)
+            )
         }
         let evidence = verifiedResult.stdout + "|strategy=library_rag"
         return MagicianProcessResult(exitCode: 0, stdout: evidence, stderr: verifiedResult.stderr)
@@ -1659,6 +1708,46 @@ struct V4MusicControlTool: V4Tool {
         )
     }
 
+    static func rotatedLibraryTracks(
+        startingAtPersistentID persistentID: String,
+        tracks: [LibraryTrackRecord]
+    ) -> [LibraryTrackRecord]? {
+        guard
+            let startIndex = tracks.firstIndex(where: { $0.persistentID == persistentID })
+        else {
+            return nil
+        }
+        let head = tracks[startIndex...]
+        let tail = tracks[..<startIndex]
+        return Array(head) + Array(tail)
+    }
+
+    static func adjacentLibraryTrack(
+        currentPersistentID: String?,
+        direction: Action,
+        tracks: [LibraryTrackRecord]
+    ) -> LibraryTrackRecord? {
+        guard !tracks.isEmpty else {
+            return nil
+        }
+        guard let currentPersistentID else {
+            return direction == .previous ? tracks.last : tracks.first
+        }
+        guard let currentIndex = tracks.firstIndex(where: { $0.persistentID == currentPersistentID }) else {
+            return direction == .previous ? tracks.last : tracks.first
+        }
+        let targetIndex: Int
+        switch direction {
+        case .previous:
+            targetIndex = currentIndex == 0 ? tracks.count - 1 : currentIndex - 1
+        case .next:
+            targetIndex = (currentIndex + 1) % tracks.count
+        case .open, .pause, .play, .resume:
+            targetIndex = currentIndex
+        }
+        return tracks[targetIndex]
+    }
+
     private static func pickTrackFromAlbum(
         query: String,
         tracks: [LibraryTrackRecord],
@@ -1818,16 +1907,26 @@ struct V4MusicControlTool: V4Tool {
             lines: [
                 "on run argv",
                 "set targetPID to item 1 of argv",
+                "set queueName to item 2 of argv",
                 "tell application \"Music\"",
             ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
-                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: true)
+                + [
+                "try",
+                "set fixed indexing to true",
+                "end try"
+                ]
+                + libraryOrderedPlaybackSetupAppleScriptLines()
                 + [
                 "set allTracks to tracks of library playlist 1",
+                "set totalCount to count of allTracks",
                 "set targetTrack to missing value",
-                "repeat with t in allTracks",
+                "set targetIndex to 0",
+                "repeat with idx from 1 to totalCount",
+                "set t to item idx of allTracks",
                 "try",
                 "if ((persistent ID of t) as string) is targetPID then",
                 "set targetTrack to t",
+                "set targetIndex to idx",
                 "exit repeat",
                 "end if",
                 "end try",
@@ -1838,14 +1937,34 @@ struct V4MusicControlTool: V4Tool {
                 "set targetName to (name of targetTrack) as string",
                 "set targetArtist to (artist of targetTrack) as string",
                 "set targetAlbum to (album of targetTrack) as string",
+                "if not (exists user playlist queueName) then",
+                "make new user playlist with properties {name:queueName}",
+                "end if",
+                "set queuePlaylist to user playlist queueName",
+                "try",
+                "delete every track of queuePlaylist",
+                "on error",
+                "repeat while (count of tracks of queuePlaylist) > 0",
+                "delete item 1 of tracks of queuePlaylist",
+                "end repeat",
+                "end try",
+                "repeat with offsetIndex from 0 to (totalCount - 1)",
+                "set sourceIndex to targetIndex + offsetIndex",
+                "if sourceIndex > totalCount then set sourceIndex to sourceIndex - totalCount",
+                "duplicate (item sourceIndex of allTracks) to queuePlaylist",
+                "end repeat",
+                "set queueCount to count of tracks of queuePlaylist",
+                "if queueCount is 0 then",
+                "return \"queue_build_failed|target_id=\" & targetPID",
+                "end if",
                 "set finalState to \"unknown\"",
                 "set lastNowName to \"\"",
                 "set lastNowArtist to \"\"",
                 "set lastNowAlbum to \"\"",
                 "set lastNowID to \"\"",
                 "set lastMetadataMatch to false",
-                "play targetTrack",
-                "repeat with attemptIndex from 1 to 6",
+                "play queuePlaylist",
+                "repeat with attemptIndex from 1 to 8",
                 "delay 0.42",
                 "set finalState to (player state as string)",
                 "try",
@@ -1856,27 +1975,27 @@ struct V4MusicControlTool: V4Tool {
                 "set lastNowID to (persistent ID of nowTrack) as string",
                 "set lastMetadataMatch to ((lastNowName is targetName) and (lastNowArtist is targetArtist))",
                 "if lastNowID is targetPID then",
-                "return \"track=\" & lastNowName & \"|artist=\" & lastNowArtist & \"|album=\" & lastNowAlbum & \"|state=\" & finalState & \"|queue_mode=library_order|target_id=\" & targetPID & \"|resolved_id=\" & lastNowID & \"|target_id_match=true|metadata_match=true\"",
+                "return \"track=\" & lastNowName & \"|artist=\" & lastNowArtist & \"|album=\" & lastNowAlbum & \"|state=\" & finalState & \"|queue_mode=library_order|queue_lock=playlist_rotation|queue_playlist=\" & queueName & \"|queue_count=\" & queueCount & \"|target_index=\" & targetIndex & \"|target_id=\" & targetPID & \"|resolved_id=\" & lastNowID & \"|target_id_match=true|metadata_match=true\"",
                 "end if",
                 "if lastMetadataMatch then",
-                "return \"track=\" & lastNowName & \"|artist=\" & lastNowArtist & \"|album=\" & lastNowAlbum & \"|state=\" & finalState & \"|queue_mode=library_order|target_id=\" & targetPID & \"|resolved_id=\" & lastNowID & \"|target_id_match=false|metadata_match=true|resolved_id_substituted=true\"",
+                "return \"track=\" & lastNowName & \"|artist=\" & lastNowArtist & \"|album=\" & lastNowAlbum & \"|state=\" & finalState & \"|queue_mode=library_order|queue_lock=playlist_rotation|queue_playlist=\" & queueName & \"|queue_count=\" & queueCount & \"|target_index=\" & targetIndex & \"|target_id=\" & targetPID & \"|resolved_id=\" & lastNowID & \"|target_id_match=false|metadata_match=true|resolved_id_substituted=true\"",
                 "end if",
                 "end try",
-                "if attemptIndex is 3 then",
+                "if attemptIndex is 4 then",
                 "try",
-                "play targetTrack",
+                "play queuePlaylist",
                 "end try",
                 "end if",
                 "end repeat",
                 "if lastNowName is not \"\" then",
-                "return \"track=\" & lastNowName & \"|artist=\" & lastNowArtist & \"|album=\" & lastNowAlbum & \"|state=\" & finalState & \"|queue_mode=library_order|target_id=\" & targetPID & \"|resolved_id=\" & lastNowID & \"|play_mismatch=true|target_id_match=false|metadata_match=\" & (lastMetadataMatch as string)",
+                "return \"track=\" & lastNowName & \"|artist=\" & lastNowArtist & \"|album=\" & lastNowAlbum & \"|state=\" & finalState & \"|queue_mode=library_order|queue_lock=playlist_rotation|queue_playlist=\" & queueName & \"|queue_count=\" & queueCount & \"|target_index=\" & targetIndex & \"|target_id=\" & targetPID & \"|resolved_id=\" & lastNowID & \"|play_mismatch=true|target_id_match=false|metadata_match=\" & (lastMetadataMatch as string)",
                 "end if",
                 "return \"play_mismatch|state=\" & finalState & \"|target_id=\" & targetPID & \"|target_name=\" & targetName & \"|target_artist=\" & targetArtist & \"|target_album=\" & targetAlbum",
                 "end tell",
                 "end run"
             ],
-            arguments: [persistentID],
-            timeoutSeconds: 16
+            arguments: [persistentID, Self.lockedQueuePlaylistName],
+            timeoutSeconds: 90
         )
     }
 
@@ -1969,6 +2088,44 @@ struct V4MusicControlTool: V4Tool {
         return nil
     }
 
+    private static func resolveAcceptedTargetIDPlaybackResult(
+        initialResult: MagicianProcessResult,
+        targetID: String
+    ) async -> MagicianProcessResult? {
+        let initialOutput = initialResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        if
+            initialResult.exitCode == 0,
+            initialOutput.hasPrefix("track="),
+            evidenceResolvedTrackIDMatchesTarget(output: initialOutput, targetID: targetID)
+        {
+            return MagicianProcessResult(
+                exitCode: initialResult.exitCode,
+                stdout: initialOutput,
+                stderr: initialResult.stderr
+            )
+        }
+
+        for attempt in 1...5 {
+            let probe = await probeCurrentPlayback(targetID: targetID)
+            let probeOutput = probe.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            if
+                probe.exitCode == 0,
+                probeOutput.hasPrefix("track="),
+                evidenceResolvedTrackIDMatchesTarget(output: probeOutput, targetID: targetID)
+            {
+                return MagicianProcessResult(
+                    exitCode: 0,
+                    stdout: probeOutput,
+                    stderr: initialResult.stderr.isEmpty ? probe.stderr : initialResult.stderr
+                )
+            }
+            if attempt < 5 {
+                try? await Task.sleep(nanoseconds: 350_000_000)
+            }
+        }
+        return nil
+    }
+
     private static func probeCurrentPlayback(targetID: String) async -> MagicianProcessResult {
         await runOsaScript(
             lines: [
@@ -2017,29 +2174,31 @@ struct V4MusicControlTool: V4Tool {
     }
 
     private static func runFallbackLibraryOrderedPlay() async -> MagicianProcessResult? {
-        let result = await runOsaScript(
-            lines: [
-                "tell application \"Music\"",
-            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
-                + libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: true)
-                + [
-                "set allTracks to tracks of library playlist 1",
-                "set totalCount to count of allTracks",
-                "if totalCount is 0 then return \"track_not_found\"",
-                "set targetTrack to item 1 of allTracks",
-                "play targetTrack",
-                "delay 0.6",
-                "set nowTrack to current track",
-                "return \"track=\" & (name of nowTrack) & \"|artist=\" & (artist of nowTrack) & \"|album=\" & (album of nowTrack) & \"|state=play|strategy=library_order_fallback|queue_mode=library_order\"",
-                "end tell"
-            ],
-            arguments: [],
-            timeoutSeconds: 12
-        )
-        guard result.exitCode == 0, result.stdout.hasPrefix("track=") else {
+        guard let snapshot = await loadLibraryCatalogSnapshot(), let firstTrack = snapshot.tracks.first else {
             return nil
         }
-        return result
+        let playResult = await playTrackByPersistentID(firstTrack.persistentID)
+        guard let verifiedResult = await resolveAcceptedPlaybackResult(
+            initialResult: playResult,
+            targetID: firstTrack.persistentID,
+            query: firstTrack.name,
+            playIntent: .song
+        ) else {
+            return nil
+        }
+        if let rotatedTracks = rotatedLibraryTracks(
+            startingAtPersistentID: firstTrack.persistentID,
+            tracks: snapshot.tracks
+        ) {
+            await libraryOrderSessionCoordinator.replaceSession(
+                orderedTrackIDs: rotatedTracks.map(\.persistentID)
+            )
+        }
+        return MagicianProcessResult(
+            exitCode: 0,
+            stdout: verifiedResult.stdout + "|strategy=library_order_fallback|index_revision=\(snapshot.revision)",
+            stderr: verifiedResult.stderr
+        )
     }
 
     private static func libraryOrderedPlaybackSetupAppleScriptLines(anchorToLibraryQueue: Bool = false) -> [String] {
@@ -2060,6 +2219,145 @@ struct V4MusicControlTool: V4Tool {
             ]
         }
         return lines
+    }
+
+    private static func runLockedLibraryOrderLoop(orderedTrackIDs: [String]) async {
+        guard orderedTrackIDs.count >= 2 else {
+            return
+        }
+
+        var pendingTransition: (fromID: String, toID: String)?
+        while !Task.isCancelled {
+            guard let snapshot = await currentPlaybackSnapshot() else {
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                continue
+            }
+
+            let normalizedState = snapshot.state
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            let isPlaybackActive = normalizedState == "play" || normalizedState == "playing"
+
+            if let activeTransition = pendingTransition {
+                if snapshot.persistentID.caseInsensitiveCompare(activeTransition.toID) == .orderedSame {
+                    pendingTransition = nil
+                } else if snapshot.persistentID.caseInsensitiveCompare(activeTransition.fromID) == .orderedSame {
+                    if snapshot.position < 1.0 {
+                        let playResult = await playTrackByPersistentID(activeTransition.toID)
+                        if await resolveAcceptedTargetIDPlaybackResult(
+                            initialResult: playResult,
+                            targetID: activeTransition.toID
+                        ) != nil {
+                            pendingTransition = nil
+                        }
+                    }
+                } else if snapshot.position < 2.0 {
+                    let playResult = await playTrackByPersistentID(activeTransition.toID)
+                    if await resolveAcceptedTargetIDPlaybackResult(
+                        initialResult: playResult,
+                        targetID: activeTransition.toID
+                    ) != nil {
+                        pendingTransition = nil
+                    }
+                }
+            } else if
+                isPlaybackActive,
+                let currentIndex = orderedTrackIDs.firstIndex(where: {
+                    $0.caseInsensitiveCompare(snapshot.persistentID) == .orderedSame
+                }),
+                currentIndex < orderedTrackIDs.count - 1,
+                max(snapshot.duration - snapshot.position, 0) <= 0.9
+            {
+                pendingTransition = (
+                    fromID: orderedTrackIDs[currentIndex],
+                    toID: orderedTrackIDs[currentIndex + 1]
+                )
+            } else if
+                !orderedTrackIDs.contains(where: {
+                    $0.caseInsensitiveCompare(snapshot.persistentID) == .orderedSame
+                })
+            {
+                break
+            }
+
+            let sleepNanoseconds: UInt64 = pendingTransition == nil ? 1_200_000_000 : 250_000_000
+            try? await Task.sleep(nanoseconds: sleepNanoseconds)
+        }
+    }
+
+    private static func currentTrackPersistentID() async -> String? {
+        await currentPlaybackSnapshot()?.persistentID
+    }
+
+    private static func currentPlaybackSnapshot() async -> PlaybackSnapshot? {
+        let probe = await runOsaScript(
+            lines: [
+                "tell application \"Music\"",
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false) + [
+                "set finalState to (player state as string)",
+                "try",
+                "set nowTrack to current track",
+                "return \"state=\" & finalState & \"|resolved_id=\" & ((persistent ID of nowTrack) as string) & \"|track=\" & (name of nowTrack as string) & \"|artist=\" & (artist of nowTrack as string) & \"|position=\" & (player position as string) & \"|duration=\" & ((duration of nowTrack) as string)",
+                "on error errMsg",
+                "return \"state=\" & finalState & \"|probe_error=\" & errMsg",
+                "end try",
+                "end tell"
+            ],
+            arguments: [],
+            timeoutSeconds: 8
+        )
+        guard probe.exitCode == 0 else {
+            return nil
+        }
+        guard
+            let persistentID = evidenceField("resolved_id", from: probe.stdout),
+            let track = evidenceField("track", from: probe.stdout),
+            let artist = evidenceField("artist", from: probe.stdout)
+        else {
+            return nil
+        }
+        let state = evidenceField("state", from: probe.stdout) ?? ""
+        let position = Double(evidenceField("position", from: probe.stdout) ?? "") ?? 0
+        let duration = Double(evidenceField("duration", from: probe.stdout) ?? "") ?? 0
+        return PlaybackSnapshot(
+            persistentID: persistentID,
+            track: track,
+            artist: artist,
+            state: state,
+            position: position,
+            duration: duration
+        )
+    }
+
+    private static func annotatedTransitionPlaybackOutput(
+        _ output: String,
+        transitionState: String
+    ) -> String {
+        let parts = output.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        var rewritten: [String] = []
+        var playbackState: String?
+        var hasPlaybackState = false
+
+        for part in parts {
+            if part.hasPrefix("state=") {
+                let candidate = String(part.dropFirst("state=".count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !candidate.isEmpty {
+                    playbackState = candidate
+                }
+                continue
+            }
+            if part.hasPrefix("playback_state=") {
+                hasPlaybackState = true
+            }
+            rewritten.append(part)
+        }
+
+        rewritten.append("state=\(transitionState)")
+        if !hasPlaybackState, let playbackState, !playbackState.isEmpty {
+            rewritten.append("playback_state=\(playbackState)")
+        }
+        return rewritten.joined(separator: "|")
     }
 
     private static func parseEvidence(_ output: String) -> (state: String?, track: String?, artist: String?) {

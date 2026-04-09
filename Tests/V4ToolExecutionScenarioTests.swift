@@ -577,6 +577,104 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         XCTAssertNil(picked)
     }
 
+    func testMusicRotatedLibraryTracksStartsAtRequestedTrackAndWraps() {
+        let tracks = [
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-1",
+                name: "A",
+                artist: "周杰伦",
+                album: "甲"
+            ),
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-2",
+                name: "B",
+                artist: "周杰伦",
+                album: "乙"
+            ),
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-3",
+                name: "C",
+                artist: "周杰伦",
+                album: "丙"
+            ),
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-4",
+                name: "D",
+                artist: "周杰伦",
+                album: "丁"
+            )
+        ]
+
+        let rotated = V4MusicControlTool.rotatedLibraryTracks(
+            startingAtPersistentID: "id-3",
+            tracks: tracks
+        )
+
+        XCTAssertEqual(rotated?.map(\.persistentID), ["id-3", "id-4", "id-1", "id-2"])
+    }
+
+    func testMusicAdjacentLibraryTrackWrapsForwardToLibraryHead() {
+        let tracks = [
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-1",
+                name: "A",
+                artist: "周杰伦",
+                album: "甲"
+            ),
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-2",
+                name: "B",
+                artist: "周杰伦",
+                album: "乙"
+            ),
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-3",
+                name: "C",
+                artist: "周杰伦",
+                album: "丙"
+            )
+        ]
+
+        let target = V4MusicControlTool.adjacentLibraryTrack(
+            currentPersistentID: "id-3",
+            direction: .next,
+            tracks: tracks
+        )
+
+        XCTAssertEqual(target?.persistentID, "id-1")
+    }
+
+    func testMusicAdjacentLibraryTrackWrapsBackwardToLibraryTail() {
+        let tracks = [
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-1",
+                name: "A",
+                artist: "周杰伦",
+                album: "甲"
+            ),
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-2",
+                name: "B",
+                artist: "周杰伦",
+                album: "乙"
+            ),
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-3",
+                name: "C",
+                artist: "周杰伦",
+                album: "丙"
+            )
+        ]
+
+        let target = V4MusicControlTool.adjacentLibraryTrack(
+            currentPersistentID: "id-1",
+            direction: .previous,
+            tracks: tracks
+        )
+
+        XCTAssertEqual(target?.persistentID, "id-3")
+    }
+
     func testMusicVerificationAcceptsResolvedIDSubstitutionWhenMetadataMatches() {
         let verification = V4MusicControlTool.verifyLibraryPlayback(
             output: "track=龙战骑士|artist=周杰伦|album=魔杰座|state=playing|resolved_id=substitute-id|target_id_match=false|metadata_match=true|resolved_id_substituted=true",
