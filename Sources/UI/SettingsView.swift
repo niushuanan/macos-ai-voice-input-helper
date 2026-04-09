@@ -1057,31 +1057,39 @@ struct SettingsView: View {
     }
 
     private var permissionSettingsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("权限中心")
-                .font(.headline)
+        let items = permissionsCenter.presentationItems()
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("权限中心")
+                        .font(.headline)
+                    Text("麦克风负责录音，辅助功能负责读取选区和直写。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                Button("重新检测") {
+                    permissionsCenter.refreshStatuses()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
 
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(permissionsCenter.presentationItems().enumerated()), id: \.element.id) { index, item in
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     PermissionRowView(
                         item: item,
                         onRequest: { permissionsCenter.requestAccess(for: item.id) },
                         onOpenSettings: { permissionsCenter.openSystemSettings(for: item.id) }
                     )
-                    if index < permissionsCenter.presentationItems().count - 1 {
+                    if index < items.count - 1 {
                         Divider()
-                            .padding(.leading, 28)
+                            .padding(.leading, 40)
                     }
                 }
-            }
-
-            HStack {
-                Button("重新检测权限") {
-                    permissionsCenter.refreshStatuses()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                Spacer()
             }
 
             if permissionsCenter.runtimeDiagnostics.bundlePath != runtimePolicy.installPath {

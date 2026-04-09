@@ -949,47 +949,73 @@ struct PermissionRowView: View {
     let onOpenSettings: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 12) {
-                Label(item.title, systemImage: iconName)
-                    .font(.subheadline.weight(.semibold))
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(stateColor.opacity(0.12))
+                Image(systemName: iconName)
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(stateColor)
-
-                Spacer()
-
-                ControlCenterStatusPill(
-                    title: stateText,
-                    systemImage: iconName,
-                    tint: stateColor
-                )
             }
+            .frame(width: 28, height: 28)
 
-            Text(item.detail)
-                .font(.body)
-                .foregroundStyle(.primary.opacity(0.84))
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .center, spacing: 12) {
+                    Text(item.title)
+                        .font(.system(size: 15.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.primary)
 
-            if item.state != .granted && item.state != .notRequired {
-                Text(item.guidance)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+                    Spacer(minLength: 8)
 
-            HStack {
-                if item.state != .granted && item.state != .notRequired {
-                    Button("请求权限") {
-                        onRequest()
+                    ControlCenterStatusPill(
+                        title: stateText,
+                        systemImage: iconName,
+                        tint: stateColor
+                    )
+                }
+
+                Text(item.detail)
+                    .font(.callout)
+                    .foregroundStyle(.primary.opacity(0.84))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if showsGuidance {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: guidanceIconName)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 1)
+
+                        Text(item.guidance)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
-                Button("打开系统设置") {
-                    onOpenSettings()
+                if showsRequestButtons {
+                    HStack(spacing: 8) {
+                        Button("请求权限") {
+                            onRequest()
+                        }
+
+                        Button("打开系统设置") {
+                            onOpenSettings()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                } else {
+                    Button(secondaryActionTitle) {
+                        onOpenSettings()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
-                Spacer()
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -1032,6 +1058,22 @@ struct PermissionRowView: View {
         case .notRequired:
             return "不需要"
         }
+    }
+
+    private var showsGuidance: Bool {
+        item.state != .granted && item.state != .notRequired
+    }
+
+    private var showsRequestButtons: Bool {
+        item.state == .notRequested || item.state == .denied
+    }
+
+    private var guidanceIconName: String {
+        item.state == .pending ? "clock.badge.exclamationmark" : "info.circle"
+    }
+
+    private var secondaryActionTitle: String {
+        item.state == .granted || item.state == .notRequired ? "查看系统设置" : "打开系统设置"
     }
 }
 
