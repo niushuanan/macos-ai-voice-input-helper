@@ -236,16 +236,30 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
             )
         }
 
-        if plan.steps.first?.toolName == "md.pipeline" {
-            return plan
+        if shouldForceMarkdownDocumentFollowUp(for: request.inputText) {
+            if plan.steps.first?.toolName == "md.pipeline" {
+                return plan
+            }
+            return makeSingleStepPlan(
+                for: request,
+                toolName: "md.pipeline",
+                title: "生成 Markdown 文档",
+                inputSummary: "将语音文本、选区文本与选中文件统一生成结构化 Markdown 文档。"
+            )
         }
 
-        return makeSingleStepPlan(
-            for: request,
-            toolName: "md.pipeline",
-            title: "生成 Markdown 文档",
-            inputSummary: "将语音文本、选区文本与选中文件统一生成结构化 Markdown 文档。"
-        )
+        if shouldFinishSelectionTransform(for: request.inputText) {
+            let latestOutput = latestCompletedOutput(from: request)
+            return V4Plan(
+                steps: [],
+                terminalDecision: V4LoopDecision(
+                    action: .finish,
+                    message: latestOutput.isEmpty ? "已完成文字处理。" : summarized(latestOutput)
+                )
+            )
+        }
+
+        return plan
     }
 
     private func transformInstruction(command: String) -> String {
@@ -272,6 +286,49 @@ struct V4PlannerLLM: V4Planner, @unchecked Sendable {
             "放进文档"
         ]
         return genericCommands.contains { lowered.contains($0) }
+    }
+
+    private func shouldForceMarkdownDocumentFollowUp(for command: String) -> Bool {
+        let lowered = command.lowercased()
+        let tokens = [
+            "markdown",
+            "md",
+            "写进文档",
+            "写入文档",
+            "本地文档",
+            "保存到本地",
+            "落到本地",
+            "生成文档"
+        ]
+        if tokens.contains(where: lowered.contains) {
+            return true
+        }
+        return lowered.contains("文档") && !lowered.contains("飞书")
+    }
+
+    private func shouldFinishSelectionTransform(for command: String) -> Bool {
+        guard !shouldForceMarkdownDocumentFollowUp(for: command) else {
+            return false
+        }
+        guard !hasChainedFollowUpIntent(command) else {
+            return false
+        }
+        let classification = V4RulePlannerHeuristics.classification(for: command)
+        return classification.externalActions.isEmpty
+            && !V4RulePlannerHeuristics.looksLikeTimeMachineIntent(command)
+    }
+
+    private func hasChainedFollowUpIntent(_ command: String) -> Bool {
+        let lowered = command.lowercased()
+        let tokens = ["然后", "再", "接着", "随后", "之后", "最后", "并且", "并"]
+        return tokens.contains(where: lowered.contains)
+    }
+
+    private func latestCompletedOutput(from request: V4RunRequest) -> String {
+        request.stepRecords.reversed()
+            .compactMap(\.outputSummary)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty }) ?? ""
     }
 
     private func looksLikeMusicControlCommand(_ command: String) -> Bool {

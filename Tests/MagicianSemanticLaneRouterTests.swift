@@ -127,6 +127,87 @@ final class MagicianSemanticLaneRouterTests: XCTestCase {
         XCTAssertEqual(decision.normalizedIntent, .play)
         XCTAssertEqual(decision.normalizedQuery, "稻香")
     }
+
+    func testSemanticRouterForcesPlannerForLiveSelectionTransformCommands() async {
+        let provider = TrackingLaneGenerationProvider(
+            output: #"{"lane":"agent","path":"music_fast","selection_mode":"none","normalized_intent":"open","reason":"music_command"}"#
+        )
+        let router = MagicianSemanticLaneRouter(
+            generationProvider: provider,
+            modelResolver: {
+                MagicianSemanticLaneRouter.ModelContext(
+                    configuration: TextGenerationProviderConfiguration(
+                        profileID: "lane-router",
+                        providerType: .openAICompatible,
+                        providerName: "Stub",
+                        modelName: "stub-model",
+                        baseURL: URL(string: "https://example.com")!
+                    ),
+                    apiKey: "test-key"
+                )
+            }
+        )
+
+        let decision = await router.decide(
+            command: "翻译成中文",
+            selectionSnapshot: FocusedSelectionSnapshot(
+                focusContext: FocusedAppContext(
+                    appName: "TextEdit",
+                    bundleID: "com.apple.TextEdit",
+                    focusedRole: "AXTextArea",
+                    hasEditableTarget: true,
+                    strategyHint: "test"
+                ),
+                selectedText: "It boggles the mind."
+            ),
+            enabledFeatures: Set(MagicianFeatureID.allCases)
+        )
+
+        XCTAssertEqual(decision.lane, .agent)
+        XCTAssertEqual(decision.reason, "semantic_selection_transform_guard")
+        XCTAssertEqual(decision.selectionMode, .required)
+        XCTAssertEqual(decision.executionPath, .plannerV4)
+        XCTAssertNil(decision.normalizedIntent)
+        XCTAssertNil(decision.normalizedQuery)
+        let calls = await provider.invocationCount
+        XCTAssertEqual(calls, 0)
+    }
+
+    func testSemanticRouterRejectsMusicFastWhenCommandDoesNotLookLikeMusic() async {
+        let provider = TrackingLaneGenerationProvider(
+            output: #"{"lane":"native_fast","path":"music_fast","selection_mode":"optional","normalized_intent":"open","reason":"music_command"}"#
+        )
+        let router = MagicianSemanticLaneRouter(
+            generationProvider: provider,
+            modelResolver: {
+                MagicianSemanticLaneRouter.ModelContext(
+                    configuration: TextGenerationProviderConfiguration(
+                        profileID: "lane-router",
+                        providerType: .openAICompatible,
+                        providerName: "Stub",
+                        modelName: "stub-model",
+                        baseURL: URL(string: "https://example.com")!
+                    ),
+                    apiKey: "test-key"
+                )
+            }
+        )
+
+        let decision = await router.decide(
+            command: "帮我整理一下这段会议纪要",
+            selectionSnapshot: nil,
+            enabledFeatures: Set(MagicianFeatureID.allCases)
+        )
+
+        XCTAssertEqual(decision.lane, .agent)
+        XCTAssertEqual(decision.reason, "semantic_music_guard")
+        XCTAssertEqual(decision.selectionMode, .optional)
+        XCTAssertEqual(decision.executionPath, .plannerV4)
+        XCTAssertNil(decision.normalizedIntent)
+        XCTAssertNil(decision.normalizedQuery)
+        let calls = await provider.invocationCount
+        XCTAssertEqual(calls, 1)
+    }
 }
 
 private actor TrackingLaneGenerationProvider: TextGenerationProvider {

@@ -78,7 +78,7 @@ final class V4PlannerLLMTests: XCTestCase {
         let plan = try await planner.plan(for: request)
 
         XCTAssertEqual(plan.steps.count, 1)
-        XCTAssertEqual(plan.steps.first?.toolName, "md.pipeline")
+        XCTAssertEqual(plan.steps.first?.toolName, "apple.mail.compose")
         let invocationCount = await provider.invocationCount
         XCTAssertEqual(invocationCount, 1)
     }
@@ -171,8 +171,8 @@ final class V4PlannerLLMTests: XCTestCase {
 
         XCTAssertEqual(plan.terminalDecision, nil)
         XCTAssertEqual(plan.steps.count, 1)
-        XCTAssertEqual(plan.steps.first?.toolName, "md.pipeline")
-        XCTAssertEqual(plan.steps.first?.title, "生成 Markdown 文档")
+        XCTAssertEqual(plan.steps.first?.toolName, "apple.mail.compose")
+        XCTAssertEqual(plan.steps.first?.title, "发送邮件")
     }
 
     func testPlannerCanFinishFromModelDecision() async throws {
@@ -292,10 +292,10 @@ final class V4PlannerLLMTests: XCTestCase {
         XCTAssertEqual(plan.steps.first?.toolName, "text.transform")
     }
 
-    func testPlannerEnforcesLocalMarkdownAfterTransform() async throws {
+    func testPlannerFinishesSimpleSelectionTransformAfterCompletedTextTransform() async throws {
         let planner = V4PlannerLLM(
             generationProvider: StubGenerationProvider(
-                output: #"{"action":"finish","message":"已完成"}"#
+                output: #"{"action":"step","step":{"toolName":"md.pipeline","title":"生成 Markdown 文档","inputSummary":"直接保存"}}"#
             ),
             modelResolver: { _ in
                 V4PlannerLLM.ModelContext(
@@ -326,6 +326,51 @@ final class V4PlannerLLMTests: XCTestCase {
                     toolName: "text.transform",
                     inputSummary: "总结",
                     outputSummary: "这是总结后的内容"
+                )
+            ]
+        )
+
+        let plan = try await planner.plan(for: request)
+
+        XCTAssertTrue(plan.steps.isEmpty)
+        XCTAssertEqual(plan.terminalDecision?.action, .finish)
+        XCTAssertEqual(plan.terminalDecision?.message, "这是总结后的内容")
+    }
+
+    func testPlannerForcesMarkdownFollowUpWhenCommandExplicitlyAsksForDocument() async throws {
+        let planner = V4PlannerLLM(
+            generationProvider: StubGenerationProvider(
+                output: #"{"action":"finish","message":"已完成"}"#
+            ),
+            modelResolver: { _ in
+                V4PlannerLLM.ModelContext(
+                    configuration: TextGenerationProviderConfiguration(
+                        profileID: "planner",
+                        providerType: .openAICompatible,
+                        providerName: "Stub",
+                        modelName: "stub-model",
+                        baseURL: URL(string: "https://example.com")!
+                    ),
+                    apiKey: "test-key"
+                )
+            }
+        )
+
+        let request = V4RunRequest(
+            lane: .selectionRewrite,
+            goalSummary: "翻译成中文并写进文档",
+            inputText: "翻译成中文并写进文档",
+            selectionText: "This is selected text.",
+            stepRecords: [
+                V4StepRecord(
+                    traceID: V4TraceID(rawValue: "trace"),
+                    lane: .selectionRewrite,
+                    goalSummary: "翻译成中文并写进文档",
+                    title: "文字处理",
+                    status: .completed,
+                    toolName: "text.transform",
+                    inputSummary: "翻译成中文",
+                    outputSummary: "这是选中的文本。"
                 )
             ]
         )

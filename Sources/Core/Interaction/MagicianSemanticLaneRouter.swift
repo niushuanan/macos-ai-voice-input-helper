@@ -62,6 +62,12 @@ struct MagicianSemanticLaneRouter: MagicianLaneRouting, @unchecked Sendable {
                 executionPath: .plannerV4
             )
         }
+        if let guardDecision = guardDecision(
+            for: trimmedCommand,
+            selectionSnapshot: selectionSnapshot
+        ) {
+            return guardDecision
+        }
         guard let modelContext = try? await modelResolver() else {
             return MagicianLaneDecision(
                 lane: .agent,
@@ -96,7 +102,10 @@ struct MagicianSemanticLaneRouter: MagicianLaneRouting, @unchecked Sendable {
                     executionPath: .plannerV4
                 )
             }
-            return parsed.toDecision()
+            return sanitizeModelDecision(
+                parsed.toDecision(),
+                command: trimmedCommand
+            )
         } catch {
             return MagicianLaneDecision(
                 lane: .agent,
@@ -211,6 +220,72 @@ struct MagicianSemanticLaneRouter: MagicianLaneRouting, @unchecked Sendable {
         }
         let candidate = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         return candidate.isEmpty ? nil : candidate
+    }
+
+    private func guardDecision(
+        for command: String,
+        selectionSnapshot: FocusedSelectionSnapshot?
+    ) -> MagicianLaneDecision? {
+        guard V4RulePlannerHeuristics.hasSelectionDependentTransformIntent(command) else {
+            return nil
+        }
+        let hasLiveSelection = selectionSnapshot?.selectedText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty == false
+        let pointsToCurrentText = commandPointsToCurrentText(command)
+        guard hasLiveSelection || pointsToCurrentText else {
+            return nil
+        }
+        return MagicianLaneDecision(
+            lane: .agent,
+            reason: "semantic_selection_transform_guard",
+            userMessage: nil,
+            selectionMode: .required,
+            executionPath: .plannerV4
+        )
+    }
+
+    private func sanitizeModelDecision(
+        _ decision: MagicianLaneDecision,
+        command: String
+    ) -> MagicianLaneDecision {
+        guard shouldAllowMusicFastPath(for: command) else {
+            guard decision.executionPath == .musicFast || decision.normalizedIntent != nil else {
+                return decision
+            }
+            return MagicianLaneDecision(
+                lane: .agent,
+                reason: "semantic_music_guard",
+                userMessage: decision.userMessage,
+                selectionMode: decision.selectionMode,
+                executionPath: .plannerV4
+            )
+        }
+        return decision
+    }
+
+    private func shouldAllowMusicFastPath(for command: String) -> Bool {
+        let lowered = command.lowercased()
+        if V4RulePlannerHeuristics.hasTransformIntent(lowered) {
+            return false
+        }
+        let strongMusicTokens = [
+            "播放", "放一首", "来一首", "暂停", "继续", "恢复",
+            "下一首", "上一首", "听首", "听一下",
+            "打开音乐", "启动音乐", "打开 music", "启动 music",
+            "打开播放器", "启动播放器",
+            "play", "pause", "resume", "next", "previous"
+        ]
+        return strongMusicTokens.contains { lowered.contains($0) }
+    }
+
+    private func commandPointsToCurrentText(_ command: String) -> Bool {
+        let lowered = command.lowercased()
+        let referentialTokens = [
+            "选中", "当前", "这段", "这句话", "这条", "上面", "下面",
+            "selected", "current text", "current selection"
+        ]
+        return referentialTokens.contains { lowered.contains($0) }
     }
 
     private static func makeConfiguration(from endpoint: V4ModelEndpoint) throws -> TextGenerationProviderConfiguration {
