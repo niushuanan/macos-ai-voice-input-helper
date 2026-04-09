@@ -2,61 +2,97 @@ import AppKit
 import SwiftUI
 
 enum PulseUI {
+    struct TypeSpec {
+        let size: CGFloat
+        let lineHeight: CGFloat
+        let weight: Font.Weight
+        let design: Font.Design
+    }
+
     enum Spacing {
-        static let pageHorizontal: CGFloat = 24
-        static let pageVertical: CGFloat = 22
-        static let section: CGFloat = 16
-        static let cardPadding: CGFloat = 14
-        static let compactCardPadding: CGFloat = 10
+        static let pageHorizontal: CGFloat = 22
+        static let pageVertical: CGFloat = 20
+        static let section: CGFloat = 14
+        static let cardPadding: CGFloat = 12
+        static let compactCardPadding: CGFloat = 9
     }
 
     enum Radius {
-        static let header: CGFloat = 18
-        static let sectionGroup: CGFloat = 16
-        static let card: CGFloat = 12
-        static let compactCard: CGFloat = 10
-        static let listRow: CGFloat = 14
+        static let header: CGFloat = 16
+        static let sectionGroup: CGFloat = 14
+        static let card: CGFloat = 11
+        static let compactCard: CGFloat = 9
+        static let listRow: CGFloat = 12
         static let pill: CGFloat = 999
     }
 
     enum Typography {
-        static let pageTitle = Font.system(size: 31, weight: .bold, design: .rounded)
-        static let sectionTitle = Font.system(size: 17, weight: .semibold, design: .rounded)
-        static let body = Font.system(size: 14, weight: .regular, design: .default)
-        static let bodyStrong = Font.system(size: 14, weight: .medium, design: .default)
-        static let caption = Font.system(size: 12, weight: .regular, design: .default)
-        static let captionStrong = Font.system(size: 12, weight: .semibold, design: .default)
-        static let value = Font.system(size: 22, weight: .semibold, design: .rounded)
-        static let monospacedMeta = Font.system(size: 11.5, weight: .regular, design: .monospaced)
+        static let heroSpec = TypeSpec(size: 24, lineHeight: 30, weight: .bold, design: .rounded)
+        static let sectionSpec = TypeSpec(size: 15.5, lineHeight: 20, weight: .semibold, design: .rounded)
+        static let bodySpec = TypeSpec(size: 13.5, lineHeight: 18, weight: .regular, design: .default)
+        static let bodyMediumSpec = TypeSpec(size: 13.5, lineHeight: 18, weight: .medium, design: .default)
+        static let captionSpec = TypeSpec(size: 12, lineHeight: 16, weight: .regular, design: .default)
+        static let captionStrongSpec = TypeSpec(size: 12, lineHeight: 16, weight: .semibold, design: .default)
+        static let tinySpec = TypeSpec(size: 11, lineHeight: 14, weight: .regular, design: .default)
+        static let metricSpec = TypeSpec(size: 19, lineHeight: 24, weight: .semibold, design: .rounded)
+
+        static let pageTitle = Font.system(
+            size: heroSpec.size,
+            weight: heroSpec.weight,
+            design: heroSpec.design
+        )
+        static let sectionTitle = Font.system(
+            size: sectionSpec.size,
+            weight: sectionSpec.weight,
+            design: sectionSpec.design
+        )
+        static let body = Font.system(
+            size: bodySpec.size,
+            weight: bodySpec.weight,
+            design: bodySpec.design
+        )
+        static let bodyStrong = Font.system(
+            size: bodyMediumSpec.size,
+            weight: bodyMediumSpec.weight,
+            design: bodyMediumSpec.design
+        )
+        static let caption = Font.system(size: captionSpec.size, weight: captionSpec.weight, design: captionSpec.design)
+        static let captionStrong = Font.system(size: captionStrongSpec.size, weight: captionStrongSpec.weight, design: captionStrongSpec.design)
+        static let value = Font.system(
+            size: metricSpec.size,
+            weight: metricSpec.weight,
+            design: metricSpec.design
+        )
+        static let monospacedMeta = Font.system(size: tinySpec.size, weight: tinySpec.weight, design: .monospaced)
     }
 
     enum ColorTokens {
         static let textPrimary = Color.primary
-        static let textSecondary = Color.primary.opacity(0.72)
-        static let textTertiary = Color.primary.opacity(0.56)
-        static let success = Color.green
-        static let warning = Color.orange
-        static let danger = Color.red
+        static let textSecondary = Color.primary.opacity(0.70)
+        static let textTertiary = Color.primary.opacity(0.52)
+        static let success = Color(nsColor: NSColor(calibratedRed: 0.18, green: 0.64, blue: 0.42, alpha: 1))
+        static let warning = Color(nsColor: NSColor(calibratedRed: 0.78, green: 0.53, blue: 0.12, alpha: 1))
+        static let danger = Color(nsColor: NSColor(calibratedRed: 0.83, green: 0.30, blue: 0.30, alpha: 1))
 
         static let backgroundTop = Color(
-            nsColor: NSColor(calibratedRed: 0.927, green: 0.945, blue: 0.973, alpha: 1)
+            nsColor: NSColor(calibratedRed: 0.961, green: 0.957, blue: 0.941, alpha: 1)
         )
         static let backgroundBottom = Color(
-            nsColor: NSColor(calibratedRed: 0.968, green: 0.978, blue: 0.993, alpha: 1)
+            nsColor: NSColor(calibratedRed: 0.947, green: 0.958, blue: 0.976, alpha: 1)
         )
         static let glow = Color(
-            nsColor: NSColor(calibratedRed: 0.347, green: 0.557, blue: 0.875, alpha: 1)
+            nsColor: NSColor(calibratedRed: 0.322, green: 0.518, blue: 0.836, alpha: 1)
         )
         static let primaryFill = Color(
-            nsColor: NSColor(calibratedRed: 0.951, green: 0.959, blue: 0.974, alpha: 1)
+            nsColor: NSColor(calibratedRed: 0.975, green: 0.975, blue: 0.971, alpha: 1)
         )
         static let secondaryFill = Color(
-            nsColor: NSColor(calibratedRed: 0.966, green: 0.972, blue: 0.984, alpha: 1)
+            nsColor: NSColor(calibratedRed: 0.957, green: 0.962, blue: 0.972, alpha: 1)
         )
-        static let stroke = Color.black.opacity(0.068)
-        static let glassStroke = Color.white.opacity(0.37)
-        static let glassShadow = Color.black.opacity(0.065)
-        static let softShadow = Color.black.opacity(0.038)
+        static let stroke = Color.black.opacity(0.072)
+        static let glassStroke = Color.white.opacity(0.34)
+        static let glassShadow = Color.black.opacity(0.058)
+        static let softShadow = Color.black.opacity(0.035)
     }
 }
 

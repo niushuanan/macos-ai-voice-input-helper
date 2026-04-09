@@ -8,10 +8,11 @@ struct PlaceholderPageView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
-                .font(.title2.weight(.bold))
+                .font(PulseUI.Typography.sectionTitle)
             Text(subtitle)
-                .font(.body)
-                .foregroundStyle(.primary.opacity(0.84))
+                .font(PulseUI.Typography.body)
+                .lineSpacing(1.6)
+                .pulseSecondaryText()
             Spacer(minLength: 0)
         }
         .padding(20)
@@ -84,8 +85,8 @@ struct MemoryRowView: View {
 
                     if let rawText {
                         Text("(\(rawText))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(PulseUI.Typography.caption)
+                            .pulseSecondaryText()
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
@@ -241,7 +242,7 @@ struct MemoryRowView: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                             Text(magicianExecutionTrace)
-                                .font(.system(size: 11.5, weight: .regular, design: .monospaced))
+                                .font(PulseUI.Typography.monospacedMeta)
                                 .foregroundStyle(.primary)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -458,10 +459,11 @@ struct SkillRuleCardView: View {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(PulseUI.Typography.sectionTitle)
                     Text(subtitle)
-                        .font(.body)
-                        .foregroundStyle(.primary.opacity(0.84))
+                        .font(PulseUI.Typography.body)
+                        .lineSpacing(1.4)
+                        .pulseSecondaryText()
                 }
                 Spacer()
                 Toggle("", isOn: $isEnabled)
@@ -473,7 +475,7 @@ struct SkillRuleCardView: View {
 
             if ruleID == .systemPrompt {
                 TextEditor(text: $parameter)
-                    .font(.system(size: 13))
+                    .font(.system(size: 12.5))
                     .frame(minHeight: 84, maxHeight: 120)
                     .padding(6)
                     .controlCenterInsetPanel()
@@ -499,7 +501,7 @@ struct ScenePolicyRowView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 12) {
                 Text(policy.appName)
-                    .font(.subheadline.weight(.semibold))
+                    .font(PulseUI.Typography.sectionTitle)
                 if isEditing {
                     ControlCenterStatusPill(
                         title: "编辑中",
@@ -519,11 +521,11 @@ struct ScenePolicyRowView: View {
             }
 
             Text(policy.bundleID)
-                .font(.caption2.monospaced())
-                .foregroundStyle(.secondary)
+                .font(PulseUI.Typography.monospacedMeta)
+                .pulseSecondaryText()
 
             Text(promptPreview)
-                .font(.body)
+                .font(PulseUI.Typography.body)
                 .foregroundStyle(promptPreview == "还没有专属提示词。" ? .secondary : .primary)
                 .lineLimit(2)
 
@@ -553,10 +555,10 @@ struct SceneAppCandidateRowView: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(app.appName)
-                    .font(.subheadline.weight(.semibold))
+                    .font(PulseUI.Typography.sectionTitle)
                 Text(app.bundleID)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
+                    .font(PulseUI.Typography.monospacedMeta)
+                    .pulseSecondaryText()
                     .lineLimit(1)
             }
             Spacer()
@@ -976,7 +978,7 @@ struct PermissionRowView: View {
                 Circle()
                     .fill(stateColor.opacity(0.12))
                 Image(systemName: iconName)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(stateColor)
             }
             .frame(width: 28, height: 28)
@@ -1107,10 +1109,11 @@ struct MagicianPermissionSheetView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(prompt.title)
-                .font(.title3.weight(.semibold))
+                .font(PulseUI.Typography.sectionTitle)
             Text(prompt.message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(PulseUI.Typography.body)
+                .lineSpacing(1.6)
+                .pulseSecondaryText()
 
             HStack {
                 Spacer()

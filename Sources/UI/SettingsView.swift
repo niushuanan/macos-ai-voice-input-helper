@@ -383,7 +383,7 @@ struct SettingsView: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: feature.symbolName)
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(.primary)
                     .frame(width: 28, height: 28)
 
@@ -600,7 +600,7 @@ struct SettingsView: View {
                         .font(.headline)
 
                     TextEditor(text: $dictionaryDraft)
-                        .font(.system(size: 13))
+                        .font(.system(size: 12.5))
                         .frame(minHeight: 220, maxHeight: 320)
                         .padding(8)
                         .background(
@@ -1407,12 +1407,14 @@ struct SettingsView: View {
     @ViewBuilder
     private func pageHeader(title: String, subtitle: String = "") -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(PulseUI.Typography.pageTitle)
-                .pulsePrimaryText()
+                Text(title)
+                    .font(PulseUI.Typography.pageTitle)
+                    .tracking(0.1)
+                    .pulsePrimaryText()
             if !subtitle.isEmpty {
                 Text(subtitle)
                     .font(PulseUI.Typography.body)
+                    .lineSpacing(1.8)
                     .pulseSecondaryText()
             }
 
@@ -1428,7 +1430,7 @@ struct SettingsView: View {
                     )
                 )
                 .frame(height: 2.5)
-                .frame(maxWidth: 196, alignment: .leading)
+                .frame(maxWidth: 180, alignment: .leading)
         }
         .padding(PulseUI.Spacing.section)
         .controlCenterInsetPanel(cornerRadius: PulseUI.Radius.header)
@@ -1444,10 +1446,12 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
                     .font(PulseUI.Typography.pageTitle)
+                    .tracking(0.1)
                     .pulsePrimaryText()
                 if !subtitle.isEmpty {
                     Text(subtitle)
                         .font(PulseUI.Typography.body)
+                        .lineSpacing(1.8)
                         .pulseSecondaryText()
                 }
 
@@ -1463,7 +1467,7 @@ struct SettingsView: View {
                         )
                     )
                     .frame(height: 2.5)
-                    .frame(maxWidth: 196, alignment: .leading)
+                    .frame(maxWidth: 180, alignment: .leading)
             }
 
             Spacer(minLength: 12)
