@@ -26,13 +26,13 @@ struct MenuBarStatusView: View {
         case .idle:
             return .secondary
         case .listening:
-            return .blue
+            return .accentColor
         case .transcribing:
-            return .purple
+            return .accentColor.opacity(0.82)
         case .rewriting:
-            return .orange
+            return .primary.opacity(0.72)
         case .inserting:
-            return .green
+            return .green.opacity(0.9)
         case .cancelled:
             return .red
         case .error:
@@ -58,7 +58,7 @@ private struct ListeningLevelPips: View {
         HStack(alignment: .bottom, spacing: 2) {
             ForEach(0..<3, id: \.self) { index in
                 Capsule()
-                    .fill(Color.blue.opacity(opacity(for: index)))
+                    .fill(Color.accentColor.opacity(opacity(for: index)))
                     .frame(width: 2.5, height: barHeight(for: index))
             }
         }

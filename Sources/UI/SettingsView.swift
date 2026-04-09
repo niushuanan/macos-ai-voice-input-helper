@@ -55,6 +55,7 @@ struct SettingsView: View {
     @State private var magicianClockAlarmSurfaceAvailable = MagicianClockCapability.canOpen(surface: .alarm)
     @State private var magicianClockTimerSurfaceAvailable = MagicianClockCapability.canOpen(surface: .timer)
     @State private var localSenseVoiceDetailsExpanded = false
+    @State private var developerEntryExpanded = false
     @State private var memoryToolbarAvailableWidth: CGFloat = 0
     @State private var memoryFilterBarWidth: CGFloat = 0
     @State private var clearMemoryButtonWidth: CGFloat = 0
@@ -86,8 +87,12 @@ struct SettingsView: View {
         NavigationSplitView {
             List(DesktopSection.allCases, selection: $controlCenterState.selectedSection) { section in
                 Label(section.title, systemImage: section.symbolName)
+                    .font(PulseUI.Typography.bodyStrong)
                     .tag(section)
             }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .background(.clear)
             .navigationSplitViewColumnWidth(min: 188, ideal: 204, max: 220)
             .navigationTitle("PulseType")
         } detail: {
@@ -105,7 +110,7 @@ struct SettingsView: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                             .padding(.bottom, 20)
                     }
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, PulseUI.Spacing.pageHorizontal)
                     .animation(.spring(response: 0.28, dampingFraction: 0.86), value: toast.id)
                 }
             }
@@ -198,7 +203,7 @@ struct SettingsView: View {
     private var homePage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                pageHeader(title: "首页", subtitle: "先开口，再决定要写字、做动作，还是留个提醒。")
+                pageHeader(title: "首页", subtitle: "先说，再写。你常用的数据和入口都在这里。")
 
                 homeProductIntroCard
 
@@ -226,9 +231,9 @@ struct SettingsView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
+            .padding(.horizontal, PulseUI.Spacing.pageHorizontal)
             .padding(.top, 10)
-            .padding(.bottom, 22)
+            .padding(.bottom, PulseUI.Spacing.pageVertical)
         }
         .onAppear {
             permissionsCenter.refreshStatuses()
@@ -239,8 +244,8 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 pageHeader(
-                    title: "记忆",
-                    subtitle: "这里会保存会话与执行轨迹。现在支持只清空记录，或一键清洗全部旧使用数据。"
+                    title: "历史",
+                    subtitle: "这里保存你的会话结果。可以删单条，也可以一次清理历史数据。"
                 )
 
                 memoryToolbar
@@ -278,8 +283,8 @@ struct SettingsView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
-            .padding(.vertical, 22)
+            .padding(.horizontal, PulseUI.Spacing.pageHorizontal)
+            .padding(.vertical, PulseUI.Spacing.pageVertical)
         }
         .confirmationDialog(
             "确认清空记录？",
@@ -306,16 +311,16 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 pageHeader(
-                    title: "魔术先生",
-                    subtitle: "长按主键说一句，松开就做。这里单独查看功能总开关，以及它当前缺的是权限、模型还是系统依赖。"
+                    title: "动作",
+                    subtitle: "长按主键说一句，松开就执行。这里查看每个动作是否就绪。"
                 )
 
                 magicianTextTransformSection
                 magicianNativeActionsSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
-            .padding(.vertical, 22)
+            .padding(.horizontal, PulseUI.Spacing.pageHorizontal)
+            .padding(.vertical, PulseUI.Spacing.pageVertical)
         }
         .onAppear {
             refreshMagicianCapabilityState()
@@ -326,7 +331,7 @@ struct SettingsView: View {
     private var magicianTextTransformSection: some View {
         magicianFeatureSection(
             title: "文本处理",
-            subtitle: "长按魔术先生后，直接处理当前文字。",
+            subtitle: "直接处理当前选中文本。",
             features: [.textTransform]
         )
     }
@@ -334,7 +339,7 @@ struct SettingsView: View {
     private var magicianNativeActionsSection: some View {
         magicianFeatureSection(
             title: "原生动作",
-            subtitle: "只保留日历、Markdown 文档、邮件、音乐、时钟。",
+            subtitle: "日历、文档、邮件、音乐、时钟等系统动作。",
             features: [.calendar, .markdownDocument, .mail, .music, .clock]
         )
     }
@@ -468,8 +473,8 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 pageHeader(
-                    title: "模型",
-                    subtitle: "三槽位：语音识别 / 文本处理 / CLI Agent。改动会实时生效。"
+                    title: "引擎",
+                    subtitle: "语音、文本和 CLI 三个能力槽。修改后会立即生效。"
                 )
 
                 modelRoleSection(
@@ -569,8 +574,8 @@ struct SettingsView: View {
                 )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
-            .padding(.vertical, 22)
+            .padding(.horizontal, PulseUI.Spacing.pageHorizontal)
+            .padding(.vertical, PulseUI.Spacing.pageVertical)
         }
         .onAppear {
             providerSettingsStore.refreshCredentialState()
@@ -587,7 +592,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 pageHeader(
                     title: "词典",
-                    subtitle: "每行一个词条，可写专业词或短语。保存后会立刻用于语音识别。"
+                    subtitle: "每行一个词，支持术语和短语，保存后立刻生效。"
                 )
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -625,8 +630,8 @@ struct SettingsView: View {
                 .controlCenterSectionGroup()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
-            .padding(.vertical, 22)
+            .padding(.horizontal, PulseUI.Spacing.pageHorizontal)
+            .padding(.vertical, PulseUI.Spacing.pageVertical)
         }
         .onAppear {
             dictionaryDraft = asrDictionaryStore.rawText
@@ -781,17 +786,18 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 pageHeader(
                     title: "设置",
-                    subtitle: "管理快捷键、权限与基础环境。"
+                    subtitle: "管理快捷键、权限与基础行为。"
                 )
 
                 expressionPreferenceCard
                 scenePolicySkillsCard
                 hotkeySettingsCard
                 permissionSettingsCard
+                developerEntryCard
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
-            .padding(.vertical, 22)
+            .padding(.horizontal, PulseUI.Spacing.pageHorizontal)
+            .padding(.vertical, PulseUI.Spacing.pageVertical)
         }
         .onAppear {
             permissionsCenter.refreshStatuses()
@@ -808,16 +814,16 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 pageHeader(
-                    title: "一口气全念对",
-                    subtitle: "用于短时讨论记录，自动整理成可直接给 AI 使用的上下文。"
+                    title: "讨论整理",
+                    subtitle: "适合短时讨论，结束后自动整理成可直接使用的上下文。"
                 )
 
                 brainstormIntroCard
                 brainstormTriggerCard
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
-            .padding(.vertical, 22)
+            .padding(.horizontal, PulseUI.Spacing.pageHorizontal)
+            .padding(.vertical, PulseUI.Spacing.pageVertical)
         }
         .onAppear {
             hotkeyStateStore.refresh()
@@ -1027,6 +1033,41 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
+        .controlCenterSectionGroup()
+    }
+
+    private var developerEntryCard: some View {
+        DisclosureGroup("开发者入口（可选）", isExpanded: $developerEntryExpanded) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("普通使用不需要这一块。只有在排查问题或做高级配置时再打开。")
+                    .font(.caption)
+                    .pulseSecondaryText()
+
+                VStack(alignment: .leading, spacing: 6) {
+                    LabeledContent("运行目录", value: model.localStore.rootDirectory.path)
+                    LabeledContent("当前 App", value: Bundle.main.bundleURL.path)
+                }
+                .font(PulseUI.Typography.caption)
+                .textSelection(.enabled)
+
+                HStack(spacing: 8) {
+                    Button("打开运行目录") {
+                        NSWorkspace.shared.activateFileViewerSelecting([model.localStore.rootDirectory])
+                    }
+                    .controlCenterSecondaryActionButton()
+                    .controlSize(.small)
+
+                    Button("打开 App 包") {
+                        NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
+                    }
+                    .controlCenterSecondaryActionButton()
+                    .controlSize(.small)
+                }
+            }
+            .padding(.top, 8)
+        }
+        .font(.subheadline.weight(.semibold))
+        .padding(12)
         .controlCenterSectionGroup()
     }
 
@@ -1367,29 +1408,30 @@ struct SettingsView: View {
     private func pageHeader(title: String, subtitle: String = "") -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .font(PulseUI.Typography.pageTitle)
+                .pulsePrimaryText()
             if !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(.body)
-                    .foregroundStyle(.primary.opacity(0.84))
+                    .font(PulseUI.Typography.body)
+                    .pulseSecondaryText()
             }
 
-            RoundedRectangle(cornerRadius: 99, style: .continuous)
+            RoundedRectangle(cornerRadius: PulseUI.Radius.pill, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.accentColor.opacity(0.72),
-                            Color.accentColor.opacity(0.22)
+                            Color.accentColor.opacity(0.60),
+                            Color.accentColor.opacity(0.18)
                         ],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
                 )
-                .frame(height: 3)
-                .frame(maxWidth: 220, alignment: .leading)
+                .frame(height: 2.5)
+                .frame(maxWidth: 196, alignment: .leading)
         }
-        .padding(16)
-        .controlCenterInsetPanel(cornerRadius: 18)
+        .padding(PulseUI.Spacing.section)
+        .controlCenterInsetPanel(cornerRadius: PulseUI.Radius.header)
     }
 
     @ViewBuilder
@@ -1401,34 +1443,35 @@ struct SettingsView: View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .font(PulseUI.Typography.pageTitle)
+                    .pulsePrimaryText()
                 if !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.body)
-                        .foregroundStyle(.primary.opacity(0.84))
+                        .font(PulseUI.Typography.body)
+                        .pulseSecondaryText()
                 }
 
-                RoundedRectangle(cornerRadius: 99, style: .continuous)
+                RoundedRectangle(cornerRadius: PulseUI.Radius.pill, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color.accentColor.opacity(0.72),
-                                Color.accentColor.opacity(0.22)
+                                Color.accentColor.opacity(0.60),
+                                Color.accentColor.opacity(0.18)
                             ],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
                     )
-                    .frame(height: 3)
-                    .frame(maxWidth: 220, alignment: .leading)
+                    .frame(height: 2.5)
+                    .frame(maxWidth: 196, alignment: .leading)
             }
 
             Spacer(minLength: 12)
 
             accessory()
         }
-        .padding(16)
-        .controlCenterInsetPanel(cornerRadius: 18)
+        .padding(PulseUI.Spacing.section)
+        .controlCenterInsetPanel(cornerRadius: PulseUI.Radius.header)
     }
 
     private var magicianTextModelReady: Bool {
@@ -1809,7 +1852,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 pageHeader(
                     title: "时光机",
-                    subtitle: "提醒与时间中心。本地通知是稳定路径，Clock 跳转会尽量带你去最接近的入口。"
+                    subtitle: "提醒与时间中心。默认走本地通知，必要时再跳转系统时钟。"
                 )
 
                 timeMachineOverviewCard
@@ -1835,8 +1878,8 @@ struct SettingsView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
-            .padding(.vertical, 22)
+            .padding(.horizontal, PulseUI.Spacing.pageHorizontal)
+            .padding(.vertical, PulseUI.Spacing.pageVertical)
         }
         .onAppear {
             refreshMagicianCapabilityState()

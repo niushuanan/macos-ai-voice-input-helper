@@ -18,17 +18,17 @@ enum DesktopSection: String, CaseIterable, Identifiable {
         case .home:
             return "首页"
         case .memory:
-            return "记忆"
+            return "历史"
         case .dictionary:
             return "词典"
         case .model:
-            return "模型"
+            return "引擎"
         case .timeMachine:
             return "时光机"
         case .magician:
-            return "魔术先生"
+            return "动作"
         case .agentBrainstorm:
-            return "一口气全念对"
+            return "讨论整理"
         case .settings:
             return "设置"
         }
@@ -39,17 +39,17 @@ enum DesktopSection: String, CaseIterable, Identifiable {
         case .home:
             return "house"
         case .memory:
-            return "clock.arrow.circlepath"
+            return "clock"
         case .dictionary:
             return "text.book.closed"
         case .model:
-            return "cpu"
+            return "slider.horizontal.3"
         case .timeMachine:
-            return "clock.badge.exclamationmark"
+            return "calendar.badge.clock"
         case .magician:
-            return "wand.and.stars"
+            return "sparkles"
         case .agentBrainstorm:
-            return "person.2.wave.2"
+            return "bubble.left.and.bubble.right"
         case .settings:
             return "gearshape"
         }

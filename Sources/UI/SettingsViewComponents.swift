@@ -576,19 +576,20 @@ struct HomeMetricCard: View {
     let subtitle: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary.opacity(0.78))
+                .font(PulseUI.Typography.captionStrong)
+                .pulseTertiaryText()
             Text(value)
-                .font(.title3.weight(.semibold))
+                .font(PulseUI.Typography.value)
+                .pulsePrimaryText()
             Text(subtitle)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(PulseUI.Typography.caption)
+                .pulseSecondaryText()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .pulseCard(cornerRadius: 10)
+        .padding(PulseUI.Spacing.cardPadding)
+        .pulseCard(cornerRadius: PulseUI.Radius.card)
     }
 }
 
@@ -598,10 +599,10 @@ struct PulseToastView: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
+                .foregroundStyle(PulseUI.ColorTokens.success)
             Text(text)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
+                .font(PulseUI.Typography.bodyStrong)
+                .pulsePrimaryText()
                 .lineLimit(2)
         }
         .padding(.horizontal, 16)
@@ -637,100 +638,128 @@ struct ModelConfigCard: View {
     let feedbackMessage: String?
     let onSaveKey: () -> Void
     let onDeleteKey: () -> Void
+    @State private var developerOptionsExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let title, !title.isEmpty {
                 Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(PulseUI.Typography.sectionTitle)
+                    .pulseSecondaryText()
                     .padding(.top, 2)
             }
 
-            Picker("Provider 类型", selection: providerType) {
-                ForEach(availableProviderTypes) { type in
-                    Text(type.displayName).tag(type)
-                }
-            }
-            .pickerStyle(.menu)
-            .controlSize(.regular)
-
-            if showsBaseURL {
-                Text("API 地址")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
-                TextField(baseURLPlaceholder, text: baseURL)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-                    .disabled(!allowsCustomBaseURL)
-            } else {
-                Label("本地模式不需要接口地址。", systemImage: "internaldrive")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Text("模型名")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
-            TextField(modelPlaceholder, text: modelName)
-                .textFieldStyle(.roundedBorder)
-                .autocorrectionDisabled()
-
-            if let localModelPath {
-                Text("本地模型目录")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
-                TextField(defaultSenseVoiceModelPath, text: localModelPath)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-            }
-
-            if showsAPIKey {
-                Text("API 密钥")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
-                HStack {
-                    SecureField("请输入 API 密钥", text: $apiKeyDraft)
-                        .textFieldStyle(.roundedBorder)
-
-                    Button("保存") {
-                        onSaveKey()
-                    }
-                    .disabled(
-                        apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || credentialState == .saving
+            VStack(alignment: .leading, spacing: 6) {
+                Text("当前连接")
+                    .font(PulseUI.Typography.captionStrong)
+                    .pulseTertiaryText()
+                HStack(spacing: 8) {
+                    ControlCenterStatusPill(
+                        title: providerType.wrappedValue.displayName,
+                        systemImage: providerType.wrappedValue == .localSenseVoice ? "internaldrive.fill" : "cloud.fill",
+                        tint: providerType.wrappedValue == .localSenseVoice ? PulseUI.ColorTokens.warning : .accentColor
                     )
-
-                    Button("删除", role: .destructive) {
-                        onDeleteKey()
-                    }
-                    .disabled(isDeleteDisabled)
+                    Text(modelName.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "模型名未填写" : modelName.wrappedValue)
+                        .font(PulseUI.Typography.caption)
+                        .pulseSecondaryText()
+                        .lineLimit(1)
                 }
-                .controlCenterSecondaryActionButton()
-                .controlSize(.small)
-
-                Label(
-                    credentialStateTitle,
-                    systemImage: credentialStateIcon
-                )
-                .font(.caption)
-                .foregroundStyle(credentialStateColor)
-            } else {
-                Label("本地模型模式不需要 API 密钥。", systemImage: "lock.open.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
+
+            DisclosureGroup("开发者选项", isExpanded: $developerOptionsExpanded) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Picker("连接方式", selection: providerType) {
+                        ForEach(availableProviderTypes) { type in
+                            Text(type.displayName).tag(type)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .controlSize(.regular)
+
+                    if showsBaseURL {
+                        Text("API 地址")
+                            .font(PulseUI.Typography.captionStrong)
+                            .pulseSecondaryText()
+                        TextField(baseURLPlaceholder, text: baseURL)
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled()
+                            .disabled(!allowsCustomBaseURL)
+                    } else {
+                        Label("本地模式不需要 API 地址。", systemImage: "internaldrive")
+                            .font(PulseUI.Typography.caption)
+                            .pulseSecondaryText()
+                    }
+
+                    Text("模型名")
+                        .font(PulseUI.Typography.captionStrong)
+                        .pulseSecondaryText()
+                    TextField(modelPlaceholder, text: modelName)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+
+                    if let localModelPath {
+                        Text("本地模型目录")
+                            .font(PulseUI.Typography.captionStrong)
+                            .pulseSecondaryText()
+                        TextField(defaultSenseVoiceModelPath, text: localModelPath)
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled()
+                    }
+
+                    if showsAPIKey {
+                        Text("API 密钥")
+                            .font(PulseUI.Typography.captionStrong)
+                            .pulseSecondaryText()
+                        HStack {
+                            SecureField("请输入 API 密钥", text: $apiKeyDraft)
+                                .textFieldStyle(.roundedBorder)
+
+                            Button("保存") {
+                                onSaveKey()
+                            }
+                            .disabled(
+                                apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                || credentialState == .saving
+                            )
+
+                            Button("删除", role: .destructive) {
+                                onDeleteKey()
+                            }
+                            .disabled(isDeleteDisabled)
+                        }
+                        .controlCenterSecondaryActionButton()
+                        .controlSize(.small)
+
+                        Label(
+                            credentialStateTitle,
+                            systemImage: credentialStateIcon
+                        )
+                        .font(PulseUI.Typography.caption)
+                        .foregroundStyle(credentialStateColor)
+                    } else {
+                        Label("本地模型模式不需要 API 密钥。", systemImage: "lock.open.fill")
+                            .font(PulseUI.Typography.caption)
+                            .pulseSecondaryText()
+                    }
+                }
+                .padding(.top, 8)
+            }
+            .font(PulseUI.Typography.bodyStrong)
 
             if let validationMessage {
                 Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(PulseUI.Typography.caption)
+                    .foregroundStyle(PulseUI.ColorTokens.danger)
             }
 
             if let feedbackMessage {
                 Text(feedbackMessage)
-                    .font(.caption)
-                    .foregroundStyle(feedbackMessage.contains("无法") || feedbackMessage.contains("失败") ? .red : .secondary)
+                    .font(PulseUI.Typography.caption)
+                    .foregroundStyle(
+                        feedbackMessage.contains("无法") || feedbackMessage.contains("失败")
+                            ? PulseUI.ColorTokens.danger
+                            : PulseUI.ColorTokens.textSecondary
+                    )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -777,17 +806,17 @@ struct ModelConfigCard: View {
     private var credentialStateColor: Color {
         switch credentialState {
         case .saving:
-            return .secondary
+            return PulseUI.ColorTokens.textSecondary
         case .saved:
-            return .secondary
+            return PulseUI.ColorTokens.textSecondary
         case .inaccessible:
-            return .orange
+            return PulseUI.ColorTokens.warning
         case .failed:
-            return .red
+            return PulseUI.ColorTokens.danger
         case .unknown:
-            return .secondary
+            return PulseUI.ColorTokens.textSecondary
         case .missing:
-            return .secondary
+            return PulseUI.ColorTokens.textSecondary
         }
     }
 
@@ -811,8 +840,8 @@ struct ModelStatusPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("状态")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .font(PulseUI.Typography.sectionTitle)
+                    .pulsePrimaryText()
                 Spacer()
                 ControlCenterStatusPill(
                     title: statusTitle,
@@ -822,29 +851,31 @@ struct ModelStatusPanel: View {
             }
 
             Text(activeConfigLine)
-                .font(.body)
+                .font(PulseUI.Typography.body)
+                .pulsePrimaryText()
                 .lineLimit(2)
                 .textSelection(.enabled)
 
             if let latestResult {
                 Text(latestResult.message)
-                    .font(.body)
+                    .font(PulseUI.Typography.body)
+                    .pulsePrimaryText()
                     .textSelection(.enabled)
 
                 if latestResult.status == .failure, let failureSuggestion {
                     Text(failureSuggestion)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(PulseUI.Typography.caption)
+                        .pulseSecondaryText()
                 }
             } else {
                 Text("还没有测试记录。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(PulseUI.Typography.caption)
+                    .pulseSecondaryText()
             }
         }
-        .padding(10)
+        .padding(PulseUI.Spacing.compactCardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .controlCenterInsetPanel(cornerRadius: 10)
+        .controlCenterInsetPanel(cornerRadius: PulseUI.Radius.compactCard)
     }
 
     private var statusTitle: String {
@@ -872,9 +903,9 @@ struct ModelStatusPanel: View {
             return .accentColor
         }
         guard let latestResult else {
-            return .secondary
+            return PulseUI.ColorTokens.textSecondary
         }
-        return latestResult.status == .success ? .green : .orange
+        return latestResult.status == .success ? PulseUI.ColorTokens.success : PulseUI.ColorTokens.warning
     }
 }
 
@@ -886,28 +917,29 @@ struct ConnectionTestSummaryView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .font(PulseUI.Typography.sectionTitle)
+                    .pulsePrimaryText()
                 Spacer()
                 Label(statusTitle, systemImage: statusIcon)
-                    .font(.caption.weight(.semibold))
+                    .font(PulseUI.Typography.captionStrong)
                     .foregroundStyle(statusColor)
             }
 
             Text(result.message)
-                .font(.body)
+                .font(PulseUI.Typography.body)
+                .pulsePrimaryText()
                 .textSelection(.enabled)
 
             Text(result.hint)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(PulseUI.Typography.caption)
+                .pulseSecondaryText()
 
             Text(metaLine)
-                .font(.caption2.monospaced())
-                .foregroundStyle(.secondary)
+                .font(PulseUI.Typography.monospacedMeta)
+                .pulseSecondaryText()
                 .textSelection(.enabled)
         }
-        .padding(10)
+        .padding(PulseUI.Spacing.compactCardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .controlCenterInsetPanel(cornerRadius: 8)
     }
@@ -921,7 +953,7 @@ struct ConnectionTestSummaryView: View {
     }
 
     private var statusColor: Color {
-        result.status == .success ? .green : .red
+        result.status == .success ? PulseUI.ColorTokens.success : PulseUI.ColorTokens.danger
     }
 
     private var metaLine: String {
@@ -952,8 +984,8 @@ struct PermissionRowView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .center, spacing: 12) {
                     Text(item.title)
-                        .font(.system(size: 15.5, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.primary)
+                        .font(PulseUI.Typography.sectionTitle)
+                        .pulsePrimaryText()
 
                     Spacer(minLength: 8)
 
@@ -965,20 +997,20 @@ struct PermissionRowView: View {
                 }
 
                 Text(item.detail)
-                    .font(.callout)
-                    .foregroundStyle(.primary.opacity(0.84))
+                    .font(PulseUI.Typography.body)
+                    .pulseSecondaryText()
                     .fixedSize(horizontal: false, vertical: true)
 
                 if showsGuidance {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: guidanceIconName)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                            .font(PulseUI.Typography.captionStrong)
+                            .pulseSecondaryText()
                             .padding(.top, 1)
 
                         Text(item.guidance)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(PulseUI.Typography.caption)
+                            .pulseSecondaryText()
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -1000,8 +1032,8 @@ struct PermissionRowView: View {
                         onOpenSettings()
                     }
                     .buttonStyle(.plain)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(PulseUI.Typography.caption)
+                    .pulseSecondaryText()
                 }
             }
         }
@@ -1025,13 +1057,13 @@ struct PermissionRowView: View {
     private var stateColor: Color {
         switch item.state {
         case .granted, .notRequired:
-            return .green
+            return PulseUI.ColorTokens.success
         case .pending:
-            return .orange
+            return PulseUI.ColorTokens.warning
         case .denied:
-            return .red
+            return PulseUI.ColorTokens.danger
         case .notRequested:
-            return .secondary
+            return PulseUI.ColorTokens.textSecondary
         }
     }
 
@@ -1105,9 +1137,9 @@ struct ControlCenterStatusPill: View {
 
     var body: some View {
         Label(title, systemImage: systemImage)
-            .font(.caption.weight(.semibold))
+            .font(PulseUI.Typography.captionStrong)
             .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .padding(.vertical, 4.5)
             .background(
                 Capsule(style: .continuous)
                     .fill(tint.opacity(0.14))

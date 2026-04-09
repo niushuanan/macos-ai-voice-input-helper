@@ -18,23 +18,9 @@ struct MenuBarMenuView: View {
     }
 
     var body: some View {
-        Text("阶段：\(model.sessionStore.phase.title)")
+        Text("当前状态：\(model.sessionStore.phase.title)")
             .font(.caption)
-        Text("通道：\(model.sessionStore.activeLane.title)")
-            .font(.caption)
-        Text("转写：\(providerSettingsStore.selectedTranscriptionProviderName)")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        Text("文本处理：\(providerSettingsStore.selectedRewriteProviderName)")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        Text("主键：\(hotkeyStateStore.wakeShortcutText)")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        Text("取消键：\(hotkeyStateStore.cancelShortcutText)")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        Text("一口气全念对触发：\(hotkeyStateStore.brainstormShortcutText)")
+        Text(model.sessionStore.phase == .listening ? "正在聆听你的输入" : "点击下面按钮开始语音输入")
             .font(.caption2)
             .foregroundStyle(.secondary)
 
@@ -48,6 +34,17 @@ struct MenuBarMenuView: View {
             Button("打开隐私设置") {
                 permissionsCenter.openSystemSettings(for: .microphone)
             }
+        }
+
+        Divider()
+
+        Menu("开发者信息") {
+            Text("通道：\(model.sessionStore.activeLane.title)")
+            Text("语音引擎：\(providerSettingsStore.selectedTranscriptionProviderName)")
+            Text("文本引擎：\(providerSettingsStore.selectedRewriteProviderName)")
+            Text("主键：\(hotkeyStateStore.wakeShortcutText)")
+            Text("取消键：\(hotkeyStateStore.cancelShortcutText)")
+            Text("讨论整理触发：\(hotkeyStateStore.brainstormShortcutText)")
         }
 
         Divider()
