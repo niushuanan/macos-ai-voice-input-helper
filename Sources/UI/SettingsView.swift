@@ -170,13 +170,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var detailPaneContent: some View {
-        if #available(macOS 26, *) {
-            GlassEffectContainer(spacing: 24) {
-                selectedDetailPage
-            }
-        } else {
-            selectedDetailPage
-        }
+        selectedDetailPage
     }
 
     @ViewBuilder

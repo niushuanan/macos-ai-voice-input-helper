@@ -9,6 +9,8 @@ private enum ControlCenterPalette {
         nsColor: NSColor(calibratedRed: 0.969, green: 0.974, blue: 0.986, alpha: 1)
     )
     static let stroke = Color.black.opacity(0.065)
+    static let glassStroke = Color.white.opacity(0.35)
+    static let glassShadow = Color.black.opacity(0.06)
     static let glow = Color(
         nsColor: NSColor(calibratedRed: 0.419, green: 0.619, blue: 0.925, alpha: 1)
     )
@@ -57,26 +59,32 @@ private struct ControlCenterSurfaceStyle: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         if #available(macOS 26, *) {
             content
                 .background(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    shape
                         .fill(kind == .secondary ? ControlCenterPalette.secondaryFill.opacity(0.18) : Color.white.opacity(0.16))
                 )
                 .glassEffect(
-                    kind == .listRow ? .regular.interactive() : .regular,
+                    .regular,
                     in: .rect(cornerRadius: cornerRadius)
                 )
+                .overlay(
+                    shape
+                        .stroke(ControlCenterPalette.glassStroke, lineWidth: 1)
+                )
+                .shadow(color: ControlCenterPalette.glassShadow, radius: 8, x: 0, y: 3)
         } else {
             let fill = kind == .secondary ? ControlCenterPalette.secondaryFill : ControlCenterPalette.primaryFill
             let shadowRadius: CGFloat = kind == .listRow ? 7 : 11
             content
                 .background(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    shape
                         .fill(fill)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    shape
                         .stroke(ControlCenterPalette.stroke, lineWidth: 1)
                 )
                 .shadow(color: Color.black.opacity(0.03), radius: shadowRadius, x: 0, y: 3)
