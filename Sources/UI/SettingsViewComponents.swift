@@ -1,6 +1,16 @@
 import AppKit
 import SwiftUI
 
+private extension Color {
+    static let controlCenterGroupFill = Color(
+        nsColor: NSColor(calibratedRed: 0.962, green: 0.963, blue: 0.969, alpha: 1)
+    )
+    static let controlCenterInsetFill = Color(
+        nsColor: NSColor(calibratedRed: 0.972, green: 0.973, blue: 0.978, alpha: 1)
+    )
+    static let controlCenterStroke = Color.black.opacity(0.055)
+}
+
 struct PlaceholderPageView: View {
     let title: String
     let subtitle: String
@@ -11,7 +21,7 @@ struct PlaceholderPageView: View {
                 .font(.title2.weight(.bold))
             Text(subtitle)
                 .font(.body)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary.opacity(0.84))
             Spacer(minLength: 0)
         }
         .padding(20)
@@ -460,8 +470,8 @@ struct SkillRuleCardView: View {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
                     Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.body)
+                        .foregroundStyle(.primary.opacity(0.84))
                 }
                 Spacer()
                 Toggle("", isOn: $isEnabled)
@@ -523,7 +533,7 @@ struct ScenePolicyRowView: View {
                 .foregroundStyle(.secondary)
 
             Text(promptPreview)
-                .font(.caption)
+                .font(.body)
                 .foregroundStyle(promptPreview == "还没有专属提示词。" ? .secondary : .primary)
                 .lineLimit(2)
 
@@ -578,8 +588,8 @@ struct HomeMetricCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary.opacity(0.78))
             Text(value)
                 .font(.title3.weight(.semibold))
             Text(subtitle)
@@ -657,8 +667,8 @@ struct ModelConfigCard: View {
 
             if showsBaseURL {
                 Text("API 地址")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
                 TextField(baseURLPlaceholder, text: baseURL)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
@@ -670,16 +680,16 @@ struct ModelConfigCard: View {
             }
 
             Text("模型名")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
             TextField(modelPlaceholder, text: modelName)
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled()
 
             if let localModelPath {
                 Text("本地模型目录")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
                 TextField(defaultSenseVoiceModelPath, text: localModelPath)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
@@ -687,8 +697,8 @@ struct ModelConfigCard: View {
 
             if showsAPIKey {
                 Text("API 密钥")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
                 HStack {
                     SecureField("请输入 API 密钥", text: $apiKeyDraft)
                         .textFieldStyle(.roundedBorder)
@@ -811,8 +821,8 @@ struct ModelStatusPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("状态")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
                 Spacer()
                 ControlCenterStatusPill(
                     title: statusTitle,
@@ -822,13 +832,13 @@ struct ModelStatusPanel: View {
             }
 
             Text(activeConfigLine)
-                .font(.caption)
+                .font(.body)
                 .lineLimit(2)
                 .textSelection(.enabled)
 
             if let latestResult {
                 Text(latestResult.message)
-                    .font(.caption)
+                    .font(.body)
                     .textSelection(.enabled)
 
                 if latestResult.status == .failure, let failureSuggestion {
@@ -886,8 +896,8 @@ struct ConnectionTestSummaryView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
                 Spacer()
                 Label(statusTitle, systemImage: statusIcon)
                     .font(.caption.weight(.semibold))
@@ -895,7 +905,7 @@ struct ConnectionTestSummaryView: View {
             }
 
             Text(result.message)
-                .font(.caption)
+                .font(.body)
                 .textSelection(.enabled)
 
             Text(result.hint)
@@ -955,8 +965,8 @@ struct PermissionRowView: View {
             }
 
             Text(item.detail)
-                .font(.caption)
-                .foregroundStyle(item.state == .granted || item.state == .notRequired ? .primary : .secondary)
+                .font(.body)
+                .foregroundStyle(.primary.opacity(0.84))
 
             if item.state != .granted && item.state != .notRequired {
                 Text(item.guidance)
@@ -1081,12 +1091,12 @@ private struct PulseCardStyle: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
             .background(
-                shape.fill(Color.white)
+                shape.fill(Color.controlCenterGroupFill)
             )
             .overlay(
-                shape.stroke(Color.black.opacity(0.06), lineWidth: 1)
+                shape.stroke(Color.controlCenterStroke, lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.035), radius: 10, x: 0, y: 2)
+            .shadow(color: Color.black.opacity(0.018), radius: 8, x: 0, y: 2)
     }
 }
 
@@ -1097,12 +1107,12 @@ private struct ControlCenterSectionGroupStyle: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
             .background(
-                shape.fill(Color.white)
+                shape.fill(Color.controlCenterGroupFill)
             )
             .overlay(
-                shape.stroke(Color.black.opacity(0.06), lineWidth: 1)
+                shape.stroke(Color.controlCenterStroke, lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.022), radius: 8, x: 0, y: 2)
+            .shadow(color: Color.black.opacity(0.014), radius: 6, x: 0, y: 1)
     }
 }
 
@@ -1113,10 +1123,10 @@ private struct ControlCenterInsetPanelStyle: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
             .background(
-                shape.fill(Color.white)
+                shape.fill(Color.controlCenterInsetFill)
             )
             .overlay(
-                shape.stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                shape.stroke(Color.controlCenterStroke, lineWidth: 1)
             )
     }
 }
@@ -1128,10 +1138,10 @@ private struct ControlCenterListRowStyle: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
             .background(
-                shape.fill(Color.white)
+                shape.fill(Color.controlCenterGroupFill)
             )
             .overlay(
-                shape.stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                shape.stroke(Color.controlCenterStroke, lineWidth: 1)
             )
     }
 }

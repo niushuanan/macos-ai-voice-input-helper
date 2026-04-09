@@ -386,8 +386,8 @@ struct SettingsView: View {
                 Text(title)
                     .font(.headline)
                 Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.body)
+                    .foregroundStyle(.primary.opacity(0.84))
             }
 
             VStack(alignment: .leading, spacing: 0) {
@@ -423,10 +423,10 @@ struct SettingsView: View {
                     Text(feature.displayName)
                         .font(.subheadline.weight(.semibold))
                     Text(feature.summaryLine)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.body)
+                        .foregroundStyle(.primary.opacity(0.84))
                     Text(feature.boundaryLine)
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
                 Spacer()
@@ -785,13 +785,14 @@ struct SettingsView: View {
             )
 
             HStack {
-                Spacer()
                 Button(isTesting ? "\(testButtonTitle)中..." : testButtonTitle) {
                     onTest()
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(isTesting)
+
+                Spacer()
             }
         }
         .padding(16)
@@ -816,7 +817,7 @@ struct SettingsView: View {
                         )
                     }
                 }
-                .font(.caption)
+                .font(.subheadline)
 
                 HStack {
                     Button("准备环境") {
@@ -916,8 +917,8 @@ struct SettingsView: View {
                 .font(.subheadline)
             Divider()
             Text("当前模型实测上限：\(profile.maxSeconds) 秒")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.body)
+                .foregroundStyle(.primary.opacity(0.84))
             Text("推荐时长：\(profile.recommendedSeconds) 秒以内")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -976,8 +977,8 @@ struct SettingsView: View {
             }
 
             Text(currentText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.body)
+                .foregroundStyle(.primary.opacity(0.8))
         }
     }
 
@@ -991,8 +992,8 @@ struct SettingsView: View {
                     .font(.subheadline.weight(.semibold))
                 VStack(alignment: .leading, spacing: 8) {
                     Text("单键触发按键")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
 
                     ModifierCaptureButton(
                         valueText: wakeModifierCaptureState?.pendingModifier?.displayName ?? hotkeyStateStore.wakeModifier.displayName,
@@ -1011,8 +1012,8 @@ struct SettingsView: View {
                     }
                 }
                 Text("当前主键：单键触发 · \(hotkeyStateStore.wakeModifier.displayName)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.body)
+                    .foregroundStyle(.primary.opacity(0.8))
             }
 
             Divider()
@@ -1021,8 +1022,8 @@ struct SettingsView: View {
                 Text("取消键")
                     .font(.subheadline.weight(.semibold))
                 Text("取消键固定为 Esc，不支持修改。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.body)
+                    .foregroundStyle(.primary.opacity(0.84))
             }
 
             Divider()
@@ -1031,8 +1032,8 @@ struct SettingsView: View {
                 Text("触发规则说明")
                     .font(.subheadline.weight(.semibold))
                 Text("单击开始或停止普通语音，长按进入魔术先生，双击进入一口气全念对。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.body)
+                    .foregroundStyle(.primary.opacity(0.84))
                 if hotkeyStateStore.wakeModifier == hotkeyStateStore.brainstormModifier {
                     Text("当前两者共用同一按键：双击优先一口气全念对，长按优先魔术先生。")
                         .font(.caption)
@@ -1144,8 +1145,8 @@ struct SettingsView: View {
                     Text("按应用风格")
                         .font(.headline)
                     Text("给常用应用单独定语气，聊天、邮件、文档可以各说各的话。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.body)
+                        .foregroundStyle(.primary.opacity(0.84))
                 }
                 Spacer()
                 Toggle(
@@ -1431,8 +1432,8 @@ struct SettingsView: View {
                 .font(.title2.weight(.bold))
             if !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(.body)
+                    .foregroundStyle(.primary.opacity(0.84))
             }
         }
     }
@@ -1449,8 +1450,8 @@ struct SettingsView: View {
                     .font(.title2.weight(.bold))
                 if !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(.body)
+                        .foregroundStyle(.primary.opacity(0.84))
                 }
             }
 
