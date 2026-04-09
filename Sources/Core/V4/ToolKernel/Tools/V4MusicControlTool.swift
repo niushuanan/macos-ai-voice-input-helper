@@ -253,14 +253,13 @@ struct V4MusicControlTool: V4Tool {
 
         let requestedTrack = resolved.query?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTrack = result.track?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let exactMatch = isExactTrackMatch(
+        let matchedRequestedTrack = matchesRequestedTrack(
             requestedTrack: requestedTrack,
-            resolvedTrack: resolvedTrack,
-            action: result.action
+            result: result
         )
         let evidenceConfidence: String = {
             if result.action == .play, let requestedTrack, !requestedTrack.isEmpty {
-                return exactMatch ? "high" : "low"
+                return matchedRequestedTrack ? "high" : "low"
             }
             return "medium"
         }()
@@ -274,7 +273,7 @@ struct V4MusicControlTool: V4Tool {
             ),
             requestedTrack: requestedTrack,
             resolvedTrack: resolvedTrack,
-            exactMatch: exactMatch,
+            exactMatch: matchedRequestedTrack,
             playbackState: resolvedState,
             evidenceConfidence: evidenceConfidence
         )
@@ -290,7 +289,7 @@ struct V4MusicControlTool: V4Tool {
                     "requestedTrack": requestedTrack.map(V4ToolValue.string) ?? .null,
                     "track": result.track.map(V4ToolValue.string) ?? .null,
                     "resolvedTrack": resolvedTrack.map(V4ToolValue.string) ?? .null,
-                    "exactMatch": .boolean(exactMatch),
+                    "exactMatch": .boolean(matchedRequestedTrack),
                     "playbackState": .string(resolvedState),
                     "evidenceConfidence": .string(evidenceConfidence),
                     "artist": result.artist.map(V4ToolValue.string) ?? .null,
@@ -308,18 +307,28 @@ struct V4MusicControlTool: V4Tool {
         artist: String?,
         rawEvidence: String
     ) -> String {
-        var fields: [String] = [
-            "apple.music.control",
-            "action=\(action.rawValue)",
-            "state=\(state)"
-        ]
-        if let track = track?.trimmingCharacters(in: .whitespacesAndNewlines), !track.isEmpty {
+        let trimmedRawEvidence = rawEvidence.trimmingCharacters(in: .whitespacesAndNewlines)
+        var fields: [String] = ["apple.music.control"]
+        if !magicianEvidenceHasField("action", in: trimmedRawEvidence) {
+            fields.append("action=\(action.rawValue)")
+        }
+        if !magicianEvidenceHasField("state", in: trimmedRawEvidence) {
+            fields.append("state=\(state)")
+        }
+        if
+            let track = track?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !track.isEmpty,
+            !magicianEvidenceHasField("track", in: trimmedRawEvidence)
+        {
             fields.append("track=\(track)")
         }
-        if let artist = artist?.trimmingCharacters(in: .whitespacesAndNewlines), !artist.isEmpty {
+        if
+            let artist = artist?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !artist.isEmpty,
+            !magicianEvidenceHasField("artist", in: trimmedRawEvidence)
+        {
             fields.append("artist=\(artist)")
         }
-        let trimmedRawEvidence = rawEvidence.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedRawEvidence.isEmpty {
             fields.append(trimmedRawEvidence)
         }
@@ -334,40 +343,58 @@ struct V4MusicControlTool: V4Tool {
         playbackState: String,
         evidenceConfidence: String
     ) -> String {
-        var lines: [String] = []
-        let normalizedBase = baseEvidence.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !normalizedBase.isEmpty {
-            lines.append(normalizedBase)
+        var output = baseEvidence.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        func appendField(_ key: String, _ value: String?) {
+            guard let value else {
+                return
+            }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !magicianEvidenceHasField(key, in: output) else {
+                return
+            }
+            if output.isEmpty {
+                output = "\(key)=\(trimmed)"
+            } else {
+                output += "|\(key)=\(trimmed)"
+            }
         }
-        if let requestedTrack, !requestedTrack.isEmpty {
-            lines.append("requested_track=\(requestedTrack)")
-        }
-        if let resolvedTrack, !resolvedTrack.isEmpty {
-            lines.append("resolved_track=\(resolvedTrack)")
-        }
-        lines.append("exact_match=\(exactMatch ? "true" : "false")")
-        lines.append("playback_state=\(playbackState)")
-        lines.append("evidence_confidence=\(evidenceConfidence)")
-        return lines.joined(separator: "|")
+
+        appendField("requested_track", requestedTrack)
+        appendField("resolved_track", resolvedTrack)
+        appendField("exact_match", exactMatch ? "true" : "false")
+        appendField("playback_state", playbackState)
+        appendField("evidence_confidence", evidenceConfidence)
+        return output
     }
 
-    private func isExactTrackMatch(
+    private func matchesRequestedTrack(
         requestedTrack: String?,
-        resolvedTrack: String?,
-        action: Action
+        result: ResultPayload
     ) -> Bool {
-        guard action == .play else {
+        guard result.action == .play else {
             return true
         }
-        guard
-            let requestedTrack,
-            let resolvedTrack,
-            !requestedTrack.isEmpty,
-            !resolvedTrack.isEmpty
-        else {
+        guard let requestedTrack, !requestedTrack.isEmpty else {
             return requestedTrack?.isEmpty ?? true
         }
-        return normalizedMusicMatchText(requestedTrack) == normalizedMusicMatchText(resolvedTrack)
+        if magicianMusicEvidenceMatchesQuery(output: result.evidence, query: requestedTrack) {
+            return true
+        }
+        var fallbackEvidence = [String]()
+        if let track = result.track?.trimmingCharacters(in: .whitespacesAndNewlines), !track.isEmpty {
+            fallbackEvidence.append("track=\(track)")
+        }
+        if let artist = result.artist?.trimmingCharacters(in: .whitespacesAndNewlines), !artist.isEmpty {
+            fallbackEvidence.append("artist=\(artist)")
+        }
+        guard !fallbackEvidence.isEmpty else {
+            return false
+        }
+        return magicianMusicEvidenceMatchesQuery(
+            output: fallbackEvidence.joined(separator: "|"),
+            query: requestedTrack
+        )
     }
 
     private func normalizedMusicState(_ raw: String, action: Action) -> String {

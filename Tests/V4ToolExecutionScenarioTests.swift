@@ -454,6 +454,44 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         XCTAssertTrue((result.evidenceSummary).contains("state=play"))
     }
 
+    func testMusicSongQueryVariantKeepsHighConfidenceWhenResolvedTrackMatches() async throws {
+        let tool = V4MusicControlTool { command in
+            XCTAssertEqual(command.action, .play)
+            XCTAssertEqual(command.query, "稻香")
+            return V4MusicControlTool.ResultPayload(
+                action: .play,
+                state: "play",
+                track: "稻香",
+                artist: "周杰伦",
+                evidence: "track=稻香|artist=周杰伦|state=play"
+            )
+        }
+
+        let output = try await tool.execute(
+            arguments: ["command": .string("播放周杰伦的《稻香》")],
+            context: makeContext(toolName: "apple.music.control")
+        )
+
+        XCTAssertTrue(output.evidenceSummary.contains("exact_match=true"))
+        XCTAssertTrue(output.evidenceSummary.contains("evidence_confidence=high"))
+        XCTAssertEqual(output.rawPayload?.objectValue?["exactMatch"]?.boolValue, true)
+        XCTAssertEqual(output.rawPayload?.objectValue?["evidenceConfidence"]?.stringValue, "high")
+        XCTAssertEqual(magicianEvidenceField("track", from: output.evidenceSummary), "稻香")
+        XCTAssertEqual(magicianEvidenceField("artist", from: output.evidenceSummary), "周杰伦")
+        XCTAssertEqual(magicianEvidenceField("requested_track", from: output.evidenceSummary), "稻香")
+        XCTAssertEqual(magicianEvidenceField("resolved_track", from: output.evidenceSummary), "稻香")
+        XCTAssertEqual(magicianEvidenceField("playback_state", from: output.evidenceSummary), "play")
+        XCTAssertEqual(magicianEvidenceField("exact_match", from: output.evidenceSummary), "true")
+        XCTAssertEqual(magicianEvidenceField("evidence_confidence", from: output.evidenceSummary), "high")
+        XCTAssertEqual(evidenceFieldOccurrenceCount("track", in: output.evidenceSummary), 1)
+        XCTAssertEqual(evidenceFieldOccurrenceCount("artist", in: output.evidenceSummary), 1)
+        XCTAssertEqual(evidenceFieldOccurrenceCount("requested_track", in: output.evidenceSummary), 1)
+        XCTAssertEqual(evidenceFieldOccurrenceCount("resolved_track", in: output.evidenceSummary), 1)
+        XCTAssertEqual(evidenceFieldOccurrenceCount("playback_state", in: output.evidenceSummary), 1)
+        XCTAssertEqual(evidenceFieldOccurrenceCount("exact_match", in: output.evidenceSummary), 1)
+        XCTAssertEqual(evidenceFieldOccurrenceCount("evidence_confidence", in: output.evidenceSummary), 1)
+    }
+
     func testMusicDryRunSkipsExecutionHandler() async throws {
         let tool = V4MusicControlTool { _ in
             XCTFail("dry run 不应触发执行器")
@@ -1119,6 +1157,15 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
             turnIndex: 1
         )
     }
+}
+
+private func evidenceFieldOccurrenceCount(_ key: String, in text: String) -> Int {
+    let pattern = #"(?:(?<=^)|(?<=[\|\s;]))\#(NSRegularExpression.escapedPattern(for: key))=(.+?)(?=(?:[\|;]|\s+[A-Za-z_]+=|$))"#
+    guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        return 0
+    }
+    let range = NSRange(location: 0, length: (text as NSString).length)
+    return regex.numberOfMatches(in: text, options: [], range: range)
 }
 
 private struct TestPermissionGate: V4ToolPermissionChecking {

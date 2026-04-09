@@ -255,6 +255,24 @@ enum StatusPulseHUDMessageResolver {
         if normalized.contains("文本已写入") {
             return "已写入"
         }
+        if normalized.contains("已开始播放") {
+            return "已开始播放"
+        }
+        if normalized.contains("已暂停播放") {
+            return "已暂停播放"
+        }
+        if normalized.contains("已继续播放") {
+            return "已继续播放"
+        }
+        if normalized.contains("已切到下一首") {
+            return "已切到下一首"
+        }
+        if normalized.contains("已切到上一首") {
+            return "已切到上一首"
+        }
+        if normalized.contains("已打开 Music") {
+            return "已打开 Music"
+        }
         if normalized.contains("已完成") || normalized.contains("下一次语音会话") {
             return "已完成"
         }

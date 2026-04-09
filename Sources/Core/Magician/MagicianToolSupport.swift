@@ -274,10 +274,17 @@ func magicianMusicSearchQueries(from rawQuery: String) -> [String] {
 }
 
 func magicianMusicEvidenceMatchesQuery(output: String, query: String) -> Bool {
-    guard let range = output.range(of: "track=") else {
+    let payloadParts = [
+        magicianEvidenceField("track", from: output),
+        magicianEvidenceField("artist", from: output),
+        magicianEvidenceField("album", from: output)
+    ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+    guard !payloadParts.isEmpty else {
         return false
     }
-    let payload = String(output[range.upperBound...])
+    let payload = payloadParts.joined(separator: " ")
     let normalizedPayload = normalizedMusicMatchText(payload)
     guard !normalizedPayload.isEmpty else {
         return false
@@ -312,6 +319,17 @@ func magicianMusicEvidenceMatchesQuery(output: String, query: String) -> Bool {
         }
     }
     return false
+}
+
+func magicianMusicHasResolvedTrackEvidence(output: String) -> Bool {
+    guard let track = magicianEvidenceField("track", from: output) else {
+        return false
+    }
+    return !track.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+}
+
+func magicianEvidenceHasField(_ key: String, in output: String) -> Bool {
+    magicianEvidenceField(key, from: output) != nil
 }
 
 func firstQuotedSongTitle(in value: String) -> String? {
@@ -361,6 +379,27 @@ private func magicianPrimarySongQuery(from query: String) -> String? {
         return right.isEmpty ? nil : right
     }
     return compact
+}
+
+func magicianEvidenceField(_ key: String, from output: String) -> String? {
+    let pattern = #"(?:(?<=^)|(?<=[\|\s;]))\#(NSRegularExpression.escapedPattern(for: key))=(.+?)(?=(?:[\|;]|\s+[A-Za-z_]+=|$))"#
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+        return nil
+    }
+    let nsOutput = output as NSString
+    let range = NSRange(location: 0, length: nsOutput.length)
+    let matches = regex.matches(in: output, options: [], range: range)
+    for match in matches.reversed() {
+        guard match.numberOfRanges > 1 else {
+            continue
+        }
+        let value = nsOutput.substring(with: match.range(at: 1))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !value.isEmpty {
+            return value
+        }
+    }
+    return nil
 }
 
 private func normalizedMusicCandidateTerms(from value: String) -> [String] {

@@ -102,7 +102,7 @@ struct V4VerifierDefault: V4Verifier {
                 )
             }
             if action == "play" {
-                let hasTrackInSummary = latestToolResult.evidenceSummary.lowercased().contains("track=")
+                let hasTrackInSummary = magicianMusicHasResolvedTrackEvidence(output: latestToolResult.evidenceSummary)
                 let payload = parseRawPayloadObject(from: latestToolResult.rawPayload)
                 let payloadTrack = (payload["track"] as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

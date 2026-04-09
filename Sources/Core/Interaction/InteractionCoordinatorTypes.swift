@@ -321,26 +321,18 @@ final class MusicFastExecutor: MusicFastExecuting {
             let output = try await tool.execute(arguments: arguments, context: context)
             let payload = output.rawPayload?.objectValue ?? [:]
             let resolvedTrack = payload["track"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedArtist = payload["artist"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
             let playbackState = payload["state"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
             let requestedTrack = request.query?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let exactMatch = isExactTrackMatch(requestedTrack: requestedTrack, resolvedTrack: resolvedTrack)
-
-            if request.intent == .play, let requestedTrack, !requestedTrack.isEmpty, !exactMatch {
-                return MusicFastOutcome(
-                    status: .failed,
-                    message: "资料库未找到精确匹配歌曲：\(requestedTrack)。",
-                    outputText: nil,
-                    evidenceSummary: composeFastEvidence(
-                        baseEvidence: output.evidenceSummary,
-                        requestedTrack: requestedTrack,
-                        resolvedTrack: resolvedTrack,
-                        exactMatch: false,
-                        playbackState: playbackState,
-                        confidence: "low"
-                    ),
-                    failureCode: .toolExecutionFailed
-                )
-            }
+            let matchedRequestedTrack = Self.matchesRequestedTrack(
+                requestedTrack: requestedTrack,
+                resolvedTrack: resolvedTrack,
+                resolvedArtist: resolvedArtist,
+                evidenceSummary: output.evidenceSummary
+            )
+            let confidence = request.intent == .play && requestedTrack?.isEmpty == false
+                ? (matchedRequestedTrack ? "high" : "low")
+                : "medium"
 
             if request.intent == .play {
                 if !isPlaybackStateActive(playbackState) {
@@ -352,7 +344,7 @@ final class MusicFastExecutor: MusicFastExecuting {
                             baseEvidence: output.evidenceSummary,
                             requestedTrack: requestedTrack,
                             resolvedTrack: resolvedTrack,
-                            exactMatch: exactMatch,
+                            exactMatch: matchedRequestedTrack,
                             playbackState: playbackState,
                             confidence: "low"
                         ),
@@ -380,19 +372,35 @@ final class MusicFastExecutor: MusicFastExecuting {
                 }
             }
 
+            let successMessage: String = {
+                let defaultMessage = output.outputText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                    ? output.outputText!
+                    : "音乐操作已完成。"
+                guard
+                    request.intent == .play,
+                    let requestedTrack,
+                    !requestedTrack.isEmpty,
+                    !matchedRequestedTrack
+                else {
+                    return defaultMessage
+                }
+                if defaultMessage.contains("已开始播放") {
+                    return "\(defaultMessage)。请确认当前歌曲是否符合你的指令。"
+                }
+                return "已开始播放，请确认当前歌曲是否符合你的指令。"
+            }()
+
             return MusicFastOutcome(
                 status: .success,
-                message: output.outputText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                    ? output.outputText!
-                    : "音乐操作已完成。",
+                message: successMessage,
                 outputText: output.outputText,
                 evidenceSummary: composeFastEvidence(
                     baseEvidence: output.evidenceSummary,
                     requestedTrack: requestedTrack,
                     resolvedTrack: resolvedTrack,
-                    exactMatch: request.intent == .play ? exactMatch : true,
+                    exactMatch: request.intent == .play ? matchedRequestedTrack : true,
                     playbackState: playbackState,
-                    confidence: request.intent == .play && requestedTrack?.isEmpty == false ? "high" : "medium"
+                    confidence: confidence
                 ),
                 failureCode: nil
             )
@@ -435,16 +443,32 @@ final class MusicFastExecutor: MusicFastExecuting {
         }
     }
 
-    private func isExactTrackMatch(requestedTrack: String?, resolvedTrack: String?) -> Bool {
-        guard
-            let requestedTrack,
-            let resolvedTrack,
-            !requestedTrack.isEmpty,
-            !resolvedTrack.isEmpty
-        else {
+    static func matchesRequestedTrack(
+        requestedTrack: String?,
+        resolvedTrack: String?,
+        resolvedArtist: String?,
+        evidenceSummary: String
+    ) -> Bool {
+        guard let requestedTrack, !requestedTrack.isEmpty else {
             return requestedTrack?.isEmpty ?? true
         }
-        return normalizedMusicMatchText(requestedTrack) == normalizedMusicMatchText(resolvedTrack)
+        if magicianMusicEvidenceMatchesQuery(output: evidenceSummary, query: requestedTrack) {
+            return true
+        }
+        var fallbackEvidence = [String]()
+        if let resolvedTrack, !resolvedTrack.isEmpty {
+            fallbackEvidence.append("track=\(resolvedTrack)")
+        }
+        if let resolvedArtist, !resolvedArtist.isEmpty {
+            fallbackEvidence.append("artist=\(resolvedArtist)")
+        }
+        guard !fallbackEvidence.isEmpty else {
+            return false
+        }
+        return magicianMusicEvidenceMatchesQuery(
+            output: fallbackEvidence.joined(separator: "|"),
+            query: requestedTrack
+        )
     }
 
     private func isPlaybackStateActive(_ playbackState: String?) -> Bool {
@@ -465,24 +489,30 @@ final class MusicFastExecutor: MusicFastExecuting {
         playbackState: String?,
         confidence: String
     ) -> String {
-        var lines: [String] = []
-        let normalizedBase = baseEvidence.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !normalizedBase.isEmpty {
-            lines.append(normalizedBase)
+        var output = baseEvidence.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        func appendField(_ key: String, _ value: String?) {
+            guard let value else {
+                return
+            }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !magicianEvidenceHasField(key, in: output) else {
+                return
+            }
+            if output.isEmpty {
+                output = "\(key)=\(trimmed)"
+            } else {
+                output += "|\(key)=\(trimmed)"
+            }
         }
-        lines.append("fast_path=true")
-        if let requestedTrack, !requestedTrack.isEmpty {
-            lines.append("requested_track=\(requestedTrack)")
-        }
-        if let resolvedTrack, !resolvedTrack.isEmpty {
-            lines.append("resolved_track=\(resolvedTrack)")
-        }
-        if let playbackState, !playbackState.isEmpty {
-            lines.append("playback_state=\(playbackState)")
-        }
-        lines.append("exact_match=\(exactMatch ? "true" : "false")")
-        lines.append("evidence_confidence=\(confidence)")
-        return lines.joined(separator: "|")
+
+        appendField("fast_path", "true")
+        appendField("requested_track", requestedTrack)
+        appendField("resolved_track", resolvedTrack)
+        appendField("playback_state", playbackState)
+        appendField("exact_match", exactMatch ? "true" : "false")
+        appendField("evidence_confidence", confidence)
+        return output
     }
 
 }

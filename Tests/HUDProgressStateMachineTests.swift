@@ -237,6 +237,14 @@ final class HUDProgressStateMachineTests: XCTestCase {
             StatusPulseHUDMessageResolver.completionTitle(for: "已提交到备忘录快捷指令。"),
             "已写入备忘录"
         )
+        XCTAssertEqual(
+            StatusPulseHUDMessageResolver.completionTitle(for: "已开始播放：周杰伦 - 稻香"),
+            "已开始播放"
+        )
+        XCTAssertEqual(
+            StatusPulseHUDMessageResolver.completionTitle(for: "已暂停播放"),
+            "已暂停播放"
+        )
     }
 
     func testErrorMessageResolverRemovesAppNameAndImplementationDetails() {

@@ -4190,7 +4190,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             result.evidence,
             result.execution.observation?.evidenceSummary ?? ""
         ]
-        return outputs.contains { $0.lowercased().contains("track=") }
+        return outputs.contains { magicianMusicHasResolvedTrackEvidence(output: $0) }
     }
 
     private func musicTrackMatchesRequestedIntent(
@@ -4207,7 +4207,7 @@ final class MagicianAgentRuntimeV3: MagicianAgentRunning {
             result.evidence,
             result.execution.observation?.evidenceSummary ?? ""
         ]
-        let trackOutputs = outputs.filter { $0.lowercased().contains("track=") }
+        let trackOutputs = outputs.filter { magicianMusicHasResolvedTrackEvidence(output: $0) }
         guard !trackOutputs.isEmpty else {
             return false
         }

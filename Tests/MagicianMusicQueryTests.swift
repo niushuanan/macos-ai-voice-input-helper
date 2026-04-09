@@ -43,4 +43,28 @@ final class MagicianMusicQueryTests: XCTestCase {
             )
         )
     }
+
+    func testEvidenceMatchIgnoresRequestedTrackWithoutResolvedTrack() {
+        XCTAssertFalse(
+            magicianMusicEvidenceMatchesQuery(
+                output: "apple.music.control|requested_track=稻香|resolved_track=七里香|exact_match=false",
+                query: "播放稻香"
+            )
+        )
+    }
+
+    func testEvidenceHasFieldUsesExactKeyMatch() {
+        XCTAssertTrue(
+            magicianEvidenceHasField(
+                "track",
+                in: "apple.music.control|track=稻香|artist=周杰伦"
+            )
+        )
+        XCTAssertFalse(
+            magicianEvidenceHasField(
+                "track",
+                in: "apple.music.control|requested_track=稻香|artist=周杰伦"
+            )
+        )
+    }
 }
