@@ -1421,15 +1421,7 @@ struct SettingsView: View {
     }
 
     private var detailPaneBackground: some View {
-        LinearGradient(
-            colors: [
-                Color(nsColor: .windowBackgroundColor),
-                Color(nsColor: .underPageBackgroundColor).opacity(0.86),
-                Color.white.opacity(0.26)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        Color.white
     }
 
     @ViewBuilder

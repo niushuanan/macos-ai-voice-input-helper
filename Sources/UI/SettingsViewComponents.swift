@@ -1081,19 +1081,12 @@ private struct PulseCardStyle: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
             .background(
-                shape.fill(Color.white.opacity(0.9))
-                    .background(
-                        shape.fill(Color(nsColor: .windowBackgroundColor).opacity(0.92))
-                    )
-                    .background(
-                        shape.fill(.ultraThinMaterial).opacity(0.48)
-                    )
+                shape.fill(Color.white)
             )
             .overlay(
-                shape.stroke(Color.white.opacity(0.78), lineWidth: 1)
-                    .shadow(color: Color.black.opacity(0.045), radius: 0, x: 0, y: 0)
+                shape.stroke(Color.black.opacity(0.06), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.04), radius: 12, x: 0, y: 3)
+            .shadow(color: Color.black.opacity(0.035), radius: 10, x: 0, y: 2)
     }
 }
 
@@ -1104,15 +1097,12 @@ private struct ControlCenterSectionGroupStyle: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
             .background(
-                shape.fill(Color(nsColor: .windowBackgroundColor).opacity(0.94))
-                    .background(
-                        shape.fill(.ultraThinMaterial).opacity(0.24)
-                    )
+                shape.fill(Color.white)
             )
             .overlay(
-                shape.stroke(Color.white.opacity(0.72), lineWidth: 1)
+                shape.stroke(Color.black.opacity(0.06), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.022), radius: 10, x: 0, y: 2)
+            .shadow(color: Color.black.opacity(0.022), radius: 8, x: 0, y: 2)
     }
 }
 
@@ -1123,10 +1113,7 @@ private struct ControlCenterInsetPanelStyle: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
             .background(
-                shape.fill(Color(nsColor: .controlBackgroundColor).opacity(0.62))
-                    .background(
-                        shape.fill(.thinMaterial).opacity(0.18)
-                    )
+                shape.fill(Color.white)
             )
             .overlay(
                 shape.stroke(Color.primary.opacity(0.08), lineWidth: 1)
@@ -1141,7 +1128,7 @@ private struct ControlCenterListRowStyle: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
             .background(
-                shape.fill(Color(nsColor: .windowBackgroundColor).opacity(0.88))
+                shape.fill(Color.white)
             )
             .overlay(
                 shape.stroke(Color.primary.opacity(0.06), lineWidth: 1)
