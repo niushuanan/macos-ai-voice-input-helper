@@ -202,9 +202,30 @@ struct SettingsView: View {
         }
     }
 
+    private func pageTitleText(_ title: String, subtitle: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(PulseUI.Typography.pageTitle)
+                .tracking(0.16)
+                .lineSpacing(PulseUI.Typography.pageTitleLineSpacing)
+                .pulsePrimaryText()
+
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(PulseUI.Typography.caption)
+                    .lineSpacing(PulseUI.Typography.captionLineSpacing)
+                    .pulseSecondaryText()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 2)
+    }
+
     private var homePage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                pageTitleText("首页", subtitle: "先说，再写。你常用的数据和入口都在这里。")
+
                 homeProductIntroCard
 
                 LazyVGrid(columns: homeMetricColumns, spacing: 12) {
@@ -243,6 +264,8 @@ struct SettingsView: View {
     private var memoryPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                pageTitleText("历史", subtitle: "这里保存你的会话结果。可以删单条，也可以一次清理历史数据。")
+
                 memoryToolbar
 
                 if filteredHistoryEntries.isEmpty {
@@ -305,6 +328,8 @@ struct SettingsView: View {
     private var magicianPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                pageTitleText("魔术先生", subtitle: "长按主键说一句，松开后立刻执行。这里查看每个动作是否就绪。")
+
                 magicianTextTransformSection
                 magicianNativeActionsSection
             }
@@ -464,6 +489,8 @@ struct SettingsView: View {
     private var modelPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                pageTitleText("引擎", subtitle: "语音、文本和 CLI 三个能力槽。修改后会立即生效。")
+
                 modelRoleSection(
                     roleTitle: "语音识别",
                     availableProviderTypes: asrProviderOptions,
@@ -574,6 +601,8 @@ struct SettingsView: View {
     private var dictionaryPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                pageTitleText("词典", subtitle: "每行一个词，支持术语和短语，保存后立刻生效。")
+
                 VStack(alignment: .leading, spacing: 10) {
                     Text("词典内容")
                         .font(PulseUI.Typography.sectionTitle)
@@ -792,6 +821,8 @@ struct SettingsView: View {
     private var settingsPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                pageTitleText("设置", subtitle: "管理快捷键、权限与基础行为。")
+
                 expressionPreferenceCard
                 scenePolicySkillsCard
                 hotkeySettingsCard
@@ -816,6 +847,8 @@ struct SettingsView: View {
     private var agentBrainstormPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                pageTitleText("讨论整理", subtitle: "适合短时讨论，结束后自动整理成可直接使用的上下文。")
+
                 brainstormIntroCard
                 brainstormTriggerCard
             }
@@ -1249,15 +1282,15 @@ struct SettingsView: View {
             Text("核心特点")
                 .font(PulseUI.Typography.sectionTitle)
 
-            Label("告别键盘，开口就写；内容会自动整理成更清晰的结构。", systemImage: "text.bubble")
+            Label("开口就写，直接出稿：不用切输入法，不用先找输入框。", systemImage: "text.bubble")
                 .font(PulseUI.Typography.body)
-            Label("模型自由切换：可接入不同 API，也可接入本地模型，按场景随时换。", systemImage: "square.grid.2x2")
+            Label("一口气全念对：连续口述也能变成通顺文本，讲完就是成稿。", systemImage: "brain.head.profile")
                 .font(PulseUI.Typography.body)
-            Label("长按魔术先生，重点是执行：一句话就能改写、翻译、整理，并直接完成动作。", systemImage: "wand.and.stars")
+            Label("魔术先生主打执行：一句话就能改写、翻译、整理，并直接完成动作。", systemImage: "wand.and.stars")
                 .font(PulseUI.Typography.body)
-            Label("一口气全念对适合连续口述，讲完即可拿到完整、连贯、可直接复用的文本。", systemImage: "brain.head.profile")
+            Label("模型自由切换：云端 API 和本地模型都能接，按速度、效果、隐私随时换。", systemImage: "square.grid.2x2")
                 .font(PulseUI.Typography.body)
-            Label("时光机负责记忆留存与定时提醒：重要想法记得住，关键节点不会错过。", systemImage: "clock.badge.exclamationmark")
+            Label("时光机负责记忆和提醒：灵感不丢，关键时间点不会漏。", systemImage: "clock.badge.exclamationmark")
                 .font(PulseUI.Typography.body)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1788,6 +1821,8 @@ struct SettingsView: View {
     private var timeMachinePage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                pageTitleText("时光机", subtitle: "提醒与时间中心。默认走本地通知，必要时再跳转系统时钟。")
+
                 timeMachineOverviewCard
 
                 if timeMachineItems.isEmpty {
