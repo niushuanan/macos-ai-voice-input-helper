@@ -625,7 +625,6 @@ struct PulseToastView: View {
 }
 
 struct ModelConfigCard: View {
-    let title: String?
     let availableProviderTypes: [ProviderType]
     let providerType: Binding<ProviderType>
     let baseURL: Binding<String>
@@ -646,31 +645,7 @@ struct ModelConfigCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let title, !title.isEmpty {
-                Text(title)
-                    .font(PulseUI.Typography.sectionTitle)
-                    .pulseSecondaryText()
-                    .padding(.top, 2)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("当前连接")
-                    .font(PulseUI.Typography.captionStrong)
-                    .pulseTertiaryText()
-                HStack(spacing: 8) {
-                    ControlCenterStatusPill(
-                        title: providerType.wrappedValue.displayName,
-                        systemImage: providerType.wrappedValue == .localSenseVoice ? "internaldrive.fill" : "cloud.fill",
-                        tint: providerType.wrappedValue == .localSenseVoice ? PulseUI.ColorTokens.warning : .accentColor
-                    )
-                    Text(modelName.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "模型名未填写" : modelName.wrappedValue)
-                        .font(PulseUI.Typography.caption)
-                        .pulseSecondaryText()
-                        .lineLimit(1)
-                }
-            }
-
-            DisclosureGroup("开发者选项", isExpanded: $developerOptionsExpanded) {
+            DisclosureGroup("连接细节（开发者）", isExpanded: $developerOptionsExpanded) {
                 VStack(alignment: .leading, spacing: 10) {
                     Picker("连接方式", selection: providerType) {
                         ForEach(availableProviderTypes) { type in
@@ -721,6 +696,8 @@ struct ModelConfigCard: View {
                             Button("保存") {
                                 onSaveKey()
                             }
+                            .controlCenterSecondaryActionButton()
+                            .controlSize(.small)
                             .disabled(
                                 apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                                 || credentialState == .saving
@@ -729,10 +706,10 @@ struct ModelConfigCard: View {
                             Button("删除", role: .destructive) {
                                 onDeleteKey()
                             }
+                            .controlCenterSecondaryActionButton()
+                            .controlSize(.small)
                             .disabled(isDeleteDisabled)
                         }
-                        .controlCenterSecondaryActionButton()
-                        .controlSize(.small)
 
                         Label(
                             credentialStateTitle,
@@ -749,6 +726,8 @@ struct ModelConfigCard: View {
                 .padding(.top, 8)
             }
             .font(PulseUI.Typography.bodyStrong)
+            .padding(PulseUI.Spacing.compactCardPadding)
+            .controlCenterInsetPanel(cornerRadius: PulseUI.Radius.compactCard)
 
             if let validationMessage {
                 Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
@@ -842,25 +821,17 @@ struct ModelStatusPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("状态")
-                    .font(PulseUI.Typography.sectionTitle)
-                    .pulsePrimaryText()
-                Spacer()
-                ControlCenterStatusPill(
-                    title: statusTitle,
-                    systemImage: statusIcon,
-                    tint: statusColor
-                )
-            }
-
             Text(activeConfigLine)
-                .font(PulseUI.Typography.body)
-                .pulsePrimaryText()
-                .lineLimit(2)
+                .font(PulseUI.Typography.monospacedMeta)
+                .pulseSecondaryText()
+                .lineLimit(1)
                 .textSelection(.enabled)
 
-            if let latestResult {
+            if isTesting {
+                Text("正在测试连接，请稍等…")
+                    .font(PulseUI.Typography.body)
+                    .pulsePrimaryText()
+            } else if let latestResult {
                 Text(latestResult.message)
                     .font(PulseUI.Typography.body)
                     .pulsePrimaryText()
@@ -872,7 +843,7 @@ struct ModelStatusPanel: View {
                         .pulseSecondaryText()
                 }
             } else {
-                Text("还没有测试记录。")
+                Text("还没有测试记录。点击右侧按钮即可开始测试。")
                     .font(PulseUI.Typography.caption)
                     .pulseSecondaryText()
             }
@@ -880,36 +851,6 @@ struct ModelStatusPanel: View {
         .padding(PulseUI.Spacing.compactCardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .controlCenterInsetPanel(cornerRadius: PulseUI.Radius.compactCard)
-    }
-
-    private var statusTitle: String {
-        if isTesting {
-            return "测试中"
-        }
-        guard let latestResult else {
-            return "未测试"
-        }
-        return latestResult.status == .success ? "成功" : "失败"
-    }
-
-    private var statusIcon: String {
-        if isTesting {
-            return "hourglass"
-        }
-        guard let latestResult else {
-            return "clock"
-        }
-        return latestResult.status == .success ? "checkmark.circle.fill" : "xmark.octagon.fill"
-    }
-
-    private var statusColor: Color {
-        if isTesting {
-            return .accentColor
-        }
-        guard let latestResult else {
-            return PulseUI.ColorTokens.textSecondary
-        }
-        return latestResult.status == .success ? PulseUI.ColorTokens.success : PulseUI.ColorTokens.warning
     }
 }
 

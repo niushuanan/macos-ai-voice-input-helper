@@ -205,8 +205,6 @@ struct SettingsView: View {
     private var homePage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                pageHeader(title: "首页", subtitle: "先说，再写。你常用的数据和入口都在这里。")
-
                 homeProductIntroCard
 
                 LazyVGrid(columns: homeMetricColumns, spacing: 12) {
@@ -245,11 +243,6 @@ struct SettingsView: View {
     private var memoryPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                pageHeader(
-                    title: "历史",
-                    subtitle: "这里保存你的会话结果。可以删单条，也可以一次清理历史数据。"
-                )
-
                 memoryToolbar
 
                 if filteredHistoryEntries.isEmpty {
@@ -312,11 +305,6 @@ struct SettingsView: View {
     private var magicianPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                pageHeader(
-                    title: "魔术先生",
-                    subtitle: "长按主键说一句，松开后立刻执行。这里查看每个动作是否就绪。"
-                )
-
                 magicianTextTransformSection
                 magicianNativeActionsSection
             }
@@ -476,14 +464,8 @@ struct SettingsView: View {
     private var modelPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                pageHeader(
-                    title: "引擎",
-                    subtitle: "语音、文本和 CLI 三个能力槽。修改后会立即生效。"
-                )
-
                 modelRoleSection(
                     roleTitle: "语音识别",
-                    cardTitle: nil,
                     availableProviderTypes: asrProviderOptions,
                     providerType: asrProviderTypeBinding,
                     baseURL: asrBaseURLBinding,
@@ -517,7 +499,6 @@ struct SettingsView: View {
 
                 modelRoleSection(
                     roleTitle: "文本处理",
-                    cardTitle: nil,
                     availableProviderTypes: textProviderOptions,
                     providerType: textProviderTypeBinding,
                     baseURL: textBaseURLBinding,
@@ -548,7 +529,6 @@ struct SettingsView: View {
 
                 modelRoleSection(
                     roleTitle: "CLI 模式（Agent）",
-                    cardTitle: nil,
                     availableProviderTypes: textProviderOptions,
                     providerType: cliProviderTypeBinding,
                     baseURL: cliBaseURLBinding,
@@ -594,11 +574,6 @@ struct SettingsView: View {
     private var dictionaryPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                pageHeader(
-                    title: "词典",
-                    subtitle: "每行一个词，支持术语和短语，保存后立刻生效。"
-                )
-
                 VStack(alignment: .leading, spacing: 10) {
                     Text("词典内容")
                         .font(PulseUI.Typography.sectionTitle)
@@ -642,10 +617,8 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder
     private func modelRoleSection(
         roleTitle: String,
-        cardTitle: String?,
         availableProviderTypes: [ProviderType],
         providerType: Binding<ProviderType>,
         baseURL: Binding<String>,
@@ -669,20 +642,71 @@ struct SettingsView: View {
         showsLocalSenseVoiceRuntimeDetails: Bool,
         onTest: @escaping () -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 10) {
-                Text(roleTitle)
-                    .font(PulseUI.Typography.sectionTitle)
-                ControlCenterStatusPill(
-                    title: providerType.wrappedValue.displayName,
-                    systemImage: providerType.wrappedValue == .localSenseVoice ? "cpu" : "cloud.fill",
-                    tint: providerType.wrappedValue == .localSenseVoice ? .orange : .accentColor
-                )
+        let providerTitle = providerType.wrappedValue.displayName
+        let modelTitle = modelName.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "模型未设置"
+            : modelName.wrappedValue
+        let roleStatusTitle: String = if isTesting {
+            "测试中"
+        } else if let latestResult {
+            latestResult.status == .success ? "成功" : "失败"
+        } else {
+            "未测试"
+        }
+        let roleStatusIcon: String = if isTesting {
+            "hourglass"
+        } else if let latestResult {
+            latestResult.status == .success ? "checkmark.circle.fill" : "xmark.octagon.fill"
+        } else {
+            "clock"
+        }
+        let roleStatusTint: Color = if isTesting {
+            PulseUI.ColorTokens.textSecondary
+        } else if let latestResult {
+            latestResult.status == .success ? PulseUI.ColorTokens.success : PulseUI.ColorTokens.danger
+        } else {
+            PulseUI.ColorTokens.textSecondary
+        }
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(roleTitle)
+                        .font(PulseUI.Typography.sectionTitle)
+                        .pulsePrimaryText()
+                    Text("当前：\(providerTitle) · \(modelTitle)")
+                        .font(PulseUI.Typography.caption)
+                        .lineSpacing(PulseUI.Typography.captionLineSpacing)
+                        .pulseSecondaryText()
+                        .lineLimit(1)
+                }
+
                 Spacer()
+
+                ControlCenterStatusPill(
+                    title: roleStatusTitle,
+                    systemImage: roleStatusIcon,
+                    tint: roleStatusTint
+                )
+
+                Button(isTesting ? "\(testButtonTitle)中..." : testButtonTitle) {
+                    onTest()
+                }
+                .controlCenterPrimaryActionButton()
+                .controlSize(.small)
+                .disabled(isTesting)
             }
 
+            ModelStatusPanel(
+                activeConfigLine: activeConfigLine,
+                latestResult: latestResult,
+                isTesting: isTesting,
+                failureSuggestion: latestResult.flatMap { result in
+                    result.status == .failure ? actionSuggestion(for: result) : nil
+                }
+            )
+
             ModelConfigCard(
-                title: cardTitle,
                 availableProviderTypes: availableProviderTypes,
                 providerType: providerType,
                 baseURL: baseURL,
@@ -706,26 +730,6 @@ struct SettingsView: View {
                 providerType.wrappedValue == .localSenseVoice
             {
                 localSenseVoiceRuntimeInlineSection
-            }
-
-            ModelStatusPanel(
-                activeConfigLine: activeConfigLine,
-                latestResult: latestResult,
-                isTesting: isTesting,
-                failureSuggestion: latestResult.flatMap { result in
-                    result.status == .failure ? actionSuggestion(for: result) : nil
-                }
-            )
-
-            HStack {
-                Button(isTesting ? "\(testButtonTitle)中..." : testButtonTitle) {
-                    onTest()
-                }
-                .controlCenterPrimaryActionButton()
-                .controlSize(.small)
-                .disabled(isTesting)
-
-                Spacer()
             }
         }
         .padding(16)
@@ -788,11 +792,6 @@ struct SettingsView: View {
     private var settingsPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                pageHeader(
-                    title: "设置",
-                    subtitle: "管理快捷键、权限与基础行为。"
-                )
-
                 expressionPreferenceCard
                 scenePolicySkillsCard
                 hotkeySettingsCard
@@ -817,11 +816,6 @@ struct SettingsView: View {
     private var agentBrainstormPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                pageHeader(
-                    title: "讨论整理",
-                    subtitle: "适合短时讨论，结束后自动整理成可直接使用的上下文。"
-                )
-
                 brainstormIntroCard
                 brainstormTriggerCard
             }
@@ -1418,64 +1412,6 @@ struct SettingsView: View {
         ControlCenterDetailBackground()
     }
 
-    @ViewBuilder
-    private func pageHeader(title: String, subtitle: String = "") -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(PulseUI.Typography.pageTitle)
-                    .tracking(0.16)
-                    .lineSpacing(PulseUI.Typography.pageTitleLineSpacing)
-                    .pulsePrimaryText()
-            if !subtitle.isEmpty {
-                Text(subtitle)
-                    .font(PulseUI.Typography.body)
-                    .lineSpacing(PulseUI.Typography.bodyLineSpacing)
-                    .pulseSecondaryText()
-            }
-
-            Rectangle()
-                .fill(Color.primary.opacity(0.16))
-                .frame(height: 1)
-                .frame(maxWidth: 128, alignment: .leading)
-        }
-        .padding(PulseUI.Spacing.section)
-        .controlCenterInsetPanel(cornerRadius: PulseUI.Radius.header)
-    }
-
-    @ViewBuilder
-    private func pageHeader<Accessory: View>(
-        title: String,
-        subtitle: String = "",
-        @ViewBuilder accessory: () -> Accessory
-    ) -> some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(PulseUI.Typography.pageTitle)
-                    .tracking(0.16)
-                    .lineSpacing(PulseUI.Typography.pageTitleLineSpacing)
-                    .pulsePrimaryText()
-                if !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(PulseUI.Typography.body)
-                        .lineSpacing(PulseUI.Typography.bodyLineSpacing)
-                        .pulseSecondaryText()
-                }
-
-                Rectangle()
-                    .fill(Color.primary.opacity(0.16))
-                    .frame(height: 1)
-                    .frame(maxWidth: 128, alignment: .leading)
-            }
-
-            Spacer(minLength: 12)
-
-            accessory()
-        }
-        .padding(PulseUI.Spacing.section)
-        .controlCenterInsetPanel(cornerRadius: PulseUI.Radius.header)
-    }
-
     private var magicianTextModelReady: Bool {
         providerSettingsStore.textConfigurationValidationMessage == nil
             && {
@@ -1852,11 +1788,6 @@ struct SettingsView: View {
     private var timeMachinePage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                pageHeader(
-                    title: "时光机",
-                    subtitle: "提醒与时间中心。默认走本地通知，必要时再跳转系统时钟。"
-                )
-
                 timeMachineOverviewCard
 
                 if timeMachineItems.isEmpty {
