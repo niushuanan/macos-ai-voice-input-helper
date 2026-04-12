@@ -1671,10 +1671,10 @@ struct SettingsView: View {
         }
         if type.allowsCustomBaseURL {
             return type == .openAICompatible
-                ? "https://api.deepseek.com"
+                ? type.recommendedBaseURLString
                 : "https://your-openai-compatible.com"
         }
-        return "\(type.fixedBaseURL?.absoluteString ?? "https://api.openai.com")（固定）"
+        return "\(type.recommendedBaseURLString)（固定）"
     }
 
     private var isPreparingLocalSenseVoice: Bool {

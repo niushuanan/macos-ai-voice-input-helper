@@ -106,6 +106,15 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
             return URL(string: "https://local.sensevoice")
         }
     }
+
+    var recommendedBaseURLString: String {
+        switch self {
+        case .openAICompatible:
+            return "https://api.deepseek.com"
+        default:
+            return fixedBaseURL?.absoluteString ?? ""
+        }
+    }
 }
 
 struct ASRConfig: Codable, Equatable {

@@ -60,6 +60,87 @@ final class ProviderSettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.asrConfig.localModelPath, defaultSenseVoiceModelPath)
     }
 
+    func testSwitchingTextProviderFromOpenAIToCompatibleResetsBaseURLToDeepSeekDefault() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let credentials = MemoryCredentialStoreForSettingsTests()
+        let store = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
+
+        store.updateTextProviderType(.openAI)
+        XCTAssertEqual(store.textConfig.baseURLString, "https://api.openai.com")
+        XCTAssertEqual(store.textConfig.modelName, "gpt-4o-mini")
+
+        store.updateTextProviderType(.openAICompatible)
+
+        XCTAssertEqual(store.textConfig.providerType, .openAICompatible)
+        XCTAssertEqual(store.textConfig.baseURLString, "https://api.deepseek.com")
+        XCTAssertEqual(store.textConfig.modelName, "deepseek-chat")
+    }
+
+    func testSwitchingCLIProviderFromOpenAIToCompatibleResetsBaseURLToDeepSeekDefault() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let credentials = MemoryCredentialStoreForSettingsTests()
+        let store = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
+
+        store.updateCLITextProviderType(.openAI)
+        XCTAssertEqual(store.cliTextConfig.baseURLString, "https://api.openai.com")
+        XCTAssertEqual(store.cliTextConfig.modelName, "gpt-4o-mini")
+
+        store.updateCLITextProviderType(.openAICompatible)
+
+        XCTAssertEqual(store.cliTextConfig.providerType, .openAICompatible)
+        XCTAssertEqual(store.cliTextConfig.baseURLString, "https://api.deepseek.com")
+        XCTAssertEqual(store.cliTextConfig.modelName, "deepseek-chat")
+    }
+
+    func testCompatibleDeepSeekConfigOnOpenAIURLMigratesAndClearsStaleTestResult() throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let legacyConfig = TextConfig(
+            providerType: .openAICompatible,
+            baseURLString: "https://api.openai.com/",
+            modelName: "deepseek-chat",
+            keyRef: defaultTextCredentialKeyRef
+        )
+        let staleResult = ConnectionTestResult.success(
+            message: "旧测试成功",
+            hint: "旧提示",
+            httpStatus: 200
+        )
+
+        defaults.set(try JSONEncoder().encode(legacyConfig), forKey: "providers.text.config.v2")
+        defaults.set(try JSONEncoder().encode(staleResult), forKey: "providers.text.test.result.v1")
+
+        let credentials = MemoryCredentialStoreForSettingsTests()
+        let store = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
+
+        XCTAssertEqual(store.textConfig.baseURLString, "https://api.deepseek.com")
+        XCTAssertNil(store.latestTextTestResult)
+    }
+
+    func testChangingTextConfigClearsRecordedTextConnectionResult() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let credentials = MemoryCredentialStoreForSettingsTests()
+        let store = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
+        store.recordTextTestResult(
+            .success(
+                message: "文本模型可用",
+                hint: "旧结果",
+                httpStatus: 200
+            )
+        )
+
+        store.updateTextBaseURL("https://api.deepseek.com/v2")
+
+        XCTAssertNil(store.latestTextTestResult)
+    }
+
     func testRecordedModelTestResultsPersistAcrossStoreReload() {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
