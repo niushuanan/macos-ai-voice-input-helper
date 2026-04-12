@@ -52,6 +52,34 @@ final class SkillRuleStoreTests: XCTestCase {
         XCTAssertEqual(output.appliedSkills, [.spokenFilter])
     }
 
+    func testApplyDictationSupportsChineseCommaSeparatedSpokenFilterTokens() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let store = SkillRuleStore(defaults: defaults, storageKey: "skill.rules.tests")
+        store.setEnabled(true, for: .spokenFilter)
+        store.setParameter("嗯，啊，呃", for: .spokenFilter)
+
+        let output = store.applyDictation("嗯 啊 呃 好的", outputBias: .neutral)
+
+        XCTAssertEqual(output.text, "好的")
+        XCTAssertEqual(output.appliedSkills, [.spokenFilter])
+    }
+
+    func testApplyDictationSupportsMixedSeparatorsInSpokenFilterTokens() {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let store = SkillRuleStore(defaults: defaults, storageKey: "skill.rules.tests")
+        store.setEnabled(true, for: .spokenFilter)
+        store.setParameter("嗯,啊,就是,那个,然后，呃", for: .spokenFilter)
+
+        let output = store.applyDictation("然后 呃 这块先不动", outputBias: .neutral)
+
+        XCTAssertEqual(output.text, "这块先不动")
+        XCTAssertEqual(output.appliedSkills, [.spokenFilter])
+    }
+
     func testApplyDictationCollapsesCommonASRStutterForModifiers() {
         let defaults = makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }

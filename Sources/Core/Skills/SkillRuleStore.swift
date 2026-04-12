@@ -232,7 +232,7 @@ final class SkillRuleStore: ObservableObject {
 
     private func applySpokenFilter(_ text: String, parameter: String) -> String {
         let tokens = parameter
-            .split(separator: ",")
+            .components(separatedBy: CharacterSet(charactersIn: ",，、;；\n"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
