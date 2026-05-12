@@ -653,11 +653,21 @@ final class MusicFastExecutor: MusicFastExecuting {
                 failureCode: nil
             )
         } catch let error as V4ToolError {
+            var evidence = "apple.music.control fast_path=true error_code=\(error.code.rawValue)"
+            if let recoverAction = error.recoverAction?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                !recoverAction.isEmpty
+            {
+                evidence += "|recover_action=\(recoverAction)"
+            }
+            if let debugMessage = sanitizedMusicDebugEvidence(error.debugMessage) {
+                evidence += "|debug_reason=\(debugMessage)"
+            }
             return MusicFastOutcome(
                 status: .failed,
                 message: error.messageForUser,
                 outputText: nil,
-                evidenceSummary: "apple.music.control fast_path=true error_code=\(error.code.rawValue)",
+                evidenceSummary: evidence,
                 failureCode: error.code
             )
         } catch {
@@ -689,6 +699,19 @@ final class MusicFastExecutor: MusicFastExecuting {
         case .open:
             return "打开音乐"
         }
+    }
+
+    private func sanitizedMusicDebugEvidence(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        let sanitized = value
+            .replacingOccurrences(of: "|", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return sanitized.isEmpty ? nil : sanitized
     }
 
     static func matchesRequestedTrack(

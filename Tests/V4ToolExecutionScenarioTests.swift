@@ -664,6 +664,26 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         XCTAssertEqual(picked?.persistentID, "id-1")
     }
 
+    func testMusicExplicitPlayPreparationCancelsPreviousQueueSession() async {
+        await V4MusicControlTool.debugReplaceQueueSession(
+            orderedTrackIDs: ["id-old", "id-next"],
+            revision: "count=2|first=id-old|last=id-next"
+        )
+        let hasSessionBeforeReset = await V4MusicControlTool.debugQueueSessionContainsTrack(
+            "id-old",
+            revision: "count=2|first=id-old|last=id-next"
+        )
+        XCTAssertTrue(hasSessionBeforeReset)
+
+        await V4MusicControlTool.prepareForFreshExplicitPlay()
+
+        let hasSessionAfterReset = await V4MusicControlTool.debugQueueSessionContainsTrack(
+            "id-old",
+            revision: "count=2|first=id-old|last=id-next"
+        )
+        XCTAssertFalse(hasSessionAfterReset)
+    }
+
     func testMusicPreferredLocalTrackReturnsNilWhenExactSongStillAmbiguous() {
         let tracks = [
             V4MusicControlTool.LibraryTrackRecord(

@@ -228,6 +228,27 @@ struct V4MusicControlTool: V4Tool {
     private static let lockedQueuePlaylistName = "PulseType Library Order Queue"
     private static let libraryOrderSessionCoordinator = LibraryOrderSessionCoordinator()
 
+    static func prepareForFreshExplicitPlay() async {
+        await libraryOrderSessionCoordinator.cancel()
+    }
+
+    static func debugQueueSessionContainsTrack(
+        _ persistentID: String,
+        revision: String?
+    ) async -> Bool {
+        await libraryOrderSessionCoordinator.canReuseQueue(for: persistentID, revision: revision)
+    }
+
+    static func debugReplaceQueueSession(
+        orderedTrackIDs: [String],
+        revision: String?
+    ) async {
+        await libraryOrderSessionCoordinator.replaceSession(
+            orderedTrackIDs: orderedTrackIDs,
+            revision: revision
+        )
+    }
+
     init(
         modelSlotManager: V4ModelSlotManager? = nil,
         generationProvider: (any TextGenerationProvider)? = nil,
@@ -971,6 +992,7 @@ struct V4MusicControlTool: V4Tool {
 
         case .play:
             if let query = command.query, !query.isEmpty {
+                await prepareForFreshExplicitPlay()
                 if let llmResult = await runLibraryIndexSelectionAndPlay(
                     query: query,
                     rawCommand: command.rawCommand,

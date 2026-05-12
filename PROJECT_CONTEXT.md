@@ -61,6 +61,25 @@ PulseType 是一个 macOS 常驻语音助手，不是输入法本体。它的目
 
 ## 4. 最近改了什么
 
+### 2026-05-12 音乐快路径显式点歌并发修复
+
+- 本次任务：修复一次真实线上失败：用户明确说“播放周杰伦的稻香”时，`music_fast` 偶发直接报 `tool_execution_failed`，没有真正开始播放。
+- 改了哪些文件：
+  - `Sources/Core/V4/ToolKernel/Tools/V4MusicControlTool.swift`
+  - `Sources/Core/Interaction/InteractionCoordinatorTypes.swift`
+  - `Tests/V4ToolExecutionScenarioTests.swift`
+  - `PROJECT_CONTEXT.md`
+- 改了什么：
+  - 在“明确点歌”进入新的资料库选歌与播放链路前，先主动取消上一轮 `Library Order Queue` 的后台守护任务，避免旧队列会话和这次新的显式点歌并发抢占 Music 控制权。
+  - 给 `music_fast` 的失败 evidence 补充了 `recover_action` 和经过清洗的 `debug_reason`，让后续如果再失败，trace 不会只剩一个空的 `tool_execution_failed`。
+  - 补了定向测试，覆盖“显式点歌准备阶段会清掉旧队列会话”。
+- 为什么这样改：
+  - 真实失败 trace 显示问题不在路由，而在音乐工具执行阶段；结合当前实现，最可疑的是上一轮资料库顺序守护任务在新一轮显式点歌开始时仍然存活，可能和新的播放动作相互干扰。
+  - 这类问题一旦失败，原 trace 可读性太差，不利于继续定位，所以顺手把失败证据也补强了。
+- 影响了哪些模块：
+  - 影响 `apple.music.control` 显式点歌开始前的会话切换、失败 trace 可观测性，以及对应测试。
+  - 不影响普通听写、讨论整理和非音乐工具。
+
 ### 2026-05-12 音乐快路径结构化选歌与误报修正
 
 - 本次任务：继续优化魔术先生的 `music_fast`，把“选歌”和“执行播放”彻底拆开，同时修掉“其实播对了却提示请确认”的低置信度误报。
