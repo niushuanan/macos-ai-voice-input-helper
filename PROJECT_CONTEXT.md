@@ -61,6 +61,46 @@ PulseType 是一个 macOS 常驻语音助手，不是输入法本体。它的目
 
 ## 4. 最近改了什么
 
+### 2026-05-12 外部真实流式写回第一版
+
+- 本次任务：基于 `docs/streaming-writeback-research-and-prompt-matrix.md`，把普通听写的 DeepSeek streaming 从“只在 HUD / 菜单栏里预览”推进到“在外部输入框里尽早看到稳定片段”。
+- 改了哪些文件：
+  - `Sources/Core/TextOutput/TextOutputCoordinator.swift`
+  - `Sources/Core/Interaction/InteractionCoordinatorTypes.swift`
+  - `Sources/Core/Interaction/InteractionCoordinator.swift`
+  - `Tests/InteractionCoordinatorTests.swift`
+  - `Tests/SessionStoreTests.swift`
+  - `PROJECT_CONTEXT.md`
+- 改了什么：
+  - 给 `TextOutputRequest` 增加 `writeMode`，把最终写回和流式 chunk 写回区分开。
+  - 流式 chunk 写回不再长期污染剪贴板，也不会在 AX 失败后继续反复走 `Command+V`；第一版只在 `AX` 条件足够稳时才连续推进外部文本。
+  - 新增“稳定前缀推进器”和“流式写回控制器”，在 `InteractionCoordinator` 的 `onPartialText` 回调里按累计快照计算可确认片段，边更新预览边把稳定内容增量写进外部 app。
+  - 最终阶段不再盲目整段重写，而是按已写前缀决定“只补尾巴”或“直接结束”；如果最终文本与已写前缀不一致，会把完整结果放进剪贴板并给出提示。
+  - 补了定向测试，覆盖稳定片段多次追加、全文已覆盖时跳过最终整段写入、chunk 失败后退回普通一次性写回、以及 streaming chunk 不走粘贴兜底。
+- 为什么这样改：
+  - 用户要的是实际使用时在外部输入框里看到内容逐步出现，而不是只在 PulseType 自己的界面里看到预览。
+  - macOS 上真正可控的近期路线不是直接重做输入法，而是利用现有 AX 写回链路，把“已经足够稳的前缀”尽早推进到目标 app，同时保留最终一致性保护。
+- 影响了哪些模块：
+  - 影响普通听写的 DeepSeek 后处理链路、外部文本写回策略、会话结束时的写回判定，以及对应的单元测试。
+  - 当前只作用于普通听写的文本整理 streaming，不影响魔术先生、讨论整理，也没有把高风险目标（如 `Codex` / `Slack` / `Discord` / `code` 系）强行纳入连续外写。
+
+### 2026-05-12 外部流式写回调研与 Prompt 生效矩阵
+
+- 本次任务：针对“流式输出必须在真实外部使用场景里体现”这个目标，补了一份面向当前仓库的技术调研与功能矩阵文档，顺便把现有 prompt 的真实生效边界梳理清楚。
+- 改了哪些文件：
+  - `docs/streaming-writeback-research-and-prompt-matrix.md`
+  - `PROJECT_CONTEXT.md`
+- 改了什么：
+  - 新增文档，系统比较了 macOS 上两条路线：`Accessibility 增量写回` 与 `InputMethodKit 真输入法`。
+  - 结合 Apple 官方文档和 GitHub 上公开的 macOS dictation 项目，给出更适合 PulseType 当前架构的方案：先做“稳定片段增量写回到外部 app”，而不是只做 HUD 内部预览，也不是立刻大改成输入法。
+  - 在同一份文档里整理了“功能 x prompt 生效矩阵”，明确哪些链路真正会用到 `ASR 词典`、`口语过滤`、`systemPrompt`、`appPrompt`、内部场景 prompt 与 DeepSeek 文本模型。
+- 为什么这样改：
+  - 上一版虽然已经有模型侧 streaming，但流式只停留在内部状态与 HUD / 菜单栏，不足以体现真实外部场景价值。
+  - 当前仓库里 prompt 生效边界并不统一，如果不先做矩阵梳理，后续做流式外写和 prompt 扩展时很容易误判。
+- 影响了哪些模块：
+  - 这次没有改运行时代码，影响的是产品判断、后续技术方案和 prompt 治理方式。
+  - 后续如果继续推进外部流式写回，这份文档会直接决定优先走 `AX 稳定片段增量写回` 还是单独开 `InputMethodKit` 路线。
+
 ### 2026-05-12 DeepSeek 后处理流式输出第一版
 
 - 本次任务：为普通听写增加 “ASR 完成后 -> DeepSeek 文本整理流式预览 -> 完整生成后一次性写入当前 app” 的第一版能力，并结合 macOS 的实际写回边界控制实现范围。

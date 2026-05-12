@@ -1190,20 +1190,31 @@ final class InteractionCoordinator {
             rhs: postProcessResult.appliedSkills
         )
 
-        let request = TextOutputRequest(
-            text: finalTranscription.transcript,
-            operation: .insertText,
-            focusContext: focusContext,
-            preferredTarget: writebackTarget?.snapshot
-        )
-
-        sessionStore.markInserting(
-            transcription: finalTranscription,
-            focusContext: focusContext
-        )
-
         do {
-            let outputResult = try await textOutputCoordinator.write(request: request)
+            let outputResult: TextOutputResult
+
+            if postProcessResult.finalWritebackText.isEmpty,
+               let priorStreamingWriteResult = postProcessResult.priorStreamingWriteResult
+            {
+                if postProcessResult.nonBlockingNotice?.contains("完整结果已放入剪贴板") == true {
+                    _ = persistTextToClipboard(finalTranscription.transcript)
+                }
+                outputResult = priorStreamingWriteResult
+            } else {
+                let request = TextOutputRequest(
+                    text: postProcessResult.finalWritebackText,
+                    operation: .insertText,
+                    focusContext: focusContext,
+                    preferredTarget: writebackTarget?.snapshot
+                )
+
+                sessionStore.markInserting(
+                    transcription: finalTranscription,
+                    focusContext: focusContext
+                )
+                outputResult = try await textOutputCoordinator.write(request: request)
+            }
+
             sessionStore.completeInsertion(
                 outputResult: outputResult,
                 note: postProcessResult.nonBlockingNotice
@@ -3133,6 +3144,8 @@ final class InteractionCoordinator {
             return DictationPostProcessOutcome(
                 route: .asrOnly,
                 text: text,
+                finalWritebackText: text,
+                priorStreamingWriteResult: nil,
                 appliedSkills: [],
                 nonBlockingNotice: nil
             )
@@ -3146,6 +3159,8 @@ final class InteractionCoordinator {
             return DictationPostProcessOutcome(
                 route: .asrOnly,
                 text: text,
+                finalWritebackText: text,
+                priorStreamingWriteResult: nil,
                 appliedSkills: [],
                 nonBlockingNotice: nil
             )
@@ -3157,6 +3172,8 @@ final class InteractionCoordinator {
             return DictationPostProcessOutcome(
                 route: .asrAndTextProcessing,
                 text: text,
+                finalWritebackText: text,
+                priorStreamingWriteResult: nil,
                 appliedSkills: [],
                 nonBlockingNotice: "文本处理模型暂未生效（\(message)），已退回本地结果。"
             )
@@ -3168,6 +3185,8 @@ final class InteractionCoordinator {
             return DictationPostProcessOutcome(
                 route: .asrAndTextProcessing,
                 text: text,
+                finalWritebackText: text,
+                priorStreamingWriteResult: nil,
                 appliedSkills: [],
                 nonBlockingNotice: "文本处理模型暂未生效（缺少密钥），已退回本地结果。"
             )
@@ -3185,25 +3204,33 @@ final class InteractionCoordinator {
                 providerName: rewriteConfiguration.providerName,
                 modelName: rewriteConfiguration.modelName
             )
+            let streamingWritebackController = DictationStreamingWritebackController(
+                textOutputCoordinator: textOutputCoordinator,
+                focusContext: focusContext,
+                preferredTarget: currentDictationTarget?.snapshot
+            )
 
             let result: DictationPostProcessResult
+            let streamingFinalization: DictationStreamingWritebackFinalization?
             if let streamingProcessor = dictationPostProcessor as? any StreamingDictationPostProcessor {
+                let sessionStore = self.sessionStore
                 result = try await streamingProcessor.processStreaming(
                     request: streamRequest,
                     configuration: rewriteConfiguration,
                     apiKey: apiKey,
-                    onPartialText: { [weak self] partialText in
-                        await MainActor.run {
-                            self?.sessionStore.updateDictationPostProcessingPreview(partialText)
-                        }
+                    onPartialText: { partialText in
+                        await sessionStore.updateDictationPostProcessingPreview(partialText)
+                        await streamingWritebackController.handlePartial(partialText)
                     }
                 )
+                streamingFinalization = streamingWritebackController.finalize(with: result.outputText)
             } else {
                 result = try await dictationPostProcessor.process(
                     request: streamRequest,
                     configuration: rewriteConfiguration,
                     apiKey: apiKey
                 )
+                streamingFinalization = nil
             }
 
             var applied: [SkillRuleID] = []
@@ -3213,16 +3240,24 @@ final class InteractionCoordinator {
             if !normalizedAppPrompt.isEmpty {
                 applied.append(.appPreferenceBoost)
             }
+
+            if streamingFinalization?.shouldPersistFinalTextToClipboard == true {
+                _ = persistTextToClipboard(result.outputText)
+            }
             return DictationPostProcessOutcome(
                 route: .asrAndTextProcessing,
                 text: result.outputText,
+                finalWritebackText: streamingFinalization?.finalWritebackText ?? result.outputText,
+                priorStreamingWriteResult: streamingFinalization?.priorStreamingWriteResult,
                 appliedSkills: applied,
-                nonBlockingNotice: nil
+                nonBlockingNotice: streamingFinalization?.note
             )
         } catch {
             return DictationPostProcessOutcome(
                 route: .asrAndTextProcessing,
                 text: text,
+                finalWritebackText: text,
+                priorStreamingWriteResult: nil,
                 appliedSkills: [],
                 nonBlockingNotice: "文本处理模型调用失败，已退回本地结果。"
             )

@@ -1586,6 +1586,94 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertNil(fixture.sessionStore.liveOutputPreview)
     }
 
+    func testDictationStreamingWritesStableChunksAndFinalTailWithoutDuplication() async throws {
+        let textOutput = FakeTextOutputCoordinator()
+        let postProcessor = StreamingDictationPostProcessorStub(
+            partials: [
+                "第一句。",
+                "第一句。第二句。",
+                "第一句。第二句。尾巴"
+            ],
+            finalText: "第一句。第二句。尾巴完成"
+        )
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutput,
+            dictationPostProcessor: postProcessor,
+            transcriptionText: "abcdefghijklmnop"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.skillRuleStore.setEnabled(true, for: .systemPrompt)
+        fixture.skillRuleStore.setParameter("默认更简洁，保留重点。", for: .systemPrompt)
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(textOutput.requests.map(\.text), ["第一句。", "第二句。", "尾巴完成"])
+        XCTAssertEqual(textOutput.requests.map(\.writeMode), [.streamingChunk, .streamingChunk, .finalDelivery])
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "第一句。第二句。尾巴完成")
+    }
+
+    func testDictationStreamingSkipsFinalWriteWhenStableChunksAlreadyCoverFullText() async throws {
+        let textOutput = FakeTextOutputCoordinator()
+        let postProcessor = StreamingDictationPostProcessorStub(
+            partials: [
+                "第一句。第二句。",
+                "第一句。第二句。"
+            ],
+            finalText: "第一句。第二句。"
+        )
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutput,
+            dictationPostProcessor: postProcessor,
+            transcriptionText: "abcdefghijklmnop"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.skillRuleStore.setEnabled(true, for: .systemPrompt)
+        fixture.skillRuleStore.setParameter("默认更简洁，保留重点。", for: .systemPrompt)
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(textOutput.requests.map(\.text), ["第一句。第二句。"])
+        XCTAssertEqual(textOutput.requests.map(\.writeMode), [.streamingChunk])
+        XCTAssertEqual(fixture.sessionStore.phase, .idle)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "第一句。第二句。")
+    }
+
+    func testDictationStreamingChunkFailureFallsBackToSingleFinalWrite() async throws {
+        let textOutput = FakeTextOutputCoordinator()
+        textOutput.queuedErrors = [TextOutputError.noEditableTarget]
+        let postProcessor = StreamingDictationPostProcessorStub(
+            partials: [
+                "第一句。",
+                "第一句。第二句。"
+            ],
+            finalText: "第一句。第二句。完成"
+        )
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutput,
+            dictationPostProcessor: postProcessor,
+            transcriptionText: "abcdefghijklmnop"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.skillRuleStore.setEnabled(true, for: .systemPrompt)
+        fixture.skillRuleStore.setParameter("默认更简洁，保留重点。", for: .systemPrompt)
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(textOutput.writeCallCount, 2)
+        XCTAssertEqual(textOutput.requests.map(\.text), ["第一句。第二句。完成"])
+        XCTAssertEqual(textOutput.requests.map(\.writeMode), [.finalDelivery])
+        XCTAssertTrue(fixture.sessionStore.statusMessage.contains("流式写入中途已退回普通写回"))
+    }
+
     func testSavedDictionaryIsInjectedIntoNextASRRequestImmediately() async throws {
         let fixture = try makeFixture(transcriptionText: "词典测试")
         defer { fixture.cleanUp() }
@@ -1903,7 +1991,10 @@ private final class FakeTextOutputCoordinator: TextOutputCoordinator {
     var selectionSnapshot: FocusedSelectionSnapshot?
     var capturedSelectionSnapshot: FocusedSelectionSnapshot?
     var errorToThrow: Error?
+    var queuedErrors: [Error] = []
     private(set) var lastRequest: TextOutputRequest?
+    private(set) var requests: [TextOutputRequest] = []
+    private(set) var writeCallCount: Int = 0
     private(set) var captureSelectionCallCount: Int = 0
 
     func currentSelectionSnapshot() -> FocusedSelectionSnapshot? {
@@ -1916,9 +2007,14 @@ private final class FakeTextOutputCoordinator: TextOutputCoordinator {
     }
 
     func write(request: TextOutputRequest) async throws -> TextOutputResult {
+        writeCallCount += 1
+        if !queuedErrors.isEmpty {
+            throw queuedErrors.removeFirst()
+        }
         if let errorToThrow {
             throw errorToThrow
         }
+        requests.append(request)
         lastRequest = request
         return TextOutputResult(
             appName: request.focusContext.appName,

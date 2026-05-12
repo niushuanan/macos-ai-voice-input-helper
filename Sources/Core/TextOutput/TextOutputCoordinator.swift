@@ -8,22 +8,30 @@ enum TextOutputOperation: Equatable {
     case replaceSelectedText
 }
 
+enum TextOutputWriteMode: Equatable {
+    case finalDelivery
+    case streamingChunk
+}
+
 struct TextOutputRequest: Equatable {
     let text: String
     let operation: TextOutputOperation
     let focusContext: FocusedAppContext
     let preferredTarget: WritebackTargetSnapshot?
+    let writeMode: TextOutputWriteMode
 
     init(
         text: String,
         operation: TextOutputOperation,
         focusContext: FocusedAppContext,
-        preferredTarget: WritebackTargetSnapshot? = nil
+        preferredTarget: WritebackTargetSnapshot? = nil,
+        writeMode: TextOutputWriteMode = .finalDelivery
     ) {
         self.text = text
         self.operation = operation
         self.focusContext = focusContext
         self.preferredTarget = preferredTarget
+        self.writeMode = writeMode
     }
 }
 
@@ -204,6 +212,7 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         }
         let writeStartedAt = Date()
         let prefersPasteFirst = prefersPasteFallbackFirst(for: request)
+        let isStreamingChunk = request.writeMode == .streamingChunk
 
         if let preferredTarget = request.preferredTarget {
             logger.log(
@@ -213,8 +222,12 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             logger.log("[write] preferred-target none")
         }
 
-        // Keep the final text in clipboard so user can reuse it after writeback.
-        let didPersistToClipboard = persistToClipboard(trimmedText)
+        // Final delivery keeps the output in clipboard for follow-up use. Streaming chunks
+        // should not leave half-finished text there.
+        let didPersistToClipboard =
+            request.writeMode == .finalDelivery
+            ? persistToClipboard(trimmedText)
+            : true
 
         let preferredTargetReachable = await activatePreferredTargetIfNeeded(request.preferredTarget)
 
@@ -238,6 +251,9 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             || (!hasPreferredTarget && request.focusContext.hasEditableTarget)
 
         guard shouldAttemptEditorWrite else {
+            if isStreamingChunk {
+                throw TextOutputError.noEditableTarget
+            }
             if shouldAttemptBestEffortPasteWithoutEditableTarget(
                 request: request,
                 resolvedFocusContext: resolvedFocusContext
@@ -251,7 +267,8 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
                     )
                     try await performPasteFallback(
                         text: request.text,
-                        targetProcessIdentifier: targetProcessIdentifier
+                        targetProcessIdentifier: targetProcessIdentifier,
+                        restoreClipboardAfterPaste: request.writeMode == .streamingChunk
                     )
                     let result = TextOutputResult(
                         appName: resolvedFocusContext.appName,
@@ -276,7 +293,7 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             throw TextOutputError.noEditableTarget
         }
 
-        if prefersPasteFirst {
+        if prefersPasteFirst, !isStreamingChunk {
             do {
                 let fallbackStartedAt = Date()
                 let targetProcessIdentifier = resolvedTargetProcessIdentifier(
@@ -286,7 +303,8 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
                 )
                 try await performPasteFallback(
                     text: request.text,
-                    targetProcessIdentifier: targetProcessIdentifier
+                    targetProcessIdentifier: targetProcessIdentifier,
+                    restoreClipboardAfterPaste: request.writeMode == .streamingChunk
                 )
                 let result = TextOutputResult(
                     appName: resolvedFocusContext.appName,
@@ -325,6 +343,10 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             let axMs = elapsedMilliseconds(since: writeStartedAt)
             logger.log("[write] primary-failed reason=\(primaryReason) ax_ms=\(axMs)")
 
+            if isStreamingChunk {
+                throw error
+            }
+
             do {
                 let fallbackStartedAt = Date()
                 let targetProcessIdentifier = resolvedTargetProcessIdentifier(
@@ -334,7 +356,8 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
                 )
                 try await performPasteFallback(
                     text: request.text,
-                    targetProcessIdentifier: targetProcessIdentifier
+                    targetProcessIdentifier: targetProcessIdentifier,
+                    restoreClipboardAfterPaste: request.writeMode == .streamingChunk
                 )
                 let result = TextOutputResult(
                     appName: resolvedFocusContext.appName,
@@ -487,8 +510,29 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
         text: String,
         targetProcessIdentifier: pid_t?
     ) async throws {
+        try await performPasteFallback(
+            text: text,
+            targetProcessIdentifier: targetProcessIdentifier,
+            restoreClipboardAfterPaste: false
+        )
+    }
+
+    func performPasteFallback(
+        text: String,
+        targetProcessIdentifier: pid_t?,
+        restoreClipboardAfterPaste: Bool
+    ) async throws {
+        let pasteboard = NSPasteboard.general
+        let clipboardSnapshot = restoreClipboardAfterPaste ? pasteboardSnapshot(pasteboard) : nil
+
         guard persistToClipboard(text) else {
             throw TextOutputError.pasteboardUnavailable
+        }
+
+        func restoreClipboardIfNeeded() {
+            if let clipboardSnapshot {
+                restorePasteboard(clipboardSnapshot, to: pasteboard)
+            }
         }
 
         // Prefer PID-targeted injection when we know which app should receive Cmd+V.
@@ -501,10 +545,16 @@ class AccessibilityTextOutputCoordinator: TextOutputCoordinator {
             logger.log("[write] paste-fallback global bundle=\(frontmostBundleID ?? "unknown")")
         }
 
-        try triggerCommandV(
-            targetProcessIdentifier: targetProcessIdentifier
-        )
-        try await Task.sleep(nanoseconds: 80_000_000)
+        do {
+            try triggerCommandV(
+                targetProcessIdentifier: targetProcessIdentifier
+            )
+            try await Task.sleep(nanoseconds: 80_000_000)
+            restoreClipboardIfNeeded()
+        } catch {
+            restoreClipboardIfNeeded()
+            throw error
+        }
     }
 
     @discardableResult

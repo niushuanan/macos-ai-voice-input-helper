@@ -546,6 +546,45 @@ final class TextOutputCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.lastPasteTargetProcessIdentifier, 3456)
     }
 
+    func testStreamingChunkDoesNotUsePasteFallbackWhenAXFails() async {
+        let focusContext = FocusedAppContext(
+            appName: "Codex",
+            bundleID: "com.openai.codex",
+            focusedRole: nil,
+            hasEditableTarget: true,
+            strategyHint: "test"
+        )
+        let coordinator = TestAccessibilityTextOutputCoordinator(
+            contextDetector: StaticContextDetector(focusContext: focusContext)
+        )
+        coordinator.accessibilityError = .noEditableTarget
+        coordinator.forcedExternalTargetReady = true
+
+        do {
+            _ = try await coordinator.write(
+                request: TextOutputRequest(
+                    text: "稳定片段",
+                    operation: .insertText,
+                    focusContext: focusContext,
+                    writeMode: .streamingChunk
+                )
+            )
+            XCTFail("Expected noEditableTarget")
+        } catch let error as TextOutputError {
+            switch error {
+            case .noEditableTarget:
+                break
+            default:
+                XCTFail("Expected noEditableTarget, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(coordinator.pasteFallbackCount, 0)
+        XCTAssertEqual(coordinator.clipboardPersistCount, 0)
+    }
+
     func testClipboardOnlyPathThrowsWhenClipboardUnavailable() async {
         let focusContext = FocusedAppContext(
             appName: "PulseType",
@@ -607,6 +646,7 @@ private final class TestAccessibilityTextOutputCoordinator: AccessibilityTextOut
     var forcedExternalTargetReady: Bool?
     var forcedPreferredTargetReachable: Bool?
     var clipboardWriteSucceeded: Bool = true
+    var clipboardPersistCount: Int = 0
 
     init(contextDetector: ContextDetector) {
         let diagnosticsDirectory = FileManager.default.temporaryDirectory
@@ -636,8 +676,19 @@ private final class TestAccessibilityTextOutputCoordinator: AccessibilityTextOut
         lastPasteTargetProcessIdentifier = targetProcessIdentifier
     }
 
+    override func performPasteFallback(
+        text: String,
+        targetProcessIdentifier: pid_t?,
+        restoreClipboardAfterPaste: Bool
+    ) async throws {
+        _ = restoreClipboardAfterPaste
+        pasteFallbackCount += 1
+        lastPasteTargetProcessIdentifier = targetProcessIdentifier
+    }
+
     override func persistToClipboard(_ text: String) -> Bool {
-        clipboardWriteSucceeded
+        clipboardPersistCount += 1
+        return clipboardWriteSucceeded
     }
 
     override func runningApplications(withBundleIdentifier bundleID: String) -> [NSRunningApplication] {

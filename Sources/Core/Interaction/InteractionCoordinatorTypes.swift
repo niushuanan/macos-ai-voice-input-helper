@@ -74,8 +74,256 @@ enum DictationRoute {
 struct DictationPostProcessOutcome {
     let route: DictationRoute
     let text: String
+    let finalWritebackText: String
+    let priorStreamingWriteResult: TextOutputResult?
     let appliedSkills: [SkillRuleID]
     let nonBlockingNotice: String?
+}
+
+struct DictationStreamingWritebackFinalization {
+    let finalWritebackText: String
+    let priorStreamingWriteResult: TextOutputResult?
+    let note: String?
+    let shouldPersistFinalTextToClipboard: Bool
+}
+
+struct DictationStreamingWritebackPolicy {
+    static func supportsExternalStreaming(
+        focusContext: FocusedAppContext,
+        preferredTarget: WritebackTargetSnapshot?
+    ) -> Bool {
+        let bundleID = preferredTarget?.bundleID ?? focusContext.bundleID
+        guard
+            !bundleID.isEmpty,
+            bundleID != "unknown.bundle",
+            bundleID != Bundle.main.bundleIdentifier
+        else {
+            return false
+        }
+
+        if blockedBundleIDs.contains(bundleID) {
+            return false
+        }
+
+        let lowercasedBundleID = bundleID.lowercased()
+        let blockedFragments = [
+            "com.openai.codex",
+            "slack",
+            "discord",
+            "code",
+            "cursor"
+        ]
+        return !blockedFragments.contains { lowercasedBundleID.contains($0) }
+    }
+
+    private static let blockedBundleIDs: Set<String> = [
+        "com.apple.Terminal",
+        "com.googlecode.iterm2",
+        "com.microsoft.rdc.macos",
+        "com.citrix.receiver.icaviewer.mac",
+        "com.teamviewer.TeamViewer",
+        "com.parallels.desktop.console"
+    ]
+}
+
+struct StableStreamingPrefixAccumulator {
+    private(set) var committedPrefix: String = ""
+    private var previousPreview: String?
+
+    private let minimumBoundaryChunkLength = 3
+    private let forcedCommitThreshold = 22
+    private let forcedCommitTailReserve = 6
+    private let boundaryCharacters = CharacterSet(charactersIn: "，。！？；：、,.!?;: \n")
+
+    mutating func ingest(_ previewText: String) -> String? {
+        let normalized = previewText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return nil
+        }
+
+        defer {
+            previousPreview = normalized
+        }
+
+        guard let previousPreview, !previousPreview.isEmpty else {
+            return nil
+        }
+
+        let stablePrefix = longestCommonPrefix(previousPreview, normalized)
+        return commitDelta(fromStablePrefix: stablePrefix)
+    }
+
+    mutating func finalize(with finalText: String) -> DictationStreamingWritebackFinalization {
+        let normalizedFinal = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !committedPrefix.isEmpty else {
+            return DictationStreamingWritebackFinalization(
+                finalWritebackText: normalizedFinal,
+                priorStreamingWriteResult: nil,
+                note: nil,
+                shouldPersistFinalTextToClipboard: false
+            )
+        }
+
+        if normalizedFinal.hasPrefix(committedPrefix) {
+            let suffix = String(normalizedFinal.dropFirst(committedPrefix.count))
+            return DictationStreamingWritebackFinalization(
+                finalWritebackText: suffix,
+                priorStreamingWriteResult: nil,
+                note: nil,
+                shouldPersistFinalTextToClipboard: false
+            )
+        }
+
+        return DictationStreamingWritebackFinalization(
+            finalWritebackText: "",
+            priorStreamingWriteResult: nil,
+            note: "流式阶段已写入前半段，最终全文已放入剪贴板，请以完整结果为准。",
+            shouldPersistFinalTextToClipboard: true
+        )
+    }
+
+    private mutating func commitDelta(fromStablePrefix stablePrefix: String) -> String? {
+        guard stablePrefix.count > committedPrefix.count else {
+            return nil
+        }
+
+        let committedCount = committedPrefix.count
+        let commitEndIndex = preferredCommitEnd(in: stablePrefix, committedCount: committedCount)
+        let committedIndex = stablePrefix.index(
+            stablePrefix.startIndex,
+            offsetBy: committedCount,
+            limitedBy: stablePrefix.endIndex
+        ) ?? stablePrefix.startIndex
+        guard commitEndIndex > committedIndex else {
+            return nil
+        }
+
+        let delta = String(stablePrefix[committedIndex..<commitEndIndex])
+        committedPrefix = String(stablePrefix[..<commitEndIndex])
+        return delta
+    }
+
+    private func preferredCommitEnd(in stablePrefix: String, committedCount: Int) -> String.Index {
+        let startIndex = stablePrefix.index(
+            stablePrefix.startIndex,
+            offsetBy: committedCount,
+            limitedBy: stablePrefix.endIndex
+        ) ?? stablePrefix.startIndex
+        guard startIndex < stablePrefix.endIndex else {
+            return startIndex
+        }
+
+        var currentIndex = startIndex
+        var boundaryIndex: String.Index?
+        var advancedCount = 0
+        while currentIndex < stablePrefix.endIndex {
+            let nextIndex = stablePrefix.index(after: currentIndex)
+            advancedCount += 1
+            let scalarView = String(stablePrefix[currentIndex]).unicodeScalars
+            if scalarView.allSatisfy(boundaryCharacters.contains), advancedCount >= minimumBoundaryChunkLength {
+                boundaryIndex = nextIndex
+            }
+            currentIndex = nextIndex
+        }
+
+        if let boundaryIndex {
+            return boundaryIndex
+        }
+
+        guard advancedCount >= forcedCommitThreshold else {
+            return startIndex
+        }
+
+        let committedCount = max(minimumBoundaryChunkLength, advancedCount - forcedCommitTailReserve)
+        return stablePrefix.index(startIndex, offsetBy: committedCount, limitedBy: stablePrefix.endIndex) ?? startIndex
+    }
+
+    private func longestCommonPrefix(_ lhs: String, _ rhs: String) -> String {
+        var leftIndex = lhs.startIndex
+        var rightIndex = rhs.startIndex
+        var prefixEnd = lhs.startIndex
+
+        while leftIndex < lhs.endIndex, rightIndex < rhs.endIndex, lhs[leftIndex] == rhs[rightIndex] {
+            prefixEnd = lhs.index(after: leftIndex)
+            leftIndex = lhs.index(after: leftIndex)
+            rightIndex = rhs.index(after: rightIndex)
+        }
+
+        return String(lhs[..<prefixEnd])
+    }
+}
+
+@MainActor
+final class DictationStreamingWritebackController {
+    private let textOutputCoordinator: any TextOutputCoordinator
+    private let focusContext: FocusedAppContext
+    private let preferredTarget: WritebackTargetSnapshot?
+    private let isEnabled: Bool
+
+    private var accumulator = StableStreamingPrefixAccumulator()
+    private(set) var lastOutputResult: TextOutputResult?
+    private(set) var didWriteAnyChunk = false
+    private(set) var chunkWriteFailed = false
+
+    init(
+        textOutputCoordinator: any TextOutputCoordinator,
+        focusContext: FocusedAppContext,
+        preferredTarget: WritebackTargetSnapshot?
+    ) {
+        self.textOutputCoordinator = textOutputCoordinator
+        self.focusContext = focusContext
+        self.preferredTarget = preferredTarget
+        isEnabled = DictationStreamingWritebackPolicy.supportsExternalStreaming(
+            focusContext: focusContext,
+            preferredTarget: preferredTarget
+        )
+    }
+
+    func handlePartial(_ previewText: String) async {
+        guard isEnabled, !chunkWriteFailed else {
+            return
+        }
+        guard let delta = accumulator.ingest(previewText) else {
+            return
+        }
+
+        do {
+            let result = try await textOutputCoordinator.write(
+                request: TextOutputRequest(
+                    text: delta,
+                    operation: .insertText,
+                    focusContext: focusContext,
+                    preferredTarget: preferredTarget,
+                    writeMode: .streamingChunk
+                )
+            )
+            didWriteAnyChunk = true
+            lastOutputResult = result
+        } catch {
+            chunkWriteFailed = true
+        }
+    }
+
+    func finalize(with finalText: String) -> DictationStreamingWritebackFinalization {
+        var result = accumulator.finalize(with: finalText)
+        result = DictationStreamingWritebackFinalization(
+            finalWritebackText: didWriteAnyChunk ? result.finalWritebackText : finalText,
+            priorStreamingWriteResult: didWriteAnyChunk ? lastOutputResult : nil,
+            note: result.note,
+            shouldPersistFinalTextToClipboard: didWriteAnyChunk && result.shouldPersistFinalTextToClipboard
+        )
+
+        if chunkWriteFailed, result.note == nil {
+            return DictationStreamingWritebackFinalization(
+                finalWritebackText: result.finalWritebackText,
+                priorStreamingWriteResult: result.priorStreamingWriteResult,
+                note: "流式写入中途已退回普通写回，末尾内容会继续补全。",
+                shouldPersistFinalTextToClipboard: result.shouldPersistFinalTextToClipboard
+            )
+        }
+
+        return result
+    }
 }
 
 struct BrainstormComposeOutcome {
