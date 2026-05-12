@@ -18,7 +18,7 @@
 2. 文本处理
    - Provider：`OpenAI 兼容`
    - 地址：`https://api.deepseek.com`
-   - 模型：`deepseek-chat`
+   - 模型：`deepseek-v4-flash`
 
 如果你已经有旧配置，系统不会强制覆盖。
 

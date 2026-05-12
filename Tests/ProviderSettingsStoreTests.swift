@@ -16,11 +16,11 @@ final class ProviderSettingsStoreTests: XCTestCase {
 
         XCTAssertEqual(store.textConfig.providerType, .openAICompatible)
         XCTAssertEqual(store.textConfig.baseURLString, "https://api.deepseek.com")
-        XCTAssertEqual(store.textConfig.modelName, "deepseek-chat")
+        XCTAssertEqual(store.textConfig.modelName, "deepseek-v4-flash")
 
         XCTAssertEqual(store.cliTextConfig.providerType, .openAICompatible)
         XCTAssertEqual(store.cliTextConfig.baseURLString, "https://api.deepseek.com")
-        XCTAssertEqual(store.cliTextConfig.modelName, "deepseek-chat")
+        XCTAssertEqual(store.cliTextConfig.modelName, "deepseek-v4-flash")
         XCTAssertNil(store.resolvedFeishuCLIExecutablePathOverride)
     }
 
@@ -75,7 +75,7 @@ final class ProviderSettingsStoreTests: XCTestCase {
 
         XCTAssertEqual(store.textConfig.providerType, .openAICompatible)
         XCTAssertEqual(store.textConfig.baseURLString, "https://api.deepseek.com")
-        XCTAssertEqual(store.textConfig.modelName, "deepseek-chat")
+        XCTAssertEqual(store.textConfig.modelName, "deepseek-v4-flash")
     }
 
     func testSwitchingCLIProviderFromOpenAIToCompatibleResetsBaseURLToDeepSeekDefault() {
@@ -93,7 +93,7 @@ final class ProviderSettingsStoreTests: XCTestCase {
 
         XCTAssertEqual(store.cliTextConfig.providerType, .openAICompatible)
         XCTAssertEqual(store.cliTextConfig.baseURLString, "https://api.deepseek.com")
-        XCTAssertEqual(store.cliTextConfig.modelName, "deepseek-chat")
+        XCTAssertEqual(store.cliTextConfig.modelName, "deepseek-v4-flash")
     }
 
     func testCompatibleDeepSeekConfigOnOpenAIURLMigratesAndClearsStaleTestResult() throws {
@@ -119,7 +119,34 @@ final class ProviderSettingsStoreTests: XCTestCase {
         let store = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
 
         XCTAssertEqual(store.textConfig.baseURLString, "https://api.deepseek.com")
+        XCTAssertEqual(store.textConfig.modelName, "deepseek-v4-flash")
         XCTAssertNil(store.latestTextTestResult)
+    }
+
+    func testPersistedDeepSeekChatConfigMigratesToV4FlashAndClearsCliTestResult() throws {
+        let defaults = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let persistedConfig = TextConfig(
+            providerType: .openAICompatible,
+            baseURLString: "https://api.deepseek.com",
+            modelName: "deepseek-chat",
+            keyRef: defaultCLITextCredentialKeyRef
+        )
+        let staleResult = ConnectionTestResult.success(
+            message: "旧 CLI 测试成功",
+            hint: "旧提示",
+            httpStatus: 200
+        )
+
+        defaults.set(try JSONEncoder().encode(persistedConfig), forKey: "providers.text.cli.config.v1")
+        defaults.set(try JSONEncoder().encode(staleResult), forKey: "providers.text.cli.test.result.v1")
+
+        let credentials = MemoryCredentialStoreForSettingsTests()
+        let store = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
+
+        XCTAssertEqual(store.cliTextConfig.modelName, "deepseek-v4-flash")
+        XCTAssertNil(store.latestCLITextTestResult)
     }
 
     func testChangingTextConfigClearsRecordedTextConnectionResult() {

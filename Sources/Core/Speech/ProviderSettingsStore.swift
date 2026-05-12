@@ -906,6 +906,11 @@ final class ProviderSettingsStore: ObservableObject {
 
     private static func sanitizeTextConfig(_ config: TextConfig) -> TextConfig {
         var sanitized = config
+        sanitized.modelName = migratedDeepSeekRewriteModelName(
+            providerType: sanitized.providerType,
+            baseURLString: sanitized.baseURLString,
+            modelName: sanitized.modelName
+        )
         if !sanitized.providerType.allowsCustomBaseURL {
             sanitized.baseURLString = sanitized.providerType.recommendedBaseURLString
         } else {
@@ -971,6 +976,28 @@ final class ProviderSettingsStore: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         return normalizedModel.hasPrefix("deepseek")
+    }
+
+    private static func migratedDeepSeekRewriteModelName(
+        providerType: ProviderType,
+        baseURLString: String,
+        modelName: String
+    ) -> String {
+        let normalizedModel = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedModel.isEmpty else {
+            return modelName
+        }
+
+        let lowercasedModel = normalizedModel.lowercased()
+        guard lowercasedModel == "deepseek-chat" else {
+            return normalizedModel
+        }
+
+        guard providerType == .openAICompatible else {
+            return normalizedModel
+        }
+
+        return "deepseek-v4-flash"
     }
 
     private static func sanitizeCLIExecutablePathOverride(_ value: String) -> String {

@@ -297,6 +297,46 @@ final class OpenAIProviderAdapterTests: XCTestCase {
         XCTAssertEqual(result.outputText, "rewritten text")
     }
 
+    func testGenerationProviderDisablesThinkingForDeepSeekV4CompatibleRequests() async throws {
+        let session = makeStubSession()
+        let provider = OpenAITextGenerationProvider(session: session)
+
+        URLProtocolStub.requestHandler = { request in
+            let bodyData = self.readBodyData(from: request)
+            let json = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: bodyData) as? [String: Any]
+            )
+            let thinking = try XCTUnwrap(json["thinking"] as? [String: Any])
+            XCTAssertEqual(thinking["type"] as? String, "disabled")
+
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let data = Data(#"{"choices":[{"message":{"content":"ok"}}]}"#.utf8)
+            return (response, data)
+        }
+
+        _ = try await provider.generateText(
+            request: TextGenerationRequest(
+                systemPrompt: "system",
+                userPrompt: "user",
+                temperature: 0.2,
+                maxOutputTokens: 120
+            ),
+            configuration: TextGenerationProviderConfiguration(
+                profileID: "profile-deepseek",
+                providerType: .openAICompatible,
+                providerName: "DeepSeek Compatible",
+                modelName: "deepseek-v4-flash",
+                baseURL: URL(string: "https://api.deepseek.com")!
+            ),
+            apiKey: "test-key"
+        )
+    }
+
     func testASRConnectionTesterUsesOpenAICompatibleEndpoint() async {
         let session = makeStubSession()
         let credentialStore = MemoryCredentialStore()
@@ -390,6 +430,46 @@ final class OpenAIProviderAdapterTests: XCTestCase {
         XCTAssertEqual(result.status, .failure)
         XCTAssertEqual(result.httpStatus, 401)
         XCTAssertTrue(result.hint.contains("密钥"))
+    }
+
+    func testTextConnectionTesterDisablesThinkingForDeepSeekV4() async {
+        let session = makeStubSession()
+        let credentialStore = MemoryCredentialStore()
+        try? credentialStore.saveAPIKey("sk-text-000000", for: "text")
+        let tester = TextConnectionTester(
+            session: session,
+            credentialStore: credentialStore
+        )
+
+        URLProtocolStub.requestHandler = { request in
+            let bodyData = self.readBodyData(from: request)
+            let json = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: bodyData) as? [String: Any]
+            )
+            let thinking = try XCTUnwrap(json["thinking"] as? [String: Any])
+            XCTAssertEqual(thinking["type"] as? String, "disabled")
+
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let data = Data(#"{"choices":[{"message":{"content":"连接正常"}}]}"#.utf8)
+            return (response, data)
+        }
+
+        let result = await tester.test(
+            config: TextConfig(
+                providerType: .openAICompatible,
+                baseURLString: "https://api.deepseek.com",
+                modelName: "deepseek-v4-flash",
+                keyRef: "text"
+            )
+        )
+
+        XCTAssertEqual(result.status, .success)
+        XCTAssertEqual(result.httpStatus, 200)
     }
 
     private func makeStubSession() -> URLSession {

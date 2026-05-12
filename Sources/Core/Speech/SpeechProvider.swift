@@ -57,11 +57,11 @@ enum ProviderType: String, CaseIterable, Codable, Identifiable {
         case .openAI:
             return "gpt-4o-mini"
         case .openAICompatible:
-            return "deepseek-chat"
+            return "deepseek-v4-flash"
         case .dashScopeQwenASR:
-            return "deepseek-chat"
+            return "deepseek-v4-flash"
         case .localSenseVoice:
-            return "deepseek-chat"
+            return "deepseek-v4-flash"
         }
     }
 

@@ -77,7 +77,7 @@ legacy runtime 还保留在仓库里，但只允许在 debug 显式开关下做�
 ## 模型与默认配置
 
 - `ASR` 默认：`阿里云 Qwen ASR`（`qwen3-asr-flash`）
-- `文本处理` 默认：`OpenAI 兼容`（`https://api.deepseek.com` / `deepseek-chat`）
+- `文本处理` 默认：`OpenAI 兼容`（`https://api.deepseek.com` / `deepseek-v4-flash`，显式关闭 thinking）
 - `CLI 模式（Agent）` 默认：同上，可单独改
 - 可切换本地 `SenseVoice`（含环境准备与健康检测）
 

@@ -18,12 +18,12 @@ final class V4ModelSlotManagerTests: XCTestCase {
         XCTAssertEqual(slots.text.slot, .text)
         XCTAssertEqual(slots.text.sourceConfigurationKey, "textConfig")
         XCTAssertEqual(slots.text.providerType, .openAICompatible)
-        XCTAssertEqual(slots.text.modelName, "deepseek-chat")
+        XCTAssertEqual(slots.text.modelName, "deepseek-v4-flash")
 
         XCTAssertEqual(slots.agent.slot, .agent)
         XCTAssertEqual(slots.agent.sourceConfigurationKey, "cliTextConfig")
         XCTAssertEqual(slots.agent.providerType, .openAICompatible)
-        XCTAssertEqual(slots.agent.modelName, "deepseek-chat")
+        XCTAssertEqual(slots.agent.modelName, "deepseek-v4-flash")
     }
 
     func testInvalidModelConfigReturnsStructuredError() async {
@@ -57,7 +57,7 @@ final class V4ModelSlotManagerTests: XCTestCase {
 
         let credentials = MemoryCredentialStoreForV4ModelTests()
         let store = ProviderSettingsStore(defaults: defaults, credentialStore: credentials)
-        store.updateTextModel("deepseek-chat")
+        store.updateTextModel("deepseek-v4-flash")
         store.updateCLITextModel("gpt-4.1-mini")
 
         let manager = V4ModelSlotManager(
@@ -69,7 +69,7 @@ final class V4ModelSlotManagerTests: XCTestCase {
 
         XCTAssertEqual(agentEndpoint.sourceConfigurationKey, "cliTextConfig")
         XCTAssertEqual(agentEndpoint.modelName, "gpt-4.1-mini")
-        XCTAssertEqual(textEndpoint.modelName, "deepseek-chat")
+        XCTAssertEqual(textEndpoint.modelName, "deepseek-v4-flash")
     }
 
     private func makeManager(defaults: UserDefaults) -> V4ModelSlotManager {
@@ -112,4 +112,3 @@ private final class MemoryCredentialStoreForV4ModelTests: ProviderCredentialStor
         storage[profileID] != nil
     }
 }
-

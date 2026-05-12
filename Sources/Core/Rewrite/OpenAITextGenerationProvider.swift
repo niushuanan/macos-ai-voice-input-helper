@@ -23,6 +23,7 @@ struct OpenAITextGenerationProvider: TextGenerationProvider {
             model: configuration.modelName,
             temperature: request.temperature,
             maxTokens: request.maxOutputTokens,
+            thinking: resolvedThinkingMode(for: configuration),
             messages: [
                 .init(role: "system", content: request.systemPrompt),
                 .init(role: "user", content: request.userPrompt)
@@ -81,6 +82,25 @@ struct OpenAITextGenerationProvider: TextGenerationProvider {
             outputText: first.message.content
         )
     }
+
+    private func resolvedThinkingMode(
+        for configuration: TextGenerationProviderConfiguration
+    ) -> ChatCompletionsPayload.ThinkingMode? {
+        guard configuration.providerType == .openAICompatible else {
+            return nil
+        }
+
+        let host = configuration.baseURL.host?.lowercased() ?? ""
+        let modelName = configuration.modelName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard host.contains("deepseek.com"), modelName.hasPrefix("deepseek-v4-") else {
+            return nil
+        }
+
+        // `deepseek-chat` 原先对应非思考模式；切到 V4 显式关闭 thinking，保持现有清理/改写时延和输出形态。
+        return .init(type: "disabled")
+    }
 }
 
 private struct ChatCompletionsPayload: Encodable {
@@ -89,15 +109,21 @@ private struct ChatCompletionsPayload: Encodable {
         let content: String
     }
 
+    struct ThinkingMode: Encodable {
+        let type: String
+    }
+
     let model: String
     let temperature: Double
     let maxTokens: Int?
+    let thinking: ThinkingMode?
     let messages: [Message]
 
     enum CodingKeys: String, CodingKey {
         case model
         case temperature
         case maxTokens = "max_tokens"
+        case thinking
         case messages
     }
 }

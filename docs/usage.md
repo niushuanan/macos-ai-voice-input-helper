@@ -25,7 +25,7 @@
    - 文本处理
 3. 云端默认建议：
    - ASR：`https://dashscope.aliyuncs.com` + `qwen3-asr-flash`
-   - 文本：`https://api.deepseek.com` + `deepseek-chat`
+   - 文本：`https://api.deepseek.com` + `deepseek-v4-flash`
 4. 分别填写：
    - API 地址
    - 模型名

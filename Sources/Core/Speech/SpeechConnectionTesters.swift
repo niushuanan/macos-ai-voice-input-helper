@@ -413,6 +413,7 @@ struct TextConnectionTester {
         let endpoint = OpenAIEndpointResolver.chatCompletionsURL(baseURL: baseURL)
         let payload = TextConnectionPayload(
             model: config.modelName.trimmingCharacters(in: .whitespacesAndNewlines),
+            thinking: resolvedThinkingMode(for: config),
             messages: [
                 .init(role: "system", content: "你是连接测试助手。"),
                 .init(role: "user", content: "请只回复“连接正常”。")
@@ -488,6 +489,24 @@ struct TextConnectionTester {
         }
         return first
     }
+
+    private func resolvedThinkingMode(for config: TextConfig) -> TextConnectionPayload.ThinkingMode? {
+        guard config.providerType == .openAICompatible else {
+            return nil
+        }
+
+        let normalizedBaseURL = config.baseURLString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let normalizedModel = config.modelName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalizedBaseURL.contains("api.deepseek.com"), normalizedModel.hasPrefix("deepseek-v4-") else {
+            return nil
+        }
+
+        return .init(type: "disabled")
+    }
 }
 
 private enum ConnectionTestHintResolver {
@@ -515,7 +534,12 @@ private struct TextConnectionPayload: Encodable {
         let content: String
     }
 
+    struct ThinkingMode: Encodable {
+        let type: String
+    }
+
     let model: String
+    let thinking: ThinkingMode?
     let messages: [Message]
 }
 
