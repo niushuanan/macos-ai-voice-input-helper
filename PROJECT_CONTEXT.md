@@ -61,6 +61,28 @@ PulseType 是一个 macOS 常驻语音助手，不是输入法本体。它的目
 
 ## 4. 最近改了什么
 
+### 2026-05-12 音乐快路径结构化选歌与误报修正
+
+- 本次任务：继续优化魔术先生的 `music_fast`，把“选歌”和“执行播放”彻底拆开，同时修掉“其实播对了却提示请确认”的低置信度误报。
+- 改了哪些文件：
+  - `Sources/Core/Magician/MagicianToolSupport.swift`
+  - `Sources/Core/V4/ToolKernel/Tools/V4MusicControlTool.swift`
+  - `Tests/MusicFastExecutorTests.swift`
+  - `Tests/V4ToolExecutionScenarioTests.swift`
+  - `PROJECT_CONTEXT.md`
+- 改了什么：
+  - 给音乐快路径新增结构化选歌决策对象，先在程序里统一产出“选中的 track / 来自本地还是 LLM / 置信度 / 原因”，再交给固定 AppleScript 执行，不再让选歌和播放步骤混在一起。
+  - 调整音乐 LLM 的提示词，明确它只负责在给定资料库候选里选歌，不能生成执行脚本。
+  - 播放证据里新增 `selection_source`、`selection_confidence`、`selection_reason`，方便后面继续看 trace 时区分到底慢在本地检索、LLM 消歧还是 Music 执行。
+  - 强化 query 解析和证据匹配：像 `周杰伦 稻香` 这种“歌手 + 歌名”组合，现在会优先抽出歌名做主匹配，再用歌手字段做交叉确认，不再因为字段分开而误判成 `exact_match=false`。
+  - 补了针对空格分隔查询的测试，覆盖 `MusicFastExecutor` 的高置信度判定，以及 `preferredLocalTrack` 的本地唯一命中。
+- 为什么这样改：
+  - 上一轮提速后，真实 trace 已经从 17 秒级降到 7 秒级，但仍暴露出两个问题：一是 LLM 角色和播放执行层界限不够清楚，二是验证逻辑过于依赖整句 query，导致“播对了也会保守告警”。
+  - 这次把职责重新切干净后，后面继续调模型、调 prompt、调队列复用时就能更明确地量化每一段收益，也更不容易引入误播 bug。
+- 影响了哪些模块：
+  - 影响音乐工具的本地检索、LLM 选歌、播放证据拼装，以及 `MusicFastExecutor` 的高低置信度判定。
+  - 不影响普通听写、讨论整理、非音乐工具，也没有放开为“LLM 直接生成 AppleScript”。
+
 ### 2026-05-12 音乐快路径提速第一版
 
 - 本次任务：针对魔术先生播放音乐体感偏慢的问题，先优化 `music_fast` 里最容易压时延、又不容易引入行为回退的两段：明确点歌的选曲决策，以及已建立资料库顺序队列后的重复点播。

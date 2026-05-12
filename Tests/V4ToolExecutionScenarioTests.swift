@@ -492,6 +492,35 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         XCTAssertEqual(evidenceFieldOccurrenceCount("evidence_confidence", in: output.evidenceSummary), 1)
     }
 
+    func testMusicArtistSongCombinedQueryKeepsHighConfidenceWhenTrackAndArtistBothMatch() async throws {
+        let tool = V4MusicControlTool { command in
+            XCTAssertEqual(command.action, .play)
+            XCTAssertEqual(command.query, "周杰伦 稻香")
+            return V4MusicControlTool.ResultPayload(
+                action: .play,
+                state: "play",
+                track: "稻香",
+                artist: "周杰伦",
+                evidence: "track=稻香|artist=周杰伦|album=魔杰座|state=play|target_id_match=true|metadata_match=true"
+            )
+        }
+
+        let output = try await tool.execute(
+            arguments: [
+                "command": .string("播放周杰伦的稻香"),
+                "query": .string("周杰伦 稻香")
+            ],
+            context: makeContext(toolName: "apple.music.control")
+        )
+
+        XCTAssertTrue(output.evidenceSummary.contains("exact_match=true"))
+        XCTAssertTrue(output.evidenceSummary.contains("evidence_confidence=high"))
+        XCTAssertEqual(output.rawPayload?.objectValue?["exactMatch"]?.boolValue, true)
+        XCTAssertEqual(output.rawPayload?.objectValue?["evidenceConfidence"]?.stringValue, "high")
+        XCTAssertEqual(magicianEvidenceField("requested_track", from: output.evidenceSummary), "周杰伦 稻香")
+        XCTAssertEqual(magicianEvidenceField("resolved_track", from: output.evidenceSummary), "稻香")
+    }
+
     func testMusicDryRunSkipsExecutionHandler() async throws {
         let tool = V4MusicControlTool { _ in
             XCTFail("dry run 不应触发执行器")
@@ -602,6 +631,32 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         let picked = V4MusicControlTool.preferredLocalTrack(
             query: "周杰伦的夜曲",
             rawCommand: "播放周杰伦的夜曲",
+            playIntent: .song,
+            tracks: tracks
+        )
+
+        XCTAssertEqual(picked?.persistentID, "id-1")
+    }
+
+    func testMusicPreferredLocalTrackAcceptsArtistSongSpaceSeparatedQuery() {
+        let tracks = [
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-1",
+                name: "稻香",
+                artist: "周杰伦",
+                album: "魔杰座"
+            ),
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-2",
+                name: "稻香",
+                artist: "其他歌手",
+                album: "翻唱集"
+            )
+        ]
+
+        let picked = V4MusicControlTool.preferredLocalTrack(
+            query: "周杰伦 稻香",
+            rawCommand: "播放周杰伦 稻香",
             playIntent: .song,
             tracks: tracks
         )

@@ -14,6 +14,17 @@ final class MusicFastExecutorTests: XCTestCase {
         )
     }
 
+    func testMatchesRequestedTrackAcceptsArtistSongSeparatedBySpace() {
+        XCTAssertTrue(
+            MusicFastExecutor.matchesRequestedTrack(
+                requestedTrack: "周杰伦 稻香",
+                resolvedTrack: "稻香",
+                resolvedArtist: "周杰伦",
+                evidenceSummary: "apple.music.control|track=稻香|artist=周杰伦|state=play"
+            )
+        )
+    }
+
     func testMatchesRequestedTrackRejectsRequestedTrackOnlyEvidence() {
         XCTAssertFalse(
             MusicFastExecutor.matchesRequestedTrack(
