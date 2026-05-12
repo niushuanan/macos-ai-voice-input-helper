@@ -142,9 +142,13 @@ struct V4MusicControlTool: V4Tool {
 
     private actor LibraryOrderSessionCoordinator {
         private var task: Task<Void, Never>?
+        private var orderedTrackIDs: [String] = []
+        private var revision: String?
 
-        func replaceSession(orderedTrackIDs: [String]) {
+        func replaceSession(orderedTrackIDs: [String], revision: String?) {
             task?.cancel()
+            self.orderedTrackIDs = orderedTrackIDs
+            self.revision = revision
             guard !orderedTrackIDs.isEmpty else {
                 task = nil
                 return
@@ -157,6 +161,20 @@ struct V4MusicControlTool: V4Tool {
         func cancel() {
             task?.cancel()
             task = nil
+            orderedTrackIDs = []
+            revision = nil
+        }
+
+        func canReuseQueue(for targetID: String, revision expectedRevision: String?) -> Bool {
+            guard !orderedTrackIDs.isEmpty else {
+                return false
+            }
+            if let expectedRevision, revision != expectedRevision {
+                return false
+            }
+            return orderedTrackIDs.contains {
+                $0.caseInsensitiveCompare(targetID) == .orderedSame
+            }
         }
     }
 
@@ -1011,7 +1029,7 @@ struct V4MusicControlTool: V4Tool {
             return MagicianProcessResult(exitCode: 1, stdout: "", stderr: "library_empty")
         }
 
-        let playResult = await playTrackByPersistentID(targetTrack.persistentID)
+        let playResult = await playTrackByPersistentID(targetTrack.persistentID, snapshot: snapshot)
         guard let verifiedResult = await resolveAcceptedPlaybackResult(
             initialResult: playResult,
             targetID: targetTrack.persistentID,
@@ -1034,7 +1052,8 @@ struct V4MusicControlTool: V4Tool {
             tracks: snapshot.tracks
         ) {
             await libraryOrderSessionCoordinator.replaceSession(
-                orderedTrackIDs: rotatedTracks.map(\.persistentID)
+                orderedTrackIDs: rotatedTracks.map(\.persistentID),
+                revision: snapshot.revision
             )
         }
         return MagicianProcessResult(
@@ -1057,6 +1076,21 @@ struct V4MusicControlTool: V4Tool {
         let tracks = snapshot.tracks
         guard !tracks.isEmpty else {
             return nil
+        }
+
+        if let localTrack = preferredLocalTrack(
+            query: query,
+            rawCommand: rawCommand,
+            playIntent: playIntent,
+            tracks: tracks
+        ) {
+            return await playSelectedLibraryTrack(
+                localTrack,
+                query: query,
+                playIntent: playIntent,
+                snapshot: snapshot,
+                strategy: "library_local_exact"
+            )
         }
 
         var selectedTrack: LibraryTrackRecord?
@@ -1106,7 +1140,23 @@ struct V4MusicControlTool: V4Tool {
             return nil
         }
 
-        let playResult = await playTrackByPersistentID(selectedTrack.persistentID)
+        return await playSelectedLibraryTrack(
+            selectedTrack,
+            query: query,
+            playIntent: playIntent,
+            snapshot: snapshot,
+            strategy: strategy
+        )
+    }
+
+    private static func playSelectedLibraryTrack(
+        _ selectedTrack: LibraryTrackRecord,
+        query: String,
+        playIntent: PlayIntent,
+        snapshot: LibraryCatalogSnapshot,
+        strategy: String
+    ) async -> MagicianProcessResult {
+        let playResult = await playTrackByPersistentID(selectedTrack.persistentID, snapshot: snapshot)
         guard let verifiedResult = await resolveAcceptedPlaybackResult(
             initialResult: playResult,
             targetID: selectedTrack.persistentID,
@@ -1126,7 +1176,8 @@ struct V4MusicControlTool: V4Tool {
             tracks: snapshot.tracks
         ) {
             await libraryOrderSessionCoordinator.replaceSession(
-                orderedTrackIDs: rotatedTracks.map(\.persistentID)
+                orderedTrackIDs: rotatedTracks.map(\.persistentID),
+                revision: snapshot.revision
             )
         }
         let evidence = verifiedResult.stdout + "|strategy=\(strategy)|index_revision=\(snapshot.revision)"
@@ -1309,7 +1360,11 @@ struct V4MusicControlTool: V4Tool {
             return nil
         }
 
-        let playResult = await playTrackByPersistentID(pick.persistentID)
+        let playResult = await playTrackByPersistentID(pick.persistentID, snapshot: LibraryCatalogSnapshot(
+            generatedAt: Date(),
+            revision: "unknown",
+            tracks: tracks
+        ))
         guard let verifiedResult = await resolveAcceptedPlaybackResult(
             initialResult: playResult,
             targetID: pick.persistentID,
@@ -1323,7 +1378,8 @@ struct V4MusicControlTool: V4Tool {
             tracks: tracks
         ) {
             await libraryOrderSessionCoordinator.replaceSession(
-                orderedTrackIDs: rotatedTracks.map(\.persistentID)
+                orderedTrackIDs: rotatedTracks.map(\.persistentID),
+                revision: "unknown"
             )
         }
         let evidence = verifiedResult.stdout + "|strategy=library_rag"
@@ -1681,6 +1737,111 @@ struct V4MusicControlTool: V4Tool {
         return candidates.first?.track
     }
 
+    static func preferredLocalTrack(
+        query: String,
+        rawCommand: String,
+        playIntent: PlayIntent,
+        tracks: [LibraryTrackRecord]
+    ) -> LibraryTrackRecord? {
+        guard !tracks.isEmpty else {
+            return nil
+        }
+        switch playIntent {
+        case .song:
+            return exactLocalSongMatch(query: query, rawCommand: rawCommand, tracks: tracks)
+        case .album:
+            return exactLocalAlbumMatch(query: query, tracks: tracks)
+        case .auto, .mood:
+            return nil
+        }
+    }
+
+    private static func exactLocalSongMatch(
+        query: String,
+        rawCommand: String,
+        tracks: [LibraryTrackRecord]
+    ) -> LibraryTrackRecord? {
+        let normalizedQueries = magicianMusicSearchQueries(from: query)
+            .map(normalizedMusicMatchText)
+            .filter { !$0.isEmpty }
+        guard !normalizedQueries.isEmpty else {
+            return nil
+        }
+
+        let artistHints = songArtistHints(from: query, rawCommand: rawCommand)
+        let exactNameMatches = tracks.filter { track in
+            let normalizedName = normalizedMusicMatchText(track.name)
+            return normalizedQueries.contains(normalizedName)
+        }
+        guard !exactNameMatches.isEmpty else {
+            return nil
+        }
+        if exactNameMatches.count == 1 {
+            return exactNameMatches.first
+        }
+        if !artistHints.isEmpty {
+            let narrowed = exactNameMatches.filter { track in
+                let artist = normalizedMusicMatchText(track.artist)
+                return artistHints.contains(where: { hint in
+                    artist == hint || artist.contains(hint) || hint.contains(artist)
+                })
+            }
+            if narrowed.count == 1 {
+                return narrowed.first
+            }
+        }
+        return nil
+    }
+
+    private static func exactLocalAlbumMatch(
+        query: String,
+        tracks: [LibraryTrackRecord]
+    ) -> LibraryTrackRecord? {
+        let normalizedQueries = magicianMusicSearchQueries(from: query)
+            .map(normalizedMusicMatchText)
+            .filter { !$0.isEmpty }
+        guard !normalizedQueries.isEmpty else {
+            return nil
+        }
+
+        let albumTracks = tracks.filter { track in
+            let normalizedAlbum = normalizedMusicMatchText(track.album)
+            return normalizedQueries.contains(normalizedAlbum)
+        }
+        guard !albumTracks.isEmpty else {
+            return nil
+        }
+        let grouped = Dictionary(grouping: albumTracks) {
+            "\(normalizedMusicMatchText($0.artist))::\(normalizedMusicMatchText($0.album))"
+        }
+        guard grouped.count == 1 else {
+            return nil
+        }
+        return grouped.values.first?.first
+    }
+
+    private static func songArtistHints(from query: String, rawCommand: String) -> [String] {
+        let splitSource = query.contains("的") ? query : rawCommand
+        let leftHint = splitSource
+            .split(separator: "的", maxSplits: 1)
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let hints = [leftHint, query, rawCommand]
+            .compactMap { $0 }
+            .flatMap { magicianMusicSearchQueries(from: $0) }
+            .map(normalizedMusicMatchText)
+            .filter { !$0.isEmpty }
+        var deduped: [String] = []
+        var seen = Set<String>()
+        for hint in hints where hint.count >= 2 {
+            if seen.insert(hint).inserted {
+                deduped.append(hint)
+            }
+        }
+        return deduped
+    }
+
     static func selectDeterministicTrack(
         query: String,
         rawCommand: String,
@@ -1902,8 +2063,25 @@ struct V4MusicControlTool: V4Tool {
             .filter { $0.count >= 2 }
     }
 
-    private static func playTrackByPersistentID(_ persistentID: String) async -> MagicianProcessResult {
-        await runOsaScript(
+    private static func playTrackByPersistentID(
+        _ persistentID: String,
+        snapshot: LibraryCatalogSnapshot? = nil
+    ) async -> MagicianProcessResult {
+        if
+            let snapshot,
+            await libraryOrderSessionCoordinator.canReuseQueue(
+                for: persistentID,
+                revision: snapshot.revision
+            ),
+            let reused = await playTrackByPersistentIDInExistingQueue(
+                persistentID,
+                snapshot: snapshot
+            )
+        {
+            return reused
+        }
+
+        return await runOsaScript(
             lines: [
                 "on run argv",
                 "set targetPID to item 1 of argv",
@@ -1997,6 +2175,112 @@ struct V4MusicControlTool: V4Tool {
             arguments: [persistentID, Self.lockedQueuePlaylistName],
             timeoutSeconds: 90
         )
+    }
+
+    private static func playTrackByPersistentIDInExistingQueue(
+        _ persistentID: String,
+        snapshot: LibraryCatalogSnapshot
+    ) async -> MagicianProcessResult? {
+        guard
+            let targetTrack = snapshot.tracks.first(where: {
+                $0.persistentID.caseInsensitiveCompare(persistentID) == .orderedSame
+            }),
+            let targetIndex = snapshot.tracks.firstIndex(where: {
+                $0.persistentID.caseInsensitiveCompare(persistentID) == .orderedSame
+            })
+        else {
+            return nil
+        }
+
+        let result = await runOsaScript(
+            lines: [
+                "on run argv",
+                "set targetPID to item 1 of argv",
+                "set queueName to item 2 of argv",
+                "set expectedCountText to item 3 of argv",
+                "set targetName to item 4 of argv",
+                "set targetArtist to item 5 of argv",
+                "set targetAlbum to item 6 of argv",
+                "set targetIndex to (item 7 of argv) as integer",
+                "tell application \"Music\"",
+            ] + magicianEnsureApplicationReadyAppleScriptLines(activate: false)
+                + [
+                "try",
+                "set fixed indexing to true",
+                "end try"
+                ]
+                + libraryOrderedPlaybackSetupAppleScriptLines()
+                + [
+                "if not (exists user playlist queueName) then",
+                "return \"queue_reuse_unavailable|reason=playlist_missing\"",
+                "end if",
+                "set queuePlaylist to user playlist queueName",
+                "set queueTracks to tracks of queuePlaylist",
+                "set queueCount to count of queueTracks",
+                "if (expectedCountText as integer) is not queueCount then",
+                "return \"queue_reuse_unavailable|reason=count_mismatch|queue_count=\" & queueCount",
+                "end if",
+                "set queueTrack to missing value",
+                "repeat with candidateTrack in queueTracks",
+                "try",
+                "if ((persistent ID of candidateTrack) as string) is targetPID then",
+                "set queueTrack to candidateTrack",
+                "exit repeat",
+                "end if",
+                "end try",
+                "end repeat",
+                "if queueTrack is missing value then",
+                "return \"queue_reuse_unavailable|reason=target_missing|queue_count=\" & queueCount",
+                "end if",
+                "set finalState to \"unknown\"",
+                "set lastNowName to \"\"",
+                "set lastNowArtist to \"\"",
+                "set lastNowAlbum to \"\"",
+                "set lastNowID to \"\"",
+                "set lastMetadataMatch to false",
+                "play queueTrack",
+                "repeat with attemptIndex from 1 to 6",
+                "delay 0.25",
+                "set finalState to (player state as string)",
+                "try",
+                "set nowTrack to current track",
+                "set lastNowName to (name of nowTrack) as string",
+                "set lastNowArtist to (artist of nowTrack) as string",
+                "set lastNowAlbum to (album of nowTrack) as string",
+                "set lastNowID to (persistent ID of nowTrack) as string",
+                "set lastMetadataMatch to ((lastNowName is targetName) and (lastNowArtist is targetArtist))",
+                "if lastNowID is targetPID then",
+                "return \"track=\" & lastNowName & \"|artist=\" & lastNowArtist & \"|album=\" & lastNowAlbum & \"|state=\" & finalState & \"|queue_mode=library_order|queue_lock=playlist_rotation|queue_playlist=\" & queueName & \"|queue_count=\" & queueCount & \"|target_index=\" & targetIndex & \"|target_id=\" & targetPID & \"|resolved_id=\" & lastNowID & \"|target_id_match=true|metadata_match=true|queue_reused=true\"",
+                "end if",
+                "if lastMetadataMatch then",
+                "return \"track=\" & lastNowName & \"|artist=\" & lastNowArtist & \"|album=\" & lastNowAlbum & \"|state=\" & finalState & \"|queue_mode=library_order|queue_lock=playlist_rotation|queue_playlist=\" & queueName & \"|queue_count=\" & queueCount & \"|target_index=\" & targetIndex & \"|target_id=\" & targetPID & \"|resolved_id=\" & lastNowID & \"|target_id_match=false|metadata_match=true|resolved_id_substituted=true|queue_reused=true\"",
+                "end if",
+                "end try",
+                "end repeat",
+                "if lastNowName is not \"\" then",
+                "return \"track=\" & lastNowName & \"|artist=\" & lastNowArtist & \"|album=\" & lastNowAlbum & \"|state=\" & finalState & \"|queue_mode=library_order|queue_lock=playlist_rotation|queue_playlist=\" & queueName & \"|queue_count=\" & queueCount & \"|target_index=\" & targetIndex & \"|target_id=\" & targetPID & \"|resolved_id=\" & lastNowID & \"|play_mismatch=true|target_id_match=false|metadata_match=\" & (lastMetadataMatch as string) & \"|queue_reused=true\"",
+                "end if",
+                "return \"queue_reuse_unavailable|reason=playback_unconfirmed|queue_count=\" & queueCount",
+                "end tell",
+                "end run"
+            ],
+            arguments: [
+                persistentID,
+                Self.lockedQueuePlaylistName,
+                String(snapshot.tracks.count),
+                targetTrack.name,
+                targetTrack.artist,
+                targetTrack.album,
+                String(targetIndex + 1)
+            ],
+            timeoutSeconds: 25
+        )
+
+        let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard output.contains("queue_reused=true") else {
+            return nil
+        }
+        return result
     }
 
     private static func evidenceResolvedTrackIDMatchesTarget(output: String, targetID: String) -> Bool {
@@ -2177,7 +2461,7 @@ struct V4MusicControlTool: V4Tool {
         guard let snapshot = await loadLibraryCatalogSnapshot(), let firstTrack = snapshot.tracks.first else {
             return nil
         }
-        let playResult = await playTrackByPersistentID(firstTrack.persistentID)
+        let playResult = await playTrackByPersistentID(firstTrack.persistentID, snapshot: snapshot)
         guard let verifiedResult = await resolveAcceptedPlaybackResult(
             initialResult: playResult,
             targetID: firstTrack.persistentID,
@@ -2191,7 +2475,8 @@ struct V4MusicControlTool: V4Tool {
             tracks: snapshot.tracks
         ) {
             await libraryOrderSessionCoordinator.replaceSession(
-                orderedTrackIDs: rotatedTracks.map(\.persistentID)
+                orderedTrackIDs: rotatedTracks.map(\.persistentID),
+                revision: snapshot.revision
             )
         }
         return MagicianProcessResult(

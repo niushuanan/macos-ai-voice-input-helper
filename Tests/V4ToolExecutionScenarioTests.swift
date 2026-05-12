@@ -557,6 +557,84 @@ final class V4ToolExecutionScenarioTests: XCTestCase {
         XCTAssertEqual(picked?.persistentID, "id-2")
     }
 
+    func testMusicPreferredLocalTrackUsesUniqueExactSongMatchBeforeLLM() {
+        let tracks = [
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-1",
+                name: "跨时代",
+                artist: "周杰伦",
+                album: "跨时代"
+            ),
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-2",
+                name: "青花瓷",
+                artist: "周杰伦",
+                album: "我很忙"
+            )
+        ]
+
+        let picked = V4MusicControlTool.preferredLocalTrack(
+            query: "周杰伦的跨时代",
+            rawCommand: "播放周杰伦的跨时代",
+            playIntent: .song,
+            tracks: tracks
+        )
+
+        XCTAssertEqual(picked?.persistentID, "id-1")
+    }
+
+    func testMusicPreferredLocalTrackUsesArtistHintToBreakExactSongTie() {
+        let tracks = [
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-1",
+                name: "夜曲",
+                artist: "周杰伦",
+                album: "十一月的萧邦"
+            ),
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-2",
+                name: "夜曲",
+                artist: "其他歌手",
+                album: "翻唱集"
+            )
+        ]
+
+        let picked = V4MusicControlTool.preferredLocalTrack(
+            query: "周杰伦的夜曲",
+            rawCommand: "播放周杰伦的夜曲",
+            playIntent: .song,
+            tracks: tracks
+        )
+
+        XCTAssertEqual(picked?.persistentID, "id-1")
+    }
+
+    func testMusicPreferredLocalTrackReturnsNilWhenExactSongStillAmbiguous() {
+        let tracks = [
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-1",
+                name: "夜曲",
+                artist: "周杰伦",
+                album: "十一月的萧邦"
+            ),
+            V4MusicControlTool.LibraryTrackRecord(
+                persistentID: "id-2",
+                name: "夜曲",
+                artist: "周杰伦",
+                album: "演唱会 Live"
+            )
+        ]
+
+        let picked = V4MusicControlTool.preferredLocalTrack(
+            query: "夜曲",
+            rawCommand: "播放夜曲",
+            playIntent: .song,
+            tracks: tracks
+        )
+
+        XCTAssertNil(picked)
+    }
+
     func testMusicDeterministicTrackSelectionSkipsMoodFallback() {
         let tracks = [
             V4MusicControlTool.LibraryTrackRecord(
