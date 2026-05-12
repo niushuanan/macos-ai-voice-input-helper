@@ -27,6 +27,7 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertNil(store.latestTranscription)
         XCTAssertNil(store.latestFocusContext)
         XCTAssertNil(store.latestOutputResult)
+        XCTAssertNil(store.liveOutputPreview)
         XCTAssertNil(store.errorMessage)
     }
 
@@ -178,6 +179,31 @@ final class SessionStoreTests: XCTestCase {
 
         store.completeAction(statusMessage: "已完成")
         XCTAssertEqual(store.hudProgressHint, SessionHUDProgressHint.done, accuracy: 0.0001)
+    }
+
+    func testDictationPostProcessingPreviewKeepsDictationLaneAndClearsAfterCompletion() {
+        let store = SessionStore()
+        let transcription = makeTranscription()
+        let focusContext = makeFocusContext()
+
+        store.startDictation()
+        store.markTranscribing(audioSummary: "0.6 秒，44100Hz")
+        store.markDictationPostProcessing(
+            providerName: "DeepSeek",
+            modelName: "deepseek-v4-flash"
+        )
+        store.updateDictationPostProcessingPreview("这是正在生成的整理结果")
+
+        XCTAssertEqual(store.phase, .rewriting)
+        XCTAssertEqual(store.activeLane, .directDictation)
+        XCTAssertEqual(store.liveOutputPreview, "这是正在生成的整理结果")
+        XCTAssertTrue(store.statusMessage.contains("听写整理中"))
+
+        store.markInserting(transcription: transcription, focusContext: focusContext)
+        store.completeInsertion(outputResult: makeOutputResult())
+
+        XCTAssertEqual(store.phase, .idle)
+        XCTAssertNil(store.liveOutputPreview)
     }
 
     func testPermissionGateDependsOnMicrophoneForSessionStart() {

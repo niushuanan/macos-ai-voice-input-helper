@@ -45,6 +45,13 @@ struct MenuBarStatusView: View {
             return "PulseType：聆听中"
         }
         if sessionStore.phase.isBusyPhase {
+            if
+                sessionStore.phase == .rewriting,
+                let preview = sessionStore.liveOutputPreview,
+                !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            {
+                return "PulseType：听写整理中：\(preview)"
+            }
             return "PulseType：\(sessionStore.phase.title)"
         }
         return "PulseType：\(sessionStore.phase.title)"

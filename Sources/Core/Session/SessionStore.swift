@@ -34,6 +34,7 @@ final class SessionStore: ObservableObject {
     @Published private(set) var latestTranscription: SpeechTranscriptionResult?
     @Published private(set) var latestFocusContext: FocusedAppContext?
     @Published private(set) var latestOutputResult: TextOutputResult?
+    @Published private(set) var liveOutputPreview: String?
 
     private let allowedTransitions: [SessionPhase: Set<SessionPhase>] = [
         .idle: [.listening],
@@ -107,6 +108,33 @@ final class SessionStore: ObservableObject {
         latestTranscription = result
     }
 
+    func markDictationPostProcessing(
+        providerName: String,
+        modelName: String
+    ) {
+        activeLane = .directDictation
+        liveOutputPreview = nil
+        transition(
+            to: .rewriting,
+            statusMessage: "正在用 \(providerName) · \(modelName) 整理听写。",
+            hudProgressHint: SessionHUDProgressHint.textTransform
+        )
+    }
+
+    func updateDictationPostProcessingPreview(_ previewText: String) {
+        let normalized = previewText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return
+        }
+
+        liveOutputPreview = normalized
+        transition(
+            to: .rewriting,
+            statusMessage: "听写整理中：\(normalized)",
+            hudProgressHint: livePreviewProgressHint(for: normalized)
+        )
+    }
+
     func markInserting(
         transcription result: SpeechTranscriptionResult,
         focusContext: FocusedAppContext
@@ -127,6 +155,7 @@ final class SessionStore: ObservableObject {
         latestOutputResult = outputResult
         pendingClip = nil
         listeningLevel = 0
+        liveOutputPreview = nil
         let statusMessage: String
         switch outputResult.path {
         case .accessibilitySelectionReplacement:
@@ -205,6 +234,7 @@ final class SessionStore: ObservableObject {
     func completeInsertion() {
         pendingClip = nil
         listeningLevel = 0
+        liveOutputPreview = nil
         transition(
             to: .idle,
             statusMessage: "已完成，可开始下一次语音会话。",
@@ -215,6 +245,7 @@ final class SessionStore: ObservableObject {
     func completeAction(statusMessage: String) {
         pendingClip = nil
         listeningLevel = 0
+        liveOutputPreview = nil
         transition(
             to: .idle,
             statusMessage: statusMessage,
@@ -233,6 +264,7 @@ final class SessionStore: ObservableObject {
         listeningLevel = 0
         pendingClip = nil
         latestOutputResult = nil
+        liveOutputPreview = nil
         errorMessage = message
         phase = .error
         statusMessage = message
@@ -267,6 +299,7 @@ final class SessionStore: ObservableObject {
         latestTranscription = nil
         latestFocusContext = nil
         latestOutputResult = nil
+        liveOutputPreview = nil
     }
 
     private func transition(
@@ -282,5 +315,11 @@ final class SessionStore: ObservableObject {
         phase = nextPhase
         self.statusMessage = statusMessage
         self.hudProgressHint = max(0, min(1, hudProgressHint))
+    }
+
+    private func livePreviewProgressHint(for previewText: String) -> Double {
+        let normalizedCount = min(previewText.count, 220)
+        let ratio = Double(normalizedCount) / 220.0
+        return min(0.82, SessionHUDProgressHint.textTransform + (ratio * 0.16))
     }
 }

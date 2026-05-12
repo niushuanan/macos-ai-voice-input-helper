@@ -3174,16 +3174,38 @@ final class InteractionCoordinator {
         }
 
         do {
-            let result = try await dictationPostProcessor.process(
-                request: DictationPostProcessRequest(
-                    transcript: text,
-                    focusContext: focusContext,
-                    appPrompt: normalizedAppPrompt.isEmpty ? nil : normalizedAppPrompt,
-                    userSystemPrompt: userSystemPrompt
-                ),
-                configuration: providerSettingsStore.rewriteConfiguration,
-                apiKey: apiKey
+            let streamRequest = DictationPostProcessRequest(
+                transcript: text,
+                focusContext: focusContext,
+                appPrompt: normalizedAppPrompt.isEmpty ? nil : normalizedAppPrompt,
+                userSystemPrompt: userSystemPrompt
             )
+            let rewriteConfiguration = providerSettingsStore.rewriteConfiguration
+            sessionStore.markDictationPostProcessing(
+                providerName: rewriteConfiguration.providerName,
+                modelName: rewriteConfiguration.modelName
+            )
+
+            let result: DictationPostProcessResult
+            if let streamingProcessor = dictationPostProcessor as? any StreamingDictationPostProcessor {
+                result = try await streamingProcessor.processStreaming(
+                    request: streamRequest,
+                    configuration: rewriteConfiguration,
+                    apiKey: apiKey,
+                    onPartialText: { [weak self] partialText in
+                        await MainActor.run {
+                            self?.sessionStore.updateDictationPostProcessingPreview(partialText)
+                        }
+                    }
+                )
+            } else {
+                result = try await dictationPostProcessor.process(
+                    request: streamRequest,
+                    configuration: rewriteConfiguration,
+                    apiKey: apiKey
+                )
+            }
+
             var applied: [SkillRuleID] = []
             if !userSystemPrompt.isEmpty {
                 applied.append(.systemPrompt)

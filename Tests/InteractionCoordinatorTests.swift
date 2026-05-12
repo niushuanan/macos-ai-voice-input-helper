@@ -1555,6 +1555,37 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "模型已处理")
     }
 
+    func testDictationStreamingPreviewAppearsBeforeFinalWriteback() async throws {
+        let postProcessor = StreamingDictationPostProcessorStub(
+            partials: ["第一段结果", "第一段结果，第二段结果"],
+            finalText: "最终整理文本"
+        )
+        let fixture = try makeFixture(
+            dictationPostProcessor: postProcessor,
+            transcriptionText: "abcdefghijklmnop"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.skillRuleStore.setEnabled(true, for: .systemPrompt)
+        fixture.skillRuleStore.setParameter("默认更简洁，保留重点。", for: .systemPrompt)
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitUntil(timeoutNanoseconds: 1_500_000_000) {
+            fixture.sessionStore.phase == .rewriting
+                && fixture.sessionStore.liveOutputPreview == "第一段结果，第二段结果"
+        }
+
+        XCTAssertEqual(fixture.sessionStore.phase, .rewriting)
+        XCTAssertEqual(fixture.sessionStore.liveOutputPreview, "第一段结果，第二段结果")
+        XCTAssertNil(fixture.textOutputCoordinator.lastRequest)
+
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "最终整理文本")
+        XCTAssertNil(fixture.sessionStore.liveOutputPreview)
+    }
+
     func testSavedDictionaryIsInjectedIntoNextASRRequestImmediately() async throws {
         let fixture = try makeFixture(transcriptionText: "词典测试")
         defer { fixture.cleanUp() }
@@ -1737,6 +1768,19 @@ final class InteractionCoordinatorTests: XCTestCase {
                 return
             }
             try? await Task.sleep(nanoseconds: 30_000_000)
+        }
+    }
+
+    private func waitUntil(
+        timeoutNanoseconds: UInt64 = 1_000_000_000,
+        condition: @escaping @MainActor () -> Bool
+    ) async {
+        let start = DispatchTime.now().uptimeNanoseconds
+        while DispatchTime.now().uptimeNanoseconds - start < timeoutNanoseconds {
+            if await condition() {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000)
         }
     }
 
@@ -2111,6 +2155,52 @@ private final class CapturingDictationPostProcessor: DictationPostProcessor {
         lastRequest = request
         return DictationPostProcessResult(
             outputText: outputText,
+            providerName: "Fake Text",
+            modelName: "fake-model"
+        )
+    }
+}
+
+private final class StreamingDictationPostProcessorStub: StreamingDictationPostProcessor {
+    private let partials: [String]
+    private let finalText: String
+
+    init(partials: [String], finalText: String) {
+        self.partials = partials
+        self.finalText = finalText
+    }
+
+    func process(
+        request: DictationPostProcessRequest,
+        configuration: TextGenerationProviderConfiguration,
+        apiKey: String
+    ) async throws -> DictationPostProcessResult {
+        _ = request
+        _ = configuration
+        _ = apiKey
+        return DictationPostProcessResult(
+            outputText: finalText,
+            providerName: "Fake Text",
+            modelName: "fake-model"
+        )
+    }
+
+    func processStreaming(
+        request: DictationPostProcessRequest,
+        configuration: TextGenerationProviderConfiguration,
+        apiKey: String,
+        onPartialText: @escaping @Sendable (String) async -> Void
+    ) async throws -> DictationPostProcessResult {
+        _ = request
+        _ = configuration
+        _ = apiKey
+        for partial in partials {
+            try await Task.sleep(nanoseconds: 25_000_000)
+            await onPartialText(partial)
+        }
+        try await Task.sleep(nanoseconds: 25_000_000)
+        return DictationPostProcessResult(
+            outputText: finalText,
             providerName: "Fake Text",
             modelName: "fake-model"
         )

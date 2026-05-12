@@ -180,20 +180,48 @@ enum StatusPulseHUDTitleResolver {
         message: String,
         defaultTitle: String
     ) -> String {
-        guard lane == .selectionRewrite else {
+        switch lane {
+        case .directDictation:
+            switch phase {
+            case .rewriting:
+                return dictationRewritingTitle(from: message, fallback: defaultTitle)
+            case .transcribing, .inserting, .idle, .listening, .cancelled, .error:
+                return defaultTitle
+            }
+        case .selectionRewrite:
+            switch phase {
+            case .transcribing:
+                return "思考中"
+            case .rewriting:
+                return magicianRewritingTitle(from: message, fallback: defaultTitle)
+            case .inserting:
+                return "写入中"
+            case .idle, .listening, .cancelled, .error:
+                return defaultTitle
+            }
+        case .brainstormDiscussion:
             return defaultTitle
+        }
+    }
+
+    private static func dictationRewritingTitle(from message: String, fallback: String) -> String {
+        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "听写整理中："
+        guard normalized.hasPrefix(prefix) else {
+            return fallback == "魔术先生执行" ? "整理中" : fallback
         }
 
-        switch phase {
-        case .transcribing:
-            return "思考中"
-        case .rewriting:
-            return magicianRewritingTitle(from: message, fallback: defaultTitle)
-        case .inserting:
-            return "写入中"
-        case .idle, .listening, .cancelled, .error:
-            return defaultTitle
+        let preview = normalized
+            .dropFirst(prefix.count)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !preview.isEmpty else {
+            return "整理中"
         }
+
+        if preview.count <= 18 {
+            return preview
+        }
+        return "\(preview.prefix(18))..."
     }
 
     private static func magicianRewritingTitle(from message: String, fallback: String) -> String {

@@ -61,6 +61,32 @@ PulseType 是一个 macOS 常驻语音助手，不是输入法本体。它的目
 
 ## 4. 最近改了什么
 
+### 2026-05-12 DeepSeek 后处理流式输出第一版
+
+- 本次任务：为普通听写增加 “ASR 完成后 -> DeepSeek 文本整理流式预览 -> 完整生成后一次性写入当前 app” 的第一版能力，并结合 macOS 的实际写回边界控制实现范围。
+- 改了哪些文件：
+  - `Sources/Core/Rewrite/RewriteProvider.swift`
+  - `Sources/Core/Rewrite/OpenAITextGenerationProvider.swift`
+  - `Sources/Core/Session/SessionStore.swift`
+  - `Sources/Core/Interaction/InteractionCoordinator.swift`
+  - `Sources/UI/StatusPulseHUDController.swift`
+  - `Sources/UI/MenuBarStatusView.swift`
+  - `Tests/SessionStoreTests.swift`
+  - `Tests/InteractionCoordinatorTests.swift`
+  - `Tests/OpenAIProviderAdapterTests.swift`
+- 改了什么：
+  - 给文本生成层新增 streaming 协议，`OpenAITextGenerationProvider` 现在可以通过 SSE 读取增量文本，并兼容 DeepSeek V4 的 `stream: true` 返回。
+  - 给 `LLMDictationPostProcessor` 新增流式处理入口，直接把 DeepSeek 的增量正文往上抛，而不是只等最终完整文本。
+  - `SessionStore` 新增 `liveOutputPreview` 和普通听写的整理中状态；HUD 与菜单栏现在可以在整理阶段展示实时片段。
+  - `InteractionCoordinator` 在普通听写命中模型整理时，会先进入整理阶段，边接流式文本边更新 UI，等最终文本完成后仍然走原来的单次写入链路。
+  - 新增测试覆盖：SSE 解析、听写整理流式预览、会话状态清理。
+- 为什么这样改：
+  - DeepSeek 官方接口已经支持 SSE 流式输出，但 macOS 跨 app 写入依赖 Accessibility 与粘贴兜底，不适合把每个增量 token 直接写进外部编辑器。
+  - 第一版把流式能力限制在 PulseType 自己的 HUD / 菜单栏预览里，能明显改善等待体感，同时避免外部 app 光标抖动、误覆盖、选区错位这些系统级风险。
+- 影响了哪些模块：
+  - 影响文本模型 provider 抽象、普通听写后处理链路、会话状态机、HUD 标题解析、菜单栏提示与对应测试。
+  - 目前只作用于普通听写的文本整理链路，不影响魔术先生、讨论整理，也不改变最终写回仍为一次性写入的主策略。
+
 ### 2026-05-12 DeepSeek V4 切换
 
 - 本次任务：把默认文本模型与 CLI 文本模型从 `deepseek-chat` 切到 `deepseek-v4-flash`，并核对 DeepSeek 官方关于 V4 与流式输出的接口变化。

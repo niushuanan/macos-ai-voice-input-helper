@@ -115,6 +115,14 @@ struct TextGenerationResult: Equatable {
     let outputText: String
 }
 
+protocol StreamingTextGenerationProvider: TextGenerationProvider {
+    func generateTextStream(
+        request: TextGenerationRequest,
+        configuration: TextGenerationProviderConfiguration,
+        apiKey: String
+    ) async throws -> AsyncThrowingStream<String, Error>
+}
+
 protocol TextGenerationProvider: Sendable {
     var supportedProviderTypes: [ProviderType] { get }
     func generateText(
@@ -138,6 +146,15 @@ protocol DictationPostProcessor {
         request: DictationPostProcessRequest,
         configuration: TextGenerationProviderConfiguration,
         apiKey: String
+    ) async throws -> DictationPostProcessResult
+}
+
+protocol StreamingDictationPostProcessor: DictationPostProcessor {
+    func processStreaming(
+        request: DictationPostProcessRequest,
+        configuration: TextGenerationProviderConfiguration,
+        apiKey: String,
+        onPartialText: @escaping @Sendable (String) async -> Void
     ) async throws -> DictationPostProcessResult
 }
 
@@ -445,6 +462,70 @@ struct LLMDictationPostProcessor: DictationPostProcessor {
             outputText: output,
             providerName: generation.providerName,
             modelName: generation.modelName
+        )
+    }
+}
+
+extension LLMDictationPostProcessor: StreamingDictationPostProcessor {
+    func processStreaming(
+        request: DictationPostProcessRequest,
+        configuration: TextGenerationProviderConfiguration,
+        apiKey: String,
+        onPartialText: @escaping @Sendable (String) async -> Void
+    ) async throws -> DictationPostProcessResult {
+        let normalizedTranscript = request.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTranscript.isEmpty else {
+            throw RewriteProviderError.invalidGeneratedText
+        }
+
+        let template = promptBuilder.build(
+            request: DictationPostProcessRequest(
+                transcript: normalizedTranscript,
+                focusContext: request.focusContext,
+                appPrompt: request.appPrompt,
+                userSystemPrompt: request.userSystemPrompt
+            )
+        )
+
+        let dynamicTokenBudget = max(120, min(420, normalizedTranscript.count * 2))
+
+        guard let streamingProvider = generationProvider as? any StreamingTextGenerationProvider else {
+            return try await process(
+                request: request,
+                configuration: configuration,
+                apiKey: apiKey
+            )
+        }
+
+        let stream = try await streamingProvider.generateTextStream(
+            request: TextGenerationRequest(
+                systemPrompt: template.systemPrompt,
+                userPrompt: template.userPrompt,
+                temperature: 0.2,
+                maxOutputTokens: dynamicTokenBudget
+            ),
+            configuration: configuration,
+            apiKey: apiKey
+        )
+
+        var latestOutput = ""
+        for try await partialText in stream {
+            let normalized = partialText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty else {
+                continue
+            }
+            latestOutput = normalized
+            await onPartialText(normalized)
+        }
+
+        guard !latestOutput.isEmpty else {
+            throw RewriteProviderError.invalidGeneratedText
+        }
+
+        return DictationPostProcessResult(
+            outputText: latestOutput,
+            providerName: configuration.providerName,
+            modelName: configuration.modelName
         )
     }
 }
