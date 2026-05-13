@@ -61,6 +61,25 @@ PulseType 是一个 macOS 常驻语音助手，不是输入法本体。它的目
 
 ## 4. 最近改了什么
 
+### 2026-05-13 11:20 - 音乐快路径切回 17cb19c 验证体感与误报
+
+- 本次任务：在回退到 `1ce667b` 后，真实 trace 仍显示“播放周杰伦的稻香”耗时回到 18 秒级，并重新出现 `请确认当前歌曲是否符合你的指令`，因此改为切回 `17cb19c`，验证“结构化选歌与误报修正”这一版是否更接近之前 7 秒级体感。
+- 改了哪些文件：
+  - `Sources/Core/V4/ToolKernel/Tools/V4MusicControlTool.swift`
+  - `Sources/Core/Magician/MagicianToolSupport.swift`
+  - `Tests/V4ToolExecutionScenarioTests.swift`
+  - `Tests/MusicFastExecutorTests.swift`
+  - `PROJECT_CONTEXT.md`
+- 改了什么：
+  - 把音乐快路径从 `1ce667b` 切回 `17cb19c` 的实现，恢复结构化选歌决策、`artist + track` 组合查询的高置信度匹配，以及更细的播放证据字段。
+  - 保持不引入 `207c5bf` 那轮显式点歌并发修复，只先验证 `17cb19c` 这一版在速度和误报上的平衡点。
+- 为什么这样改：
+  - 新 trace 已经证明，`1ce667b` 并不是“之前很快”的正确回退点；它不仅慢，而且把 `周杰伦 稻香` 又打回了 `exact_match=false` 和 `evidence_confidence=low`。
+  - 目前最值得验证的版本是 `17cb19c`，因为它曾在真实使用里把总耗时压到 7 秒级，同时修掉了“播对了还请确认”的问题。
+- 影响了哪些模块：
+  - 影响 `music_fast` 的选歌方式、证据拼装、查询匹配判定和对应测试。
+  - 不影响普通听写、讨论整理、非音乐工具，也不触碰工作区里与本次切换无关的用户改动。
+
 ### 2026-05-13 音乐快路径回退到 1ce667b 验证速度
 
 - 本次任务：用户反馈魔术先生播放音乐“整体能播，但体感又变慢了”，要求先回退到 `1ce667b` 这一版音乐快路径，验证是否能找回之前明显更快的播放体感。
