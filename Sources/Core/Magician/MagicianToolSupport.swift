@@ -274,14 +274,6 @@ func magicianMusicSearchQueries(from rawQuery: String) -> [String] {
 }
 
 func magicianMusicEvidenceMatchesQuery(output: String, query: String) -> Bool {
-    let normalizedTrack = normalizedMusicMatchText(
-        magicianEvidenceField("track", from: output)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    )
-    let normalizedArtist = normalizedMusicMatchText(
-        magicianEvidenceField("artist", from: output)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    )
     let payloadParts = [
         magicianEvidenceField("track", from: output),
         magicianEvidenceField("artist", from: output),
@@ -300,21 +292,8 @@ func magicianMusicEvidenceMatchesQuery(output: String, query: String) -> Bool {
 
     if let primarySongQuery = magicianPrimarySongQuery(from: query) {
         let normalizedPrimarySong = normalizedMusicMatchText(primarySongQuery)
-        if !normalizedPrimarySong.isEmpty {
-            let songMatched = normalizedTrack.contains(normalizedPrimarySong)
-                || normalizedPayload.contains(normalizedPrimarySong)
-            if !songMatched {
-                return false
-            }
-            let artistHints = magicianMusicArtistHints(from: query, excluding: normalizedPrimarySong)
-            if artistHints.isEmpty {
-                return true
-            }
-            if artistHints.contains(where: {
-                normalizedArtist == $0 || normalizedArtist.contains($0) || $0.contains(normalizedArtist)
-            }) {
-                return true
-            }
+        if !normalizedPrimarySong.isEmpty, !normalizedPayload.contains(normalizedPrimarySong) {
+            return false
         }
     }
 
@@ -399,13 +378,6 @@ private func magicianPrimarySongQuery(from query: String) -> String? {
         let right = String(compact[range.upperBound...]).trimmingCharacters(in: punctuationToTrim)
         return right.isEmpty ? nil : right
     }
-    let spaceSeparated = compact
-        .components(separatedBy: CharacterSet.whitespaces)
-        .map { $0.trimmingCharacters(in: punctuationToTrim) }
-        .filter { !$0.isEmpty }
-    if spaceSeparated.count > 1, let last = spaceSeparated.last, last.count >= 2 {
-        return last
-    }
     return compact
 }
 
@@ -435,52 +407,4 @@ private func normalizedMusicCandidateTerms(from value: String) -> [String] {
         .split(separator: "的")
         .map(String.init)
         .filter { $0.count >= 2 }
-}
-
-private func magicianMusicArtistHints(from query: String, excluding normalizedPrimarySong: String) -> [String] {
-    let punctuationToTrim = CharacterSet(charactersIn: " \t\r\n。．.!！?？,，、:：;；'\"‘’“”（）()《》〈〉[]【】")
-    let compact = query
-        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        .trimmingCharacters(in: punctuationToTrim)
-    guard !compact.isEmpty else {
-        return []
-    }
-
-    var hints: [String] = []
-    func appendHint(_ value: String) {
-        let normalized = normalizedMusicMatchText(value)
-        guard
-            normalized.count >= 2,
-            !normalized.isEmpty,
-            normalized != normalizedPrimarySong,
-            !normalized.contains(normalizedPrimarySong),
-            !normalizedPrimarySong.contains(normalized)
-        else {
-            return
-        }
-        guard !hints.contains(normalized) else {
-            return
-        }
-        hints.append(normalized)
-    }
-
-    if let range = compact.range(of: "的"), !range.isEmpty {
-        appendHint(String(compact[..<range.lowerBound]))
-    }
-
-    let spaceSeparated = compact
-        .components(separatedBy: CharacterSet.whitespaces)
-        .map { $0.trimmingCharacters(in: punctuationToTrim) }
-        .filter { !$0.isEmpty }
-    if spaceSeparated.count > 1 {
-        for token in spaceSeparated.dropLast() {
-            appendHint(token)
-        }
-    }
-
-    for candidate in magicianMusicSearchQueries(from: compact) {
-        appendHint(candidate)
-    }
-
-    return hints
 }

@@ -57,24 +57,6 @@ struct V4MusicControlTool: V4Tool {
         let reason: String?
     }
 
-    private struct LibraryTrackSelectionDecision: Equatable, Sendable {
-        let track: LibraryTrackRecord
-        let strategy: String
-        let confidence: Double?
-        let reason: String?
-
-        var source: String {
-            switch strategy {
-            case "library_local_exact", "library_local_index_fallback":
-                return "local"
-            case "library_llm_index_only":
-                return "llm"
-            default:
-                return "unknown"
-            }
-        }
-    }
-
     private actor LibraryCatalogCache {
         private var tracks: [LibraryTrackRecord] = []
         private var updatedAt: Date?
@@ -227,27 +209,6 @@ struct V4MusicControlTool: V4Tool {
     private static let libraryIndexFileName = "music-library-index-v1.json"
     private static let lockedQueuePlaylistName = "PulseType Library Order Queue"
     private static let libraryOrderSessionCoordinator = LibraryOrderSessionCoordinator()
-
-    static func prepareForFreshExplicitPlay() async {
-        await libraryOrderSessionCoordinator.cancel()
-    }
-
-    static func debugQueueSessionContainsTrack(
-        _ persistentID: String,
-        revision: String?
-    ) async -> Bool {
-        await libraryOrderSessionCoordinator.canReuseQueue(for: persistentID, revision: revision)
-    }
-
-    static func debugReplaceQueueSession(
-        orderedTrackIDs: [String],
-        revision: String?
-    ) async {
-        await libraryOrderSessionCoordinator.replaceSession(
-            orderedTrackIDs: orderedTrackIDs,
-            revision: revision
-        )
-    }
 
     init(
         modelSlotManager: V4ModelSlotManager? = nil,
@@ -992,7 +953,6 @@ struct V4MusicControlTool: V4Tool {
 
         case .play:
             if let query = command.query, !query.isEmpty {
-                await prepareForFreshExplicitPlay()
                 if let llmResult = await runLibraryIndexSelectionAndPlay(
                     query: query,
                     rawCommand: command.rawCommand,
@@ -1118,32 +1078,84 @@ struct V4MusicControlTool: V4Tool {
             return nil
         }
 
-        guard let decision = await resolveLibraryTrackSelection(
+        if let localTrack = preferredLocalTrack(
             query: query,
             rawCommand: rawCommand,
             playIntent: playIntent,
-            tracks: tracks,
-            modelSlotManager: modelSlotManager,
-            generationProvider: generationProvider
-        ) else {
+            tracks: tracks
+        ) {
+            return await playSelectedLibraryTrack(
+                localTrack,
+                query: query,
+                playIntent: playIntent,
+                snapshot: snapshot,
+                strategy: "library_local_exact"
+            )
+        }
+
+        var selectedTrack: LibraryTrackRecord?
+        var strategy = "library_local_index_fallback"
+
+        if
+            let configuration = await semanticModelConfiguration(modelSlotManager: modelSlotManager),
+            let apiKey = await semanticModelAPIKey(modelSlotManager: modelSlotManager),
+            !apiKey.isEmpty || !configuration.providerType.requiresAPIKey
+        {
+            if tracks.count <= 280 {
+                selectedTrack = await selectTrackFromLibraryBlock(
+                    query: query,
+                    rawCommand: rawCommand,
+                    playIntent: playIntent,
+                    tracks: tracks,
+                    configuration: configuration,
+                    apiKey: apiKey,
+                    generationProvider: generationProvider
+                )
+            } else {
+                selectedTrack = await selectTrackFromFullLibraryBatches(
+                    query: query,
+                    rawCommand: rawCommand,
+                    playIntent: playIntent,
+                    tracks: tracks,
+                    configuration: configuration,
+                    apiKey: apiKey,
+                    generationProvider: generationProvider
+                )
+            }
+            if selectedTrack != nil {
+                strategy = "library_llm_index_only"
+            }
+        }
+
+        if selectedTrack == nil {
+            selectedTrack = selectDeterministicTrack(
+                query: query,
+                rawCommand: rawCommand,
+                playIntent: playIntent,
+                tracks: tracks
+            )
+        }
+
+        guard let selectedTrack else {
             return nil
         }
 
         return await playSelectedLibraryTrack(
-            decision,
+            selectedTrack,
             query: query,
             playIntent: playIntent,
-            snapshot: snapshot
+            snapshot: snapshot,
+            strategy: strategy
         )
     }
 
     private static func playSelectedLibraryTrack(
-        _ decision: LibraryTrackSelectionDecision,
+        _ selectedTrack: LibraryTrackRecord,
         query: String,
         playIntent: PlayIntent,
-        snapshot: LibraryCatalogSnapshot
+        snapshot: LibraryCatalogSnapshot,
+        strategy: String
     ) async -> MagicianProcessResult {
-        let selectedTrack = decision.track
         let playResult = await playTrackByPersistentID(selectedTrack.persistentID, snapshot: snapshot)
         guard let verifiedResult = await resolveAcceptedPlaybackResult(
             initialResult: playResult,
@@ -1168,92 +1180,11 @@ struct V4MusicControlTool: V4Tool {
                 revision: snapshot.revision
             )
         }
-        var evidence = verifiedResult.stdout
-            + "|strategy=\(decision.strategy)"
-            + "|selection_source=\(decision.source)"
-            + "|index_revision=\(snapshot.revision)"
-        if let confidence = decision.confidence {
-            evidence += "|selection_confidence=\(String(format: "%.2f", confidence))"
-        }
-        if let reason = decision.reason?
-            .replacingOccurrences(of: "|", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !reason.isEmpty
-        {
-            evidence += "|selection_reason=\(reason)"
-        }
+        let evidence = verifiedResult.stdout + "|strategy=\(strategy)|index_revision=\(snapshot.revision)"
         return MagicianProcessResult(exitCode: 0, stdout: evidence, stderr: verifiedResult.stderr)
     }
 
-    private static func resolveLibraryTrackSelection(
-        query: String,
-        rawCommand: String,
-        playIntent: PlayIntent,
-        tracks: [LibraryTrackRecord],
-        modelSlotManager: V4ModelSlotManager?,
-        generationProvider: any TextGenerationProvider
-    ) async -> LibraryTrackSelectionDecision? {
-        if let localTrack = preferredLocalTrack(
-            query: query,
-            rawCommand: rawCommand,
-            playIntent: playIntent,
-            tracks: tracks
-        ) {
-            return LibraryTrackSelectionDecision(
-                track: localTrack,
-                strategy: "library_local_exact",
-                confidence: 1,
-                reason: "local-exact"
-            )
-        }
-
-        if
-            let configuration = await semanticModelConfiguration(modelSlotManager: modelSlotManager),
-            let apiKey = await semanticModelAPIKey(modelSlotManager: modelSlotManager),
-            !apiKey.isEmpty || !configuration.providerType.requiresAPIKey
-        {
-            if tracks.count <= 280 {
-                if let decision = await selectTrackDecisionFromLibraryBlock(
-                    query: query,
-                    rawCommand: rawCommand,
-                    playIntent: playIntent,
-                    tracks: tracks,
-                    configuration: configuration,
-                    apiKey: apiKey,
-                    generationProvider: generationProvider
-                ) {
-                    return decision
-                }
-            } else if let decision = await selectTrackDecisionFromFullLibraryBatches(
-                query: query,
-                rawCommand: rawCommand,
-                playIntent: playIntent,
-                tracks: tracks,
-                configuration: configuration,
-                apiKey: apiKey,
-                generationProvider: generationProvider
-            ) {
-                return decision
-            }
-        }
-
-        guard let fallbackTrack = selectDeterministicTrack(
-            query: query,
-            rawCommand: rawCommand,
-            playIntent: playIntent,
-            tracks: tracks
-        ) else {
-            return nil
-        }
-        return LibraryTrackSelectionDecision(
-            track: fallbackTrack,
-            strategy: "library_local_index_fallback",
-            confidence: nil,
-            reason: "local-fallback"
-        )
-    }
-
-    private static func selectTrackDecisionFromFullLibraryBatches(
+    private static func selectTrackFromFullLibraryBatches(
         query: String,
         rawCommand: String,
         playIntent: PlayIntent,
@@ -1261,14 +1192,14 @@ struct V4MusicControlTool: V4Tool {
         configuration: TextGenerationProviderConfiguration,
         apiKey: String,
         generationProvider: any TextGenerationProvider
-    ) async -> LibraryTrackSelectionDecision? {
+    ) async -> LibraryTrackRecord? {
         let batchSize = 240
-        var topCandidates: [LibraryTrackSelectionDecision] = []
+        var topCandidates: [LibraryTrackCandidate] = []
         var index = 0
         while index < tracks.count {
             let end = min(index + batchSize, tracks.count)
             let block = Array(tracks[index..<end])
-            if let decision = await selectTrackDecisionFromLibraryBlock(
+            if let picked = await selectTrackFromLibraryBlock(
                 query: query,
                 rawCommand: rawCommand,
                 playIntent: playIntent,
@@ -1277,23 +1208,14 @@ struct V4MusicControlTool: V4Tool {
                 apiKey: apiKey,
                 generationProvider: generationProvider
             ) {
-                topCandidates.append(decision)
+                topCandidates.append(LibraryTrackCandidate(track: picked, score: 1_000 - index))
             }
             index = end
         }
 
-        let rankedCandidates = topCandidates.sorted { lhs, rhs in
-            let lhsConfidence = lhs.confidence ?? 0
-            let rhsConfidence = rhs.confidence ?? 0
-            if lhsConfidence != rhsConfidence {
-                return lhsConfidence > rhsConfidence
-            }
-            return lhs.track.name < rhs.track.name
-        }
-
         var deduplicated: [LibraryTrackRecord] = []
         var seen = Set<String>()
-        for candidate in rankedCandidates {
+        for candidate in topCandidates {
             if seen.insert(candidate.track.persistentID).inserted {
                 deduplicated.append(candidate.track)
             }
@@ -1302,14 +1224,9 @@ struct V4MusicControlTool: V4Tool {
             return nil
         }
         if deduplicated.count == 1 {
-            return LibraryTrackSelectionDecision(
-                track: deduplicated[0],
-                strategy: "library_llm_index_only",
-                confidence: rankedCandidates.first?.confidence,
-                reason: rankedCandidates.first?.reason
-            )
+            return deduplicated.first
         }
-        return await selectTrackDecisionFromLibraryBlock(
+        return await selectTrackFromLibraryBlock(
             query: query,
             rawCommand: rawCommand,
             playIntent: playIntent,
@@ -1317,15 +1234,10 @@ struct V4MusicControlTool: V4Tool {
             configuration: configuration,
             apiKey: apiKey,
             generationProvider: generationProvider
-        ) ?? LibraryTrackSelectionDecision(
-            track: deduplicated[0],
-            strategy: "library_local_index_fallback",
-            confidence: nil,
-            reason: "batch-dedup-fallback"
-        )
+        ) ?? deduplicated.first
     }
 
-    private static func selectTrackDecisionFromLibraryBlock(
+    private static func selectTrackFromLibraryBlock(
         query: String,
         rawCommand: String,
         playIntent: PlayIntent,
@@ -1333,7 +1245,7 @@ struct V4MusicControlTool: V4Tool {
         configuration: TextGenerationProviderConfiguration,
         apiKey: String,
         generationProvider: any TextGenerationProvider
-    ) async -> LibraryTrackSelectionDecision? {
+    ) async -> LibraryTrackRecord? {
         guard !tracks.isEmpty else {
             return nil
         }
@@ -1348,7 +1260,7 @@ struct V4MusicControlTool: V4Tool {
         1) 必须只从给定列表里选择一首最匹配的歌。
         2) 严禁输出列表中不存在的 id。
         3) 点名歌曲时优先按歌名匹配，歌手/专辑仅用于消歧。
-        4) 你只负责选歌，不负责执行播放，也不要生成 AppleScript。
+        4) 输出必须是可执行指令，只能返回列表中的 persistentID。
         5) 只输出 JSON，不要输出解释文字。
         JSON:
         {"persistentID":"列表里的id","confidence":0~1,"reason":"一句话"}
@@ -1381,15 +1293,7 @@ struct V4MusicControlTool: V4Tool {
             else {
                 return nil
             }
-            guard let track = tracks.first(where: { $0.persistentID == id }) else {
-                return nil
-            }
-            return LibraryTrackSelectionDecision(
-                track: track,
-                strategy: "library_llm_index_only",
-                confidence: payload.confidence,
-                reason: payload.reason
-            )
+            return tracks.first(where: { $0.persistentID == id })
         } catch {
             return nil
         }

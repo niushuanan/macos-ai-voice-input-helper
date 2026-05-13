@@ -61,6 +61,26 @@ PulseType 是一个 macOS 常驻语音助手，不是输入法本体。它的目
 
 ## 4. 最近改了什么
 
+### 2026-05-13 音乐快路径回退到 1ce667b 验证速度
+
+- 本次任务：用户反馈魔术先生播放音乐“整体能播，但体感又变慢了”，要求先回退到 `1ce667b` 这一版音乐快路径，验证是否能找回之前明显更快的播放体感。
+- 改了哪些文件：
+  - `Sources/Core/V4/ToolKernel/Tools/V4MusicControlTool.swift`
+  - `Sources/Core/Interaction/InteractionCoordinatorTypes.swift`
+  - `Sources/Core/Magician/MagicianToolSupport.swift`
+  - `Tests/V4ToolExecutionScenarioTests.swift`
+  - `Tests/MusicFastExecutorTests.swift`
+  - `PROJECT_CONTEXT.md`
+- 改了什么：
+  - 把音乐快路径相关代码定点回退到 `1ce667b` 的实现面，保留“本地高确定度短路 + 已建立资料库顺序队列复用”这两条第一版提速逻辑。
+  - 同时移除了后两轮为了结构化选歌、误报修正、显式点歌并发修复而新增的代码路径和对应测试，让当前音乐行为重新贴近第一版提速时的实现。
+- 为什么这样改：
+  - 当前用户目标不是继续叠加正确性和可观测性，而是先确认“到底是不是后两轮改动把体感拖慢了”。
+  - 用定点回退而不是整仓回退，可以只影响音乐这条链路，不动普通听写、讨论整理和用户工作区里的其他未提交改动。
+- 影响了哪些模块：
+  - 影响 `music_fast` 的选歌逻辑、播放证据拼装、显式点歌前的队列会话处理，以及对应的音乐工具测试。
+  - 不影响普通听写、讨论整理、非音乐工具，也不触碰当前工作区里与这次回退无关的用户改动。
+
 ### 2026-05-12 音乐快路径显式点歌并发修复
 
 - 本次任务：修复一次真实线上失败：用户明确说“播放周杰伦的稻香”时，`music_fast` 偶发直接报 `tool_execution_failed`，没有真正开始播放。
