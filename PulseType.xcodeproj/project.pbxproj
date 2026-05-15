@@ -147,6 +147,7 @@
 		C8AEF09854FF16E54507E5E1 /* HomeStatsFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DB26F7CC49FA783F26760E3 /* HomeStatsFormatter.swift */; };
 		C8FF0658E7720020400968A1 /* V4PlannerLLM.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DCD44AD94B51DB8D63F36CF /* V4PlannerLLM.swift */; };
 		C9398B666490C1F15F91809D /* V4CalendarCreateTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FCEC6B5819AAAD6FE14F385 /* V4CalendarCreateTool.swift */; };
+		C993774ED02EC8CE0D1BF200 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6552139818853FB754DDC125 /* Assets.xcassets */; };
 		CA63EFBF4DDE52B96CCCBD63 /* V4RuntimeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = EADC73026AB226EFEA4AF9C8 /* V4RuntimeModels.swift */; };
 		CB73B64D53484E9880F2B3EE /* V4EvidenceNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A84DE6F59CB6F4272D1BDAA /* V4EvidenceNormalizer.swift */; };
 		CC199B0292E8A9175321716A /* V4MemoryEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41F5C5DE1D5E810D86EE6E3E /* V4MemoryEngineTests.swift */; };
@@ -294,6 +295,7 @@
 		61E5EB79A499501B92D5C649 /* MenuBarStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusView.swift; sourceTree = "<group>"; };
 		64D909EA2854E7881596AF1B /* SettingsViewSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewSupport.swift; sourceTree = "<group>"; };
 		651B002BCD715F07DBF78CE4 /* OpenAIEndpointResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIEndpointResolver.swift; sourceTree = "<group>"; };
+		6552139818853FB754DDC125 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6822B833531EB0924FC10D6F /* ASRDictionaryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ASRDictionaryStoreTests.swift; sourceTree = "<group>"; };
 		683BF0A6C95E52BEA3D2B8C8 /* RewriteIntentParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewriteIntentParserTests.swift; sourceTree = "<group>"; };
 		69DA370F287232BF03223655 /* V4TimeMachineRemindTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4TimeMachineRemindTool.swift; sourceTree = "<group>"; };
@@ -684,6 +686,7 @@
 		B61BAE1D3BF31214035C5064 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				6552139818853FB754DDC125 /* Assets.xcassets */,
 				594DF521169CAA5D28FF73ED /* diagnostic-voice-zh.wav */,
 				93AB6D077725249531B95E50 /* MagicianAgent */,
 				EA7E5964955BA6E9D627CEAF /* MagicianSkills */,
@@ -1003,6 +1006,7 @@
 			files = (
 				CF5F5199F1E70DE994A85FE0 /* Agent.md in Resources */,
 				06123C002DCFE32A3B4F9826 /* AppRuntimePolicy.plist in Resources */,
+				C993774ED02EC8CE0D1BF200 /* Assets.xcassets in Resources */,
 				4EF028BDFBC87B2EF2BC414F /* README.md in Resources */,
 				641E792711B5617AFAC0F3A8 /* diagnostic-voice-zh.wav in Resources */,
 				2F2A04C1D5FDA2474C0D76DE /* magician-skills.json in Resources */,
@@ -1230,6 +1234,8 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "PulseType 语音助手";
+				INFOPLIST_KEY_CFBundleIconFile = AppIcon;
+				INFOPLIST_KEY_CFBundleIconName = AppIcon;
 				INFOPLIST_KEY_LSUIElement = NO;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "PulseType 需要自动化权限，用于把文本写回到其他应用。";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "PulseType 需要访问日历，用于根据语音指令创建日程。";
@@ -1412,6 +1418,8 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "PulseType 语音助手";
+				INFOPLIST_KEY_CFBundleIconFile = AppIcon;
+				INFOPLIST_KEY_CFBundleIconName = AppIcon;
 				INFOPLIST_KEY_LSUIElement = NO;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "PulseType 需要自动化权限，用于把文本写回到其他应用。";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "PulseType 需要访问日历，用于根据语音指令创建日程。";
