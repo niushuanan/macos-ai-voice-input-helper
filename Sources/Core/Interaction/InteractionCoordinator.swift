@@ -1213,9 +1213,6 @@ final class InteractionCoordinator {
                     focusContext: focusContext
                 )
                 outputResult = try await textOutputCoordinator.write(request: request)
-                if postProcessResult.priorStreamingWriteResult != nil {
-                    _ = persistTextToClipboard(finalTranscription.transcript)
-                }
             }
 
             sessionStore.completeInsertion(
