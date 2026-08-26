@@ -1615,6 +1615,36 @@ final class InteractionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "第一句。第二句。尾巴完成")
     }
 
+    func testDictationToDeepSeekWebAppDeliversFullTextOnceAfterStreamingPreview() async throws {
+        let textOutput = FakeTextOutputCoordinator()
+        let postProcessor = StreamingDictationPostProcessorStub(
+            partials: [
+                "第一句。",
+                "第一句。第二句。",
+                "第一句。第二句。最后一句"
+            ],
+            finalText: "第一句。第二句。最后一句完整结束。"
+        )
+        let fixture = try makeFixture(
+            textOutputCoordinator: textOutput,
+            contextDetector: DeepSeekWebAppContextDetector(),
+            dictationPostProcessor: postProcessor,
+            transcriptionText: "abcdefghijklmnop"
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.skillRuleStore.setEnabled(true, for: .systemPrompt)
+        fixture.skillRuleStore.setParameter("默认更简洁，保留重点。", for: .systemPrompt)
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(textOutput.requests.map(\.text), ["第一句。第二句。最后一句完整结束。"])
+        XCTAssertEqual(textOutput.requests.map(\.writeMode), [.finalDelivery])
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.outputText, "第一句。第二句。最后一句完整结束。")
+    }
+
     func testDictationStreamingSkipsFinalWriteWhenStableChunksAlreadyCoverFullText() async throws {
         let textOutput = FakeTextOutputCoordinator()
         let postProcessor = StreamingDictationPostProcessorStub(
@@ -2084,6 +2114,26 @@ private struct FixedContextDetector: ContextDetector {
         FocusedAppContext(
             appName: "TextEdit",
             bundleID: "com.apple.TextEdit",
+            focusedRole: "AXTextArea",
+            hasEditableTarget: true,
+            strategyHint: "test"
+        )
+    }
+}
+
+private struct DeepSeekWebAppContextDetector: ContextDetector {
+    func currentSnapshot() -> ContextSnapshot {
+        ContextSnapshot(
+            focusContext: focusedAppContext(),
+            rewriteAvailable: true,
+            styleHint: "test"
+        )
+    }
+
+    func focusedAppContext() -> FocusedAppContext {
+        FocusedAppContext(
+            appName: "DeepSeek Harness",
+            bundleID: "com.apple.Safari.WebApp.489F4907-D18B-4A3B-8CD5-F4A2829EC0F1",
             focusedRole: "AXTextArea",
             hasEditableTarget: true,
             strategyHint: "test"

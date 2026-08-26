@@ -93,36 +93,13 @@ struct DictationStreamingWritebackPolicy {
         preferredTarget: WritebackTargetSnapshot?
     ) -> Bool {
         let bundleID = preferredTarget?.bundleID ?? focusContext.bundleID
-        guard
-            !bundleID.isEmpty,
-            bundleID != "unknown.bundle",
-            bundleID != Bundle.main.bundleIdentifier
-        else {
-            return false
-        }
-
-        if blockedBundleIDs.contains(bundleID) {
-            return false
-        }
-
-        let lowercasedBundleID = bundleID.lowercased()
-        let blockedFragments = [
-            "com.openai.codex",
-            "slack",
-            "discord",
-            "code",
-            "cursor"
-        ]
-        return !blockedFragments.contains { lowercasedBundleID.contains($0) }
+        // AX 返回 success 只能证明调用被接受，不能证明 WebView / 富文本编辑器
+        // 在重绘后仍保留了前面的 chunk。未验证应用统一等完整结果后一次性写入。
+        return verifiedBundleIDs.contains(bundleID)
     }
 
-    private static let blockedBundleIDs: Set<String> = [
-        "com.apple.Terminal",
-        "com.googlecode.iterm2",
-        "com.microsoft.rdc.macos",
-        "com.citrix.receiver.icaviewer.mac",
-        "com.teamviewer.TeamViewer",
-        "com.parallels.desktop.console"
+    private static let verifiedBundleIDs: Set<String> = [
+        "com.apple.TextEdit"
     ]
 }
 

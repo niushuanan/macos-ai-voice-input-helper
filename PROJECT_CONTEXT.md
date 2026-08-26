@@ -61,6 +61,18 @@ PulseType 是一个 macOS 常驻语音助手，不是输入法本体。它的目
 
 ## 4. 最近改了什么
 
+### 2026-08-27 02:20 - DeepSeek 等富文本应用改为全文原子写回
+
+- 本次任务：深度排查 PulseType 在 DeepSeek App 等部分应用中只留下最后几行，但历史记录仍然完整的问题，并修正外部写回策略。
+- 改了哪些文件：`Sources/Core/Interaction/InteractionCoordinatorTypes.swift`，`Tests/InteractionCoordinatorTests.swift`，`PROJECT_CONTEXT.md`。
+- 改了什么：
+  - 把外部流式写回从“默认开启、少数应用拦截”改成“只对已验证的原生应用开启”；当前只保留 TextEdit 增量外写。
+  - DeepSeek Safari Web App、Codex 及其他未验证应用仍保留 PulseType 内部流式预览，但外部输入框只在最终全文完成后一次性写入。
+  - 新增 DeepSeek Web App 回归测试，固定验证“不发送中间 chunk，最终只发送一次完整文本”。
+- 为什么这样改：本机真实日志显示，一条 121 字的 DeepSeek Harness 听写被拆成 13 次 AX 写入；AX 只返回“调用成功”，不能证明 WebView / 富文本编辑器重绘后仍保留了前面的片段。历史记录保存的是模型最终全文，因此才会出现“历史完整、输入框只剩尾巴”。
+- 影响了哪些模块：影响普通听写的 DeepSeek 文本整理后外部写回策略和对应测试；不影响 ASR、模型最终文本、历史记录、魔术先生和讨论整理。
+- 当前验证边界：已用本机 Swift 工具链跑通相同策略与控制器的定向回归；完整 Xcode 已从本机移除，因此全量 Xcode 测试和 `/Applications/PulseType.app` 覆盖安装尚未执行。
+
 ### 2026-05-13 11:20 - 音乐快路径切回 17cb19c 验证体感与误报
 
 - 本次任务：在回退到 `1ce667b` 后，真实 trace 仍显示“播放周杰伦的稻香”耗时回到 18 秒级，并重新出现 `请确认当前歌曲是否符合你的指令`，因此改为切回 `17cb19c`，验证“结构化选歌与误报修正”这一版是否更接近之前 7 秒级体感。
