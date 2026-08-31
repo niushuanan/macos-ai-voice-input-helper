@@ -21,6 +21,7 @@ PulseType 是一个 macOS 常驻语音助手，不是输入法本体。它的目
   - `Session`：维护当前会话处于空闲、录音、转写、改写、写回等哪个阶段。
   - `Interaction`：主编排层，串起权限检查、录音、ASR、后处理、文本写回、魔术先生分流。
   - `Speech` / `Rewrite`：分别负责语音转写和文本生成模型的 provider 抽象、配置与调用。
+  - `VoiceKernel`：普通语音会话的实时内核，负责 16k PCM 分块、Qwen WebSocket 转写、文本账本、分段 LLM 整理和批量 ASR 回退交接。
   - `TextOutput`：负责把文本写回目标 app，属于最贴近用户成败体验的一层。
   - `Magician`：魔术先生的语义、能力开关、动作执行器、飞书 CLI 适配。
   - `V4`：新的 Agent 主链，包含 ToolKernel、Memory、Prompt、TimeMachine、Model Slot 等模块。
@@ -35,9 +36,10 @@ PulseType 是一个 macOS 常驻语音助手，不是输入法本体。它的目
 
 1. 全局快捷键或菜单栏触发会话。
 2. `InteractionCoordinator` 判断权限和当前 lane。
-3. 录音结束后调用 ASR。
-4. 根据模式进入普通写回、讨论整理，或者魔术先生 V4 Agent。
-5. 最终把结果写入目标 app，同时把历史、日志、诊断信息落到本地。
+3. Qwen 普通听写会边录边发 16k PCM，实时 ASR 片段同时进入保守的 LLM 整理；其他 provider 保留原有录完后识别路径。
+4. 用户松手后只收尾实时会话和最后语义片段；实时失败则用同次录音留下的 WAV 自动走原批量 ASR。
+5. 根据模式进入普通写回、讨论整理，或者魔术先生 V4 Agent。
+6. 最终把结果原子写入目标 app，同时把历史、日志、诊断信息落到本地。
 
 ## 3. 关键入口在哪里
 
@@ -50,6 +52,12 @@ PulseType 是一个 macOS 常驻语音助手，不是输入法本体。它的目
 - `Sources/Core/Interaction/InteractionCoordinator.swift`
   - 运行时总调度器。
   - 负责处理开始录音、停止录音、讨论整理、魔术先生触发、转写后的后续路径，是“产品是否顺手”的关键代码。
+- `Sources/Core/VoiceKernel/VoiceInputKernel.swift`
+  - Qwen 实时听写的单会话并发编排入口。
+  - 串起实时音频、WebSocket ASR、`TranscriptLedger`、`SemanticEditor` 和批量回退，并保证取消后的旧回调不会写回。
+- `Sources/Core/VoiceKernel/QwenRealtimeASRSession.swift`
+  - Qwen Realtime 协议与真实 WebSocket 传输入口。
+  - JSON 使用文本帧发送，并等待真实握手完成后才接受音频分块。
 - `Sources/UI/ControlCenterState.swift`
   - 定义控制中心的主分区，能直接看出当前产品有哪些核心页面：`首页`、`历史`、`词典`、`引擎`、`时光机`、`魔术先生`、`讨论整理`、`设置`。
 - `Sources/UI/MenuBarMenuView.swift`
@@ -60,6 +68,30 @@ PulseType 是一个 macOS 常驻语音助手，不是输入法本体。它的目
   - 其中 `ToolKernel` 负责工具注册、权限和证据，`Memory` 负责本地历史转可检索上下文，`TimeMachine` 负责时间解析和提醒，属于魔术先生能力体系的真正底座。
 
 ## 4. 最近改了什么
+
+### 2026-08-31 - 普通听写内核改为边录边识别、边说边整理
+
+- 本次任务：保持现有前端风格和快捷键操作，重写普通语音输入主链，消除“话越长，松手后才开始上传、ASR、全文 LLM”的串行等待。
+- 改了哪些文件：
+  - 新增 `Sources/Core/VoiceKernel/` 下的 `VoiceKernelTypes.swift`、`TranscriptLedger.swift`、`QwenRealtimeProtocol.swift`、`QwenRealtimeASRSession.swift`、`StreamingAudioCaptureService.swift`、`SemanticEditor.swift`、`VoiceInputKernel.swift`。
+  - 修改 `Sources/App/AppModel.swift`、`Sources/Core/Interaction/InteractionCoordinator.swift`、`Sources/Core/Session/SessionStore.swift`、`PulseType.xcodeproj/project.pbxproj`。
+  - 新增 `Tests/TranscriptLedgerTests.swift`、`Tests/QwenRealtimeProtocolTests.swift`、`Tests/QwenRealtimeASRSessionTests.swift`、`Tests/QwenRealtimeLiveIntegrationTests.swift`、`Tests/SemanticEditorTests.swift`、`Tests/VoiceInputKernelTests.swift`，并更新 `Tests/AudioCaptureServiceDurationTests.swift`、`Tests/InteractionCoordinatorTests.swift`。
+  - 新增 `docs/superpowers/specs/2026-08-31-streaming-voice-kernel-design.md` 和 `docs/superpowers/plans/2026-08-31-streaming-voice-kernel.md`。
+- 改了什么：
+  - 录音主链从 `AVAudioRecorder` 整文件改为 `AVAudioEngine` 实时输出 16kHz、16-bit、单声道 PCM，同时串行写入 WAV 作为同次会话的可恢复保底。
+  - Qwen 主链录音期间建立 Realtime WebSocket，按 100ms 分块发送 JSON 文本帧，实时 delta 只更新 PulseType HUD，completed 片段立即进入最多 2 并发的保守 LLM 整理。
+  - LLM 新增事实保护：数字、英文标识、URL、邮箱、路径、否定词和词典词被改坏时直接退回原 ASR 片段；松手后语义等待固定为 0.8 秒预算。
+  - 实时连接、发送、最终结果或音频背压失败时，上层只调用一次现有批量 ASR；正常实时结果跳过旧的全文 LLM 二次串行处理。
+  - 最终继续只向外部 App 原子写回一次，预览不外写；取消会话后迟到的网络和模型结果不再生效。
+  - 新增实时阶段日志，只记长度、片段计数、音频时长和清洗后的降级原因，不记用户正文或凭据。
+- 为什么这样改：原代码在用户松手后才读取整个 WAV、Base64 上传、等待 ASR，常见长文本还要再等一次全文 DeepSeek。本机 112 条成功 trace 中，音频时长与 ASR 延迟相关系数约 0.96；因此要改的是整条处理时序，不是加载动画或单点调参。
+- 影响了哪些模块：影响 Qwen 普通听写的录音、实时 ASR、普通听写 LLM 整理、HUD 预览、批量回退和诊断日志；不改前端视觉、快捷键、TextOutput 外部原子写回策略、魔术先生 V4 内核和其他 ASR provider 的批量路径。
+- 验证证据：
+  - 完整 Xcode 回归共 502 项：501 通过、1 项真实云端用例默认跳过、0 失败。
+  - 真实云端用例显式开启后，使用系统合成的 16k PCM 中文音频和当前已配置 Qwen 账号，真实 WebSocket 握手、首包立即发送、连续分块、`session.finish` 和非空最终转写已通过。
+  - 协议调试期间真实发现并修复两个问题：`URLSessionWebSocketTask.resume()` 不等于握手完成，以及 Qwen JSON 必须以 WebSocket 文本帧而不是二进制帧发送。
+  - 自动化已覆盖：最终外部写回一次、实时失败只走一次批量 ASR、预览不外写、取消后迟到事件无效、长片段语义收尾时间不随任务数线性增长。
+  - 验证边界：当前已验证真实 Qwen 协议和代码内最终写回契约；尚未取得 5/30/60+ 秒真人口述的跨 App 时延分桶数据，不把性能目标当成已实测结论。
 
 ### 2026-08-27 02:20 - DeepSeek 等富文本应用改为全文原子写回
 

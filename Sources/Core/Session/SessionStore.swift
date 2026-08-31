@@ -284,6 +284,25 @@ final class SessionStore: ObservableObject {
         listeningLevel = clamped
     }
 
+    func updateRealtimeTranscriptionPreview(_ previewText: String) {
+        guard phase == .listening else {
+            return
+        }
+        let normalized = previewText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return
+        }
+        liveOutputPreview = normalized
+        statusMessage = "正在边听边转写：\(normalized)"
+    }
+
+    func noteRealtimeFallback() {
+        guard phase == .listening else {
+            return
+        }
+        statusMessage = "实时转写暂不可用，结束录音后会自动用完整录音识别。"
+    }
+
     func attachPendingClip(_ clip: RecordedAudioClip) {
         pendingClip = clip
     }

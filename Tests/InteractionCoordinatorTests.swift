@@ -4,6 +4,109 @@ import XCTest
 
 @MainActor
 final class InteractionCoordinatorTests: XCTestCase {
+    func testRealtimeKernelBypassesBatchASRAndWritesFinalTextOnce() async throws {
+        let kernel = FakeVoiceInputKernel(
+            result: .realtimeFinal(
+                text: "实时整理后的结果",
+                rawTranscript: "实时原始结果",
+                clip: kernelFixtureClip()
+            )
+        )
+        let fixture = try makeFixture(voiceInputKernel: kernel)
+        defer { fixture.cleanUp() }
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        await waitUntil { await kernel.startCount == 1 }
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.transcriptionProvider.callCount, 0)
+        XCTAssertEqual(fixture.textOutputCoordinator.writeCallCount, 1)
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "实时整理后的结果")
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.inputText, "实时整理后的结果")
+        let logText = (try? String(contentsOf: fixture.speechPipelineLogURL, encoding: .utf8)) ?? ""
+        XCTAssertTrue(logText.contains("\"stage\":\"voice.stop\""))
+    }
+
+    func testRealtimeKernelFallbackUsesExistingBatchASRPathOnce() async throws {
+        let kernel = FakeVoiceInputKernel(
+            result: .batchFallback(
+                clip: kernelFixtureClip(),
+                reason: "测试连接失败"
+            )
+        )
+        let fixture = try makeFixture(
+            transcriptionText: "批量兜底结果",
+            voiceInputKernel: kernel
+        )
+        defer { fixture.cleanUp() }
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        await waitUntil { await kernel.startCount == 1 }
+        fixture.coordinator.handleStopInput()
+        await waitForPipeline(using: fixture.sessionStore)
+
+        XCTAssertEqual(fixture.transcriptionProvider.callCount, 1)
+        XCTAssertEqual(fixture.textOutputCoordinator.lastRequest?.text, "批量兜底结果")
+    }
+
+    func testRealtimePreviewUpdatesHUDWithoutWritingToExternalApp() async throws {
+        let kernel = FakeVoiceInputKernel(
+            result: .realtimeFinal(
+                text: "最终结果",
+                rawTranscript: "最终结果",
+                clip: kernelFixtureClip()
+            )
+        )
+        let fixture = try makeFixture(voiceInputKernel: kernel)
+        defer { fixture.cleanUp() }
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        await waitUntil { await kernel.startCount == 1 }
+        await kernel.yield(.preview(TranscriptSnapshot(committedText: "你好", tentativeText: "世界")))
+        await kernel.yield(.segmentCompleted(itemID: "item-sensitive", text: "你好世界"))
+        await waitUntil { fixture.sessionStore.liveOutputPreview == "你好世界" }
+        await waitUntil {
+            let text = (try? String(contentsOf: fixture.speechPipelineLogURL, encoding: .utf8)) ?? ""
+            return text.contains("\"stage\":\"asr.segment.completed\"")
+        }
+
+        XCTAssertEqual(fixture.sessionStore.phase, .listening)
+        XCTAssertEqual(fixture.sessionStore.liveOutputPreview, "你好世界")
+        XCTAssertEqual(fixture.textOutputCoordinator.writeCallCount, 0)
+        let logText = (try? String(contentsOf: fixture.speechPipelineLogURL, encoding: .utf8)) ?? ""
+        XCTAssertTrue(logText.contains("\"stage\":\"asr.first_delta\""))
+        XCTAssertTrue(logText.contains("\"stage\":\"asr.segment.completed\""))
+        XCTAssertFalse(logText.contains("item-sensitive"))
+        XCTAssertFalse(logText.contains("你好世界"))
+
+        fixture.coordinator.handleCancelInput()
+    }
+
+    func testRealtimeCancelIgnoresLateUpdatesAndNeverWrites() async throws {
+        let kernel = FakeVoiceInputKernel(
+            result: .realtimeFinal(
+                text: "不应写入",
+                rawTranscript: "不应写入",
+                clip: kernelFixtureClip()
+            )
+        )
+        let fixture = try makeFixture(voiceInputKernel: kernel)
+        defer { fixture.cleanUp() }
+
+        fixture.coordinator.handleWakeInput(context: .dictation)
+        await waitUntil { await kernel.startCount == 1 }
+        fixture.coordinator.handleCancelInput()
+        await waitUntil { await kernel.cancelCount == 1 }
+        await kernel.yield(.preview(TranscriptSnapshot(committedText: "迟到内容", tentativeText: "")))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertEqual(fixture.sessionStore.phase, .cancelled)
+        XCTAssertNil(fixture.sessionStore.liveOutputPreview)
+        XCTAssertEqual(fixture.textOutputCoordinator.writeCallCount, 0)
+        XCTAssertEqual(fixture.localHistoryStore.entries.first?.status, .cancelled)
+    }
+
     func testWakeKeyStartsAndSecondWakeStopsRecording() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanUp() }
@@ -1742,7 +1845,8 @@ final class InteractionCoordinatorTests: XCTestCase {
         transcriptionText: String = "hello world",
         transcriptionResponses: [Result<String, SpeechTranscriptionError>]? = nil,
         brainstormDurationProfile: BrainstormDurationProfile? = nil,
-        toastPresenter: ToastPresenter? = nil
+        toastPresenter: ToastPresenter? = nil,
+        voiceInputKernel: (any VoiceInputKernelRunning)? = nil
     ) throws -> InteractionFixture {
         let defaultsSuiteName = "InteractionCoordinatorTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: defaultsSuiteName) else {
@@ -1849,7 +1953,10 @@ final class InteractionCoordinatorTests: XCTestCase {
             magicianAgentRuntime: magicianAgentRuntime,
             toastPresenter: resolvedToastPresenter,
             dictationPostProcessor: dictationPostProcessor,
-            brainstormContextComposer: brainstormContextComposer
+            brainstormContextComposer: brainstormContextComposer,
+            voiceInputKernelFactory: voiceInputKernel.map { kernel in
+                { kernel }
+            }
         )
 
         return InteractionFixture(
@@ -1891,7 +1998,7 @@ final class InteractionCoordinatorTests: XCTestCase {
 
     private func waitUntil(
         timeoutNanoseconds: UInt64 = 1_000_000_000,
-        condition: @escaping @MainActor () -> Bool
+        condition: @escaping @MainActor () async -> Bool
     ) async {
         let start = DispatchTime.now().uptimeNanoseconds
         while DispatchTime.now().uptimeNanoseconds - start < timeoutNanoseconds {
@@ -1900,6 +2007,17 @@ final class InteractionCoordinatorTests: XCTestCase {
             }
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
+    }
+
+    private func kernelFixtureClip() -> RecordedAudioClip {
+        RecordedAudioClip(
+            id: UUID(),
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("kernel-coordinator-\(UUID().uuidString).wav"),
+            duration: 0.8,
+            sampleRate: 16_000,
+            createdAt: Date()
+        )
     }
 
     private func loadWorkflowTelemetryRecords(from url: URL) throws -> [WorkflowTelemetryTestRecord] {
@@ -1915,6 +2033,43 @@ final class InteractionCoordinatorTests: XCTestCase {
             let data = Data(line.utf8)
             return try JSONDecoder().decode(WorkflowTelemetryTestRecord.self, from: data)
         }
+    }
+}
+
+private actor FakeVoiceInputKernel: VoiceInputKernelRunning {
+    private let result: VoiceKernelResult
+    private var continuation: AsyncStream<VoiceKernelUpdate>.Continuation?
+    private(set) var startCount = 0
+    private(set) var stopCount = 0
+    private(set) var cancelCount = 0
+
+    init(result: VoiceKernelResult) {
+        self.result = result
+    }
+
+    func start(context: VoiceSessionContext) async throws -> AsyncStream<VoiceKernelUpdate> {
+        startCount += 1
+        var captured: AsyncStream<VoiceKernelUpdate>.Continuation?
+        let stream = AsyncStream<VoiceKernelUpdate> { continuation in
+            captured = continuation
+        }
+        continuation = captured
+        return stream
+    }
+
+    func stop() async throws -> VoiceKernelResult {
+        stopCount += 1
+        continuation?.finish()
+        return result
+    }
+
+    func cancel() async {
+        cancelCount += 1
+        continuation?.finish()
+    }
+
+    func yield(_ update: VoiceKernelUpdate) {
+        continuation?.yield(update)
     }
 }
 

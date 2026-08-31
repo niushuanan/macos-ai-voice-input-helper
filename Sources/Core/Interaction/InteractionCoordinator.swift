@@ -33,8 +33,15 @@ final class InteractionCoordinator {
     private let toastPresenter: ToastPresenter?
     private let dictationPostProcessor: DictationPostProcessor
     private let brainstormContextComposer: BrainstormContextComposer
+    private let voiceInputKernelFactory: VoiceInputKernelFactory?
     private var cancellables = Set<AnyCancellable>()
     private var transcriptionTask: Task<Void, Never>?
+    private var voiceKernelStartTask: Task<Void, Never>?
+    private var voiceKernelUpdateTask: Task<Void, Never>?
+    private var activeVoiceKernel: (any VoiceInputKernelRunning)?
+    private var activeVoiceKernelToken: UUID?
+    private var hasLoggedRealtimeFirstDelta = false
+    private var realtimeCompletedSegmentCount = 0
     private var currentDictationTarget: DictationWritebackTarget?
     private var lastExternalDictationTarget: DictationWritebackTarget?
     private var lastDictionaryTruncationSignature: Int?
@@ -77,7 +84,8 @@ final class InteractionCoordinator {
         magicianAgentRuntime: (any MagicianAgentRunning)? = nil,
         toastPresenter: ToastPresenter? = nil,
         dictationPostProcessor: DictationPostProcessor = LLMDictationPostProcessor(),
-        brainstormContextComposer: BrainstormContextComposer = LLMBrainstormContextComposer()
+        brainstormContextComposer: BrainstormContextComposer = LLMBrainstormContextComposer(),
+        voiceInputKernelFactory: VoiceInputKernelFactory? = nil
     ) {
         self.sessionStore = sessionStore
         self.permissionsCenter = permissionsCenter
@@ -131,6 +139,7 @@ final class InteractionCoordinator {
         self.toastPresenter = toastPresenter
         self.dictationPostProcessor = dictationPostProcessor
         self.brainstormContextComposer = brainstormContextComposer
+        self.voiceInputKernelFactory = voiceInputKernelFactory
         bindListeningLevel()
         bindExternalAppTracking()
     }
@@ -246,6 +255,23 @@ final class InteractionCoordinator {
         let traceID = ensureTraceID()
         // 先切到转写阶段，避免 stopRecording 收尾期间 HUD 停在“聆听中”造成卡顿感。
         sessionStore.markTranscribing()
+        if let activeVoiceKernel, let token = activeVoiceKernelToken {
+            speechPipelineLogger.log(
+                traceID: traceID,
+                lane: sessionStore.activeLane,
+                provider: configuration.providerName,
+                model: QwenRealtimeModelResolver.preferredModel(from: configuration.modelName),
+                httpStatus: nil,
+                stage: "voice.stop"
+            )
+            stopVoiceKernel(
+                activeVoiceKernel,
+                token: token,
+                configuration: configuration,
+                traceID: traceID
+            )
+            return
+        }
         do {
             let clip = try audioCaptureService.stopRecording()
             speechPipelineLogger.log(
@@ -298,7 +324,14 @@ final class InteractionCoordinator {
         transcriptionTask = nil
         currentDictationTarget = nil
 
-        if audioCaptureService.isRecording {
+        if let activeVoiceKernel {
+            voiceKernelStartTask?.cancel()
+            voiceKernelUpdateTask?.cancel()
+            Task {
+                await activeVoiceKernel.cancel()
+            }
+            clearVoiceKernelReferences()
+        } else if audioCaptureService.isRecording {
             audioCaptureService.cancelRecording()
         }
         discardPendingClipIfNeeded()
@@ -347,7 +380,14 @@ final class InteractionCoordinator {
         transcriptionTask = nil
         currentDictationTarget = nil
 
-        if audioCaptureService.isRecording {
+        if let activeVoiceKernel {
+            voiceKernelStartTask?.cancel()
+            voiceKernelUpdateTask?.cancel()
+            Task {
+                await activeVoiceKernel.cancel()
+            }
+            clearVoiceKernelReferences()
+        } else if audioCaptureService.isRecording {
             audioCaptureService.cancelRecording()
         }
         discardPendingClipIfNeeded()
@@ -367,14 +407,16 @@ final class InteractionCoordinator {
             } else {
                 currentDictationTarget = nil
             }
-            try audioCaptureService.startRecording()
-            switch lane {
-            case .directDictation:
-                sessionStore.startDictation()
-            case .selectionRewrite:
-                sessionStore.startRewrite()
-            case .brainstormDiscussion:
-                sessionStore.startBrainstorm()
+            if let voiceInputKernel = voiceInputKernelFactory?() {
+                startVoiceKernel(
+                    voiceInputKernel,
+                    lane: lane,
+                    configuration: configuration,
+                    traceID: traceID
+                )
+            } else {
+                try audioCaptureService.startRecording()
+                transitionToListening(lane: lane)
             }
             speechPipelineLogger.log(
                 traceID: traceID,
@@ -409,6 +451,285 @@ final class InteractionCoordinator {
             )
             currentTraceID = nil
         }
+    }
+
+    private func transitionToListening(lane: InputLane) {
+        switch lane {
+        case .directDictation:
+            sessionStore.startDictation()
+        case .selectionRewrite:
+            sessionStore.startRewrite()
+        case .brainstormDiscussion:
+            sessionStore.startBrainstorm()
+        }
+    }
+
+    private func startVoiceKernel(
+        _ kernel: any VoiceInputKernelRunning,
+        lane: InputLane,
+        configuration: SpeechProviderConfiguration,
+        traceID: String
+    ) {
+        let token = UUID()
+        let context = makeVoiceSessionContext(lane: lane)
+        activeVoiceKernel = kernel
+        activeVoiceKernelToken = token
+        hasLoggedRealtimeFirstDelta = false
+        realtimeCompletedSegmentCount = 0
+        transitionToListening(lane: lane)
+
+        voiceKernelStartTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            do {
+                let updates = try await kernel.start(context: context)
+                guard self.activeVoiceKernelToken == token, !Task.isCancelled else {
+                    await kernel.cancel()
+                    return
+                }
+                self.voiceKernelUpdateTask = Task { [weak self] in
+                    for await update in updates {
+                        guard !Task.isCancelled else {
+                            return
+                        }
+                        self?.handleVoiceKernelUpdate(update, token: token)
+                    }
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                guard self.activeVoiceKernelToken == token else {
+                    return
+                }
+                self.clearVoiceKernelReferences()
+                self.currentDictationTarget = nil
+                self.sessionStore.fail(message: "无法开始实时录音：\(error.localizedDescription)")
+                self.speechPipelineLogger.log(
+                    traceID: traceID,
+                    lane: lane,
+                    provider: configuration.providerName,
+                    model: configuration.modelName,
+                    httpStatus: nil,
+                    stage: "realtime.start.failed",
+                    errorType: "voiceKernelStartFailed",
+                    detail: error.localizedDescription
+                )
+                self.currentTraceID = nil
+            }
+        }
+    }
+
+    private func makeVoiceSessionContext(lane: InputLane) -> VoiceSessionContext {
+        let dictionarySnapshot: ASRDictionarySnapshot
+        if lane == .selectionRewrite {
+            dictionarySnapshot = .empty()
+        } else {
+            dictionarySnapshot = asrDictionaryStore.currentSnapshot()
+            notifyIfDictionaryTruncated(snapshot: dictionarySnapshot)
+        }
+
+        var asrContextParts = ["lane=\(lane.rawValue)"]
+        let prompt = dictionarySnapshot.promptHintText
+        if !prompt.isEmpty {
+            asrContextParts.append(prompt)
+        }
+
+        guard lane == .directDictation, providerSettingsStore.isRewriteConfigurationValid else {
+            return VoiceSessionContext(asrContextText: asrContextParts.joined(separator: "\n"))
+        }
+
+        let apiKey = (try? providerSettingsStore.loadAPIKeyForRewriteProvider())?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !apiKey.isEmpty else {
+            return VoiceSessionContext(asrContextText: asrContextParts.joined(separator: "\n"))
+        }
+
+        let focusContext = currentDictationTarget?.focusContext ?? contextDetector.focusedAppContext()
+        let scenePolicy = effectiveScenePolicy(for: focusContext)
+        let semanticContext = SemanticEditorContext(
+            configuration: providerSettingsStore.rewriteConfiguration,
+            apiKey: apiKey,
+            appName: focusContext.appName,
+            bundleID: focusContext.bundleID,
+            appPrompt: scenePolicy.appPrompt,
+            userSystemPrompt: skillRuleStore.activeSystemPrompt(),
+            dictionaryTerms: dictionarySnapshot.injectedTerms
+        )
+        return VoiceSessionContext(
+            asrContextText: asrContextParts.joined(separator: "\n"),
+            semanticContext: semanticContext
+        )
+    }
+
+    private func handleVoiceKernelUpdate(_ update: VoiceKernelUpdate, token: UUID) {
+        guard activeVoiceKernelToken == token else {
+            return
+        }
+        switch update {
+        case let .preview(snapshot):
+            sessionStore.updateRealtimeTranscriptionPreview(snapshot.previewText)
+            if !hasLoggedRealtimeFirstDelta, !snapshot.previewText.isEmpty {
+                hasLoggedRealtimeFirstDelta = true
+                speechPipelineLogger.log(
+                    traceID: ensureTraceID(),
+                    lane: sessionStore.activeLane,
+                    provider: providerSettingsStore.configuration.providerName,
+                    model: QwenRealtimeModelResolver.preferredModel(
+                        from: providerSettingsStore.configuration.modelName
+                    ),
+                    httpStatus: nil,
+                    stage: "asr.first_delta",
+                    transcriptLength: snapshot.previewText.count
+                )
+            }
+        case let .segmentCompleted(_, text):
+            realtimeCompletedSegmentCount += 1
+            speechPipelineLogger.log(
+                traceID: ensureTraceID(),
+                lane: sessionStore.activeLane,
+                provider: providerSettingsStore.configuration.providerName,
+                model: QwenRealtimeModelResolver.preferredModel(
+                    from: providerSettingsStore.configuration.modelName
+                ),
+                httpStatus: nil,
+                stage: "asr.segment.completed",
+                detail: "count=\(realtimeCompletedSegmentCount)",
+                transcriptLength: text.count
+            )
+        case let .fallbackActivated(reason):
+            sessionStore.noteRealtimeFallback()
+            speechPipelineLogger.log(
+                traceID: ensureTraceID(),
+                lane: sessionStore.activeLane,
+                provider: providerSettingsStore.configuration.providerName,
+                model: providerSettingsStore.configuration.modelName,
+                httpStatus: nil,
+                stage: "realtime.fallback.activated",
+                errorType: "realtimeUnavailable",
+                detail: reason
+            )
+        }
+    }
+
+    private func stopVoiceKernel(
+        _ kernel: any VoiceInputKernelRunning,
+        token: UUID,
+        configuration: SpeechProviderConfiguration,
+        traceID: String
+    ) {
+        let lane = sessionStore.activeLane
+        let startTask = voiceKernelStartTask
+        transcriptionTask?.cancel()
+        transcriptionTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            await startTask?.value
+            guard self.activeVoiceKernelToken == token, !Task.isCancelled else {
+                return
+            }
+
+            do {
+                let result = try await kernel.stop()
+                guard self.activeVoiceKernelToken == token, !Task.isCancelled else {
+                    return
+                }
+                switch result {
+                case let .realtimeFinal(text, rawTranscript, clip):
+                    self.discardPendingClipIfNeeded()
+                    self.sessionStore.attachPendingClip(clip)
+                    self.sessionStore.updateListeningLevel(0)
+                    self.sessionStore.markTranscribing(
+                        audioSummary: clip.displaySummary,
+                        providerName: configuration.providerName,
+                        modelName: QwenRealtimeModelResolver.preferredModel(from: configuration.modelName)
+                    )
+                    self.audioCaptureService.removeClip(at: clip.fileURL)
+                    self.sessionStore.clearPendingClipReference()
+                    let transcription = SpeechTranscriptionResult(
+                        providerType: configuration.providerType,
+                        providerName: configuration.providerName,
+                        modelName: QwenRealtimeModelResolver.preferredModel(from: configuration.modelName),
+                        transcript: text
+                    )
+                    self.sessionStore.completeTranscription(result: transcription)
+                    self.speechPipelineLogger.log(
+                        traceID: traceID,
+                        lane: lane,
+                        provider: configuration.providerName,
+                        model: transcription.modelName,
+                        httpStatus: nil,
+                        stage: "asr.realtime.success",
+                        detail: "rawLength=\(rawTranscript.count)",
+                        audioDuration: clip.duration,
+                        transcriptLength: text.count
+                    )
+                    self.clearVoiceKernelReferences()
+                    await self.processTranscriptionResult(
+                        transcription,
+                        lane: lane,
+                        audioDurationSeconds: clip.duration,
+                        alreadySemanticallyProcessed: lane == .directDictation
+                    )
+
+                case let .batchFallback(clip, reason):
+                    self.discardPendingClipIfNeeded()
+                    self.sessionStore.attachPendingClip(clip)
+                    self.sessionStore.updateListeningLevel(0)
+                    self.sessionStore.markTranscribing(
+                        audioSummary: clip.displaySummary,
+                        providerName: configuration.providerName,
+                        modelName: configuration.modelName
+                    )
+                    self.speechPipelineLogger.log(
+                        traceID: traceID,
+                        lane: lane,
+                        provider: configuration.providerName,
+                        model: configuration.modelName,
+                        httpStatus: nil,
+                        stage: "asr.realtime.fallback",
+                        errorType: "realtimeUnavailable",
+                        detail: reason,
+                        audioDuration: clip.duration
+                    )
+                    self.clearVoiceKernelReferences()
+                    self.transcriptionTask = nil
+                    self.startTranscription(for: clip)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                guard self.activeVoiceKernelToken == token else {
+                    return
+                }
+                self.clearVoiceKernelReferences()
+                self.currentDictationTarget = nil
+                self.sessionStore.fail(message: "停止实时录音失败：\(error.localizedDescription)")
+                self.speechPipelineLogger.log(
+                    traceID: traceID,
+                    lane: lane,
+                    provider: configuration.providerName,
+                    model: configuration.modelName,
+                    httpStatus: nil,
+                    stage: "realtime.stop.failed",
+                    errorType: "voiceKernelStopFailed",
+                    detail: error.localizedDescription
+                )
+                self.currentTraceID = nil
+            }
+        }
+    }
+
+    private func clearVoiceKernelReferences() {
+        voiceKernelStartTask?.cancel()
+        voiceKernelStartTask = nil
+        voiceKernelUpdateTask?.cancel()
+        voiceKernelUpdateTask = nil
+        activeVoiceKernel = nil
+        activeVoiceKernelToken = nil
+        hasLoggedRealtimeFirstDelta = false
+        realtimeCompletedSegmentCount = 0
     }
 
     private func normalizedSelectionSnapshot(_ snapshot: FocusedSelectionSnapshot?) -> FocusedSelectionSnapshot? {
@@ -1126,13 +1447,15 @@ final class InteractionCoordinator {
     private func processTranscriptionResult(
         _ transcription: SpeechTranscriptionResult,
         lane: InputLane,
-        audioDurationSeconds: TimeInterval
+        audioDurationSeconds: TimeInterval,
+        alreadySemanticallyProcessed: Bool = false
     ) async {
         switch lane {
         case .directDictation:
             await outputDictationTranscript(
                 transcription,
-                audioDurationSeconds: audioDurationSeconds
+                audioDurationSeconds: audioDurationSeconds,
+                alreadySemanticallyProcessed: alreadySemanticallyProcessed
             )
         case .selectionRewrite:
             await outputSelectionRewrite(
@@ -1149,7 +1472,8 @@ final class InteractionCoordinator {
 
     private func outputDictationTranscript(
         _ transcription: SpeechTranscriptionResult,
-        audioDurationSeconds: TimeInterval
+        audioDurationSeconds: TimeInterval,
+        alreadySemanticallyProcessed: Bool = false
     ) async {
         let traceID = ensureTraceID()
         let writebackTarget = currentDictationTarget
@@ -1172,11 +1496,23 @@ final class InteractionCoordinator {
             outputBias: .neutral
         )
         let localProcessedText = skillApplyResult.text
-        let postProcessResult = await postProcessDictationIfNeeded(
-            text: localProcessedText,
-            focusContext: focusContext,
-            appPrompt: scenePolicy.appPrompt
-        )
+        let postProcessResult: DictationPostProcessOutcome
+        if alreadySemanticallyProcessed {
+            postProcessResult = DictationPostProcessOutcome(
+                route: .asrAndTextProcessing,
+                text: localProcessedText,
+                finalWritebackText: localProcessedText,
+                priorStreamingWriteResult: nil,
+                appliedSkills: semanticContextAppliedSkills(scenePolicy: scenePolicy),
+                nonBlockingNotice: nil
+            )
+        } else {
+            postProcessResult = await postProcessDictationIfNeeded(
+                text: localProcessedText,
+                focusContext: focusContext,
+                appPrompt: scenePolicy.appPrompt
+            )
+        }
         _ = await writebackWarmupTask.value
         let finalText = postProcessResult.text
         let finalTranscription = SpeechTranscriptionResult(
@@ -1345,6 +1681,19 @@ final class InteractionCoordinator {
             sessionStore.fail(message: message)
             currentTraceID = nil
         }
+    }
+
+    private func semanticContextAppliedSkills(scenePolicy: AppScenePolicy) -> [SkillRuleID] {
+        var skills: [SkillRuleID] = []
+        let systemPrompt = skillRuleStore.activeSystemPrompt()?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !systemPrompt.isEmpty {
+            skills.append(.systemPrompt)
+        }
+        if !scenePolicy.appPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            skills.append(.appPreferenceBoost)
+        }
+        return skills
     }
 
     private func outputBrainstormContext(

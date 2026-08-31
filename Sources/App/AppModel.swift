@@ -131,7 +131,10 @@ final class AppModel: ObservableObject {
         let store = LocalStore.bootstrap()
         let sessionStore = SessionStore()
         let permissionsCenter = PermissionsCenter()
-        let audioCaptureService = AVAudioRecorderCaptureService(temporaryDirectory: store.temporaryAudioDirectory)
+        let audioCaptureService = AVAudioEngineStreamingCaptureService(
+            temporaryDirectory: store.temporaryAudioDirectory
+        )
+        let streamingCaptureAdapter = MainActorVoiceAudioCaptureAdapter(capture: audioCaptureService)
         let skillRuleStore = SkillRuleStore()
         let magicianFeatureToggleStore = MagicianFeatureToggleStore()
         let mailAddressBookStore = MailAddressBookStore()
@@ -207,7 +210,28 @@ final class AppModel: ObservableObject {
             v4MagicianRuntime: v4MagicianRuntime,
             v4RuntimeSwitchStore: v4RuntimeSwitchStore,
             v4MemoryPlannerInputAdapter: v4MemoryPlannerInputAdapter,
-            toastPresenter: toastPresenter
+            toastPresenter: toastPresenter,
+            voiceInputKernelFactory: {
+                let configuration = providerSettingsStore.configuration
+                guard configuration.providerType == .dashScopeQwenASR else {
+                    return nil
+                }
+                let apiKey = (try? providerSettingsStore.loadAPIKeyForTranscriptionProvider())?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let realtimeConfiguration = QwenRealtimeConfiguration(
+                    baseURL: configuration.baseURL,
+                    model: QwenRealtimeModelResolver.preferredModel(from: configuration.modelName),
+                    apiKey: apiKey,
+                    finalizationTimeout: 3
+                )
+                return VoiceInputKernel(
+                    capture: streamingCaptureAdapter,
+                    realtimeSessionFactory: {
+                        QwenRealtimeASRSession(configuration: realtimeConfiguration)
+                    },
+                    semanticFinalizationBudget: 0.8
+                )
+            }
         )
         return AppModel(
             controlCenterState: controlCenterState,
